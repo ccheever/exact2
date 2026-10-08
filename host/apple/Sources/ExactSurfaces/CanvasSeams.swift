@@ -7,124 +7,13 @@ import AppKit
 import UIKit
 import AVFAudio
 #endif
+import ExactKit
 
 struct SurfaceControl {
     let node: UInt32
     let name: String
     let offset: CGPoint
     var position: CGPoint
-}
-
-extension NodeView {
-    var returnsPointerFocusToCanvas: Bool {
-        kind == "button" && props["action"] == nil && props["accessibilityRole"] != "slider" && inputCanvas != nil
-    }
-    /// Pointer-completed HUD presses return the keyboard to the enclosing world.
-    func finishPointerPress() {
-        guard returnsPointerFocusToCanvas, let canvas = inputCanvas else { return }
-        #if os(macOS)
-        finishPress(canvas: canvas, window: window, pointer: true)
-        #else
-        if isFirstResponder { _ = canvas.becomeFirstResponder(); presenter?.syncAccessibility() }
-        #endif
-    }
-
-    #if os(macOS)
-    /// Complete an activation with the input owner captured before dispatch.
-    func finishPress(canvas: NodeView?, window ownerWindow: NSWindow?, pointer: Bool) {
-        guard kind == "button", props["action"] == nil, props["accessibilityRole"] != "slider",
-              let canvas, let ownerWindow else { return }
-        let current = ownerWindow.firstResponder
-        let presenter = canvas.presenter
-        let unclaimed = current == nil || current === ownerWindow || current === ownerWindow.contentView
-            || current === presenter?.viewport || current === presenter?.session?.view
-        let vacated = window == nil && (current === self || unclaimed)
-        guard (pointer && current === self) || vacated,
-              canvas.window === ownerWindow, canvas.canvasInput != nil,
-              presenter?.views[canvas.id] === canvas else { return }
-        _ = canvas.focusCanvas()
-        presenter?.syncAccessibility()
-    }
-    #endif
-
-    var inputCanvas: NodeView? {
-        #if os(macOS)
-        var ancestor: NSView? = self
-        #else
-        var ancestor: UIView? = self
-        #endif
-        while let view = ancestor {
-            if let node = view as? NodeView, node.canvasInput != nil { return node }
-            ancestor = view.superview
-        }
-        return nil
-    }
-    var isSurfaceControl: Bool { props["action"] != nil && inputCanvas != nil }
-    var ownsSurfaceControl: Bool {
-        presenter?.session?.canvases.entries.values.contains { $0.controls.values.contains { $0.node == id } } == true
-    }
-    func cancelSurfaceControls() {
-        guard let c = presenter?.session?.canvases else { return }
-        for e in c.entries.values {
-            guard let m = e.module else { continue }
-            for (contact, owner) in e.controls where owner.node == id {
-                e.controls.removeValue(forKey: contact)
-                _ = c.input(e, m, ["t":"control", "name":owner.name, "phase":"cancel", "id":contact, "x":owner.position.x, "y":owner.position.y])
-            }
-        }
-    }
-    @discardableResult
-    func focusSurfacePointer() -> Bool {
-        #if os(macOS)
-        if (window?.firstResponder as? NSTextView)?.isEditable == true { return true }
-        return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
-        #else
-        if presenter?.editing != nil { return true }
-        return isSurfaceControl ? becomeFirstResponder() : focusCanvas()
-        #endif
-    }
-    @discardableResult
-    package func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
-        guard let c = presenter?.session?.canvases, !c.modules.isEmpty else { return false }
-        let entry: Canvases.Entry?
-        if phase == "down" {
-            guard let name = props["action"], !disabled, !inert, let canvas = inputCanvas, let e = c.live(canvas.id) else { return false }
-            if e.controls[contact] != nil { return true }
-            _ = focusSurfacePointer()
-            e.controls[contact] = SurfaceControl(node:id, name:name, offset:convert(.zero, to:canvas), position:point)
-            entry = e
-        } else {
-            // Prefer this node's captured owner, then the addressed canvas. A
-            // cross-view release may use a unique contact, never dictionary order.
-            let owners = c.entries.values.filter { $0.controls[contact] != nil }
-            entry = owners.first { $0.controls[contact]?.node == id }
-                ?? inputCanvas.flatMap { canvas in owners.first { $0.view === canvas } }
-                ?? (owners.count == 1 ? owners[0] : nil)
-        }
-        guard let e = entry, let m = e.module, var owner = e.controls[contact] else { return false }
-        let p = convert(point, to:e.view)
-        owner.position = CGPoint(x:p.x-owner.offset.x, y:p.y-owner.offset.y)
-        if ["up", "cancel"].contains(phase) { e.controls.removeValue(forKey:contact) }
-        else { e.controls[contact] = owner }
-        return c.input(e, m, ["t":"control", "name":owner.name, "phase":phase, "id":contact, "x":owner.position.x, "y":owner.position.y], timestamp:timestamp)
-    }
-    func controlKey(_ code: String, down: Bool, timestamp: Double? = nil) -> Bool {
-        guard ["Space", "Enter", "NumpadEnter"].contains(code) else { return false }
-        if presenter?.session?.canvases.pressedControlKey(code, down:down, canvas:inputCanvas?.id, timestamp:timestamp) == true { return true }
-        if down {
-            #if os(macOS)
-            guard window?.firstResponder === self else { return false }
-            #else
-            guard isFirstResponder else { return false }
-            #endif
-        }
-        return control(down ? "down" : "up", id:code == "Space" ? 4294967294 : 4294967293, timestamp:timestamp)
-    }
-    func forwardsCanvasKey(_ code: String, command: Bool = false) -> Bool {
-        guard !disabled, !inert, field == nil, textArea == nil, !command, code != "Tab" else { return false }
-        return !(["Space", "Enter", "NumpadEnter"].contains(code)
-            && (kind == "button" || ["button", "link"].contains(props["accessibilityRole"] ?? "")))
-    }
 }
 
 // The file carrier has a product budget before allocation; engine limits remain
@@ -150,7 +39,7 @@ struct WorldCarrier {
     }
 }
 
-extension Canvases {
+extension CanvasesHost {
     /// A render recorded into `m`'s open frame (LLP 1009 D7): shown at `flushRecorded`.
     func recorded(_ m: GpuModule) {
         if !unflushed.contains(where: { $0 === m }) { unflushed.append(m) }
@@ -286,8 +175,8 @@ extension Canvases {
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, stamped now, held until one is live.
     func post(_ name: String, _ text: String) {
-        guard pendingPosts.filter({ $0.name == name }).count < Canvases.postBound else {
-            fputs("exact: postMessage: dropped: \(Canvases.postBound) posts already wait for surface \"\(name)\"\n", stderr)
+        guard pendingPosts.filter({ $0.name == name }).count < CanvasesHost.postBound else {
+            fputs("exact: postMessage: dropped: \(CanvasesHost.postBound) posts already wait for surface \"\(name)\"\n", stderr)
             return
         }
         pendingPosts.append((name, text, session?.clock ?? session?.now() ?? 0))
@@ -419,7 +308,7 @@ extension Canvases {
             var delivered = false
             for _ in 0..<16 {
                 // Nearly every frame asks for nothing: no JSON parse for the empty answer.
-                guard let data = m.output(take(e.id)), data != Canvases.noAssetChanges,
+                guard let data = m.output(take(e.id)), data != CanvasesHost.noAssetChanges,
                       let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
                 delivered = true
                 for name in names {
@@ -570,11 +459,6 @@ extension Canvases {
         return restoreReply(reply)
     }
 
-    struct WorldClock {
-        var pending = false
-        var settleAt: Double?
-        var reply: [String: Any] = [:]
-    }
     func clock(settle: Bool) -> WorldClock {
         let world = worlds(["op": "clock", "settle": settle])
         let pending = world.filter { $0["quiescent"] as? Bool == false }
@@ -584,78 +468,7 @@ extension Canvases {
     }
 }
 
-extension Agent {
-    static func worldRequest(_ request: [String: Any]) -> Bool { request["entity"] != nil || request["world"] as? Bool == true }
-
-    func world(_ request: [String: Any]) -> [String: Any] {
-        let id = request["id"] as? UInt32
-        let missing: [String: Any] = ["error": "view \(request["id"] ?? "undefined") has no world"]
-        guard let id, let e = session.canvases.live(id) else { return missing }
-        let op = request["op"] as? String ?? ""
-        if op == "screenshot", request["form"] as? String == "save" { return session.canvases.save(e) }
-        if op == "focus" {
-            guard e.wantsInput else { return ["error": "view \(id)'s surface does not take input"] }
-            return ["ok": e.view.focusCanvas()]
-        }
-        guard ["layout", "state", "tree"].contains(op) else { return ["error": "world does not answer \(op)"] }
-        var request = request
-        let rect = box(e.view)
-        // A `layout` with a point and no entity is the pick (LLP 1046.001 D2): a form, not a ninth name.
-        if op == "layout", request["entity"] == nil {
-            if let x = request["x"] as? Double { request["x"] = x - rect.minX }
-            if let y = request["y"] as? Double { request["y"] = y - rect.minY }
-        }
-        var reply = session.canvases.agent(id, request) ?? missing
-        for key in ["entity", "hit"] {
-            if var entity = reply[key] as? [String: Any], var screen = entity["screen"] as? [String: Any] {
-                if let x = screen["x"] as? Double { screen["x"] = x + rect.minX }
-                if let y = screen["y"] as? Double { screen["y"] = y + rect.minY }
-                entity["screen"] = screen
-                reply[key] = entity
-            }
-        }
-        return reply
-    }
-
-    /// A held key releases its original surface without resolving or focusing a view.
-    func releaseCanvasKey(_ request: [String: Any]) -> [String: Any]? {
-        guard request["phase"] as? String == "up", let token = request["releaseKey"] as? String else { return nil }
-        // A failed down may never have installed its closure; release is still safe.
-        return keyReleases.removeValue(forKey: token)?() ?? ["phase": "up", "delivery": "recognized"]
-    }
-
-    func canvasType(_ view: NodeView, _ request: [String: Any]) -> [String: Any] {
-        guard let e = session.canvases.live(view.id), e.view === view else { return ["error": "view \(view.id) has no world"] }
-        guard e.wantsInput else { return ["error": "view \(view.id)'s surface does not take input"] }
-        guard let key = request["key"] as? String, let device = KeyCodes.device(key) else { return ["error": "canvas key needs a device code"] }
-        let phase = request["phase"] as? String
-        guard phase == nil || phase == "down" || phase == "up" else { return ["error": "key: not a phase: \(phase!)"] }
-        guard view.focusCanvas() else { return ["error": "view \(view.id) could not take focus"] }
-        if phase == "down", let token = request["releaseKey"] as? String, let module = e.module {
-            let surface = e.id
-            keyReleases[token] = { [weak self, weak e] in
-                let reply: [String: Any] = ["typed": view.id, "key": key, "phase": "up", "delivery": "recognized"]
-                // Destruction removes the held device state too. Never send to a replacement.
-                guard let self, let e, self.session.canvases.entries[view.id] === e,
-                      e.id == surface else { return reply }
-                guard self.session.canvases.input(e, module, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) else {
-                    return ["error": "view \(view.id)'s surface refused key release"]
-                }
-                return reply
-            }
-        }
-        for step in phase.map({ [$0] }) ?? ["down", "up"] {
-            guard session.canvases.input(view, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else {
-                return ["error": "view \(view.id)'s surface refused input"]
-            }
-        }
-        var reply: [String: Any] = ["typed": view.id, "key": key, "delivery": "recognized"]
-        if let phase { reply["phase"] = phase }
-        return reply
-    }
-}
-
-extension Canvases.Entry {
+extension CanvasesHost.Entry {
     func rendered(_ result: UInt32) {
         if result == 3 { presentable = false }
         wants = presentable && result == 1
@@ -689,14 +502,14 @@ private enum CanvasAudio {
 /// Every canvas gets notifications even when its session uses the agent clock.
 final class CanvasLifecycle: NSObject {
     nonisolated(unsafe) private static let live = NSHashTable<CanvasLifecycle>.weakObjects()
-    weak var owner: Canvases?
+    weak var owner: CanvasesHost?
     private(set) var hidden: Bool
     private var interrupted: Bool
     private var wantsAudio = false
     private var resumeAllowed: Bool
     private var retryFrames = 0
     private let activate: () -> Bool
-    init(_ owner: Canvases, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
+    init(_ owner: CanvasesHost, activate: @escaping () -> Bool = { CanvasAudio.activate() }) {
         precondition(Thread.isMainThread)
         self.owner = owner
         self.activate = activate

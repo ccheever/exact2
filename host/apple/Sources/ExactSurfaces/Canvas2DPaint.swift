@@ -10,6 +10,7 @@
 // gradient clip to the shape and fill the clip.
 import CoreGraphics
 import Foundation
+import ExactKit
 
 extension Canvas2DReplayer {
     /// The line style, which a paint applies to whichever context it uses.

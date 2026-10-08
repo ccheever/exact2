@@ -14,6 +14,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import ExactKit
 
 /// The session's Canvas 2D fonts and lines, over its text engine.
 final class CanvasText {

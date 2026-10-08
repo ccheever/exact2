@@ -50,7 +50,7 @@ package final class Presenter {
     /// The document: the roots live here, content-sized like a page.
     let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
-    let viewport: ScrollView = Viewport(frame: .zero)
+    package let viewport: ScrollView = Viewport(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
@@ -76,7 +76,7 @@ package final class Presenter {
     /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
     var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
-    lazy var transformGeometry = TransformGeometryHost(self)
+    lazy package var transformGeometry = TransformGeometryHost(self)
     /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
     /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
     let fixedGradients = NSHashTable<NodeView>.weakObjects()
@@ -119,11 +119,11 @@ package final class Presenter {
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
     let boxFilters = BoxFilters()
-    let canvas2d = Canvas2DHost()
+    let canvas2d: Canvas2DCanvases = SurfacesLink.installed?.canvas2D() ?? NoCanvas2D()
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
-    weak var editing: NodeView?
+    weak package var editing: NodeView?
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
@@ -674,7 +674,7 @@ package final class Presenter {
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) {
+    package func message(_ id: UInt32, _ value: String) {
         guard let view = views[id], view.handlers.contains("message") else { return }
         send(id) { [weak self, weak view] in
             guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
@@ -1326,24 +1326,24 @@ package final class Presenter {
 
 /// Pixels a view's subtree was painted into: premultiplied RGBA, rows
 /// top-down, `width * 4` bytes per row, owned by the context.
-struct Bitmap {
+package struct Bitmap {
     let context: CGContext
-    let width: Int
-    let height: Int
-    var bytes: UnsafeMutableRawPointer? { context.data }
-    var bytesPerRow: Int { context.bytesPerRow }
+    package let width: Int
+    package let height: Int
+    package var bytes: UnsafeMutableRawPointer? { context.data }
+    package var bytesPerRow: Int { context.bytesPerRow }
     /// Empty pixels for the module to fill (a readback).
-    static func blank(width: Int, height: Int) -> Bitmap? {
+    package static func blank(width: Int, height: Int) -> Bitmap? {
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
         else { return nil }
         return Bitmap(context: ctx, width: width, height: height)
     }
-    var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
+    package var image: UIImage? { context.makeImage().map { UIImage(cgImage: $0) } }
 }
 
 /// A view's subtree as pixels (LLP 1014 D3).
-enum Capture {
+package enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
     /// Guest pictures when this turn chooses arm snapshots; their remote
@@ -1351,10 +1351,10 @@ enum Capture {
     nonisolated(unsafe) static var web: [UInt32: ExactWebImage] = [:]
     /// EXACT_CAPTURE=cpu: the Core Graphics capture even where Metal is
     /// present — the measure's baseline, and the fixture's oracle.
-    static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
+    package static let cpu = ProcessInfo.processInfo.environment["EXACT_CAPTURE"] == "cpu"
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// transparent where nothing painted.
-    static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
+    package static func bitmap(of view: UIView, scale: CGFloat) -> Bitmap? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
         guard let bitmap = Bitmap.blank(width: w, height: h) else { return nil }
         // The GPU, where there is one (`Shadow`); Core Graphics otherwise.

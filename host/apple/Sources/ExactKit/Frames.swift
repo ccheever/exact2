@@ -12,7 +12,7 @@ import QuartzCore
 /// has something to render (LLP 1009 D4), per session. iOS takes them from
 /// the app's clock (`FrameClock`); macOS's link comes from the viewport, so
 /// from its window's screen.
-final class Frames: NSObject {
+package final class Frames: NSObject {
     weak var session: ExactSession?
     #if canImport(UIKit)
     /// The app's link while this session takes frames from it.
@@ -20,7 +20,7 @@ final class Frames: NSObject {
     #else
     var link: CADisplayLink?
     #endif
-    var motion = false, spatial = false
+    package var motion = false, spatial = false
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
     var timerSoon = false
@@ -31,7 +31,7 @@ final class Frames: NSObject {
     private var canvasRequested = false
 
     /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
-    func requestCanvas() {
+    package func requestCanvas() {
         guard let s = session else { return }
         if s.clock == nil { run(true); return }
         guard !canvasRequested else { return }
@@ -45,7 +45,7 @@ final class Frames: NSObject {
     }
     @objc func tick(_ link: CADisplayLink) {
         guard let s = session else { return }
-        s.canvases.lifecycle.frame()
+        s.canvases.lifecycleFrame()
         // Motion keeps its existing sampling clock; canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
         // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
@@ -77,7 +77,7 @@ final class Frames: NSObject {
         }
         if hatches, s.clock == nil { s.natives.hatchClock.presented(frameNow) }
         let more = s.canvases.tick(now: frameNow)
-        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
+        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycleNeedsRetry)
     }
 
     func run(_ wanted: Bool) {

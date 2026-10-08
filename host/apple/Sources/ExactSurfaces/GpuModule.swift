@@ -1,7 +1,7 @@
 // The GPU module's C ABI, loaded (LLP 1009 D2): the app's `<app>-gpu`
 // dylib, `dlopen`ed by a presenter the first time a canvas is on screen —
 // after the first painted frame. Shared by the AppKit and UIKit presenters;
-// what each does with a surface (its `Canvases`) is its own. An app that
+// what each does with a surface (its `CanvasesHost`) is its own. An app that
 // declares GPU modules has one more dylib per module (LLP 1009 D6), each an
 // instance of this class, loaded the first time a canvas of one of its
 // surfaces is; a canvas keeps the instance that created it.
@@ -11,6 +11,8 @@ import CExact
 #if os(macOS)
 import Metal
 #endif
+import ExactKit
+import QuartzCore
 
 /// Why the module could not be loaded.
 struct GpuLoadError: Error { let message: String }
@@ -41,10 +43,7 @@ final class GpuModule {
         artifact.isEmpty ? "libexact_gpu.dylib" : "libexact_gpu_\(artifact.replacingOccurrences(of: "-", with: "_")).dylib"
     }
 
-    static var bakedCompatibility: [String: Any] {
-        let bytes = Runtime.bakedCompat()
-        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
-    }
+    static var bakedCompatibility: [String: Any] { BakedCompatibility.json }
     static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {
         let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any]
         return gpu?["trust"] as? String == "development" ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
@@ -131,7 +130,7 @@ final class GpuModule {
     var landed: WantsFn?
     typealias AcquiredFn = @convention(c) () -> Void
     typealias OnAcquireFn = @convention(c) (AcquiredFn?) -> Void
-    let canvases = NSHashTable<Canvases>.weakObjects()
+    let canvases = NSHashTable<CanvasesHost>.weakObjects()
     private var recovering = false
     private var deviceObserver: NSObjectProtocol?
     typealias DeviceIDFn = @convention(c) () -> UInt64
@@ -142,7 +141,7 @@ final class GpuModule {
     private var activeDeviceID: UInt64 = 0
     private var failures = 0
 
-    func deliveryClock(_ entry: Canvases.Entry, now: Double) -> [String: Any] {
+    func deliveryClock(_ entry: CanvasesHost.Entry, now: Double) -> [String: Any] {
         let redelivery = entry.recoveryRedelivery
         entry.recoveryRedelivery = false
         return redelivery ? ["op": "clock"] : ["op": "clock", "now": now]
@@ -440,3 +439,17 @@ private enum AcquiredPass {
     }
 }
 
+extension GpuModule {
+    /// Before a frame, an HDR GPU surface's headroom (the display's, or 1
+    /// where the limit or display rules HDR out) and its layer's range
+    /// (LLP 1100 D12b). wgpu already asked for EDR when it configured the target.
+    func syncDynamicRange(_ id: UInt32, view: NodeView, layer: CALayer?) {
+        guard let headroom, highDynamicRange?(id) == 1 else { return }
+        let limit = view.style["dynamic_range_limit"]?.string
+        headroom(id, DisplayRange.showsHDR(view, limit: limit) ? Float(DisplayRange.headroom(view)) : 1)
+        if #available(iOS 26, macOS 26, tvOS 26, *), let layer {
+            let range = layerRange(limit)
+            if layer.preferredDynamicRange != range { layer.preferredDynamicRange = range }
+        }
+    }
+}

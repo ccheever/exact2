@@ -10,6 +10,7 @@ import CoreText
 import Foundation
 import ImageIO
 import QuartzCore
+import ExactKit
 
 /// No implicit animations: new pixels appear with the batch that drew them.
 private final class Instant: NSObject, CALayerDelegate {
@@ -75,7 +76,7 @@ final class Canvas2DHost: Canvas2DEnv {
     /// The canvases the GPU module draws (`Canvas2DGpu.swift`): touched only
     /// on `replay`.
     private var gpus: [UInt32: Canvas2DGpuCanvas] = [:]
-    /// Canvases whose fresh bitmap has had no lists yet (replay queue).
+    /// CanvasesHost whose fresh bitmap has had no lists yet (replay queue).
     private var undrawn: Set<UInt32> = []
     /// Tests (and the parity smoke, EXACT_CANVAS_RECORD=always) record every
     /// canvas the policy allows, animating or not.

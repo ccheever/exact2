@@ -18,6 +18,7 @@
 import CoreGraphics
 import Foundation
 import QuartzCore
+import ExactKit
 
 /// What a tracker saw of one list.
 struct Canvas2DTracking {

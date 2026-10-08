@@ -18,6 +18,7 @@ import QuartzCore
 #if canImport(UIKit)
 import UIKit
 #endif
+import ExactKit
 
 /// The module's C ABI (version 2).
 final class Canvas2DGpuModule {

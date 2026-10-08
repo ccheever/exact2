@@ -58,7 +58,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// projection or a placement saves and restores, since `isHidden` also
     /// reads `display: none` (review B1: restoring that wrote CSS's bit into
     /// the host's and kept the view hidden once it was displayed).
-    var hiddenByHost: Bool { hostHidden }
+    package var hiddenByHost: Bool { hostHidden }
     package override var isHidden: Bool {
         get { super.isHidden }
         set {
@@ -173,7 +173,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         }
     }
     package func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if CanvasInput.owns(touch.view) { return false }
+        if CanvasInputs.owns(touch.view) { return false }
         if gestureRecognizer === swipeRecognizer, gestureRecognizer.numberOfTouches == 0 { swipeDownX = touch.location(in: window).x }
         if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
@@ -248,7 +248,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A scroll container's content extent (the `content` op), before the
     /// axes that do not scroll are held to the box.
     var content = CGSize.zero
-    var placementHidden: Bool {
+    package var placementHidden: Bool {
         get { extras?.placementHidden ?? false }
         set {
             let oldValue = placementHidden
@@ -289,7 +289,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
     package var text: TextEngine? { presenter?.session?.text }
-    var canvases: Canvases? { presenter?.session?.canvases }
+    package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
@@ -558,8 +558,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         isOpaque = false
         // A frame change repaints at the new width instead of stretching stale pixels.
         contentMode = .redraw
-        if kind == "canvas" {
-            let m = MetalView(frame: .zero)
+        if kind == "canvas", let m = SurfacesLink.installed?.makeMetalView() {
             addSubview(m)
             metal = m
             let o = PlainView(frame: .zero)
@@ -596,7 +595,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
-    var canvasAbove: NodeView? {
+    package var canvasAbove: NodeView? {
         var v: UIView = self
         while let s = v.superview {
             if let c = s as? NodeView, c.overlay === v { return c }
@@ -722,7 +721,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// A window point in this node's own coordinates — through the surface's
     /// placement when this node is under a placed child (LLP 1014 D5), else
     /// UIKit's own conversion.
-    func local(_ windowPoint: CGPoint) -> CGPoint {
+    package func local(_ windowPoint: CGPoint) -> CGPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
@@ -734,7 +733,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     /// The placement changed: accessibility sees the new box.
-    func placementChanged() {
+    package func placementChanged() {
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
 

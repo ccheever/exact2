@@ -1,8 +1,9 @@
 #if os(macOS)
 import AppKit
+import ExactKit
 
 /// Only the canvas hit takes raw input. A held pointer stays with that canvas.
-final class CanvasInput {
+final class CanvasInputHost {
     weak var view: NodeView?
     private var tracking: NSTrackingArea?
     private var inactive: NSObjectProtocol?
@@ -67,7 +68,7 @@ final class CanvasInput {
         guard let view else { return }
         unlock()
         buttons = 0; modifiers.removeAll(); keys.removeAll(); last = nil
-        if let c=view.canvases, let e=c.entries[view.id] {c.cancelControls(e)}
+        if let c=view.canvases as? CanvasesHost, let e=c.entries[view.id] {c.cancelControls(e)}
         view.canvases?.input(view, ["t": "blur"])
     }
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {
@@ -153,12 +154,4 @@ final class CanvasInput {
     }
 }
 
-extension NodeView {
-    var canvasScale: CGFloat { metal?.layer?.contentsScale ?? window?.backingScaleFactor ?? 1 }
-    func focusCanvas() -> Bool {
-        guard canvases?.wantsInput(id) == true, acceptsFirstResponder, let window else { return false }
-        if window.firstResponder !== self { window.makeFirstResponder(self) }
-        return window.firstResponder === self
-    }
-}
 #endif

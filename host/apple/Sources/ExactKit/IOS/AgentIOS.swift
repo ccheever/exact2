@@ -204,7 +204,7 @@ extension Agent {
     /// offset — every enclosing scroll node's offset folded in — with the
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
+    package func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport

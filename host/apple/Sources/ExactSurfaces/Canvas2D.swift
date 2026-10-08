@@ -13,6 +13,7 @@ import CoreGraphics
 import CoreText
 import Foundation
 import QuartzCore
+import ExactKit
 
 /// The list's opcodes (canvas/src/list.rs `Op`), by number.
 enum Canvas2DOp: UInt32 {

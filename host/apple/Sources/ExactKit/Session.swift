@@ -144,7 +144,7 @@ public final class ExactApp {
     /// The plan last applied across the app, also used by newly created sessions.
     private(set) var lastPlan: Data?
     private(set) var lastModule: ExactModule?
-    private(set) var resolver: AssetResolver!
+    private(set) package var resolver: AssetResolver!
     private var transaction = false
     /// A retryable image preparation; the current sessions remain live.
     public private(set) var generationPending = false
@@ -287,8 +287,9 @@ public final class ExactApp {
             }
             prepared.append((session, candidate))
         }
-        let shaderSources = GpuModule.loaded == nil ? nil : candidateResolver.shaderSources()
-        let shadersAccepted = shaderSources.map { GpuModule.loaded?.accepts($0) == true } ?? true
+        let surfaces = SurfacesLink.installed
+        let shaderSources = surfaces?.shadersLoaded == true ? candidateResolver.shaderSources() : nil
+        let shadersAccepted = shaderSources.map { surfaces?.acceptsShaders($0) == true } ?? true
         guard candidateResolver.refusal == nil, shadersAccepted, commit() else {
             for (session, _) in prepared { session.runtime.discardPlan() }
             return false
@@ -300,7 +301,7 @@ public final class ExactApp {
         lastPlan = bytes
         lastModule = module
         selectedToken = token
-        if let shaderSources { GpuModule.loaded?.replaceShaders(shaderSources) }
+        if let shaderSources { surfaces?.replaceShaders(shaderSources) }
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
         transaction = false
@@ -362,7 +363,7 @@ public final class ExactSession {
     #endif
     var text: TextEngine
     let fieldChrome = FieldChromeCache()
-    let presenter: Presenter
+    package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
@@ -372,7 +373,7 @@ public final class ExactSession {
     lazy var picker = Picker(session: self)
     /// The voice table's output (LLP 1096 D8), made at the first `sound` op.
     lazy var sound = SoundOutput(self)
-    let frames: Frames
+    package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     private(set) var sampler: FrameSampler?
     var clockTimer: Timer?
@@ -463,7 +464,7 @@ public final class ExactSession {
         text = TextEngine.pair(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
                                bundled: { [weak app] source in app?.bundledAsset(source) })
         presenter = Presenter()
-        canvases = Canvases()
+        canvases = SurfacesLink.installed?.canvases() ?? NoCanvases()
         webviews = WebViews()
         frames = Frames()
         presenter.session = self
@@ -477,7 +478,7 @@ public final class ExactSession {
         installControlText()
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
-        runtime.setCanvasText(CanvasText.measureRun)
+        if let measure = SurfacesLink.installed?.canvasTextMeasure { runtime.setCanvasText(measure) }
         presenter.canvas2d.textEngine = { [weak self] in self?.text }
         presenter.canvas2d.assetBytes = { [weak app] in app?.assetBytes($0) }
         presenter.canvas2d.onImage = { [weak self] src, image in
@@ -926,7 +927,7 @@ public final class ExactSession {
     /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
     private(set) var routerOp: [String: Any]?
 
-    func surfaceRecord(_ name: String, _ json: String?) {
+    package func surfaceRecord(_ name: String, _ json: String?) {
         guard state != .destroyed else { return }
         if applying { pendingSurfaceRecords.append((name, json)); return }
         apply(runtime.surfaceRecord(name, json))
@@ -1125,10 +1126,10 @@ public final class ExactSession {
     }
 
     /// `drainSurfaceWork` from outside a batch (a deferred module's load).
-    func drainSurfaceWorkNow() { if !applying { drainSurfaceWork() } }
+    package func drainSurfaceWorkNow() { if !applying { drainSurfaceWork() } }
 
     private func drainSurfaceWork() {
-        guard canvases.ready || canvases.failed != nil || canvases.entries.isEmpty,
+        guard canvases.ready || canvases.failed != nil || canvases.isEmpty,
               !pendingSurfaceWork.isEmpty else { return }
         let work = pendingSurfaceWork
         pendingSurfaceWork = []
@@ -1138,7 +1139,7 @@ public final class ExactSession {
         }
     }
 
-    func completeSurface(_ ticket: UInt64, generation owner: Int, kind: UInt32, body: Data = Data()) {
+    package func completeSurface(_ ticket: UInt64, generation owner: Int, kind: UInt32, body: Data = Data()) {
         guard state != .destroyed, generation == owner, runtime.requestActive(ticket) else { return }
         apply(runtime.fulfillSurface(ticket, kind: kind, body: body, now: now()))
     }

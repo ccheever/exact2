@@ -14,7 +14,7 @@ public final class AssetResolver {
     private var lastRefusal: String?
     /// The root with its symlinks resolved, once: resolving reads each component.
     private lazy var base = root.standardizedFileURL.resolvingSymlinksInPath()
-    var refusal: String? { lock.lock(); defer { lock.unlock() }; return lastRefusal }
+    package var refusal: String? { lock.lock(); defer { lock.unlock() }; return lastRefusal }
     var encodedCacheBytes: Int { lock.lock(); defer { lock.unlock() }; return cache.values.reduce(0) { $0 + $1.count } }
 
     /// A complete provider never falls through to the embedded directory.
@@ -60,7 +60,7 @@ public final class AssetResolver {
         do { return try delivery(name) } catch { lastRefusal = lastRefusal ?? error.localizedDescription; return nil }
     }
 
-    func delivery(_ name: String) throws -> Data? {
+    package func delivery(_ name: String) throws -> Data? {
         lock.lock(); defer { lock.unlock() }
         guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { throw CocoaError(.fileReadInvalidFileName) }
         if let bytes = cache[name] { return bytes }
@@ -105,7 +105,7 @@ public final class AssetResolver {
     }
 
     /// The complete shader names, without loading the optional GPU module.
-    func shaderSources() -> [String: Data] {
+    package func shaderSources() -> [String: Data] {
         let names: [String]
         if let completeNames = self.names { names = completeNames.filter { $0.hasPrefix("shaders/") && $0.hasSuffix(".wgsl") } }
         else {

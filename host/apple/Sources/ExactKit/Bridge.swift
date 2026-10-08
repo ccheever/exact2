@@ -207,7 +207,7 @@ package final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
-    func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
+    package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
     func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
             let n = write(body)

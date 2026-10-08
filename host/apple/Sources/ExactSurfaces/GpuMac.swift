@@ -6,9 +6,10 @@
 #if os(macOS)
 import AppKit
 import QuartzCore
+import ExactKit
 
 /// A canvas node's backing view: a CAMetalLayer the module renders into.
-final class MetalView: NSView {
+final class MetalCanvasView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func makeBackingLayer() -> CALayer {
@@ -38,7 +39,7 @@ final class MetalView: NSView {
 
 /// Every canvas on one session's page and its surface in the module — the
 /// module itself loaded once per process (LLP 1031 D12).
-final class Canvases {
+final class CanvasesHost {
     lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
     /// postMessage events waiting for a live canvas of their surface name.
@@ -201,7 +202,7 @@ final class Canvases {
 
     private func load(_ key: String) {
         let t = CACurrentMediaTime()
-        switch GpuModule.loadShared(path: Canvases.modulePath(key), artifact: key) {
+        switch GpuModule.loadShared(path: CanvasesHost.modulePath(key), artifact: key) {
         case .failure(let e):
             failed = e.message
             FileHandle.standardError.write(Data("exact gpu: \(e.message)\n".utf8))
@@ -218,7 +219,7 @@ final class Canvases {
     }
 
     private func create(_ m: GpuModule, _ e: Entry) {
-        guard let metal = e.view.metal, let layer = metal.layer else { return }
+        guard let metal = e.view.canvasMetal, let layer = metal.layer else { return }
         layer.contentsScale = metal.window?.backingScaleFactor ?? 2
         let scale = Float(layer.contentsScale)
         let w = UInt32(max(1, (Float(metal.bounds.width) * scale).rounded()))
@@ -235,7 +236,7 @@ final class Canvases {
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
         deliverPosts() // a post held for this surface, if the canvas is live already
-        if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
+        if e.wantsInput { e.view.canvasInput = CanvasInputHost(view: e.view) }
         if e.through { capture(m, e) }
     }
 
@@ -384,7 +385,7 @@ final class Canvases {
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> NSBitmapImageRep? {
-        guard let e = live(view.id), let m = e.module, e.presentable, e.view === view, let metal = view.metal else { return nil }
+        guard let e = live(view.id), let m = e.module, e.presentable, e.view === view, let metal = view.canvasMetal else { return nil }
         let scale = CGFloat(metal.layer?.contentsScale ?? 2)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard w > 0, h > 0,
@@ -424,7 +425,7 @@ final class Canvases {
     var wantsFrames: Bool {
         guard !modules.isEmpty, visible else { return false }
         return entries.values.contains { e in
-            e.needsFrame(dirty:(e.module?.dirty(e.id) ?? 0) != 0, editing:e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true)
+            e.needsFrame(dirty:(e.module?.dirty(e.id) ?? 0) != 0, editing:e.through && e.view.overlay.map { CanvasesHost.editing(under: $0) } == true)
         }
     }
 
@@ -477,9 +478,9 @@ final class Canvases {
             }
             // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
-            if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
-            m.syncDynamicRange(e.id, view: e.view, layer: e.view.metal?.layer)
-            guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
+            if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, CanvasesHost.editing(under: overlay) { capture(m, e) }
+            m.syncDynamicRange(e.id, view: e.view, layer: e.view.canvasMetal?.layer)
+            guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.canvasMetal else { continue }
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
@@ -514,7 +515,7 @@ final class Canvases {
         frameNow = now
         defer { frameNow = previous }
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
-            guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.metal else { continue }
+            guard let m = e.module, m.starved?(e.id) == 1, let metal = e.view.canvasMetal else { continue }
             let scale = Float(metal.layer?.contentsScale ?? 2)
             let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
             recorded(m)

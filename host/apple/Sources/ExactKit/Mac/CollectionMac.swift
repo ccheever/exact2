@@ -7,14 +7,14 @@ import AppKit
 /// it may carry only the rows the collection has built, so a concurrent
 /// scroll pauses at their edge until the main thread builds more, rather
 /// than carrying the background into view (LLP 1050.000 D5).
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
+package final class FlippedView: NSView {
+    package override var isFlipped: Bool { true }
+    package override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
     /// AppKit's last request, kept so rows built later can widen the answer.
     private(set) var requestedPrepared: NSRect?
-    override func prepareContent(in rect: NSRect) {
+    package override func prepareContent(in rect: NSRect) {
         requestedPrepared = rect
         super.prepareContent(in: clampPrepared(rect))
     }
