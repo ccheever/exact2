@@ -13,7 +13,9 @@ import { snoozePresets } from './shared/sidebar-presentation';
 import { resolveRenameCommit } from './shared/shell-commands';
 import { mobileSessionGrants } from './mobile-grants';
 import { mobileHomeSources } from './home';
-import { homeCreatePending, homeReconcilePending, homeMovePlan, homeOrderKey, homeOrderState, mobileHomeOrder, type HomeOrderSnapshot, type HomeMoveDirection } from './home-order';
+import { homeWriteReflected as reflected } from './home-write-reflected';
+import { homeArrangeSnapshot, homeArrangeVersion, homeDropLifecycle, parseHomeArrangeAction } from './home-arrange';
+import { homeCreatePending, homeReconcilePending, homeMovePlan, homeOrderKey, homeOrderState, mobileHomeOrder, type HomeOrderSnapshot, type HomeMoveDestination } from './home-order';
 
 export interface HomeMenuItem {
   id: string; parentId: string; label: string; operation: string; value: string; symbol: string; subtitle: string;
@@ -83,6 +85,7 @@ export function mobileHomeMenu(environmentId: string, threadId: string, now: num
   }
   const moveSection = thread.pinnedAt != null ? 'pinned' : 'active';
   const movesSupported = moveSection === 'pinned' ? caps.pinReorder : !order.workingEnabled && caps.activeReorder;
+  if (!snoozed && movesSupported) items.push(item('arrange-open', 'Arrange threads…', 'line.3.horizontal'));
   if (!snoozed && section !== 'settled' && movesSupported) {
     const available = order.availability.get(`${environmentId}:${threadId}`);
     items.push(item('move-up', 'Move up', 'arrow.up', { disabled: available?.canMoveUp !== true }));
@@ -109,25 +112,15 @@ export function mobileHomeCanArchive(thread: Obj): boolean {
   const runtime = shellRuntime(thread);
   return runtime?.status === 'queued' ? !runtime.activeRunId : !['preparing', 'starting', 'running'].includes(runtime?.status ?? '');
 }
-function reflected(pending: Uncertain, thread: Obj | undefined): boolean {
-  const p = pending.payload;
-  if (p.type === 'thread.delete') return !thread;
-  if (!thread) return false;
-  if (p.type === 'thread.archive') return thread.archivedAt != null;
-  if (p.type === 'thread.pin') return thread.pinnedAt != null && (p.orderKey === undefined || thread.pinOrderKey === p.orderKey);
-  if (p.type === 'thread.unpin') return thread.pinnedAt == null;
-  if (p.type === 'thread.settle') return thread.settledOverride === 'settled';
-  if (p.type === 'thread.unsettle') return thread.settledOverride === 'active';
-  if (p.type === 'thread.snooze') return thread.snoozedUntil === p.snoozedUntil;
-  if (p.type === 'thread.unsnooze') return thread.snoozedUntil == null;
-  if (p.type === 'thread.auto-settle.set') return (thread.autoSettleDisabledAt == null) === p.enabled;
-  if (p.type === 'thread.metadata.update' && typeof p.title === 'string') return thread.title === p.title;
-  return p.regenerateTitle === true && (thread.titleRegeneration != null || thread.title !== pending.before.title);
-}
 
 /** A single root mutation owns prompt, permission check and actual command. */
 export async function mobileHomeAction(requestRoute: string, environmentId: string, threadId: string, kind: string, value: string, now: number,
   nativeInput?: Native | null, client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<HomeActionResult> {
+  if (kind === 'arrange') {
+    const request = parseHomeArrangeAction(value);
+    if (!request) return { revision: client.revision, requestRoute, message: 'This thread move is no longer available.', alertTitle: 'Could not move thread', nextLocation: '', archiveChanged: false, uncertain: false };
+    return mobileHomeMove(requestRoute, environmentId, threadId, request.destination, now, nativeInput, client, background, request.version);
+  }
   if (kind === 'move-up' || kind === 'move-down') return mobileHomeMove(requestRoute, environmentId, threadId, kind === 'move-up' ? 'up' : 'down', now, nativeInput, client, background);
   const surface = surfaces.get(client), key = JSON.stringify([environmentId, threadId]), held = lockSet(client);
   const result = (message = '', nextLocation = '', archiveChanged = false, uncertain = false): HomeActionResult => ({
@@ -141,6 +134,10 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
     : !!entry && background.entries.get(entry.key) === entry && entry.origin === origin && entry.environmentId === environmentId && entry.generation === generation && entry.phase === 'connected' && entry.synchronized === generation;
   const check = () => { if (!currentSurface() || !endpointCurrent()) throw new ClientError('The thread action changed.', 'superseded'); };
   const pendingKey = JSON.stringify([origin, environmentId, threadId]), pending = uncertainSet(client).get(pendingKey);
+  mobileHomeOrder(client, mobileHomeSources(client, background), now);
+  const unknownMove = homeOrderState(client).unknown;
+  if (unknownMove?.origin === origin && unknownMove.environmentId === environmentId && unknownMove.threadId === threadId)
+    return result('The previous move may have reached the server. Wait for the thread to refresh before trying again.', '', false, true);
   if (pending) {
     const thread = initial.environment?.shell.threads.find(item => item.id === threadId);
     if (initial.environment?.connected && reflected(pending, thread)) uncertainSet(client).delete(pendingKey);
@@ -267,26 +264,54 @@ export async function mobileHomeAction(requestRoute: string, environmentId: stri
 }
 
 /** Source moveThread: one shared order hold and sequential assignments across captured endpoints. */
-async function mobileHomeMove(requestRoute: string, environmentId: string, threadId: string, direction: HomeMoveDirection, now: number,
-  nativeInput: Native | null | undefined, client: T3Client, background: EnvironmentFleet): Promise<HomeActionResult> {
+async function mobileHomeMove(requestRoute: string, environmentId: string, threadId: string, destination: HomeMoveDestination, now: number,
+  nativeInput: Native | null | undefined, client: T3Client, background: EnvironmentFleet, expectedVersion = ''): Promise<HomeActionResult> {
   const surface = surfaces.get(client), state = homeOrderState(client), held = lockSet(client);
   const currentSurface = () => !!surface && surfaces.get(client) === surface && surface.requestRoute === requestRoute && (surface.homeVisible || surface.sidebarVisible);
-  const result = (message = '', uncertain = false): HomeActionResult => ({ revision: client.revision, requestRoute, message,
-    alertTitle: message ? 'Could not move thread' : '', nextLocation: '', archiveChanged: false, uncertain });
+  const result = (message = '', uncertain = false, alertTitle = 'Could not move thread'): HomeActionResult => ({ revision: client.revision,
+    requestRoute, message, alertTitle: message ? alertTitle : '', nextLocation: '', archiveChanged: false, uncertain });
   if (!currentSurface()) return result();
   const initial = row(environmentId, threadId, client, background);
   if (!initial.allowed || !initial.thread || !nativeInput?.available) return result('This connection cannot change threads.');
-  const first = mobileHomeOrder(client, mobileHomeSources(client, background), now);
+  const sources = mobileHomeSources(client, background), first = mobileHomeOrder(client, sources, now), capturedVersion = homeArrangeVersion(first);
+  if (expectedVersion && expectedVersion !== capturedVersion) return result('The thread order changed. Try the move again.');
   if (state.unknown) return result('The previous move may have reached the server. Wait for the thread order to refresh before trying again.', true);
   if (first.blocked) return result();
-  const section = initial.thread.pinnedAt != null ? 'pinned' : 'active', movedId = `${environmentId}:${threadId}`;
+  const section = typeof destination === 'object' ? destination.section : initial.thread.pinnedAt != null ? 'pinned' : 'active';
+  const movedId = `${environmentId}:${threadId}`, capturedThread = { ...initial.thread }, initialCaps = capabilities(initial.environment!.config);
   if (section === 'active' && first.workingEnabled) return result();
-  if (!first.reorderable[section].has(environmentId)) return result("This environment's server does not support reordering these threads. Update the server to arrange them.");
-  const assignments = homeMovePlan({ ordered: first.sections[section], allThreads: first.threads, section,
-    reorderableEnvironmentIds: first.reorderable[section] }, movedId, direction);
+  if (section === 'settled') {
+    if (!initialCaps.settlement || homeArrangeSnapshot(client, sources, now, first).settled.some(row => row.key === movedId)) return result();
+  } else if (!first.reorderable[section].has(environmentId)) return result("This environment's server does not support reordering these threads. Update the server to arrange them.");
+  const assignments = section === 'settled' ? [] : homeMovePlan({ ordered: first.sections[section], allThreads: first.threads, section,
+    reorderableEnvironmentIds: first.reorderable[section] }, movedId, destination);
   if (!assignments) return result();
+  const crossSection = section === 'settled' || !first.sections[section].some(thread => homeOrderKey(thread) === movedId);
   const byId = new Map(first.threads.map(thread => [homeOrderKey(thread), thread]));
   const targets = assignments.map(assignment => ({ ...assignment, thread: byId.get(assignment.id)! }));
+  type Step = { thread: Obj; payload: Obj; before: Obj };
+  const steps: Step[] = [];
+  const lifecycle = (type: string, extra: Obj = {}) => steps.push({ thread: { ...capturedThread, environmentId }, before: capturedThread, payload: { type, threadId, ...extra } });
+  if (section === 'settled') lifecycle('thread.settle');
+  else if (crossSection) {
+    const transitions = homeDropLifecycle(capturedThread, section, now);
+    if ((section === 'pinned' || capturedThread.pinnedAt != null) && !initialCaps.pinning
+      || capturedThread.settledOverride === 'settled' && !initialCaps.settlement
+      || homeDropLifecycle(capturedThread, 'active', now).unsnooze && !initialCaps.snooze) return result();
+    if (section === 'pinned') {
+      const orderKey = assignments.find(item => item.id === movedId)?.orderKey;
+      lifecycle('thread.pin', orderKey === undefined ? {} : { orderKey });
+    } else {
+      if (transitions.unpin) lifecycle('thread.unpin');
+      if (transitions.unsettle) lifecycle('thread.unsettle', { reason: 'user' });
+      if (transitions.unsnooze) lifecycle('thread.unsnooze', { reason: 'user' });
+    }
+  }
+  for (const target of targets) {
+    if (crossSection && section === 'pinned' && capturedThread.pinnedAt == null && target.id === movedId) continue;
+    steps.push({ thread: target.thread, before: { ...target.thread }, payload: {
+      type: section === 'pinned' ? 'thread.pin.reorder' : 'thread.active.reorder', threadId: str(target.thread.id), orderKey: target.orderKey } });
+  }
   const lockKeys = [...new Set([JSON.stringify([environmentId, threadId]), ...targets.map(target => JSON.stringify([target.thread.environmentId, target.thread.id]))])];
   if (lockKeys.some(key => held.has(key))) return result();
   for (const key of lockKeys) {
@@ -300,9 +325,10 @@ async function mobileHomeMove(requestRoute: string, environmentId: string, threa
   }
   for (const key of lockKeys) held.add(key);
   state.busy = true; client.revision++;
-  const serial = ++state.serial, baseline = homeCreatePending(section, first.sections[section], movedId, direction, assignments, serial);
-  let published = false;
-  let inFlight: { target: typeof targets[number]; origin: string; sent: boolean; acknowledged: boolean; refused: boolean } | null = null;
+  const serial = ++state.serial;
+  const baseline = !crossSection ? homeCreatePending(section, first.sections[section], movedId, destination, assignments, serial) : null;
+  let published = false, beganWrites = false;
+  let inFlight: { step: Step; origin: string; sent: boolean; acknowledged: boolean; refused: boolean } | null = null;
   try {
     const base = letGoAware(mobileNative(nativeInput));
     const environmentIds = [...new Set([environmentId, ...targets.map(target => str(target.thread.environmentId))])];
@@ -311,8 +337,7 @@ async function mobileHomeMove(requestRoute: string, environmentId: string, threa
       if (!source?.connected) throw new ClientError('Reconnect before moving threads.');
       const entry = source.focused ? undefined : background.entries.get(source.key);
       return { id, focused: source.focused, key: source.key, entry, generation: source.focused ? client.generation : entry!.generation,
-        origin: source.focused ? client.origin : entry!.origin,
-        native: source.focused ? base : EnvironmentFleet.native(base, source.key) };
+        origin: source.focused ? client.origin : entry!.origin, native: source.focused ? base : EnvironmentFleet.native(base, source.key) };
     });
     const check = () => {
       if (!currentSurface()) throw new ClientError('The thread action changed.', 'superseded');
@@ -324,58 +349,60 @@ async function mobileHomeMove(requestRoute: string, environmentId: string, threa
       }
       const snapshot = mobileHomeOrder(client, mobileHomeSources(client, background), now);
       if (section === 'active' && snapshot.workingEnabled) throw new ClientError('');
-      if (published ? state.pending?.serial !== serial : homeReconcilePending(baseline, snapshot.sections[section]) === null)
-        throw new ClientError('The thread order changed. Try the move again.');
-      if (!row(environmentId, threadId, client, background).allowed) throw new ClientError('This connection cannot change threads.');
-      for (const target of targets) {
-        const current = row(str(target.thread.environmentId), str(target.thread.id), client, background);
+      if (baseline ? published ? state.pending?.serial !== serial : homeReconcilePending(baseline, snapshot.sections[baseline.section]) === null
+        : !beganWrites && homeArrangeVersion(snapshot) !== capturedVersion) throw new ClientError('The thread order changed. Try the move again.');
+      for (const key of lockKeys) {
+        const [id, threadId] = JSON.parse(key) as [string, string], current = row(id, threadId, client, background);
         if (!current.allowed || !current.thread) throw new ClientError('This connection cannot change threads.');
-        if (!snapshot.reorderable[section].has(str(target.thread.environmentId)))
-          throw new ClientError("This environment's server does not support reordering these threads. Update the server to arrange them.");
       }
+      if (section !== 'settled' && [environmentId, ...targets.map(target => str(target.thread.environmentId))].some(id => !snapshot.reorderable[section].has(id)))
+        throw new ClientError("This environment's server does not support reordering these threads. Update the server to arrange them.");
+      const caps = capabilities(row(environmentId, threadId, client, background).environment!.config);
+      if (steps.some(step => ['thread.pin', 'thread.unpin'].includes(str(step.payload.type))) && !caps.pinning
+        || steps.some(step => ['thread.settle', 'thread.unsettle'].includes(str(step.payload.type))) && !caps.settlement
+        || (steps.some(step => step.payload.type === 'thread.unsnooze') || crossSection && section !== 'settled' && homeDropLifecycle(capturedThread, 'active', now).unsnooze) && !caps.snooze
+        || crossSection && section !== 'settled' && capturedThread.settledOverride === 'settled' && !caps.settlement) throw new ClientError('The thread capabilities changed. Try the move again.');
     };
     const call = async (endpoint: typeof endpoints[number], request: Obj) => {
-      check();
-      const writing = request.method === 'orchestration.dispatchCommand';
-      if (writing && inFlight) inFlight.sent = true;
+      check(); const writing = request.method === 'orchestration.dispatchCommand';
+      if (writing && inFlight) { inFlight.sent = true; beganWrites = true; }
       const response = await bridgeReply(endpoint.native, { ...request, generation: endpoint.generation });
       if (writing && inFlight) { inFlight.acknowledged = response.ok && response.generation === endpoint.generation; inFlight.refused = !response.ok && response.generation === endpoint.generation && response.error?.uncertain !== true; }
       if (response.generation !== endpoint.generation) throw new ClientError('The connection changed. Refresh the thread order.', 'stale', writing && !response.ok);
       if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain);
       check(); return response.value;
     };
-    // Every assignment must have a current grant before a rewrite sends its first command.
     for (const endpoint of endpoints) {
       const session = await call(endpoint, { op: 'http', path: '/api/auth/session' });
       if (!mobileSessionGrants(obj(session), 'orchestration:operate')) throw new ClientError('This connection cannot change threads.');
     }
     check();
     try { await bridgeReply(base, { op: 'mobileHomeHaptic', kind: 'light' }); } catch (error) { if (letGo(error)) throw error; }
-    check(); state.pending = baseline; published = true; client.revision++;
-    for (const target of targets) {
-      const endpoint = endpoints.find(value => value.id === target.thread.environmentId)!;
+    check(); if (baseline) { state.pending = baseline; published = true; client.revision++; }
+    for (const step of steps) {
+      const endpoint = endpoints.find(value => value.id === step.thread.environmentId)!;
       const ids = await call(endpoint, { op: 'ids', count: 1 });
       if (!Array.isArray(ids) || ids.length !== 1 || typeof ids[0] !== 'string' || !ids[0]) throw new ClientError('Could not allocate request identifiers.');
-      check();
-      inFlight = { target, origin: endpoint.origin, sent: false, acknowledged: false, refused: false };
-      await call(endpoint, { op: 'request', method: 'orchestration.dispatchCommand', payload: {
-        type: section === 'pinned' ? 'thread.pin.reorder' : 'thread.active.reorder', threadId: str(target.thread.id), orderKey: target.orderKey, commandId: ids[0] } });
+      check(); inFlight = { step, origin: endpoint.origin, sent: false, acknowledged: false, refused: false };
+      await call(endpoint, { op: 'request', method: 'orchestration.dispatchCommand', payload: { ...step.payload, commandId: ids[0] } });
       inFlight = null;
     }
     if (state.pending?.serial === serial) state.pending = { ...state.pending, commandsComplete: true };
-    mobileHomeOrder(client, mobileHomeSources(client, background), now);
-    return result();
+    mobileHomeOrder(client, mobileHomeSources(client, background), now); return result();
   } catch (error) {
     const uncertain = !!inFlight?.sent && !inFlight.acknowledged && !inFlight.refused;
-    if (uncertain && inFlight) state.unknown = { environmentId: str(inFlight.target.thread.environmentId), threadId: str(inFlight.target.thread.id),
-      origin: inFlight.origin, section, orderKey: inFlight.target.orderKey };
+    if (uncertain && inFlight) {
+      const common = { environmentId: str(inFlight.step.thread.environmentId), threadId: str(inFlight.step.thread.id), origin: inFlight.origin };
+      state.unknown = str(inFlight.step.payload.type).endsWith('.reorder') && section !== 'settled'
+        ? { ...common, kind: 'order', section, orderKey: str(inFlight.step.payload.orderKey) }
+        : { ...common, kind: 'lifecycle', payload: { ...inFlight.step.payload }, before: { ...inFlight.step.before } };
+    }
     if (state.pending?.serial === serial) state.pending = null;
     if (letGo(error)) throw error;
     return currentSurface() ? result((error instanceof Error ? error.message : 'The thread could not be moved.')
-      + (uncertain ? ' The request may have reached the server. Wait for the thread order to refresh before trying again.' : ''), uncertain) : result();
+      + (uncertain ? ' The request may have reached the server. Wait for the thread to refresh before trying again.' : ''), uncertain,
+      inFlight?.step.payload.type === 'thread.pin' ? 'Could not pin thread' : 'Could not move thread') : result();
   } finally {
-    state.busy = false;
-    for (const key of lockKeys) held.delete(key);
-    client.revision++;
+    state.busy = false; for (const key of lockKeys) held.delete(key); client.revision++;
   }
 }

@@ -1,0 +1,154 @@
+// @ref llp/1107.004-home-projection.decision.md#arrange-threads
+// Pinned 365aa87982 ThreadArrangementSheet: presentation and local shelf expansion.
+// Root owns the visit, live order projection, commands and completion notices.
+shape HomeArrangeRow
+  key: string
+  environmentId: string
+  threadId: string
+  title: string
+  disabled: bool
+  canMoveUp: bool
+  canMoveDown: bool
+  canPin: bool
+  canActivate: bool
+  canSettle: bool
+shape HomeArrangementData
+  version: string
+  blocked: bool
+  workingEnabled: bool
+  pinned: list<HomeArrangeRow>
+  active: list<HomeArrangeRow>
+  snoozed: list<HomeArrangeRow>
+  settled: list<HomeArrangeRow>
+shape HomeArrangementColors
+  screen: string
+  foreground: string
+  muted: string
+  primaryText: string
+  borderSubtle: string
+shape HomeArrangeEntry
+  key: string
+  item: option<HomeArrangeRow>
+
+component HomeArrangement
+  props
+    requestRoute: string
+    data: HomeArrangementData
+    colors: HomeArrangementColors
+    safeTop: number
+    safeBottom: number
+    drop: action
+    close: action
+  state snoozedExpanded = false
+  state settledExpanded = false
+  derive allRows = concat(concat(data.pinned, data.active), concat(data.snoozed, data.settled))
+  action toggle(section: string)
+    if section == "snoozed"
+      snoozedExpanded = not snoozedExpanded
+    else if section == "settled"
+      settledExpanded = not settledExpanded
+  action dropped(version: string, section: string, key: string, before: option<string>, event: ReorderEvent)
+    if version == data.version and not data.blocked and section != "snoozed" and not (section == "active" and data.workingEnabled) and event.to == `home-arrange-${section}`
+      match first(filter(allRows, row => row.key == key))
+        case some(row)
+          let source = length(filter(data.pinned, item => item.key == key)) > 0 ? "pinned" : length(filter(data.active, item => item.key == key)) > 0 ? "active" : length(filter(data.snoozed, item => item.key == key)) > 0 ? "snoozed" : "settled"
+          let allowed = section == "settled" ? source != "settled" and row.canSettle : section == "pinned" or section == "active"
+          if not row.disabled and allowed and event.from == `home-arrange-${source}`
+            let targets = section == "pinned" ? data.pinned : section == "active" ? data.active : data.settled
+            if section == "settled"
+              drop(requestRoute, version, row.environmentId, row.threadId, section, "", "before")
+            else
+              match before
+                case some(target)
+                  if target == "header"
+                    drop(requestRoute, version, row.environmentId, row.threadId, section, "", "before")
+                  else if target != key and length(filter(targets, item => item.key == target)) > 0
+                    drop(requestRoute, version, row.environmentId, row.threadId, section, target, "before")
+                case none
+                  drop(requestRoute, version, row.environmentId, row.threadId, section, "", "after")
+        case none
+          snoozedExpanded = snoozedExpanded
+  view
+    column flex=1 min-height=0 width="100%"
+      box-sizing="border-box"
+      padding-top=safeTop
+      padding-bottom=safeBottom
+      background-color=colors.screen
+      font-family="DM Sans"
+      color=colors.foreground
+      testId="home-arrangement"
+      row align-items="center" justify-content="space-between" gap=10.5
+        padding-left=17.5 padding-right=17.5 padding-top=10.5 padding-bottom=10.5
+        flex-shrink=0
+        // font-t3-semibold has no rule in the pinned utility compiler.
+        text "Arrange threads" flex=1 min-width=0 font-size=21 line-height="28px"
+        button press=close min-height=38.5 padding-left=10.5 padding-right=10.5
+          padding-top=0 padding-bottom=0 display="flex" align-items="center" justify-content="center"
+          aria-label="Done" testId="home-arrangement-done"
+          text "Done" font-size=16 line-height="23px" color=colors.primaryText
+      text "Drag to reorder, pin, or settle. Changes save when you drop."
+        padding-left=17.5 padding-right=17.5 padding-bottom=10.5
+        font-size=14 line-height="19px" color=colors.muted flex-shrink=0
+      // Retire actual handle/list identities when an external order changes.
+      // Local expansion remains with this component; closing unmounts it.
+      each version in [data.version] key=version
+        scroll flex=1 min-height=0 width="100%" overflow-y="scroll" overflow-x="hidden"
+          testId="home-arrangement-scroll"
+          column width="100%"
+            HomeArrangementSection(section="pinned", title="Pinned", rows=data.pinned, expanded=true, collapsible=false, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
+            HomeArrangementSection(section="active", title="Active", rows=data.active, expanded=true, collapsible=false, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
+            when length(data.snoozed) > 0
+              HomeArrangementSection(section="snoozed", title="Snoozed", rows=data.snoozed, expanded=snoozedExpanded, collapsible=true, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
+            HomeArrangementSection(section="settled", title="Settled", rows=data.settled, expanded=settledExpanded, collapsible=true, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
+
+component HomeArrangementSection
+  props
+    section: string
+    title: string
+    rows: list<HomeArrangeRow>
+    expanded: bool
+    collapsible: bool
+    version: string
+    blocked: bool
+    colors: HomeArrangementColors
+    toggle: action
+    drop: action
+  derive entries = concat([HomeArrangeEntry(key="header", item=none)], map((expanded ? rows : []), row => HomeArrangeEntry(key=row.key, item=some(row))))
+  view
+    // Forbidden destinations still receive their drop; the parent refuses them.
+    // Excluding them from the group would leave the last valid target sticky.
+    list id=`home-arrange-${section}` reorderGroup="home-arrangement"
+      reorderdrop=drop(version, section)
+      virtualized=true estimated-item-height=56
+      width="100%" height=(48 + (expanded ? length(rows) * 56 : 0))
+      flex-shrink=0 overflow-x="hidden"
+      testId=`home-arrangement-${section}`
+      each entry in entries key=entry.key
+        row width="100%" height=(entry.key == "header" ? 48 : 56)
+          box-sizing="border-box"
+          align-items="center"
+          padding-left=17.5 padding-right=17.5
+          border-bottom-width=1 border-bottom-style="solid" border-color=colors.borderSubtle
+          match entry.item
+            case some(item)
+              text item.title flex=1 min-width=0 font-size=16 line-height="23px"
+                line-clamp=2 text-overflow="ellipsis" color=colors.foreground
+                testId=`home-arrangement-title-${item.key}`
+              box reorderFor=`home-arrange-${section}` touch-action="none"
+                disabled=(blocked or item.disabled)
+                width=48 height=48 flex-shrink=0
+                display="flex" align-items="center" justify-content="center"
+                opacity=(blocked or item.disabled ? 0.3 : 1)
+                aria-label=`Reorder ${item.title}`
+                aria-description="Move up and Move down reorder within this section. Other actions move between sections."
+                testId=`home-arrangement-handle-${item.key}`
+                // Pinned Expo SymbolView uses the 17pt system font; size=22 sets only its bounds.
+                t3-symbol symbol-name="line.3.horizontal" point-size=17 symbol-weight="regular" symbol-tint=colors.muted width=22 height=22 aria-hidden=true
+            case none
+              button press=toggle(section) disabled=(not collapsible)
+                flex=1 align-self="stretch" padding=0
+                display="flex" align-items="center" justify-content="center" text-align="left"
+                aria-label=`${title} (${length(rows)})`
+                aria-expanded=expanded
+                testId=`home-arrangement-header-${section}`
+                text `${title} (${length(rows)})` width="100%" text-align="left" font-size=14 line-height="19px" color=colors.muted

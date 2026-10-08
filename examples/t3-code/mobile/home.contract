@@ -11,6 +11,7 @@ shape HomeColors
   border: string
   borderSubtle: string
   primary: string
+  primaryText: string
   primaryForeground: string
   iconSubtle: string
   warning: string

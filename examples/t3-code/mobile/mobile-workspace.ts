@@ -50,7 +50,7 @@ export function mobileWorkspaceEntries(input: unknown): MobileWorkspaceEntry[] {
  * ownership of their pinned source SettingsSheet/NewTaskSheet parent. */
 export function mobileWorkspaceOverlay(name: string) {
   return name.startsWith('settings') || name.startsWith('newTask') || name.startsWith('addProject') || [
-    'archive', 'connections', 'connect', 'environments', 'environmentDetail', 'connectOnboarding',
+    'homeArrange', 'archive', 'connections', 'connect', 'environments', 'environmentDetail', 'connectOnboarding',
     'threadAgents', 'threadQueue', 'threadReviewComment', 'threadBrowser', 'threadDevices',
     'threadModel', 'threadModelOption', 'threadRuntime', 'threadModelFilter',
     // Source terminal output is local presentation, represented by an Exact route.

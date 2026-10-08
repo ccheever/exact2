@@ -2,10 +2,13 @@
 // @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned 365aa87982 threadOrder.ts, threadListV2.ts and state/thread-order.ts.
 import { obj, str, type Obj } from './shared/domain';
+import { homeWriteReflected } from './home-write-reflected';
 import { capabilities, effectiveSnoozed, orderKeyBetween, planReorder, sortActive, sortPinned, spreadKeys as orderSpreadKeys } from './shared/sidebar-model';
 
 export type HomeOrderSection = 'pinned' | 'active';
 export type HomeMoveDirection = 'up' | 'down';
+export interface HomeDropDestination { targetId: string | null; section: HomeOrderSection | 'settled'; placement: 'before' | 'after' }
+export type HomeMoveDestination = HomeMoveDirection | HomeDropDestination;
 export interface HomeOrderSource {
   environmentId: string; config: Obj; shell: { threads: Obj[] }; origin?: string; connected?: boolean;
 }
@@ -16,9 +19,9 @@ export interface HomePendingOrder {
   before: Record<string, { key: string | null; anchor: string }>;
   assignments: Record<string, string>; confirmed: string[]; commandsComplete: boolean;
 }
-export interface HomeUnknownOrder {
-  environmentId: string; threadId: string; origin: string; section: HomeOrderSection; orderKey: string;
-}
+export type HomeUnknownOrder = { environmentId: string; threadId: string; origin: string } & (
+  { kind: 'order'; section: HomeOrderSection; orderKey: string } | { kind: 'lifecycle'; payload: Obj; before: Obj }
+);
 export interface HomeOrderState {
   serial: number; busy: boolean; pending: HomePendingOrder | null; unknown: HomeUnknownOrder | null;
   workingEnabled: boolean; queuedThreadKeys: string[];
@@ -51,12 +54,25 @@ export function homeOrderedSection(sources: HomeOrderSource[], section: HomeOrde
   rows.sort((a, b) => str(a.environmentId).localeCompare(str(b.environmentId)));
   return section === 'pinned' ? sortPinned(rows) : sortActive(rows);
 }
-export function homeOrderAfterMove(orderedIds: string[], movedId: string, direction: HomeMoveDirection): string[] | null {
-  const from = orderedIds.indexOf(movedId), to = from + (direction === 'up' ? -1 : 1);
-  if (from < 0 || to < 0 || to >= orderedIds.length) return null;
-  const next = orderedIds.filter(id => id !== movedId); next.splice(to, 0, movedId); return next;
+export function homeOrderAfterMove(orderedIds: string[], movedId: string, destination: HomeMoveDestination): string[] | null {
+  if (typeof destination === 'object' && destination.section === 'settled') return null;
+  const from = orderedIds.indexOf(movedId);
+  if (from < 0 && typeof destination === 'string') return null;
+  const next = orderedIds.filter(id => id !== movedId);
+  let to: number;
+  if (typeof destination === 'string') {
+    to = from + (destination === 'up' ? -1 : 1);
+    if (to < 0 || to >= orderedIds.length) return null;
+  } else if (destination.targetId === null) to = destination.placement === 'before' ? 0 : next.length;
+  else {
+    const target = next.indexOf(destination.targetId);
+    if (target < 0) return null;
+    to = target + (destination.placement === 'after' ? 1 : 0);
+  }
+  if (to === from) return null;
+  next.splice(to, 0, movedId); return next;
 }
-export function homeMovePlan(input: { ordered: Obj[]; allThreads: Obj[]; section: HomeOrderSection; reorderableEnvironmentIds: ReadonlySet<string> }, movedId: string, direction: HomeMoveDirection): HomeOrderAssignment[] | null {
+export function homeMovePlan(input: { ordered: Obj[]; allThreads: Obj[]; section: HomeOrderSection; reorderableEnvironmentIds: ReadonlySet<string> }, movedId: string, direction: HomeMoveDestination): HomeOrderAssignment[] | null {
   const writable = new Set(input.allThreads.filter(row => input.reorderableEnvironmentIds.has(str(row.environmentId))).map(homeOrderKey));
   if (!writable.has(movedId)) return null;
   const next = homeOrderAfterMove(input.ordered.map(homeOrderKey), movedId, direction);
@@ -190,7 +206,7 @@ export function homeMoveAvailability(input: {
   return result;
 }
 
-export function homeCreatePending(section: HomeOrderSection, ordered: Obj[], movedId: string, direction: HomeMoveDirection, assignments: HomeOrderAssignment[], serial: number): HomePendingOrder {
+export function homeCreatePending(section: HomeOrderSection, ordered: Obj[], movedId: string, direction: HomeMoveDestination, assignments: HomeOrderAssignment[], serial: number): HomePendingOrder {
   const orderedIds = homeOrderAfterMove(ordered.map(homeOrderKey), movedId, direction);
   if (!orderedIds) throw new Error('Cannot begin an invalid thread move');
   return { serial, section, orderedIds, before: Object.fromEntries(ordered.map(row => [homeOrderKey(row), homeRowOrder(row, section)])),
@@ -225,7 +241,7 @@ export function mobileHomeOrder(client: object, sources: HomeOrderSource[], now:
   if (state.unknown) {
     const unknown = state.unknown, source = sources.find(value => value.environmentId === unknown.environmentId && value.origin === unknown.origin && value.connected);
     const thread = source?.shell.threads.find(row => row.id === unknown.threadId);
-    if (source && (!thread || homeRowOrder(thread, unknown.section).key === unknown.orderKey)) state.unknown = null;
+    if (source && (!thread || (unknown.kind === 'order' ? homeRowOrder(thread, unknown.section).key === unknown.orderKey : homeWriteReflected(unknown, thread)))) state.unknown = null;
   }
   const threads = sources.flatMap(source => source.shell.threads.map(row => ({ ...row, environmentId: source.environmentId })));
   const reorderable = { pinned: new Set<string>(), active: new Set<string>() };

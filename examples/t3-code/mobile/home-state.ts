@@ -5,6 +5,7 @@ import { bridgeReply, type Native } from './shared/protocol';
 import { obj } from './shared/domain';
 import { mobileHome, mobileHomeSources } from './home';
 import { mobileHomeOrder } from './home-order';
+import { homeArrangeSnapshot } from './home-arrange';
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';
 import { liveEnvironments } from './shared/live-streams';
@@ -50,6 +51,6 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
       environmentId: item.environmentId, threadId: item.threadId, ...contexts.get(item.environmentId),
       homeVisible: homeVisible === true, sidebarVisible: sidebarVisible === true });
   }
-  return { items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
+  return { arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
     loading: result.loading, addEnvironment: result.addEnvironment };
 }
