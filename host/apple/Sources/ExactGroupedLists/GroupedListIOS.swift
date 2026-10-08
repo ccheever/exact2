@@ -447,11 +447,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             inset.bottom += added.bottom
             // A list at rest at its top stays there, its first section below
             // the new room, as a scroll keeps its top under a new inset.
-            // Only when the inset moves, so a drag past the top is left alone.
+            // Only when the inset moves and the list is still, so a drag, a
+            // fling or a bounce past the top is left alone.
             let moved = collection.contentInset.top != inset.top
             let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             assign(collection, \.contentInset, inset)
-            if moved, atTop, !collection.isDragging {
+            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
                 collection.contentOffset.y = -collection.adjustedContentInset.top
             }
             // The indicator keeps to the same room.
