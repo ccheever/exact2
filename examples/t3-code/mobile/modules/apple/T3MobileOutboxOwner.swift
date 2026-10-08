@@ -15,6 +15,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     private let release: ([Object]) throws -> Void
     private let transferAdmission: (Object) throws -> Void
     private let transferEvidence: (Object) throws -> Void
+    private let deliveryCleanupEvidence: (Object) throws -> Void
     private var acceptedTransfers: [String: Object] = [:]
     private let worker = DispatchQueue(label: "t3.mobile.outbox.persistence", qos: .userInitiated)
     private let epoch = UUID().uuidString.lowercased()
@@ -28,14 +29,14 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     private var errors: [Object] = []
     private var unresolved: [String: String] = [:]
     private var uncertainResults = Set<String>()
-    init(lock: NSLock, disk: T3MobileOutbox, release: @escaping ([Object]) throws -> Void, transferEvidence: @escaping (Object) throws -> Void, transferAdmission: @escaping (Object) throws -> Void) {
-        self.lock = lock; self.disk = disk; self.release = release; self.transferEvidence = transferEvidence; self.transferAdmission = transferAdmission
+    init(lock: NSLock, disk: T3MobileOutbox, release: @escaping ([Object]) throws -> Void, transferEvidence: @escaping (Object) throws -> Void, transferAdmission: @escaping (Object) throws -> Void, deliveryCleanupEvidence: @escaping (Object) throws -> Void = { _ in throw T3Failure(kind: "Persistence", message: "Delivery cleanup evidence is unavailable.") }) {
+        self.lock = lock; self.disk = disk; self.release = release; self.transferEvidence = transferEvidence; self.transferAdmission = transferAdmission; self.deliveryCleanupEvidence = deliveryCleanupEvidence
     }
     private func synced<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     private func fail(_ message: String) -> T3Failure { T3Failure(kind: "Persistence", message: message) }
     private func text(_ value: Any?) -> String? { guard let value = value as? String, !value.isEmpty else { return nil }; return value }
     private func fingerprint(_ request: Object) throws -> String {
-        let fields = ["mutationId", "messageId", "operation", "record", "expectedRevision", "expectedToken", "requireUnheld", "transfer"]
+        let fields = ["mutationId", "messageId", "operation", "record", "expectedRevision", "expectedToken", "requireUnheld", "transfer", "deliveryCleanup"]
         let value = request.filter { fields.contains($0.key) }
         return String(data: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), encoding: .utf8)!
     }
@@ -68,7 +69,25 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         let records = accepted.values.compactMap { $0["record"] as? Object } + rows.values.compactMap(\.record) + cache.values.flatMap(disk.payloads)
         return records.contains { ($0["attachments"] as? [Object] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier } }
     }
-    func submit(_ input: Object, answer originalAnswer: @escaping Answer) {
+    func submit(_ input: Object, answer: @escaping Answer) { submit(input, delivery: false, answer: answer) }
+    func submitDeliveryCleanup(_ input: Object, answer: @escaping Answer) { submit(input, delivery: true, answer: answer) }
+    /// All earlier accepted mutations settle before this identity inspection runs.
+    func inspectDeliveryCleanup(_ message: String, mutation: String, answer: @escaping Answer) {
+        worker.async {
+            let result: Object = self.synced {
+                guard self.loaded, self.errors.isEmpty else { return ["status": "uncertain", "outcome": NSNull()] }
+                if let outcome = (self.cache[message]?["outcomes"] as? [String: Object])?[mutation]?["result"] as? Object {
+                    return ["status": "outcome", "outcome": self.decorated(outcome)]
+                }
+                if self.unresolved[message] != nil || self.accepted.values.contains(where: { $0["messageId"] as? String == message }) {
+                    return ["status": "uncertain", "outcome": NSNull()]
+                }
+                return ["status": "not-started", "outcome": NSNull()]
+            }
+            answer(.success(result))
+        }
+    }
+    private func submit(_ input: Object, delivery: Bool, answer originalAnswer: @escaping Answer) {
         var request = input
         var answer = originalAnswer
         do {
@@ -76,6 +95,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 var action = request["action"] as? String ?? ""
                 if action == "read" { worker.async { self.read(answer) }; return }
                 if action == "mutate" && request["transfer"] != nil { throw fail("Captured drafts must enter through enqueueTransfer.") }
+                if request["deliveryCleanup"] != nil && !delivery { throw fail("Delivery removal requires its acknowledged journal owner.") }
                 guard loaded else { throw fail("Read the outbox before changing it.") }
                 if ["mutate", "enqueueTransfer", "hold", "releaseHold", "confirmQueued"].contains(action), request["ownerEpoch"] as? String != epoch {
                     throw fail("The outbox owner changed. Read it again.")
@@ -296,6 +316,14 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         for answer in completed.0 { answer(.success(completed.1)) }
     }
+    private func deliveryRemovalMatchesLocked(_ request: Object, _ row: Row, recovering: Bool = false) -> Bool {
+        guard let guardValue = request["deliveryCleanup"] as? Object else { return true }
+        let id = request["messageId"] as! String, mutation = request["mutationId"] as! String
+        return errors.isEmpty && (row.confirmed || recovering) && matches(request, row)
+            && T3MobileOutbox.jsonEqual(row.record, guardValue["record"])
+            && (holds[id] ?? []).isEmpty
+            && !accepted.values.contains { $0["messageId"] as? String == id && $0["mutationId"] as? String != mutation }
+    }
     private func mutate(_ request: Object) {
         let id = request["messageId"] as! String, mutation = request["mutationId"] as! String, operation = request["operation"] as! String
         let previous = synced { cache[id] ?? blank(id) }
@@ -309,6 +337,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         let owners = [previous["record"] as? Object, request["record"] as? Object].compactMap { $0 }
         func admitted(_ row: Row) -> Bool {
             row.record != nil && matches(request, row) && (request["requireUnheld"] as? Bool != true || synced { (holds[id] ?? []).isEmpty })
+                && synced { deliveryRemovalMatchesLocked(request, row) }
         }
         if synced({ unresolved[id] != nil }) {
             blocked(request, previous: previous); return
@@ -325,18 +354,22 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
             var target = operation == "enqueue" ? Row(record: request["record"] as? Object, revision: enqueueRevision, token: mutation, confirmed: true)
                 : Row(record: operation == "remove" ? nil : request["record"] as? Object, revision: initial.revision + 1, token: mutation, confirmed: true)
             var outcome = result(request, "committed", revision: target.revision, record: target.record, removed: operation == "remove" ? initial.record : nil)
-            try save(terminal(pending, request: request, row: target, outcome: outcome, owners: owners))
-            installedProposal = true
+            if request["deliveryCleanup"] == nil {
+                try save(terminal(pending, request: request, row: target, outcome: outcome, owners: owners))
+                installedProposal = true
+            }
             if operation != "enqueue" {
                 let published: (Row, Bool) = synced {
                     let current = rows[id]!
                     let valid = current.record != nil && matches(request, current)
                         && (request["requireUnheld"] as? Bool != true || (holds[id] ?? []).isEmpty)
+                        && deliveryRemovalMatchesLocked(request, current)
                     if !valid { return (current, false) }
                     target.revision = current.revision + 1; rows[id] = target
                     return (target, true)
                 }
                 target = published.0
+                if request["deliveryCleanup"] != nil { installedProposal = true }
                 outcome = result(request, published.1 ? "committed" : "stale", revision: target.revision,
                     record: published.1 ? target.record : nil, removed: published.1 && operation == "remove" ? initial.record : nil)
                 // One bounded compensation/final-outcome write, like source; later enqueues own their own write.
@@ -385,6 +418,11 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         synced { cache[id] = visible; unresolved[id] = request["mutationId"] as? String; uncertainResults.insert(request["mutationId"] as! String); rows[id]?.confirmed = false }
         finish(request["mutationId"] as! String, outcome: result(request, "uncertain", revision: synced { rows[id]?.revision ?? 0 }, message: message))
     }
+    private func requireDeliveryCleanupEvidence(_ outcome: Object) throws {
+        guard let raw = outcome["request"] as? String, let data = raw.data(using: .utf8),
+              let request = try JSONSerialization.jsonObject(with: data) as? Object else { throw fail("The mutation receipt is invalid.") }
+        if request["deliveryCleanup"] != nil { try deliveryCleanupEvidence(request) }
+    }
     private func control(_ request: Object) throws -> Object {
         let id = request["messageId"] as! String, action = request["action"] as! String
         var value = synced { cache[id] ?? blank(id) }
@@ -406,6 +444,32 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 guard let original = value["mutation"] as? Object, original["mutationId"] as? String == mutation,
                       ["commit", "rollback"].contains(request["decision"] as? String ?? "") else { throw fail("Choose commit or rollback for the exact pending mutation.") }
                 let commit = request["decision"] as? String == "commit"
+                if original["deliveryCleanup"] != nil {
+                    return try synced {
+                        guard errors.isEmpty, !accepted.values.contains(where: { $0["messageId"] as? String == id }),
+                              let current = rows[id] else { throw fail("Resolve accepted work before delivery cleanup recovery.") }
+                        let originalRow = Row(record: value["previous"] as? Object,
+                            revision: original["expectedRevision"] as! Int, token: original["expectedToken"] as! String, confirmed: true)
+                        let capturedStillCurrent = matches(original, current)
+                            && T3MobileOutbox.jsonEqual(current.record, originalRow.record)
+                        // In-process CAS may already have removed the row before its terminal save failed.
+                        let publishedOwnRemoval = current.token == mutation && current.record == nil
+                        guard capturedStillCurrent || publishedOwnRemoval else { throw fail("The delivery cleanup row changed; recovery cannot overwrite it.") }
+                        if commit {
+                            guard (holds[id] ?? []).isEmpty else { throw fail("Close this message editor before delivery cleanup recovery.") }
+                        }
+                        let row = commit ? Row(record: nil, revision: max(current.revision, originalRow.revision + 1), token: mutation, confirmed: true) : originalRow
+                        let outcome = result(original, commit ? "committed" : "failed", revision: row.revision,
+                            record: nil, removed: commit ? originalRow.record : nil)
+                        let saved = try terminal(value, request: original, row: row, outcome: outcome, owners: disk.payloads(value))
+                        // This rare explicit recovery holds the shared mutex through disk publication.
+                        // No new editor/row admission can invalidate its captured CAS during the write.
+                        do { try disk.save(saved) }
+                        catch { throw T3Failure(kind: "Persistence", message: "Delivery cleanup recovery may have reached disk.", uncertain: true) }
+                        cache[id] = saved; rows[id] = row; unresolved.removeValue(forKey: id); uncertainResults.remove(mutation)
+                        return decorated(outcome)
+                    }
+                }
                 let record = !commit && original["operation"] as? String == "enqueue" ? nil : value[commit ? "proposed" : "previous"] as? Object
                 let revision = (value["sourceRevision"] as? Int ?? 0) + 1
                 let row = Row(record: record, revision: revision, token: commit || original["operation"] as? String == "enqueue" ? mutation : originalToken, confirmed: commit || original["operation"] as? String != "enqueue")
@@ -430,6 +494,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         if action == "acknowledge" {
             guard let outcome = outcomes[mutation], value["state"] as? String != "pending", synced({ unresolved[id] != mutation && !uncertainResults.contains(mutation) }) else { return ["acknowledged": false] }
+            try requireDeliveryCleanupEvidence(outcome)
             try release(outcome["owners"] as? [Object] ?? [])
             outcomes.removeValue(forKey: mutation); value["outcomes"] = outcomes; try save(value)
             return ["acknowledged": true]
@@ -437,6 +502,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         guard synced({ unresolved[id] == nil }) else { return ["completed": false] }
         var removals = value["removals"] as? [String: Object] ?? [:]
         guard let removed = removals[mutation] else { return ["completed": false] }
+        if let outcome = outcomes[mutation] { try requireDeliveryCleanupEvidence(outcome) }
         try release([removed]); removals.removeValue(forKey: mutation); value["removals"] = removals; try save(value)
         return ["completed": true]
     }

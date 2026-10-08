@@ -30,6 +30,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var durableOutbox: [String: Int] = [:]
     private var outboxAttempts: [String: Int] = [:]
     private var outboxAdmitted = Set<String>()
+    private var outboxCleanupAnswers: [String: [T3MobileOutboxOwner.Answer]] = [:]
     // Failure injection belongs to isolated source tests; shipping initializer uses durableReplace.
     private let replace: (Data, URL) throws -> Void
     init(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) {
@@ -70,6 +71,20 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                       properties.fileSize == attachment["sizeBytes"] as? Int else {
                     throw self.refusal("Save this draft's local attachment bytes before queuing it.", kind: "Persistence")
                 }
+            }
+        }, deliveryCleanupEvidence: { [weak self] request in
+            guard let self, let guardValue = request["deliveryCleanup"] as? [String: Any],
+                  let id = guardValue["operationId"] as? String else { throw T3Failure(kind: "Persistence", message: "The delivery cleanup owner ended.") }
+            try self.locked {
+                let value = try self.store()
+                guard let operation = self.operations(value)[id], let cleanup = operation["cleanup"] as? [String: Any],
+                      cleanup["mutationId"] as? String == request["mutationId"] as? String,
+                      cleanup["ackRevision"] as? Int == guardValue["ackRevision"] as? Int,
+                      ["removed", "edited", "failed"].contains(cleanup["phase"] as? String ?? "") else {
+                    throw self.refusal("Save the delivery cleanup outcome before releasing its ownership.", kind: "Persistence")
+                }
+                self.durableOutbox.removeValue(forKey: id)
+                try self.saveOutboxJournal(value); self.durableOutbox[id] = operation["revision"] as? Int
             }
         })
     }
@@ -375,6 +390,135 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             return ["operation": operation, "durable": true]
         }
     }
+    /// ACK remains immutable. This only removes the original queue row through its existing FIFO owner.
+    func completeOutboxDelivery(_ request: [String: Any], answer: @escaping T3MobileOutboxOwner.Answer) {
+        typealias Object = [String: Any]
+        var pending: Object?
+        var inspect: (String, String)?
+        var immediate: Object?
+        var registered = false
+        let id = request["operationId"] as? String ?? ""
+        do {
+            try locked {
+                var value = try store(), commands = operations(value)
+                guard var operation = commands[id], operation["kind"] as? String == "outbox",
+                      operation["state"] as? String == "acknowledged",
+                      T3OutboxDeliveryReceipt.integer(request["revision"], positive: true), let revision = request["revision"] as? Int,
+                      let current = operation["revision"] as? Int,
+                      let attempt = operation["attemptRevision"] as? Int,
+                      revision >= attempt + 1, revision <= current else {
+                    throw refusal("Choose the acknowledged delivery receipt.", kind: "stale")
+                }
+                if outboxCleanupAnswers[id] != nil { outboxCleanupAnswers[id]!.append(answer); return }
+                durableOutbox.removeValue(forKey: id)
+                try saveOutboxJournal(value); durableOutbox[id] = current
+                let existing = operation["cleanup"] as? Object
+                if operation["stage"] as? String == "settings-sync" {
+                    if existing == nil {
+                        operation["revision"] = current + 1
+                        operation["cleanup"] = ["ackRevision": attempt + 1, "intentRevision": current + 1, "phase": "settings", "outcome": NSNull()]
+                        commands[id] = operation; value["operations"] = commands
+                        durableOutbox.removeValue(forKey: id)
+                        try saveOutboxJournal(value); durableOutbox[id] = current + 1
+                    }
+                    immediate = cleanupReply(operation); return
+                }
+                var rebind = false
+                if let existing {
+                    let phase = existing["phase"] as! String
+                    if request["retryCleanupRevision"] != nil {
+                        guard request["retryCleanupRevision"] as? Int == current, revision == current,
+                              ["edited", "failed", "not-started"].contains(phase) else {
+                            throw refusal("Resolve the exact cleanup before choosing a fresh attempt.", kind: "stale")
+                        }
+                        _ = try outboxOwner.deliveryRecordLocked(["ownerEpoch": request["ownerEpoch"] ?? NSNull(),
+                            "messageId": operation["messageId"]!, "record": operation["record"]!,
+                            "expectedToken": operation["rowToken"]!, "expectedRevision": operation["rowRevision"]!])
+                        rebind = true
+                    } else if ["removed", "edited", "failed", "not-started"].contains(phase) {
+                        immediate = cleanupReply(operation); return
+                    } else {
+                        inspect = (operation["messageId"] as! String, existing["mutationId"] as! String)
+                    }
+                }
+                if existing == nil || rebind {
+                    guard let mutation = request["mutationId"] as? String, !mutation.isEmpty,
+                          let epoch = request["ownerEpoch"] as? String, !epoch.isEmpty,
+                          existing?["mutationId"] as? String != mutation else {
+                        throw refusal("Choose a fresh cleanup mutation identity.", kind: "Outbox")
+                    }
+                    let cleanup: Object = ["mutationId": mutation, "ownerEpoch": epoch, "ackRevision": attempt + 1,
+                        "intentRevision": current + 1, "phase": "pending", "outcome": NSNull()]
+                    pending = ["action": "mutate", "operation": "remove", "ownerEpoch": epoch, "mutationId": mutation,
+                        "messageId": operation["messageId"]!, "expectedToken": operation["rowToken"]!,
+                        "expectedRevision": operation["rowRevision"]!, "requireUnheld": true,
+                        "deliveryCleanup": ["operationId": id, "ackRevision": attempt + 1, "record": operation["record"]!]]
+                    guard T3MobileOutbox.validateMutation(pending!, id: operation["messageId"] as! String) else { throw refusal("The cleanup mutation identity is invalid.", kind: "Outbox") }
+                    operation["cleanup"] = cleanup; operation["revision"] = current + 1
+                    commands[id] = operation; value["operations"] = commands
+                    durableOutbox.removeValue(forKey: id)
+                    try saveOutboxJournal(value); durableOutbox[id] = current + 1
+                }
+                outboxCleanupAnswers[id] = [answer]; registered = true
+            }
+            if let immediate { answer(.success(immediate)); return }
+            guard registered else { return }
+            if let pending {
+                outboxOwner.submitDeliveryCleanup(pending) { [self] result in
+                    switch result {
+                    case .success(let outcome): finishOutboxCleanup(id, evidence: ["status": "outcome", "outcome": outcome])
+                    case .failure:
+                        // Admission may have refused after the durable intent. FIFO inspection proves whether it started.
+                        outboxOwner.inspectDeliveryCleanup(pending["messageId"] as! String, mutation: pending["mutationId"] as! String) { [self] result in
+                            finishOutboxCleanup(id, inspection: result)
+                        }
+                    }
+                }
+            } else if let inspect {
+                outboxOwner.inspectDeliveryCleanup(inspect.0, mutation: inspect.1) { [self] result in finishOutboxCleanup(id, inspection: result) }
+            }
+        } catch { answer(.failure(error)) }
+    }
+    private func cleanupReply(_ operation: [String: Any]) -> [String: Any] {
+        let cleanup = operation["cleanup"] as! [String: Any]
+        return ["operation": operation, "durable": true, "cleanup": cleanup["phase"]!, "outcome": cleanup["outcome"]!]
+    }
+    private func finishOutboxCleanup(_ id: String, inspection: Result<[String: Any], Error>) {
+        switch inspection {
+        case .success(let evidence): finishOutboxCleanup(id, evidence: evidence)
+        case .failure(let error):
+            let answers = locked { outboxCleanupAnswers.removeValue(forKey: id) ?? [] }
+            for answer in answers { answer(.failure(error)) }
+        }
+    }
+    private func finishOutboxCleanup(_ id: String, evidence: [String: Any]) {
+        let result: Result<[String: Any], Error>
+        do {
+            result = .success(try locked {
+                var value = try store(), commands = operations(value)
+                guard var operation = commands[id], var cleanup = operation["cleanup"] as? [String: Any],
+                      operation["state"] as? String == "acknowledged" else { throw refusal("The cleanup receipt is missing.", kind: "Persistence") }
+                let outcome = evidence["outcome"] as? [String: Any]
+                let status = outcome?["status"] as? String
+                let phase: String
+                if status == "committed", T3MobileOutbox.jsonEqual(outcome?["removed"], operation["record"]) { phase = "removed" }
+                else if status == "stale" { phase = "edited" }
+                else if status == "failed" { phase = "failed" }
+                else if evidence["status"] as? String == "not-started" { phase = "not-started" }
+                else { phase = "uncertain" }
+                cleanup["phase"] = phase; cleanup["outcome"] = outcome.map { $0 as Any } ?? NSNull()
+                operation["cleanup"] = cleanup; operation["revision"] = (operation["revision"] as! Int) + 1
+                guard T3OutboxDeliveryReceipt.valid(operation, id: id) else { throw refusal("The cleanup outcome does not match its acknowledged receipt.", kind: "Persistence") }
+                commands[id] = operation; value["operations"] = commands
+                if phase == "removed" { enqueueReleases((operation["record"] as! [String: Any])["attachments"] as! [[String: Any]], in: &value) }
+                durableOutbox.removeValue(forKey: id)
+                try saveOutboxJournal(value); durableOutbox[id] = operation["revision"] as? Int
+                return cleanupReply(operation)
+            })
+        } catch { result = .failure(error) }
+        let answers = locked { outboxCleanupAnswers.removeValue(forKey: id) ?? [] }
+        for answer in answers { answer(result) }
+    }
     func beginSend(_ id: String, revision: Int, origin: String, environment: String) throws -> [String: Any] {
         try locked {
             var value = try store(), commands = operations(value)
@@ -511,7 +655,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         let owned = records(value).values.contains { record in
             (record["attachments"] as? [[String: Any]] ?? []).contains { ($0["id"] as? String)?.lowercased() == identifier }
         } || operations(value).values.contains { operation in
-            if operation["kind"] as? String == "outbox", operation["state"] as? String == "retired",
+            if operation["kind"] as? String == "outbox",
+               (operation["state"] as? String == "retired" || ["removed", "settings"].contains((operation["cleanup"] as? [String: Any])?["phase"] as? String ?? "")),
                let id = operation["operationId"] as? String, durableOutbox[id] == operation["revision"] as? Int { return false }
             return (operation["attachmentIDs"] as? [String] ?? []).map { $0.lowercased() }.contains(identifier)
         }

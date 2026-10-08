@@ -117,7 +117,7 @@ enum T3OutboxDeliveryReceipt {
         return fields(dispatch, ["type", "targetRunId"]) && member(dispatch["type"], ["steer_active", "restart_active"]) && text(dispatch["targetRunId"])
     }
     static func valid(_ receipt: Object, id: String) -> Bool {
-        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision", "attemptRevision", "attemptPreviousState", "result", "error"]),
+        guard fields(receipt, ["kind", "operationId", "revision", "origin", "environmentId", "messageId", "threadId", "rowToken", "rowRevision", "record", "stage", "method", "payload", "attachmentIDs", "state"], ["retiredRevision", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"]),
               receipt["kind"] as? String == "outbox", receipt["operationId"] as? String == id, text(id),
               integer(receipt["revision"], positive: true), integer(receipt["rowRevision"], positive: true), text(receipt["rowToken"]),
               member(receipt["state"], ["reserved", "retired", "issued", "uncertain", "acknowledged", "rejected"]), let record = receipt["record"] as? Object,
@@ -131,7 +131,7 @@ enum T3OutboxDeliveryReceipt {
         if let rawAttempt = receipt["attemptRevision"] {
             guard integer(rawAttempt, positive: true), let attempt = rawAttempt as? Int, attempt > prior + 1,
                   let previous = receipt["attemptPreviousState"] as? String, ["reserved", "uncertain", "rejected"].contains(previous),
-                  revision == attempt + (state == "issued" ? 0 : state == "retired" ? 2 : 1) else { return false }
+                  (receipt["cleanup"] != nil ? state == "acknowledged" && revision > attempt + 1 : revision == attempt + (state == "issued" ? 0 : state == "retired" ? 2 : 1)) else { return false }
             if ["reserved", "retired"].contains(state) && previous != "reserved" { return false }
             if state == "rejected" && previous == "uncertain" { return false }
             if previous == "rejected" && receipt["stage"] as? String != "settings-sync" { return false }
@@ -147,10 +147,43 @@ enum T3OutboxDeliveryReceipt {
                   receipt["result"] == nil, receipt["error"] == nil,
                   revision == prior + (state == "reserved" ? 1 : 2) else { return false }
         }
-        return command(receipt)
+        return cleanupValid(receipt) && command(receipt)
+    }
+    private static func cleanupValid(_ receipt: Object) -> Bool {
+        guard let raw = receipt["cleanup"] else { return true }
+        guard let cleanup = raw as? Object, receipt["state"] as? String == "acknowledged",
+              integer(cleanup["ackRevision"], positive: true), integer(cleanup["intentRevision"], positive: true),
+              let ack = cleanup["ackRevision"] as? Int, ack == (receipt["attemptRevision"] as? Int ?? -2) + 1,
+              let intent = cleanup["intentRevision"] as? Int, intent > ack,
+              let revision = receipt["revision"] as? Int, revision >= intent else { return false }
+        if cleanup["phase"] as? String == "settings" {
+            return fields(cleanup, ["ackRevision", "intentRevision", "phase", "outcome"])
+                && receipt["stage"] as? String == "settings-sync" && cleanup["outcome"] is NSNull && revision == intent
+        }
+        guard receipt["stage"] as? String == "start-turn",
+              fields(cleanup, ["mutationId", "ownerEpoch", "ackRevision", "intentRevision", "phase", "outcome"]),
+              text(cleanup["mutationId"]), text(cleanup["ownerEpoch"]),
+              let phase = cleanup["phase"] as? String,
+              ["pending", "removed", "edited", "failed", "uncertain", "not-started"].contains(phase) else { return false }
+        if ["pending", "not-started"].contains(phase) { return cleanup["outcome"] is NSNull && (phase != "pending" || revision == intent) }
+        if phase == "uncertain", cleanup["outcome"] is NSNull { return true }
+        guard let outcome = cleanup["outcome"] as? Object,
+              fields(outcome, ["mutationId", "messageId", "status", "revision", "record", "removed", "message", "ownerEpoch", "sequenceFloor", "current"]),
+              outcome["mutationId"] as? String == cleanup["mutationId"] as? String,
+              outcome["messageId"] as? String == receipt["messageId"] as? String,
+              integer(outcome["revision"]), text(outcome["ownerEpoch"]),
+              integer(outcome["sequenceFloor"]), let current = outcome["current"] as? Object,
+              fields(current, ["record", "revision", "token", "pending"]), integer(current["revision"]), current["token"] is String,
+              (current["pending"] as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true,
+              current["record"] is NSNull || (current["record"] as? Object).map(T3MobileOutbox.validateRecord) == true,
+              outcome["record"] is NSNull, outcome["message"] is String else { return false }
+        let status = ["removed": "committed", "edited": "stale", "failed": "failed", "uncertain": "uncertain"][phase]
+        return outcome["status"] as? String == status && (phase == "removed"
+            ? T3MobileOutbox.jsonEqual(outcome["removed"], receipt["record"])
+            : outcome["removed"] is NSNull || phase == "uncertain" && T3MobileOutbox.jsonEqual(outcome["removed"], receipt["record"]))
     }
     static func sameIdentity(_ a: Object, _ b: Object) -> Bool {
-        T3MobileOutbox.jsonEqual(a.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error"].contains($0.key) }, b.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error"].contains($0.key) })
+        T3MobileOutbox.jsonEqual(a.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"].contains($0.key) }, b.filter { !["revision", "state", "attemptRevision", "attemptPreviousState", "result", "error", "cleanup"].contains($0.key) })
     }
     static func make(_ request: Object, origin: String, environment: String) throws -> Object {
         guard let record = request["record"] as? Object, let payload = request["payload"] as? Object,
