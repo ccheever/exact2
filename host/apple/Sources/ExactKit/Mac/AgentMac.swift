@@ -114,7 +114,7 @@ extension Agent {
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
-            session.natives.ownsFocus(n) || responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+            session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
         }).min(by: { $0.id < $1.id }) {
             focus["logical"] = Int(node.id)
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
@@ -762,8 +762,9 @@ extension Agent {
                 if !editing { win.makeFirstResponder(f) }
             } else if v.isSurfaceControl && v.ownsSurfaceControl {
                 _ = v.focusSurfacePointer()
-            } else if v.acceptsFirstResponder {
-                if win.firstResponder !== v { win.makeFirstResponder(v) }
+            } else if presenter.keyView(of: v).acceptsFirstResponder {
+                let owner = presenter.keyView(of: v)
+                if win.firstResponder !== owner { win.makeFirstResponder(owner) }
             }
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,

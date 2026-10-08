@@ -5,7 +5,7 @@ import XCTest
 
 /// LLP 1069.011 on AppKit: a `Control` of type `button` is AppKit's own
 /// `NSButton` with its row's look and the node's face (D2, D5); its action is
-/// a custom button's click, once (D4); it never takes the key view; it is the
+/// a custom button's click, once (D4); it owns the key view (LLP 1104 D6); it is the
 /// one accessibility element; a glass look's button is isolated in a glass
 /// group (D9).
 final class NativeButtonsMacTests: XCTestCase {
@@ -48,7 +48,7 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(go.title, "Go")
         XCTAssertEqual(go.drawn, "push-accent")
         XCTAssertNotNil(go.bezelColor)
-        XCTAssertFalse(go.acceptsFirstResponder, "the node keeps the key view")
+        XCTAssertTrue(go.acceptsFirstResponder, "the native control owns focus")
         XCTAssertEqual(go.accessibilityLabel(), "Go")
         XCTAssertEqual(go.accessibilityIdentifier(), "go")
         XCTAssertEqual(p.views[2]?.accessibleName, "Go", "the agent's name for it is its title")
@@ -59,7 +59,7 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.controls.controls[4]).isEnabled)
         XCTAssertNil(p.controls.activate(try XCTUnwrap(p.views[2])), "the agent clicks it as a person does")
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[2]))?["view"] as? String, "NSButton")
-        XCTAssertTrue(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "the node is in the key loop")
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "only the native control is in the key loop")
     }
 
     func testItFocusesAsAClickDoesAndPressesOnlyAnAncestorItIsIn() throws {
@@ -69,7 +69,7 @@ final class NativeButtonsMacTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac).performClick(nil)
-        XCTAssertTrue(window.firstResponder === p.views[2], "with no press anywhere, the clicked node still takes the focus")
+        XCTAssertTrue(window.firstResponder === p.controls.controls[2], "with no press anywhere, the clicked node still takes the focus")
         XCTAssertEqual(pressed, [])
         try XCTUnwrap(p.controls.controls[5] as? NativeButtonMac).performClick(nil)
         XCTAssertEqual(pressed, [4], "inside its ancestor: the ancestor's press")
