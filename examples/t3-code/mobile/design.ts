@@ -66,7 +66,7 @@ export function mobileHomeColors(scheme: string, palette = "t3-code") {
   const tokens = themes[variant] ?? themes[dark ? "dark" : "light"];
   const token = (name: string) => tokens[`--color-${name}`];
   return {
-      foreground: token('foreground'), muted: token('foreground-muted'), border: token('border'),
+      menuBackground: token('sheet'), foreground: token('foreground'), muted: token('foreground-muted'), border: token('border'),
       primary: token('primary'), primaryForeground: token('primary-foreground'), iconSubtle: token('icon-subtle'),
       dangerForeground: token('danger-foreground'), done: token('adaptive-emerald-700-300'),
       tertiary: token('foreground-tertiary'), secondary: token('foreground-secondary'),

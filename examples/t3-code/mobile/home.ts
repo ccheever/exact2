@@ -3,6 +3,7 @@
 // @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
+import type { HomeMenuItem } from './home-actions';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj, type Shell } from './shared/domain';
 import { fleet, fleetThreadId, type EnvironmentFleet } from './shared/settings-b-fleet';
@@ -33,12 +34,12 @@ export interface HomeItem {
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
   favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
-  searchExcerpt: string;
+  searchExcerpt: string; menuItems: HomeMenuItem[];
 }
 const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', id: '', environmentId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
-  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '' });
+  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', menuItems: [] });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
 const timestamp = (value: unknown) => { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? stamp : -Infinity; };
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };

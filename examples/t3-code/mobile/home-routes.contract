@@ -1,0 +1,10 @@
+// @ref llp/1107.004-home-projection.decision.md#decision
+// Pure chrome decisions; root state and navigation keep their existing owners.
+shape HomeChromeChange
+  query: string
+  environment: string
+  project: string
+  count: number
+  location: string
+fn homeChromeChange(kind: string, value: string, query: string, environment: string, project: string, count: number): HomeChromeChange = HomeChromeChange(query=(kind == "search" ? value : query), environment=(kind == "environment" ? value : environment), project=(kind == "environment" ? "" : kind == "project" ? value : project), count=(kind == "search" or kind == "environment" or kind == "project" ? 10 : count), location=(kind == "settings" ? path("settings") : kind == "environments" ? path("environments") : kind == "compose" ? path("newTask") : ""))
+fn homeAutomationPath(route: string, accountKey: string, windowId: string, windowKind: string): string = route == "settingsScheduledNew" ? path("settingsScheduledNew") : route == "settingsScheduledEdit" ? path("settingsScheduledEdit") : route == "settingsScheduledModel" ? path("settingsScheduledModel") : route == "settingsScheduledBranch" ? path("settingsScheduledBranch") : route == "settingsUsageAccount" ? path("settingsUsageAccount", accountKey, windowId, windowKind) : ""

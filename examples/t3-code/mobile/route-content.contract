@@ -253,6 +253,7 @@ component MobileRouteContent
     toggleHomeShelf: action
     showMore: action
     chooseThread: action
+    homeMenuAction: action
     editHost: action
     editCode: action
     connect: action
@@ -330,7 +331,7 @@ component MobileRouteContent
         button press=openNewTask border-radius=9999 padding=12 background-color=homeLook.primary
           text "New Task" color=homeLook.primaryForeground font-weight=700
     else when routeName == "home"
-      Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
+      Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
       HomeChrome(configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
     else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
       // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.
