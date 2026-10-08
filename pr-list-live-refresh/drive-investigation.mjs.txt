@@ -1,0 +1,92 @@
+// pr-list-live-refresh, investigation (approved, one session): what moves the list's scroll to the top after a
+// re-read. Drive A: a wheel scroll, then a refocus with the list read held off (inside the 10 s rule). Drive B:
+// a wheel scroll, then a list read with no refocus (another client's pullRequests.invalidate: the server's
+// announcement). Control C: a wheel scroll, then one minute tick (no read, no focus). No GitHub writes.
+// The earlier header: (one agent-mode session, no retry) on the list-refresh branch with
+// #261 merged: close #158 with a comment, wait for the open list to be read again without it, reopen it with a
+// comment, wait out the server's 30 s list cache, blur and refocus the window, and see the row come back; then a
+// 5-minute clock tick reads the list once more. The list's state is read back from the app and from GitHub.
+// bun drive3.mjs <repo> <label>. Primary lane server 127.0.0.1:16760 (real GitHub through the lane gh);
+// pairs with a fresh single-use token (never printed). Reads every effect back with the lane gh: the
+// state change and each comment body byte for byte; watches the list row (pr-row-158 in the open list)
+// leave on the press and come back on the reopen, and the toasts. Restores #158 (open, its two test
+// comments deleted) at the end.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-list-live-refresh';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16760';
+const REPO = 'daehyeonmun2021/playground', PR = 158;
+const rec = (line) => { const text = `${new Date().toISOString()} [${label}] ${line}`; appendFileSync(resolve(out, 'record.txt'), text + '\n'); console.log(text); };
+const gh = (args) => lib.api(paths, 'primary', args);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const stateOf = () => gh([`repos/${REPO}/pulls/${PR}`]).body?.state;
+const comments = () => gh([`repos/${REPO}/issues/${PR}/comments?per_page=100`]).body ?? [];
+const openOnGitHub = () => (gh([`repos/${REPO}/pulls?state=open&per_page=100`]).body ?? []).some((p) => p.number === PR);
+// The lane server's spans: [name, start ms, end ms] for the pull request RPCs (written when each ends).
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const spans = (name) => { const out = []; try { for (const line of readFileSync(TRACE, 'utf8').split('\n')) { if (!line.includes(`"ws.rpc.pullRequests.${name}"`)) continue; try { const d = JSON.parse(line); out.push([Number(BigInt(d.startTimeUnixNano) / 1000000n), Number(BigInt(d.endTimeUnixNano) / 1000000n)]); } catch {} } } catch {} return out; };
+
+const rowsFirst = async () => (await nodes()).map((n) => n.props?.testId).filter((id) => /^pr-row-\d+$/.test(id ?? ''));
+const at = async (id) => { try { const r = await s.layout(id); const v = r.node?.space?.viewport ?? r.node?.frame ?? null; return v ? { x: Math.round(v.x), y: Math.round(v.y), h: Math.round(v.h ?? v.height ?? 0) } : null; } catch (e) { return `(${e.message.slice(0, 60)})`; } };
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `prll-${label}`, epoch: Date.now(),
+  onProcess: (p) => { writeFileSync(resolve(L, `${label}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`); } });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => {
+  try { await s.clock(`+${ms} real`); }
+  catch (error) { if (!/cannot go backwards/.test(error.message)) throw error; rec(`  (agent clock: ${error.message.slice(0, 100)}; settled instead)`); await sleep(ms); }
+  await s.clock('settle');
+};
+const type = async (id, value) => { await s.type(id, value); await settle(400); };
+const shot = async (name) => { await s.screenshot(resolve(out, `${label}-${name}.png`), true); rec(`shot ${name}`); };
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) { await type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`); await s.tap('welcome-pair'); await settle(5000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) if (await has(id)) { await s.tap(id); await settle(); }
+  await settle(3000); await clearToasts();
+  await s.tap('open-pull-requests');
+  for (let i = 0; i < 12 && (await rowsFirst()).length < 50; i++) await settle(500); // the list's first read (app clock: ~0.5 s a step)
+  const rows = await rowsFirst(), probe = rows[Math.min(40, rows.length - 1)];
+  rec(`list: ${rows.length} rows; probe ${probe} at ${JSON.stringify(await at(probe))}`);
+  const reads = (since) => spans('list').filter(([start]) => start >= since).length;
+  const wheel = async (name) => { await s.tap('pull-requests-scroll', { wheel: [0, 1200] }); await settle(400); const p = await at(probe); rec(`${name}: after the wheel ${probe} at ${JSON.stringify(p)}`); return p; };
+  // Drive A: refocus inside the 10 s rule, so the list's read is held off.
+  const a0 = await wheel('A');
+  const aAt = Date.now();
+  await s.prefer({ 'has-focus': 'false' }); await settle(300); await s.prefer({ 'has-focus': 'true' });
+  for (let i = 0; i < 4; i++) await settle(500);
+  const a1 = await at(probe);
+  rec(`A (refocus, read held off): list reads ${reads(aAt)}; ${probe} at ${JSON.stringify(a1)}; scroll kept: ${JSON.stringify(a1) === JSON.stringify(a0)}`);
+  await shot('A');
+  // Drive B: a list read with no refocus — another client's invalidate; the server announces it.
+  const b0 = await wheel('B');
+  const bAt = Date.now();
+  const conn = await lane.connectTo('primary');
+  try { await conn.request('pullRequests.invalidate', {}); } finally { conn.close(); }
+  for (let i = 0; i < 10 && reads(bAt) === 0; i++) await settle(1000);
+  for (let i = 0; i < 6; i++) await settle(1000);
+  const b1 = await at(probe);
+  rec(`B (read, no refocus): list reads ${reads(bAt)}; ${probe} at ${JSON.stringify(b1)}; scroll kept: ${JSON.stringify(b1) === JSON.stringify(b0)}`);
+  await shot('B');
+  // Control C: one minute tick on the app's clock, nothing else.
+  const c0 = await wheel('C');
+  const cAt = Date.now();
+  await s.clock('+60000'); await settle(500);
+  const c1 = await at(probe);
+  rec(`C (a minute tick): list reads ${reads(cAt)}; ${probe} at ${JSON.stringify(c1)}; scroll kept: ${JSON.stringify(c1) === JSON.stringify(c0)}`);
+  await shot('C');
+} catch (error) {
+  rec(`FAILED: ${error.message.slice(0, 400)}`);
+  try { await shot('failure'); } catch {}
+} finally {
+  try { await s.close?.(); } catch {}
+}
