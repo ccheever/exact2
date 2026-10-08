@@ -685,7 +685,12 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `text role="heading" aria-level=N`; `label` is `text` beside its field, which
 `aria-label` (or `aria-labelledby`) names; `img` is `image`; `a` is `link`; `ul`,
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
-title=… description=…`. A component
+title=… description=…`; a `table` is `view display="grid"` with
+`grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
+open`). In expressions a view chooses with `when`, not `if`; a count is
+`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's

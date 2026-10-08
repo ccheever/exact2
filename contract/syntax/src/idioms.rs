@@ -56,7 +56,7 @@ pub fn refusal(name: &str) -> Option<String> {
         "Number" | "parseInt" | "parseFloat" => format!(
             "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
         ),
-        "len" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
+        "len" | "count" | "size" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
         "min" | "max" => format!(
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),

@@ -936,10 +936,30 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
             "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
         }
-        "img" => "an image is `image`",
+        // The app farm's guesses (round 1): each names the Contract form
+        // that does the job.
+        "small" | "code" | "pre" | "paragraph" | "subtitle" => {
+            "text is `text`, styled by its attributes (`font-size`, `font-family`, `white-space`)"
+        }
+        "form" => {
+            "there is no `form`: a field's Enter is its `submit` (`input … submit=save`), and a `button`'s `press` acts"
+        }
+        "table" | "thead" | "tbody" | "tr" | "td" | "th" | "grid" => {
+            "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
+        }
+        "details" | "summary" => {
+            "there is no `details`: keep `open` in state, show the body `when open`, and toggle it from a `button`"
+        }
+        "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
+        "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
+        "spacer" => "a spacer is `view flex=1` in a `row` or `column`",
+        "divider" => "a divider is `hr`",
+        "br" => "a line break is a new `text`, or `\\n` in a string with `white-space=\"pre-line\"`",
+        "icon" => "an icon is `image \"symbol:<role>\"`, or an `svg`",
+        "img" | "picture" => "an image is `image`",
         "a" => "a link is `link`",
         "title" | "meta" => "a page's title and description are `head title=… description=…`",
         "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
