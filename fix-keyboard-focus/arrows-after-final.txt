@@ -1,0 +1,18 @@
+fix-keyboard-focus: ↓/↑ on a closed menu trigger (coordinator ruling 2026-10-08), agent mode, macOS 1280x840,
+build 10/11 of this branch (HEAD 4bc1fc9ff + the ↓/↑ change). Each row: the trigger focused, then the keys, reading
+the focused node's testId after each key.
+
+Popover menus (KeyMenuOpen: invisible show-invokers over the trigger, armed by its focus):
+Sidebar snooze: ArrowDown -> snooze-<t>-hour (first); Escape -> snooze-<t>; ArrowUp -> snooze-<t>-custom (last); Escape -> snooze-<t>
+PR Sort: ArrowDown -> pr-sort-ready (first); Escape -> pull-requests-sort; ArrowUp -> pr-sort-smallest (last); Escape -> pull-requests-sort
+PR Filters: ArrowDown -> pr-filter-state (first); Escape -> pull-requests-filters; ArrowUp -> pr-filter-project (last); Escape -> pull-requests-filters
+PR More (#132): ArrowDown -> pr-more-refresh (first); Escape -> pull-request-more; ArrowUp -> pr-more-close (last); Escape -> pull-request-more
+PR Check out (#132): ArrowDown -> pr-checkout-worktree (first); Escape -> pull-request-checkout; ArrowUp -> pr-checkout-local (last); Escape -> pull-request-checkout
+Settings scope (project): ArrowDown -> settings-scope-choice-project-all (first); Escape -> settings-scope-project
+Settings › Source Control › Default merge method (SettingsSelect, wrapped trigger): ArrowDown -> scoped-pullRequestMergeMethod-option-last (first, "Last selected"), the menu under the trigger; Escape -> scoped-pullRequestMergeMethod; ArrowUp -> scoped-pullRequestMergeMethod-option-rebase (last); Escape -> scoped-pullRequestMergeMethod
+
+Menus their owner mounts from state:
+Thread title: ArrowDown -> title-menu-pin (first); Escape -> thread-title; ArrowUp -> title-menu-delete (last); Escape -> thread-title
+  (build 9 focused the popup: the action read the end from the state it had just set; Contract actions read the state as it began. Fixed in build 10: the end comes from the key.)
+Diff scope (data-module mount): ArrowDown -> diff-scope-branch (first)
+Details "Open in" (data-module mount): the menu opens on ArrowDown, Enter and a press, but in this lane it lists no editors ("No SSH route to …"), so its popup has no rows and no size and takes no focus; not checked with rows.
