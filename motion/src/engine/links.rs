@@ -148,6 +148,7 @@ impl Engine {
             timelines: Default::default(),
             clocks: Default::default(),
             paths: Default::default(),
+            properties: Default::default(),
             links,
         }
     }
@@ -174,7 +175,7 @@ fn settle_observe(engine: &mut Engine, change: Change) -> Answer<()> {
             slot.set_presented(change.value);
         }
         None => {
-            engine.slots.insert(key, Slot::settled(change.value));
+            engine.keep(key, Slot::settled(change.value));
         }
     }
     engine.dirty.insert(key);
