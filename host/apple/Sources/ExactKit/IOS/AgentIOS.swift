@@ -836,13 +836,13 @@ extension Agent {
             // before the shortcuts and the key, up in reverse after its keyup,
             // each keyup without its own bit.
             let presses = KeyCodes.modifierPresses(key)
-            // Tab's release reaches where its down left the focus, as a
-            // keyboard's keyup reaches the focused element.
+            // Tab's release, its modifiers' too, reaches where its down left
+            // the focus, as a keyboard's keyup reaches the focused element.
             let heardUp = { [weak presenter, weak focus] in
                 let at = name == "Tab" ? presenter?.focusedNode : focus
                 _ = presenter?.keyUp(at: at, name, held: upHeld, code: code)
                 for (i, m) in presses.enumerated().reversed() {
-                    _ = presenter?.keyUp(at: focus, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
+                    _ = presenter?.keyUp(at: at, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
                 }
             }
             defer {

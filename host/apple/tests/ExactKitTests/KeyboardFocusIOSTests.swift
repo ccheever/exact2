@@ -175,7 +175,7 @@ final class KeyboardFocusIOSTests: XCTestCase {
         let name = NodeView(id: 7001, kind: "input", presenter: p)
         let email = NodeView(id: 7002, kind: "input", presenter: p)
         let save = NodeView(id: 7003, kind: "button", presenter: p)
-        name.handlers = ["change", "blur"]; email.handlers = ["change"]; save.handlers = ["press"]
+        name.handlers = ["change", "blur"]; email.handlers = ["change", "keyup"]; save.handlers = ["press", "keyup"]
         for (i, node) in [name, email, save].enumerated() {
             node.frame = CGRect(x: 0, y: CGFloat(i) * 50, width: 200, height: 40)
             p.root.addSubview(node); p.views[node.id] = node
@@ -206,8 +206,13 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertTrue(save.isFirstResponder, "the down moves the focus")
         _ = session.agentInstance.type(["id": 7002, "key": "Tab", "phase": "up"])
         XCTAssertTrue(save.isFirstResponder, "and the up does not take it back")
+        var keyups: [(UInt32, String)] = []
+        p.onKey = { id, press in if press.up { keyups.append((id, press.chord)) } }
         _ = session.agentInstance.type(["id": 7003, "key": "Shift+Tab"])
         XCTAssertTrue(emailField.isFirstResponder, "Shift-Tab goes back")
+        // Its release, Tab's and Shift's, reaches where it left the focus.
+        XCTAssertEqual(keyups.map(\.0), [7002, 7002], "both keyups at the field it moved to: \(keyups)")
+        XCTAssertEqual(keyups.map(\.1).last, "Shift", "Shift comes up last, without its own bit")
         XCTAssertEqual(emailField.text, "", "nor does Shift-Tab type")
     }
 
