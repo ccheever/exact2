@@ -81,7 +81,7 @@ replies; persistence awaited), layout-and-interaction (settings structure), desi
 testing-and-debugging. Native fleet/transport, Keychain and app lifecycle are **unknown in the library**.
 Decision U4 (2026-10-05): the same as T3 Code — after a Local environment change the whole app relaunches (`ipc/methods/localEnvironment.ts:20-29`). Put the change behind one function `applyLocalSetting` that relaunches the app. If issue X45 confirms that exact2 cannot relaunch an app, `applyLocalSetting` ships a stopgap (stop or start the embedded server and reconnect) and the relaunch rows stay blocked until X45 is resolved and adopted. Open decisions (plan decisions U5 to U7, U13): (b) The window:
 Electron opens it only after the backend is ready (`DesktopApp.ts:237-257`, `DesktopWindow.ts:874`); the Exact host creates it first. Show the existing connecting state and
-declare the difference, or ask for a framework hook ([X31](../../issues/20261005-x31-deferred-window-readiness.md); U5). (c) A saved entry that equals the primary: remove it silently and forget its credential
+declare the difference, or ask for a framework hook ([X31](../../issues/closed/20261005-x31-deferred-window-readiness.md); U5). (c) A saved entry that equals the primary: remove it silently and forget its credential
 (recommended), or keep a duplicate row (U6). (d) Whether to read `~/.t3/userdata/desktop-settings.json` (the original's file) for the Local environment and exposure
 settings; default is the clone's own `t3-code.json`, so a change made in the original does not carry over (U7).
 `app.contract` (1327 lines) and `client.ts` (1455) are near the 1,500-line cap: put state in TS and a new `.contract` file; do not grow either.
@@ -91,7 +91,7 @@ settings; default is the clone's own `t3-code.json`, so a change made in the ori
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | [#99](https://github.com/ccheever/exact2/pull/99) | Merged | the clone is on exact2 in `feat(example)/t3-code` (this PR's base); #99 to main is the user's end-of-project step |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | none | Merged | blocked: not built (user decision 2026-10-06); the Trace row and the oracle comparisons stay blocked |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Merged | blocked: not built (user decision 2026-10-06); the Trace row and the oracle comparisons stay blocked |
 | merged task PR | [20261005-embedded-server-runtime](20261005-embedded-server-runtime.md) | [#222](https://github.com/ccheever/exact2/pull/222) | Merged; spike result is go | merged; spike go |
 | scheduling preference | `20261005-environment-routes` first | [#148](https://github.com/ccheever/exact2/pull/148) | Both touch `environmentKey` call sites | merged first |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | merged |
@@ -106,7 +106,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | --- | --- | --- | --- | --- |
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Native WebSocket transport carries the primary | existing | nonblocking | none |
 | [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components | line caps | nonblocking until the cap | keep state out of `app.contract` |
-| [X31](../../issues/20261005-x31-deferred-window-readiness.md) | Defer the first window until the server is ready | Reference opens the window after readiness; the clone does not control host window creation (not in the library) | unknown (workaround: connecting state in the first window, which differs from the reference's no-window-until-ready) | Check on the pin at `prepare`; the user decides per U5 |
+| [X31](../../issues/closed/20261005-x31-deferred-window-readiness.md) | Defer the first window until the server is ready | Reference opens the window after readiness; the clone does not control host window creation (not in the library) | unknown (workaround: connecting state in the first window, which differs from the reference's no-window-until-ready) | Check on the pin at `prepare`; the user decides per U5 |
 | [X45](../../issues/20261005-x45-app-relaunch.md) | App relaunch after an exposure change | X45 (unconfirmed) | blocking for the relaunch rows if X45 is confirmed missing (stopgap meanwhile: restart the server in place and reconnect; a visible difference) | use the relaunch when X45 is adopted Update 2026-10-07 (adopt-main-fixes-shell): #122 was closed after main #170, which only moves `reload()`'s log to stderr; exact2 still has no process relaunch, so the relaunch rows stay blocked. |
 
 ## Implementation notes
@@ -226,5 +226,6 @@ Final checks on `8997645e8`:
 ## Next action
 
 Review of the draft PR; U5, U6 and U7 were decided on 2026-10-08 (provisional-decisions-parity); the user answers U13. Then: the real-`~/.t3` smoke on U13's go; the oracle
-rows if the oracle is built; the relaunch rows when exact2 has a process relaunch (#122 / X45); the window gate when
-#117 / X31 lands.
+rows if the oracle is built; the relaunch rows when exact2 has a process relaunch (#122 / X45; now waits for main fix of
+#271, after #269). The window gate is closed as declared (2026-10-08): #117 was closed upstream as not planned ("Show an
+honest connecting state, then the result"), so the connecting state is a permanent declared difference (U5 final).

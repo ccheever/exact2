@@ -55,7 +55,7 @@ Consumer framework revision and toolchain: the pin chosen by `20261005-clone-on-
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots for the pixel pairs) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots for the pixel pairs) | pending |
 | recorded decision | U2: apparatus: the grammar generator moves into the example (`tools/grammar/`) and a token-comparison harness is added | none | User approves | pending |
 | recorded decision | U15: languages beyond the 16 grammars, and the long-text limit | none | User chooses the list and the limit | pending |
 

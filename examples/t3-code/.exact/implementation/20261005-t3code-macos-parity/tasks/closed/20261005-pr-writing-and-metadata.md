@@ -54,7 +54,7 @@ Reference wording to keep: placeholders "Leave a comment", "Summarize your revie
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (conversation model, refresh, `readableFailure`) | pending |
 | merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Probe rows for every write confirmed by GitHub read-back; the second account for reviewer requests | pending |
 | scheduling preference | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md), [20261005-main-fix-adoption](20261005-main-fix-adoption.md) | pending | Close/Reopen with comment calls the same `pr-act-action` path that `20261005-pr-header-actions-and-stacks` upgrades; merge that one first if both are open | pending |

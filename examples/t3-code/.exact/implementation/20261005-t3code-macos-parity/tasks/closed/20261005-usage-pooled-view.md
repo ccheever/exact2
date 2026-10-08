@@ -46,7 +46,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-usage-reset-and-feedback](20261005-usage-reset-and-feedback.md) | pending | Merged (redeem machinery, bar pieces, `usage-limits.ts`, config overlay in the fixture) | pending |
 
@@ -230,7 +230,7 @@ buttons with Return). A real redeem waits for the user's decision on spending a 
 Cursor Keychain prompt waits for a Cursor account on a paid plan. The review fixes (`9472711ee`) are
 unit-tested, not re-driven. Light dismiss (an outside press closing a pinned popover) is no longer declared:
 the user decided on 2026-10-08 that it behaves as the reference, and
-[`20261008-popover-escape-parity`](../20261008-popover-escape-parity.md) built it.
+[`20261008-popover-escape-parity`](20261008-popover-escape-parity.md) built it.
 
 ## Real-input batch steps
 

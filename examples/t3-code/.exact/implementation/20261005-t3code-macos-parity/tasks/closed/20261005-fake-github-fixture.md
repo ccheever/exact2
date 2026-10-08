@@ -1,7 +1,7 @@
 ---
 name: 20261005-fake-github-fixture
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: superseded
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -44,7 +44,7 @@ app code.
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md) ("GitHub features go through the server's `gh`;
+Parent specification: [spec](../../spec.md) ("GitHub features go through the server's `gh`;
 verified against a fake `gh` now, live with disposable accounts later"). Source behavior: the
 existing fake in mc-orch `target/t3-ui-parity/lanes/r6-pr/fakegh/` (`gh.mjs` 144 lines,
 `bin/gh`, `state.json`, `state.seed.json`, `calls.ndjson`), described in `examples/t3-code/AGENT-HANDOFF.md` ("lanes/r6-pr"). The reference
@@ -77,7 +77,7 @@ live-credentials-only in `AGENT-HANDOFF.md` (the search query is not served).
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Lane tools and `runtime-f870c41` are in this worktree's `target/` | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Lane tools and `runtime-f870c41` are in this worktree's `target/` | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | `ref-build` has produced `target/t3-ref/runtime-1e2ecbd975`; this ticket runs after it, because `runtime-f870c41` predates `f4f3abf71e` (paginated review replies; touches `GitHubPullRequestCli.ts`, `GitHubPullRequestProvider.ts`, `PullRequestService.ts`) and the verbs must be proven at the pin | pending |
 | recorded decision | Apparatus approval for the fake `gh` extension and the RPC probe (plan decision U2) | none | User approves | pending |
 | recorded decision | Location of the fake `gh` (U23, decided: `examples/t3-code/tools/fakegh/`) and other source-control CLIs (U21, open) | none | U21 answered at `prepare` | U23: user 2026-10-05 |
@@ -146,7 +146,9 @@ Required environment: Bun 1.4.2, the pinned reference runtime copy, no network.
 
 ## Progress
 
-2026-10-07: replaced by real GitHub (user decision); see [20261007-real-github-lane](closed/20261007-real-github-lane.md).
+2026-10-08 (records sync): moved to `tasks/closed/` (`implementation: superseded`): superseded by [20261007-real-github-lane](20261007-real-github-lane.md) (the user's decision of 2026-10-07: real GitHub replaces the fake `gh`).
+
+2026-10-07: replaced by real GitHub (user decision); see [20261007-real-github-lane](20261007-real-github-lane.md).
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
@@ -160,5 +162,5 @@ Planned. No branch.
 
 ## Next action
 
-None: superseded by [20261007-real-github-lane](closed/20261007-real-github-lane.md). Its verb table remains the
+None: superseded by [20261007-real-github-lane](20261007-real-github-lane.md). Its verb table remains the
 coverage list the real lane's probe proves.

@@ -68,7 +68,7 @@ Menus, window chrome, `NSOpenPanel`, `NSEvent` monitors and app-local Swift modu
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-environment-routes` | none | The plan's order: shared `T3Ssh.swift` and `environmentKey` call sites (this ticket no longer edits `T3Ssh.swift`; the remaining overlap is the connection rows' timestamp formatting) | pending |
 | scheduling preference | After `20261005-main-fix-adoption` | none | Menus, popovers and cursors move there | pending |
 
@@ -83,7 +83,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | `repeat` and `code` for key events | the native monitor reads `isARepeat` and the key code | nonblocking | none |
 | [X15](../../issues/closed/20261005-x15-non-latin-key-equivalents.md) | Chords under Korean 2-Set | `R10Connect.swift` | nonblocking | test ⌘W under 2-Set 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | [X36](../../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | not in the library | unknown (workaround: format in Swift; allowed only if equal to the reference) | check at `prepare` |
-| [X2](../../issues/20261005-x02-app-developer-tools.md) | View › Toggle Developer Tools in the View menu | X2 (DEFERRED "no devtools UI") | nonblocking: the menu item stays absent as a recorded difference until X2 is decided | follow the X2 decision (`20261005-app-developer-tools`) |
+| [X2](../../issues/20261005-x02-app-developer-tools.md) | View › Toggle Developer Tools in the View menu | X2 (DEFERRED "no devtools UI") | nonblocking: the menu item stays absent, a permanent declared difference (#101 narrowed, 2026-10-08) | none; `20261005-app-developer-tools` makes the clone's web views inspectable in development builds |
 
 ## Implementation notes
 

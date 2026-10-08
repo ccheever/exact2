@@ -1,11 +1,11 @@
 ---
 name: 20261005-x31-deferred-window-readiness
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-not-planned
 kind: framework-gap (unconfirmed)
 blocks: [20261005-local-primary-environment, 20261005-portable-app-download]
 upstream_url: https://github.com/ccheever/exact2/issues/117
-reproduced_on: null
+reproduced_on: 4c893fef6
 ---
 
 # X31: Defer the first window until the app says it is ready
@@ -77,10 +77,19 @@ Keep the connecting and reconnecting states for restarts after the window exists
 Update the oracle pairs so the first window needs no ready wait. `issue-close` checks the 1 s and 3 s window counts on the pinned `main`.
 
 ## Status and next action
-Filed upstream as [#117](https://github.com/ccheever/exact2/issues/117) (open).
+Filed upstream as [#117](https://github.com/ccheever/exact2/issues/117); closed upstream as not planned on 2026-10-08 (last section).
 2026-10-07: `20261005-local-primary-environment` ships the interim (U5): the first window opens at launch and shows the connecting state until the primary connects; with the Local environment off it matches the reference. The window-gate rows of that task stay blocked on #117.
 2026-10-08: U5 decided (user: match the original; `20261008-provisional-decisions-parity`): adopt the hold as soon as exact2
 offers it; until then the interim stays with #117 as the blocker. Re-checked on main `f464bad43`: `scripts/app.schema.json`
 `host.macos.window` allows only `width`, `height`, `minWidth`, `minHeight` (`additionalProperties: false`), and
 `host/apple/Sources/ExactMac/main.swift` calls `window.makeKeyAndOrderFront(nil)` after the first boot with no condition;
 #117 is open ("Decision needed", last comment re-checked on main `78286adc1`).
+
+## Closed upstream, not planned (2026-10-08)
+
+[Charlie on #117](https://github.com/ccheever/exact2/issues/117#issuecomment-6055589543): "Keep the immediate first window. … Show an honest connecting state, then the result. … do not add a
+ten-second ready gate for visual parity alone."
+- **Declared difference (permanent):** the first window opens at launch and shows the connecting state until the
+  primary connects. U5 is final (user decision, 2026-10-08). The window-gate rows of local-primary-environment and
+  provisional-decisions-parity close as declared.
+- Nothing waits on main for this record, so it closes (moved to `issues/closed/`).

@@ -122,3 +122,9 @@ control's own `focus()`.
 Upstream: https://github.com/ccheever/exact2/issues/281 (#281, [Bug] macOS: a click inside an open popover also presses the page control under it). Reproduced on main `0365ad1a4` (relevant files unchanged on main `e200397ec`) with a minimal public-API app before filing. Reproduced in the one-file app above. The earlier tries clicked the popover's pad at its centre, which lies above the button under it. At 600x700 the pad spans y 110-310 and the `under` button's centre is (144, 272): `tap open`, `tap pad clicks 1 at 120 162` reads `under 1 · downs 1`, journal `pointerdown view 10 (down)` then `press view 4 (hitUnder)`, focus on `under`. A click away from the button reads `under 0 · downs 1`, and the web reads `under 0 · downs 1` for the same click. The clone's workaround (`press` + `retainFocus` on the popover) reads `under 0 · downs 1` in the repro. Searched: popover click, popover press, click through: no duplicate.
 
 Next: issue-close once #281 lands: remove `press=popPress retainFocus=true` from the colour popover.
+
+## Decided upstream (2026-10-08): waits for main fix of #281
+
+[Charlie on #281](https://github.com/ccheever/exact2/issues/281#issuecomment-6055579701): "Make the popover top layer consume its own pointer contacts."
+- Waits for main fix of [#281](https://github.com/ccheever/exact2/issues/281), then an adoption round. On adoption, `press=popPress retainFocus=true` leaves `theme-color-picker.contract`.
+- **Fixed by [#327](https://github.com/ccheever/exact2/pull/327)** (open on main, 2026-10-08); this resumes in the main-adoption round after it merges. Then `press=popPress retainFocus=true` leaves the colour popover in `theme-color-picker.contract`; re-run one row: a press on the popover's header (no handler) still counts as outside for #290's light dismiss.

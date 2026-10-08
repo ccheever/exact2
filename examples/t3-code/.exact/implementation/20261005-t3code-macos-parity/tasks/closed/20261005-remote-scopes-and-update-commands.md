@@ -71,7 +71,7 @@ Port changes for file headers: `Effect` services become plain functions; `useCop
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | [#147](https://github.com/ccheever/exact2/pull/147) | Merged into integration branch | Confirmed merged; included in local merge `759779342` |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | recorded decision | U12 (sessions with three scopes) | User answer 2026-10-06 | Existing sessions stay unchanged; new scopes require re-pairing | Confirmed by user after failure review |
 | conditional merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | [#148](https://github.com/ccheever/exact2/pull/148) | Notice prerequisite not applicable to confirmed U12 | Merged independently; route scope propagation integrated and tested |
 | scheduling preference | Either order with `20261005-environment-routes` | #148 | Both edit pairing paths | Integrated; Add route and SSH route keep the standard scope request |

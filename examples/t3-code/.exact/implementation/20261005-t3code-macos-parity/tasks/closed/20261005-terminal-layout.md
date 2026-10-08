@@ -74,7 +74,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-terminal-drawer](20261005-terminal-drawer.md) | pending | Merged | pending |
 | merged task PR | [20261005-right-panel-tab-menu](20261005-right-panel-tab-menu.md) | pending | Merged (this ticket registers the terminal close guard and cleanup in its close seam and uses its bulk close actions) | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |

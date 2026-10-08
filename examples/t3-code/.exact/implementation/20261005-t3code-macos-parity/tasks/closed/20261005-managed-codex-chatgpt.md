@@ -46,7 +46,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (streams, open-URL op, setup fixture, `RedactedText`) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): the provider-setup fixture `target/t3-ui-parity/provider-setup-fixture.mjs` introduced by `20261005-provider-sign-in-and-install` is reused | none | Approved there | pending |
@@ -120,7 +120,7 @@ Real sign-in attempt (03:36–03:41 KST): agent-mode app, the recorded URL opene
 
 2026-10-08 (real-input batch, records PR): real ChatGPT sign-in, relaunch, Disconnect, Reconnect and Change account pass (the user clicked each consent); no banked credit, so no redeem; three clone bugs (unblurred email, auth.subscribe burst, stale list row). Results and proof: "Real-input batch (2026-10-08)" below.
 
-2026-10-08 ([fix-provider-auth-state](../20261008-fix-provider-auth-state.md)): of the batch's findings, the
+2026-10-08 ([fix-provider-auth-state](20261008-fix-provider-auth-state.md)): of the batch's findings, the
 subscribe burst and the stale list row (X64) are fixed and the refresh loop behind Settings is gone; the
 unblurred email after Disconnect is the reference's behaviour (plain text, `CodexSetupSection.tsx:604`), so
 unchanged. The remote handoff (step 7) passed on a LAN address there; results in that record.

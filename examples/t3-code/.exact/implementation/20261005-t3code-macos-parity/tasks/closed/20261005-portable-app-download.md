@@ -76,7 +76,7 @@ Edge cases to cover: a quarantined app is run from a randomized read-only locati
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-embedded-server-runtime](20261005-embedded-server-runtime.md) | pending | Merged; spike go | pending |
 | merged task PR | [20261005-terminal-surface](20261005-terminal-surface.md) (vendored terminal assets enter the bundle) | pending | Merged | pending |
 | merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | pending | Merged: without it nothing in the UI connects to the unpacked server, so the clean-account run cannot show "This machine" | pending |
@@ -92,7 +92,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | --- | --- | --- | --- | --- |
 | [X4](../../issues/20261005-x04-bundle-helper-executables.md) | Large trees, executables and file modes in the `.app` | `EXACT2-GAPS.md` X4; #103 closed by main #215: `host.macos.resources` copies a tree with modes, symlinks and any names into `Contents` and signs it (recorded in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | none expected (replaces the archive workaround; Developer ID signing of the tree unverified upstream) | The runtime spike decides; if it fails this ticket is blocked too |
 | [X37](../../issues/20261005-x37-distribution-signing.md) | Developer ID signing and notarization in the host build | #119 closed by main #199: `exact release` signs every nested Mach-O and bundle inside-out; no app-declared entitlements or pre-seal hook (recorded in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | depends on U11 (ad hoc needs nothing; Developer ID: `exact release`, plus an app-local step only for entitlements or notarization of what #199 leaves out) | Read the build output at `prepare`; ask the user per the signing decision |
-| [X31](../../issues/20261005-x31-deferred-window-readiness.md) | A view before any server exists | not in the library | nonblocking (the first-launch view is an ordinary first-window state) | none |
+| [X31](../../issues/closed/20261005-x31-deferred-window-readiness.md) | A view before any server exists | not in the library | nonblocking (the first-launch view is an ordinary first-window state) | none |
 
 ## Implementation notes
 

@@ -53,6 +53,10 @@ The user's decision (2026-10-06, model A): one feature branch, no stacked PRs.
 - Framework gaps are GitHub issues (#100–#141, filed 2026-10-06). When a fix lands on `main`,
   the feature branch merges `main` and a `feat(example)/t3-code-adopt-<issue>` task removes the workaround.
 - Where a task document says "integration branch" or `daehyeon/t3-code`, read `feat(example)/t3-code`.
+- **Framework vs T3 work (user, 2026-10-08).** Framework issues are fixed on separate branches from `main`, outside the
+  T3 work; the T3 branch carries only T3 tasks and T3 issue records. A T3 task blocked on a framework issue resumes
+  after that issue's fix merges to `main` and a main-adoption round brings it into `feat(example)/t3-code`. Every row
+  blocked that way reads "waits for main fix of #N". Filing a newly found framework gap is still T3 work.
 - Verification evidence logs are not committed. The pre-cleanup history, including the
   `evidence/` trees, stays on `daehyeon/t3code-parallel-features`.
 
@@ -69,6 +73,8 @@ these user decisions have changed the tickets:
   prerequisites under "Implementation order".
 - `reference-logic-tests-done-areas` (the user closed #151 as unnecessary) and
   `reference-logic-test-ports` are dropped (2026-10-06).
+- Those three and `fake-github-fixture` (superseded by `real-github-lane`, 2026-10-07) moved to `tasks/closed/` on
+  2026-10-08 (`implementation: dropped`, or `superseded` for the fixture).
 - The tasks that need a sign-in were on hold from 2026-10-06 until the user lifted the hold on
   2026-10-07: `provider-sign-in-and-install` (started first), `managed-codex-chatgpt`,
   `provider-settings-upkeep`, `usage-reset-and-feedback`, `usage-pooled-view` and
@@ -76,7 +82,7 @@ these user decisions have changed the tickets:
   person on the lane build; every other sign-in row uses lane fixtures.
 - Real GitHub replaces the fake `gh` (2026-10-07: "The work that used a fake GitHub now connects
   to the real GitHub"; the user signs in personally, with a second account too).
-  `fake-github-fixture` is blocked as superseded; `real-github-lane` builds the lane (isolated
+  `fake-github-fixture` is superseded (closed); `real-github-lane` builds the lane (isolated
   servers whose `gh` is the real CLI on shared lane config dirs), the sandbox repository, its seed
   and the RPC probe, and re-verifies the pull request behaviors already built. The six pull
   request tasks depend on it instead and reuse its login and sandbox (`daehyeonmun2021/playground`,
@@ -85,8 +91,18 @@ these user decisions have changed the tickets:
   Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
-- These are blocked on an issue decision: `browser-surface` (X1) and `app-developer-tools` (X2).
-  The user closed the four scope issues X38–X41 on 2026-10-08 ("close all"), so `t3-connect-sign-in` (X38),
+- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z); `issues/README.md` "Charlie's decisions" sums them
+  up and each X file records its own. Then the user decided (2026-10-08):
+  - `browser-surface`: **build** it on a `WKWebView` inside the clone's own module (X1's path B: no CDP, Safari Web
+    Inspector, injected-script automation, X1's deviation table declared). #100 was closed as not planned, so this is
+    clone-side work, not a framework wait; X1 is closed. It starts after `app-contract-root-rewrite` (root line cap).
+  - `app-developer-tools`: narrowed to a development-only `isInspectable` on the clone's web views; View › Toggle
+    Developer Tools is a permanent declared difference. In progress on `feat(example)/t3-code-app-developer-tools`.
+  - Pinned diff file headers (diff-review-engine, pr-code-tab): a declared difference until #131 lands on main.
+  - U18 (theme editor Inspect): file a framework issue for the element and paint lookup (X68), then wait.
+  - U5 (first window): #117 is closed, so the connecting state is a permanent declared difference; X31 is closed.
+  - The provider follow-up's Cursor row is closed: the user has no Cursor Pro account.
+- The user closed the four scope issues X38–X41 on 2026-10-08 ("close all"), so `t3-connect-sign-in` (X38),
   `telemetry` (X39), `app-update-feed` (X40) and `wsl-environments` (X41) are closed by that decision, not built,
   and moved to `tasks/closed/` (`implementation: dropped`); the issues are in `issues/closed/`.
 - `portable-app-download` is dropped (2026-10-08): the user cancelled its PR #260. The goal was always that someone
@@ -106,13 +122,30 @@ these user decisions have changed the tickets:
   so `e200397ec` is not an ancestor of the feature branch (its framework content is): the next adoption round first
   records it with `git merge -s ours e200397ec`, then merges main (`febb2c5fb` or later).
 - X59, X60 and X61 were filed upstream on 2026-10-08 as #300, #301 and #302 (reproduced on main `febb2c5fb`).
-- In flight (2026-10-08): `popover-escape-parity` (#290) and the four `20261008-fix-*` task PRs (clone bugs from the
-  real-input batch). Planned after them (user decision, 2026-10-08):
-  [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), so the root stays well under the
-  1,500-line cap (1,478 at `ec32c8c37`). Not started, with every task prerequisite merged: `pr-code-tab` and
-  `pr-links-previews-and-routing`. Waiting on accounts or the user: `provider-sign-in-verification-followup`. Blocked:
-  `browser-surface` (X1), `app-developer-tools` (X2), `installed-font-picker` (X48). The deferred rows of the next
-  real-input batch are listed in `examples/t3-code/STATUS.md`.
+- In flight (2026-10-08): `fix-hover-cards` (#307), `fix-keyboard-focus` (#310), `pr-links-previews-and-routing` (#311)
+  and `app-developer-tools` (narrowed, no PR yet). Merged: `fix-misc-batch` (#306), `popover-escape-parity` (#290),
+  `fix-provider-auth-state` (#312) and `pr-code-tab` (#308); the last three records moved to `tasks/closed/`.
+- Planned (user decisions, 2026-10-08):
+  [fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md) (found by #312), ready now that
+  #312 merged. [app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md), after #307, #310 and #311 merge
+  (#290, #312 and #308 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
+  with #307); Charlie's ruling on #108 and main PR #327's audit name it the remedy. [browser-surface](tasks/20261005-browser-surface.md),
+  after the root rewrite.
+- Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279); `installed-font-picker`
+  (waits for main fix of X48, [#318](https://github.com/ccheever/exact2/issues/318)). The deferred rows of the next real-input batch are listed in
+  `examples/t3-code/STATUS.md`.
+- Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
+  #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);
+  its audit's disposition for each of our issues is in `issues/README.md` and the X files. Main merged #309 (#101),
+  #313 (#269, partial) and #314 (#235, partial) the same day.
+- Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
+  test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320), still open after #327), and it
+  unblocks no T3 task today. It must adopt main #305 (closes #300, X59), main #304 (closes #285: drop the branch's
+  `QUEUE.md` `clock +N real` entry), the `now()` → `performanceNow()` rename (main `9731c8056`, 26 call sites; the root
+  rewrite's first commit does it only if round 7 merged main before the rewrite started, otherwise round 7 does), the
+  removal of the comment-only `panels.contract` and `settings-panels.contract`, which main's examples test refuses, main
+  #309, #313 and #314, and, once #327 has merged, the workarounds its fixes retire (STATUS "Next up" lists them, with
+  #307's hover layer staying for its clipping fix).
 
 ## Parallel implementation, 2026-10-06
 
@@ -164,7 +197,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | --- | --- | --- | --- | --- | --- | --- |
 | 0a | [20261005-round12-wrapup](tasks/closed/20261005-round12-wrapup.md) | Round-12 items work or are recorded; tree green on `c1522fdac` | exact2 (mc-orch worktree, untracked; no PR) | — | User chose to finish round 12 before the move | clone checks, agent drives, AppKit |
 | 0b | [20261005-clone-on-exact2-main](tasks/20261005-clone-on-exact2-main.md) | Clone at `examples/t3-code` on `main`; builds, runs, verifiable | exact2 `feat(example)/t3-code` → `main` | round12-wrapup; branch-reset confirmation | Every later PR needs the clone on main | clone checks, five checks, launch + pair + drive, matrix |
-| 1 | [20261005-desktop-oracle-and-trace](tasks/20261005-desktop-oracle-and-trace.md) | Reference desktop oracle, trace proxy/diff, RPC tally | exact2 (tools in `target/` or `tools/`, U23) | clone-on-exact2-main; apparatus + installs approval | Desktop app is the fidelity oracle; RPC tally found the largest gap | oracle shot, trace diff finds known G1 gap |
+| dropped (user, 2026-10-06) | [20261005-desktop-oracle-and-trace](tasks/closed/20261005-desktop-oracle-and-trace.md) | Reference desktop oracle, trace proxy/diff, RPC tally | exact2 (tools in `target/` or `tools/`, U23) | clone-on-exact2-main; apparatus + installs approval | Desktop app is the fidelity oracle; RPC tally found the largest gap | oracle shot, trace diff finds known G1 gap |
 | 1 | [20261005-hot-file-split](tasks/closed/20261005-hot-file-split.md) | Shared files split by area; room under the line cap | exact2 | clone-on-exact2-main | Parallel PRs would collide on `client.ts`/`app.contract` and hit the cap | no-change matrix, caps |
 | 2 | [20261005-client-activity-reporting](tasks/closed/20261005-client-activity-reporting.md) | Server liveness: activity reports and slash-command refresh | exact2 | common | Highest-impact gap; small and independent | trace cadence + scopes, server effect |
 | 2 | [20261005-composer-fidelity](tasks/closed/20261005-composer-fidelity.md) | Ultrathink, compact composer menu, queued-edit attachments, subagent tooltip, small items | exact2 | common | One surface (composer) | oracle pairs, ported layout tests |
@@ -172,7 +205,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-diff-review-engine](tasks/closed/20261005-diff-review-engine.md) | Diff tree, large diffs, line comments, Cite | exact2 | common | No gh needed; the PR Code tab reuses it | ported tests, oracle pairs |
 | 2 | [20261005-embedded-server-runtime](tasks/closed/20261005-embedded-server-runtime.md) | Official server runtime fetched at build, bundled, launched and supervised | exact2 | common; U3 decided (CLI archive); issues X4, X6 | Highest technical risk; desktop work and the portable build depend on it | process/port/readiness/restart/quit checks |
 | 2 | [20261005-environment-routes](tasks/closed/20261005-environment-routes.md) | Multi-route environments, learned routes, no duplicate saved rows | exact2 | common | Changes the saved-environment model; PR routing and server update build on it | ported routes tests, trace, relaunch |
-| 2 | [20261007-real-github-lane](tasks/closed/20261007-real-github-lane.md) (replaces [20261005-fake-github-fixture](tasks/20261005-fake-github-fixture.md), blocked: superseded 2026-10-07) | Real-GitHub lane: isolated servers on the real `gh` and shared lane logins (two accounts), sandbox and idempotent seed, RPC probe with GitHub read-back; the built pull request rows re-verified live | exact2 (`examples/t3-code/tools/github-lane/`, U23) | common; the user's sign-in and sandbox approval | All PR tickets verify against it; the user chose real GitHub over the fake `gh` (2026-10-07) | probe table (gh log + read-back), unit fallback for injection and profiles, one live drive |
+| 2 | [20261007-real-github-lane](tasks/closed/20261007-real-github-lane.md) (replaces [20261005-fake-github-fixture](tasks/closed/20261005-fake-github-fixture.md), superseded 2026-10-07, closed) | Real-GitHub lane: isolated servers on the real `gh` and shared lane logins (two accounts), sandbox and idempotent seed, RPC probe with GitHub read-back; the built pull request rows re-verified live | exact2 (`examples/t3-code/tools/github-lane/`, U23) | common; the user's sign-in and sandbox approval | All PR tickets verify against it; the user chose real GitHub over the fake `gh` (2026-10-07) | probe table (gh log + read-back), unit fallback for injection and profiles, one live drive |
 | 2 | [20261005-floating-device-player](tasks/closed/20261005-floating-device-player.md) | Floating player drag, resize, avoidance | exact2 | common | Independent surface | ported layout tests, attended drag |
 | 2 | [20261005-legacy-sidebar](tasks/closed/20261005-legacy-sidebar.md) | "Sidebar (legacy)" switch works as the reference | exact2 | common | Large, separate surface | oracle pairs |
 | 2 | [20261005-live-automations-and-clones](tasks/closed/20261005-live-automations-and-clones.md) | Live automations and tracked project clones | exact2 | common | Two streams; independent | trace, effect checks |
@@ -184,7 +217,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | fix (wave 4) | [20261007-fix-minor-ui-issues](tasks/closed/20261007-fix-minor-ui-issues.md) (#191) | Side-by-side pass against T3 Code (Nightly): settings traits picker, composer menu side, filter popup, discovery retry, compaction row, settled badge, surface chooser, Diff outside git, title menu rules | exact2 | feature branch tip `0a7ca50ad` | Small differences found by using both apps; missing features become their own tasks | before/after drives, unit tests |
 | 2 | [20261007-context-menu-gaps](tasks/closed/20261007-context-menu-gaps.md) (#203) | Files tree, pull request link and chat file-link context menus as the reference | exact2 | common | Found by fix-minor-ui-issues; the other reference menus match | unit tests of the items, drive record |
 | 2 | [20261005-provider-sign-in-and-install](tasks/closed/20261005-provider-sign-in-and-install.md) | Provider sign-in and runtime install flows, redacted account text | exact2 | common | Base for managed Codex, settings upkeep, usage extras and sign-in terminals | fixture streams, attended real sign-in |
-| 2 | [20261005-reference-logic-tests-done-areas](tasks/20261005-reference-logic-tests-done-areas.md) | Map of every reference test file to clone modules, with done-equivalent proof (port tickets follow) | exact2 | common | Proves "same logic as T3 Code" for work that has no feature ticket | ported tests pass; mapping table |
+| dropped (user, 2026-10-06) | [20261005-reference-logic-tests-done-areas](tasks/closed/20261005-reference-logic-tests-done-areas.md) | Map of every reference test file to clone modules, with done-equivalent proof (port tickets follow) | exact2 | common | Proves "same logic as T3 Code" for work that has no feature ticket | ported tests pass; mapping table |
 | 2 | [20261005-remote-scopes-and-update-commands](tasks/closed/20261005-remote-scopes-and-update-commands.md) | Standard remote scopes incl. `terminal:operate`, re-pair decision, install-aware update commands | exact2 | common | Small; terminal and server-update tickets need it | trace, ported tests |
 | 2 | [20261005-right-panel-tab-menu](tasks/closed/20261005-right-panel-tab-menu.md) | Right-panel tab context menu (rename, copy path, close variants) | exact2 | common | General right-panel feature; must not wait for the terminal verdict | oracle pairs, attended right-click |
 | 2 | [20261005-settings-scoped-controls-and-theme-editor](tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) | Mixed switch, multi-environment settings scope, app-wide theme editor | exact2 | common | Settings controls and the multi-environment settings scope; independent | oracle pairs |
@@ -198,7 +231,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 3 | [20261005-media-actions](tasks/closed/20261005-media-actions.md) | Media context menus, copy/save, failure fallbacks, HTML preview assets | exact2 | main-fix-adoption; issue X7 for external hosts | One surface (media) | attended right-click, effect checks |
 | 3 | [20261005-pr-conversation-and-refresh](tasks/closed/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | real-github-lane | Base model for all PR tickets | lane gh log, GitHub read-back, trace, oracle pairs |
 | 3 | [20261005-provider-settings-upkeep](tasks/closed/20261005-provider-settings-upkeep.md) | Provider settings remainder (ACP sessions, Update all, model editor, icons) | exact2 | provider-sign-in-and-install | Shares the provider card | trace, oracle pairs |
-| 3 | [20261005-reference-logic-test-ports](tasks/20261005-reference-logic-test-ports.md) | Reference `port` tests pass against the done areas (split per area at prepare) | exact2 | reference-logic-tests-done-areas | Proves the same logic as T3 Code; needs the map | ported tests, map diff |
+| dropped (user, 2026-10-06) | [20261005-reference-logic-test-ports](tasks/closed/20261005-reference-logic-test-ports.md) | Reference `port` tests pass against the done areas (split per area at prepare) | exact2 | reference-logic-tests-done-areas | Proves the same logic as T3 Code; needs the map | ported tests, map diff |
 | 3 | [20261005-server-update-banner](tasks/closed/20261005-server-update-banner.md) | Server update banner, offline banner grace and "Disconnect server", version-differ card | exact2 | remote-scopes-and-update-commands | Uses install-aware update commands | stub-server trace, oracle pairs |
 | 3 | [20261005-terminal-drawer](tasks/closed/20261005-terminal-drawer.md) | Terminal sessions and the single drawer | exact2 | remote-scopes-and-update-commands, terminal-surface | Needs the surface; terminal RPCs need the `terminal:operate` scope that remote-scopes-and-update-commands adds | ported tests, attended keys |
 | 3 | [20261005-thread-commands-and-keys](tasks/closed/20261005-thread-commands-and-keys.md) | Delete the worktree too, the missing key commands | exact2 | composer-fidelity | ⌥↑ needs queued edit | ported tests, trace, effect (git worktree) |
@@ -214,13 +247,13 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 4 | [20261005-usage-pooled-view](tasks/closed/20261005-usage-pooled-view.md) | Pooled Usage page across connected environments, account popover with redeem, Cursor keychain enable prompt | exact2 | usage-reset-and-feedback | Reuses the redeem machinery and bars from usage-reset-and-feedback | trace, oracle pairs |
 | 5 | [20261005-pr-handoffs-and-quick-actions](tasks/closed/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | real-github-lane, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | lane gh log, GitHub read-back, oracle pairs, attended Shift |
 | 5 | [20261005-terminal-integrations](tasks/closed/20261005-terminal-integrations.md) | Selection actions, Add to chat, terminal menus, links, scripts, Run in terminal, Open terminal | exact2 | terminal-drawer, terminal-layout | Needs tabs and the panel surface | ported tests, attended |
-| 6 | [20261005-pr-code-tab](tasks/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
+| 6 | [20261005-pr-code-tab](tasks/closed/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
 | 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | real-GitHub lane, trace |
 | 7 (last) | [20261005-interface-font-size](tasks/closed/20261005-interface-font-size.md) | Root font size foundation: `rem` check, size map, shared style classes (per-area conversion tickets follow) | exact2 | resolved framework issue X3 (if reproduced); preference: after all UI tickets | Converts every UI size; last to avoid churn | matrix at 16 px unchanged; 12/20 px pairs |
 | 8 (last) | [20261005-interface-font-size-conversion](tasks/closed/20261005-interface-font-size-conversion.md) | Every surface scales with the interface font size (split per area at prepare) | exact2 | interface-font-size; resolved framework issue X3 (if reproduced); preference: after the area's last UI ticket | Needs the root size and the size map | matrix at 16 unchanged; 12/20 pairs |
-| blocked (X2) | [20261005-app-developer-tools](tasks/20261005-app-developer-tools.md) | View › Toggle Developer Tools | exact2 | issue X2 resolved or decided | DEFERRED refuses a devtools UI; waits for X2 | blocked |
+| narrowed (X2, #101) | [20261005-app-developer-tools](tasks/20261005-app-developer-tools.md) | Development-only `isInspectable` on the clone's web views; View › Toggle Developer Tools is a permanent declared difference | exact2 | #101 decided 2026-10-08; user decision 2026-10-08 | Swift only, no root lines; in progress | its task record |
 | closed (X40 closed by the user, 2026-10-08) | [20261005-app-update-feed](tasks/closed/20261005-app-update-feed.md) | The T3 desktop update feed and its UI | exact2 | issue X40 resolved or decided | Excluded scope; implemented or closed after the X40 decision | blocked |
-| blocked (X1) | [20261005-browser-surface](tasks/20261005-browser-surface.md) | The reference Browser surface (tabs, navigation, Annotate, capture, PiP, device toolbar, profiles, automation) | exact2 | issue X1 resolved or decided | Needs framework support for Chromium and a DEFERRED waiver; written now so it can start when X1 is resolved | blocked |
+| after the root rewrite | [20261005-browser-surface](tasks/20261005-browser-surface.md) | The reference Browser surface (tabs, navigation, Annotate, capture, PiP, device toolbar, profiles, automation) on a `WKWebView` in the clone's module | exact2 | app-contract-root-rewrite; #100 closed not planned, path B (user decision, 2026-10-08) | Clone-side work; it adds root resources and state, so it follows the rewrite | its acceptance table |
 | closed (X38 closed by the user, 2026-10-08) | [20261005-t3-connect-sign-in](tasks/closed/20261005-t3-connect-sign-in.md) | T3 Connect / Clerk sign-in, relay connections, `t3code://` handoff | exact2 | issue X38 resolved or decided; X5 | Excluded scope; implemented or closed after the X38 decision | blocked |
 | closed (X39 closed by the user, 2026-10-08) | [20261005-telemetry](tasks/closed/20261005-telemetry.md) | Desktop and server telemetry | exact2 | issue X39 resolved or decided | Excluded scope; implemented or closed after the X39 decision | blocked |
 | closed (X41 closed by the user, 2026-10-08) | [20261005-wsl-environments](tasks/closed/20261005-wsl-environments.md) | WSL environments (Windows only) | exact2 | issue X41 resolved or decided | Excluded scope; likely closed as not applicable on macOS after the X41 decision | blocked |
@@ -238,11 +271,12 @@ do not impose new prerequisites on them:
 | [20261007-editable-font-prompt-preview](tasks/closed/20261007-editable-font-prompt-preview.md) | Type, select and undo in Appearance's isolated prompt sample | none identified | live preview editing and draft isolation |
 | [20261007-title-custom-snooze](tasks/closed/20261007-title-custom-snooze.md) | Open Custom snooze from the thread title menu, matching the working sidebar route | none identified | same-thread title/sidebar comparison |
 
-Planned on 2026-10-08 by the user's decision (it starts after #290 and the four `20261008-fix-*` PRs merge):
+Planned on 2026-10-08 by the user's decisions:
 
 | Task | Outcome | Dependency | Verification |
 | --- | --- | --- | --- |
-| [20261008-app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md) | `app.contract`'s root keeps only resources, mutations, tasks and the state they read; view-only state and action halves move to area child components; about 1,200 lines or less | #290 and the four `20261008-fix-*` PRs merged | clone checks, the three source-reading tests, one macOS drive per moved area, five checks |
+| [20261008-app-contract-root-rewrite](tasks/20261008-app-contract-root-rewrite.md) | `app.contract`'s root keeps only resources, mutations, tasks and the state they read; view-only state and action halves move to area child components; about 1,200 lines or less (the remedy Charlie's ruling on #108 names) | #290, #307, #310, #312, #308 and #311 merged | clone checks, the three source-reading tests, one macOS drive per moved area, five checks |
+| [20261008-fix-providers-environment-scope](tasks/20261008-fix-providers-environment-scope.md) | Settings › Providers shows the providers of the environment the scope menu chose (found by #312) | #312 merged | a unit test that fails before, the reproduction on a lane copy, clone checks |
 
 Task files own mutable status. Links must be updated when a task closes or reopens.
 
@@ -286,7 +320,8 @@ Task files own mutable status. Links must be updated when a task closes or reope
   uses a side stream for terminal output.
 - **Framework issues** never block unrelated tickets. The blockers are listed in the
   completion rule under Integrated acceptance. Embedded-server-runtime depends on the outcome of X4/X6 checks.
-- **Framework support arrives only through issues.** This plan writes no framework PR.
+- **Framework support arrives only through issues.** This plan writes no framework PR; framework fixes happen on
+  separate branches from `main`, outside the T3 work (user, 2026-10-08), and reach the clone through an adoption round.
   `issue-open` publishes each issue (after the user approves); when its fix lands on `main`,
   the affected ticket reopens or unblocks, and
   `issue-close` verifies the adoption in the app.
@@ -311,15 +346,15 @@ Task files own mutable status. Links must be updated when a task closes or reope
 | Interface font size | Settings at 12, 16 and 20 px | macOS 1280×840 and 840×620 | Every surface scales where the reference uses `rem` and keeps its `px` sizes; 16 px equals the pre-conversion matrix | shot pairs at each size |
 
 Completion also needs: every ticket verified and merged into `main`, except the
-six blocked tickets (browser-surface, app-developer-tools, t3-connect-sign-in, telemetry,
+six once-blocked tickets (browser-surface, app-developer-tools, t3-connect-sign-in, telemetry,
 app-update-feed, wsl-environments), which are either done the same way after their issue is
 resolved or decided, or closed by that decision (the last four were closed by the user's decision on
-X38–X41, 2026-10-08), and portable-app-download, dropped on 2026-10-08; and every issue in `issues/` closed —
+X38–X41, 2026-10-08; the first two are decided and planned or in progress, 2026-10-08), and portable-app-download, dropped on 2026-10-08; and every issue in `issues/` closed —
 resolved upstream and adopted in the app (verified by `issue-close`), or closed by the
 user's decision. Criteria blocked today: X3 (if reproduced), X7 (one `media-actions`
-criterion), X4 (only if the archive workaround fails), X32–X34 (their rows, if the capability
-is absent), X31 (if a connecting state is not accepted), X30 (the Inspect row, U18), and any
-criterion whose ticket marks it blocked.
+criterion), X4 (only if the archive workaround fails), X32 (pinned diff headers, declared until #131 lands on main),
+X33–X34 (their rows wait for main fix of #274 and #272), X68 (the Inspect row, U18), and any criterion whose ticket
+marks it blocked. A permanent declared difference (the issues README, "Charlie's decisions") closes its row as declared.
 
 ## Apparatus requiring approval
 
@@ -361,8 +396,8 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 | U1 | Framework knowledge basis | all tickets | **Decided 2026-10-05:** implementation uses the exact2 repo itself (docs, LLPs and source of the checkout being built) as its framework reference; the bundled library stays the planning snapshot |
 | U2 | Every item in "Apparatus requiring approval" | the tickets named there | approve per item |
 | U3 | Embedded server artifact, pin, keep or drop `client/`, unpack location | embedded-server-runtime | **Decided 2026-10-05:** the official CLI archive (Node SEA) at the release that matches the reference pin, verified against `SHA256SUMS` and a hash committed in the example; unpacked under `<T3 home>/runtime/versions` (the product's own layout); `client/` kept or dropped per the ticket's measurement |
-| U4 | After a Local environment, Network access or Tailscale change | local-primary-environment, this-machine-network-access | **Decided 2026-10-05: the same as T3 Code** — relaunch the whole app. If exact2 cannot relaunch an app (issue X45), the tickets ship a restart-in-place stopgap and keep the relaunch rows blocked until X45 is resolved and adopted |
-| U5 | The window cannot wait for server readiness (issue X31) | local-primary-environment | accept a connecting state until X31 is resolved / block the row on X31 |
+| U4 | After a Local environment, Network access or Tailscale change | local-primary-environment, this-machine-network-access | **Decided 2026-10-05: the same as T3 Code** — relaunch the whole app. If exact2 cannot relaunch an app (issue X45), the tickets ship a restart-in-place stopgap and keep the relaunch rows blocked until X45 is resolved and adopted. 2026-10-08: they wait for main fix of #271, which follows #269 |
+| U5 | The window cannot wait for server readiness (issue X31) | local-primary-environment | **Final 2026-10-08:** #117 was closed upstream as not planned ("Show an honest connecting state, then the result"), so the connecting state is a permanent declared difference; X31 is closed |
 | U6 | A saved entry with the primary's environment id | local-primary-environment | remove it / keep a duplicate row |
 | U7 | Client settings store | local-primary-environment | keep the clone's `t3-code.json` / read the original's `desktop-settings.json` |
 | U8 | Hosted pairing link on `app.t3.codes` for HTTPS endpoints (decide together with issue X38, T3 Connect) | this-machine-network-access | keep (reference default) / drop |
@@ -375,9 +410,9 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 | U15 | Languages beyond Shiki's 16 grammars and the long-text limit | shiki-residuals | you choose the list and the limit |
 | U16 | Third-party marks: CC BY 4.0 notice for the Azure DevOps mark; terms for 20 editor brand icons | upstream-ui-sync, composer-fidelity | a licenses/notices row in Settings › Licenses / omit marks without clear terms |
 | U17 | Ultrathink and Cursor Fast mode states the fixture cannot produce | composer-fidelity | unit tests + attended real account / catalog-injecting proxy |
-| U18 | Theme editor "Inspect app colors" | settings-scoped-controls-and-theme-editor | keep the row blocked on issue X30 / waive the row |
+| U18 | Theme editor "Inspect app colors" | settings-scoped-controls-and-theme-editor | **Decided 2026-10-08 (user):** file a framework issue for the element and paint lookup (X68, [#321](https://github.com/ccheever/exact2/issues/321)), then wait; #116 keeps pixel readback deferred. The row waits for main fix of X68 |
 | U19 | Paste over 65,536 characters into a terminal | terminal-drawer | match the reference (it fails) / chunk |
-| U20 | Script `autoOpenPreview` (reference opens the in-app Browser) | terminal-integrations | system browser / skip |
+| U20 | Script `autoOpenPreview` (reference opens the in-app Browser) | terminal-integrations | system browser / skip. 2026-10-08: the Browser surface will be built (path B), so the in-app open follows `browser-surface` |
 | U21 | Fakes for other source-control CLIs (`glab`, `az`, `fj`/`tea`) | real-github-lane (was fake-github-fixture) | capability-driven unit tests only / build fakes |
 | U22 | Full "Sidebar (legacy)" (about 3,800 reference lines) | legacy-sidebar | build it in full (spec: every feature) / defer |
 | U23 | Location of the verification tools | every ticket's acceptance | **Decided 2026-10-05:** commit them under `examples/t3-code/tools/` (same relative paths as the lane tools), so a fresh clone can run every acceptance command; no absolute user paths or credentials in the committed files |

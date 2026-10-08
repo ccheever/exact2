@@ -66,7 +66,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-terminal-layout](20261005-terminal-layout.md) | pending | Merged (terminal-layout builds on `20261005-terminal-drawer`) | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | recorded decision | U20: script `autoOpenPreview` — the reference opens `previewUrl` in the in-app Browser (`ChatView.tsx:4909-4932`) | none | Default by the agreed rule: system browser. User confirms | pending |

@@ -1,7 +1,7 @@
 ---
 name: 20261005-reference-logic-test-ports
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: dropped
 verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -37,7 +37,7 @@ Excluded: rows the map classifies `n/a-ui`, `n/a-server`, `n/a-excluded`, `n/a-e
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md) (Goal and logic reuse). Map: `REFERENCE-TESTS.md`
+Parent specification: [spec](../../spec.md) (Goal and logic reuse). Map: `REFERENCE-TESTS.md`
 from [20261005-reference-logic-tests-done-areas](20261005-reference-logic-tests-done-areas.md).
 Conversion rules (from the clone's practice): `bun:test`; a `now` argument instead of fake
 timers (exact2 data sources have no timers, issue X19); the clone's fake native harness
@@ -53,8 +53,8 @@ so find it by symbol.
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-reference-logic-tests-done-areas](20261005-reference-logic-tests-done-areas.md) | pending | Merged (the map exists) | pending |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged | pending |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 
 ## Issue assessment at preparation
 
@@ -62,7 +62,7 @@ Checked sources and time: {{at prepare}}.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X19](../issues/20261005-x19-data-source-timers.md) | Timers in data sources | `EXACT2-GAPS.md` X19 | nonblocking (workaround: `now` argument) | record in each converted file header |
+| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers in data sources | `EXACT2-GAPS.md` X19 | nonblocking (workaround: `now` argument) | record in each converted file header |
 
 ## Implementation notes
 
@@ -86,6 +86,8 @@ Task-owned source paths: the ported `*.test.ts` files, the clone modules they fi
 `REFERENCE-TESTS.md`.
 
 ## Progress
+
+2026-10-08 (records sync): moved to `tasks/closed/` (`implementation: dropped`): dropped with the map by the user's decision of 2026-10-06.
 
 2026-10-06: dropped together with the map (user decision; #151 closed as unnecessary).
 

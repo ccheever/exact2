@@ -101,3 +101,7 @@ window ends on the primary ("This machine") rather than "Disconnected.".
 ## Next action
 
 Review of the draft PR. The user files X60 if wanted. Adopt #117 (U5) and #122 (relaunch) when exact2 has them.
+
+2026-10-08 (records sync): the U5 row is closed as declared: #117 was closed upstream as not planned, so the connecting
+state is a permanent declared difference. The relaunch waits for main fix of #271 (after #269); the U6 relaunch row
+becomes an agent-mode row after the main fix of #284 (X50).

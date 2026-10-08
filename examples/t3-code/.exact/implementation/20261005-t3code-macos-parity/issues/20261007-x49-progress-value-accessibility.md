@@ -88,3 +88,9 @@ platform's activity indicator, role `progressbar` and `aria-busy`. It is indeter
 `value` ("a `value` makes HTML's determinate progress bar, which Exact does not draw yet") and `max`, and
 `contract vocab aria-valuenow` still answers "ARIA's, and Contract does not carry it yet". The Antigravity bar needs the
 value, so nothing is adopted: `ProviderRuntimeRow` keeps its drawn track and fill with `aria-description`.
+
+## Decided upstream (2026-10-08): waits for main fix of #279
+
+[Charlie on #279](https://github.com/ccheever/exact2/issues/279#issuecomment-6055583378): "Add ARIA range values first; then determinate progress."
+- Waits for main fix of [#279](https://github.com/ccheever/exact2/issues/279), then an adoption round. On adoption, `ProviderRuntimeRow` swaps `aria-description="<n>%"` for `aria-valuenow`, `aria-valuemin`, `aria-valuemax` and `aria-valuetext`.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): approved feature, medium (ARIA values first, coordinated with #278).

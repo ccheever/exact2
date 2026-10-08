@@ -1,11 +1,11 @@
 ---
 name: 20261008-x65-scroll-empty-area-press
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: []
-upstream_url: null
-reproduced_on: the clone's agent drive on feat(example)/t3-code-popover-escape-parity before its workaround (2026-10-08, main e200397ec merged); main 2531fb826 unchanged on that path (read)
+upstream_url: https://github.com/ccheever/exact2/issues/317
+reproduced_on: b896050d7 (main, agent mode, before filing)
 ---
 
 # X65: on macOS a press on a `scroll`'s empty area reaches no node, so no ancestor hears its `pointerdown`
@@ -81,6 +81,14 @@ them, as they do in Chrome. (A right-click there was not checked.)
 
 ## Clone-side
 
-Not blocking. [popover-escape-parity](../tasks/20261008-popover-escape-parity.md) puts a full-height
+Not blocking. [popover-escape-parity](../tasks/closed/20261008-popover-escape-parity.md) puts a full-height
 column (`usage-ground`, `min-height="100%"`) under the Usage page's scroll content, so every press in the
 port lands on a node. Remove it when the host routes the ground's presses.
+
+## Filed upstream (2026-10-08)
+
+Filed as [#317](https://github.com/ccheever/exact2/issues/317) ([Bug] macOS: a press on a `scroll`'s empty area reaches no node, so neither it nor an ancestor hears `pointerdown`), reproduced on main `b896050d7` in agent mode before filing (evidence under
+`file-x48-x68/` on `t3-code-evidence`). Under the framework vs T3 split (user, 2026-10-08) the fix is framework work;
+the clone's side waits for main fix of #317, then an adoption round.
+
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): attempt withdrawn; #317 stays open. `usage-ground` stays.

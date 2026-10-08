@@ -1,11 +1,11 @@
 ---
 name: 20261005-x22-reactive-layout-facts
 plan: 20261005-t3code-macos-parity
-status: fix-built
+status: published
 kind: framework-gap
 blocks: [20261005-browser-surface, 20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-floating-device-player, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-links-previews-and-routing, 20261005-settings-scoped-controls-and-theme-editor, 20261005-shiki-residuals]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/127
+reproduced_on: 4c893fef6
 ---
 
 # X22: Reactive layout facts (size, position, text width, row visibility)
@@ -95,13 +95,25 @@ check, the minimap rows, the player container rows, and oracle pairs at 1280×84
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Published 2026-10-06 as [#127](https://github.com/ccheever/exact2/issues/127) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
 
 ## Fix built (2026-10-06)
 
+**Superseded (2026-10-08):** main has had the element `resize` event since `5949b2b64`, and #127 defers reactive geometry; this branch is not pursued (recorded only; the branch is kept).
 Built on exact2 `origin/main`, branch `daehyeon/fw-x22-resize-event` (worktree `~/orca/workspaces/exact2/t3-fw-x22`), commits `dcac295f9` and `fc4b14b88` (review fixes). Not pushed.
 - `resize=action` (an action or action prop; a quoted string stays CSS's `resize` row) delivers a `ResizeEvent {width, height}`, the border box in CSS px at Chrome's 1/64 px, following ResizeObserver: first after the layout that follows creation, then on change, last size per frame, Chrome's depth rule for loops. Native hosts deliver inside the layout and commit in the same batch (no frame of lag), bounded per commit.
 - Not built: a visibility (IntersectionObserver) fact; geometry in derives stays refused (LLP 1051.000 D2). Row visibility: `scroll` plus `frame(id)` in an action.
 - Evidence: the five checks; compiler/runner tests (12), Apple host tests (5), a Linux presenter test; conformance against Chrome (Caltrain's dist); a scratch app passes on the web JS target, the wasm web host and macOS, including after `resize 600x800`; one independent review (a loop that never stopped on native, among six) fixed.
 - Before main: LLP 1051.000 §7 (proposed) needs Charlie's ruling and a DEFERRED take or waiver. Merge note: its event ABI kind 39 collides with X20's `BeforeInput` (also 39); renumber one at merge.
+
+## Decided upstream (2026-10-08): narrowed; the measuring hooks are a declared difference
+
+[Charlie on #127](https://github.com/ccheever/exact2/issues/127#issuecomment-6055587935): "Separate intersection visibility from anchor positioning; keep container queries and reactive
+geometry deferred. … Select an event payload/margin and consumer before building visibility."
+- **Declared difference (permanent):** the measuring hooks stay (`t3-frame`/`T3ComposerFrames.swift`, the measuring
+  part of `t3-anchor`, `t3-measure`/`R8KeysMeasure.swift`), and so does the window-sized `resize=` tracker of the
+  theme editor.
+- **Narrowed:** anchoring moves to #112 (X17); row visibility is a separate candidate with no date.
+- The local fix ("Fix built" above) is superseded by main: the element `resize` event has been on main since
+  `5949b2b64` (2026-10-04, in the branch). Not pursued.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): design candidate (visibility payload, margin, consumer) with deferred parts (reactive geometry, container queries).

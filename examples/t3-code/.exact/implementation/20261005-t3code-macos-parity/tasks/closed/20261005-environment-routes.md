@@ -71,7 +71,7 @@ loopback address, so its kind comes from the stored `kind`, not from the address
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | `20261005-local-primary-environment`, `20261005-ssh-password-and-remote-open` and `20261005-desktop-shell-details` after this ticket | none | They share the `environmentKey` call sites and `T3Ssh.swift` | pending |
 | scheduling preference | Either order with `20261005-remote-scopes-and-update-commands` | none | Both edit `connections.ts` and the pairing code in `T3Transport.swift` | pending |
 

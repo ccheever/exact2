@@ -61,7 +61,7 @@ Logic reuse (user rule): port `sortWorkingThreadsBySend` with its name and its t
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, runtime at the new pin) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, runtime at the new pin) | pending |
 
 Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption`, which touches the same sidebar, popover and tooltip Contract files. Coordinate with `20261005-floating-device-player`: it must keep the player between the sheets and the dialogs (A16).
 

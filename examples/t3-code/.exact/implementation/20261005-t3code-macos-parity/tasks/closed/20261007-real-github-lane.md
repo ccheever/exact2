@@ -18,7 +18,7 @@ verified_commit: null
 The user's decision (2026-10-07): "The work that used a fake GitHub now connects to the real GitHub."
 Pull request features are verified against real GitHub through the real GitHub CLI that the T3
 server spawns, signed in by the user personally into lane-only config dirs. This task replaces
-[20261005-fake-github-fixture](../20261005-fake-github-fixture.md) (now `blocked`, superseded) with:
+[20261005-fake-github-fixture](20261005-fake-github-fixture.md) (now `blocked`, superseded) with:
 
 1. a lane recipe: isolated T3 servers whose `gh` is the real CLI on a lane config dir, two accounts;
 2. a disposable sandbox repository the user approves, and an idempotent seed that fills it with

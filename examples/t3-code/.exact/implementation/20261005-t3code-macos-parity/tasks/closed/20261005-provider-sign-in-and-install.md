@@ -47,7 +47,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): provider-setup stream fixture `target/t3-ui-parity/provider-setup-fixture.mjs` (a scripted responder in the lane kit that answers `provider.auth.*` / `provider.install.*` with scripted state sequences on ports 16000–16999; reused by `20261005-managed-codex-chatgpt`, `20261005-provider-settings-upkeep` and `20261005-usage-reset-and-feedback`) | none | User approves at `prepare` | pending |
 

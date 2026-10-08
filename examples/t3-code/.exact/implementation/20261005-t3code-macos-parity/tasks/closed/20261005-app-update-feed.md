@@ -61,7 +61,7 @@ Port changes for headers: `Effect` services and the Electron updater become a Sw
 | recorded decision | [X40](../../issues/closed/20261005-x40-app-update-feed.md) | pending | The user decides to build on a clone-owned feed (with the feed source and the framework support), or closes it | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-embedded-server-runtime`, `20261005-desktop-shell-details` and `20261005-server-update-banner` | none | Server stop, menu seams, banner texts and the control pipe exist | pending |
 | recorded decision (conditional) | Issue X39 part 3 (the control pipe on fd 5) | none | Item 8 only: built if the user keeps part 3; if part 3 is closed, item 8 is dropped with the reason recorded | pending |
 

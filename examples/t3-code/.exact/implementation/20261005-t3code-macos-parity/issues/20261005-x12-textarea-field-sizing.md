@@ -1,11 +1,11 @@
 ---
 name: 20261005-x12-textarea-field-sizing
 plan: 20261005-t3code-macos-parity
-status: draft
+status: published
 kind: framework-gap
 blocks: [20261005-composer-fidelity]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/130
+reproduced_on: 4c893fef6
 ---
 
 # X12: A textarea with `field-sizing: content` is sized from its plain string, not from what the native text view draws
@@ -98,6 +98,13 @@ To confirm on the pinned `main` at `issue-open`.
   both window sizes. `issue-close` verifies the line counts and the cells.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
-publication only after approval).
+Published 2026-10-06 as [#130](https://github.com/ccheever/exact2/issues/130) (reproduced on exact2 `4c893fef6` before filing). Decided upstream on 2026-10-08: see the last section.
+
+## Decided upstream (2026-10-08): declared difference
+
+[Charlie on #130](https://github.com/ccheever/exact2/issues/130#issuecomment-6055588225): "Keep hatch-driven layout feedback deferred. … Keep the app's specialized editor in its module. … do
+not add a generic reportHeight channel."
+- **Declared difference (permanent):** the composer can be one line taller or shorter than the reference when its
+  chips draw wider than their plain text (narrow widths). The clone has no workaround; EXACT2-GAPS's old
+  "measured height" cell was wrong and now says so.
+- [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred; no generic reportHeight.
