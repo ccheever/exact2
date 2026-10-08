@@ -85,31 +85,32 @@ component NewTaskDraft
       column id=`new-task-card-${routeId}` position="relative" border-radius=26 min-height=140 overflow="hidden" box-sizing="border-box" padding-top=14 padding-bottom=6
         box-shadow=(dark ? "0px 6px 28px 0px rgba(0,0,0,0.35)" : "0px 6px 28px 0px rgba(0,0,0,0.15)")
         t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true material-appearance=(dark ? "dark" : "light") material-radius=26 material-surface=threadColors.composerSurface material-border=threadColors.composerBorder
-        ComposerAttachmentStrip(data=attachments, open=openAttachment, remove=removeAttachment, colors=threadColors)
-        textarea id=editorId value=data.composer.draft input=typedDraft key=typedKey focus=focusChanged(true, data.composer.contentOwner, editorId) blur=focusChanged(false, data.composer.contentOwner, editorId) placeholder="Ask anything…"
-          readonly=(not data.canSelect or dictating) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
-          data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
-          field-sizing="content" min-height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0
-          box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
-        view height=3.5
-        row align-items="center" gap=0 retainFocus=true
-          when not voicePresented
-            button press=pickAttachments(data.composer.contentOwner) disabled=(not data.canSelect) width=44 height=44 padding=0 aria-label="Add attachment"
-              column width=44 height=44 align-items="center" justify-content="center"
-                t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=threadColors.iconSubtle width=20 height=20
-            column flex=1 min-width=0 align-items="flex-end"
-              button press=openModelSettings disabled=(not data.canSelect) box-sizing="border-box" max-width="100%" height=38.5 padding-left=7 padding-right=7 border-radius=10.5 aria-label="Model and reasoning settings"
-                row min-width=0 align-items="center" gap=7
-                  ProviderIcon(driver=data.composer.providerDriver, size=14, dark=dark, iconUrl=data.composer.providerIconURL)
-                  text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                  t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
-            VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-            ThreadSendButton(data=data.composer, action=action, colors=threadColors)
-          else when dictating
-            column flex=1 min-width=0
-              VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
-          else
-            column flex=1 min-width=0
-              VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
-            VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-            ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+        column id=`new-task-foreground-${routeId}` position="relative" min-width=0
+          ComposerAttachmentStrip(data=attachments, open=openAttachment, remove=removeAttachment, colors=threadColors)
+          textarea id=editorId value=data.composer.draft input=typedDraft key=typedKey focus=focusChanged(true, data.composer.contentOwner, editorId) blur=focusChanged(false, data.composer.contentOwner, editorId) placeholder="Ask anything…"
+            readonly=(not data.canSelect or dictating) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+            data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+            field-sizing="content" min-height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0
+            box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
+          view height=3.5
+          row align-items="center" gap=0 retainFocus=true
+            when not voicePresented
+              button press=pickAttachments(data.composer.contentOwner) disabled=(not data.canSelect) width=44 height=44 padding=0 aria-label="Add attachment"
+                column width=44 height=44 align-items="center" justify-content="center"
+                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=threadColors.iconSubtle width=20 height=20
+              column flex=1 min-width=0 align-items="flex-end"
+                button press=openModelSettings disabled=(not data.canSelect) box-sizing="border-box" max-width="100%" height=38.5 padding-left=7 padding-right=7 border-radius=10.5 aria-label="Model and reasoning settings"
+                  row min-width=0 align-items="center" gap=7
+                    ProviderIcon(driver=data.composer.providerDriver, size=14, dark=dark, iconUrl=data.composer.providerIconURL)
+                    text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                    t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
+              VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+              ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+            else when dictating
+              column flex=1 min-width=0
+                VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
+            else
+              column flex=1 min-width=0
+                VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
+              VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+              ThreadSendButton(data=data.composer, action=action, colors=threadColors)
