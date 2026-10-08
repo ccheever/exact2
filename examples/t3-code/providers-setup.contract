@@ -20,6 +20,8 @@ use AppConfirm from "./shell-panels.contract"
 use CodexSetup from "./codex-setup.contract"
 use KmItem from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 
 shape ProviderAuthMethod
   id: string
@@ -143,7 +145,9 @@ component SetupRowFrame
 
 // ProviderAuthenticationSection: "Account" with its status, the sign-in controls and,
 // under the row, the device code, the sign-in terminal, the credentials form, the
-// paste-redirect form and the row's error.
+// paste-redirect form and the row's error. `idPrefix` keeps its element ids its own: the
+// Add provider dialog shows the instance Settings › Providers shows behind it, and a
+// popovertarget or a focus() that names a shared id reaches the row behind the dialog.
 component ProviderAccountRow
   props
     account: ProviderAccount
@@ -153,24 +157,31 @@ component ProviderAccountRow
     busy: bool
     op: action
     askSignOut: action
+    idPrefix: string
   state methodId = ""
   state copyOver = false
   action pickMethod(value: string)
     methodId = value
   action copyHover(inside: bool)
     copyOver = inside
-  // fix-keyboard-focus: the sign-in method menu's keyboard (menu-keys.contract).
+  // fix-keyboard-focus: the sign-in method menu's keyboard (menu-keys.contract): Enter and Space open it at its
+  // first item, ↓ and ↑ (the invisible invokers over the trigger) at its first or last.
   state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
   action triggerKey(k: string)
     if kmOpenKey(k)
-      keyed = keyed + 1
+      keyed = kmBump(keyed, false)
   action authEvent(message: string)
     op("setup:auth-event", account.instanceId, "", message, true)
   derive off = account.disabled or busy
   derive methodLabel = join(map(filter(account.methods, (m) => m.id == methodId), (m) => m.name), "")
   derive methodValue = (methodLabel == "" ? "" : methodId)
   view
-    SetupRowFrame(divided=divided, tight=account.details, testId=`provider-account-${account.instanceId}`)
+    SetupRowFrame(divided=divided, tight=account.details, testId=`${idPrefix}provider-account-${account.instanceId}`)
       row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
         column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center"
@@ -178,43 +189,44 @@ component ProviderAccountRow
           when account.email != ""
             row max-width="36rem" min-width=0 gap="0.25rem" align-items="baseline" flex-wrap="wrap"
               text "Signed in as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
-              RedactedText(value=account.email, placeholder=account.emailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`provider-email-${account.instanceId}`)
+              RedactedText(value=account.email, placeholder=account.emailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`${idPrefix}provider-email-${account.instanceId}`)
           else
-            text account.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" role="status" aria-live="polite" color="light-dark(#70707acc, #818181cc)" testId=`provider-account-description-${account.instanceId}`
+            text account.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" role="status" aria-live="polite" color="light-dark(#70707acc, #818181cc)" testId=`${idPrefix}provider-account-description-${account.instanceId}`
           when account.status != ""
-            text account.status padding-top="0.125rem" font-size="0.75rem" line-height="1rem" role="status" color="light-dark(#71717b, #818181)" testId=`provider-account-message-${account.instanceId}`
+            text account.status padding-top="0.125rem" font-size="0.75rem" line-height="1rem" role="status" color="light-dark(#71717b, #818181)" testId=`${idPrefix}provider-account-message-${account.instanceId}`
         row flex-shrink=0 min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
           when account.pickMethod
             box position="relative" flex-shrink=0
-              button popovertarget=`provider-auth-method-${account.instanceId}-menu` key=triggerKey role="combobox" aria-label="Sign-in method" disabled=off testId=`provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
+              button popovertarget=`${idPrefix}provider-auth-method-${account.instanceId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label="Sign-in method" disabled=off testId=`${idPrefix}provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
                 text (methodLabel == "" ? "Provider default" : methodLabel) font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
                 CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
-              CnMenu(menuId=`provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=concat([KmItem(id=`provider-auth-method-${account.instanceId}-default`, label="Provider default")], map(account.methods, (method) => KmItem(id=`provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
-                CnMenuItem(label="Provider default", menuId=`provider-auth-method-${account.instanceId}-menu`, itemId=`provider-auth-method-${account.instanceId}-default`, destructive=false, disabled=false, highlighted=(methodValue == ""), note="", icon="", submenu="", choose=pickMethod(""))
+              KeyMenuOpen(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, armed=keyArmed, opened=keyOpened)
+              CnMenu(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=concat([KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-default`, label="Provider default")], map(account.methods, (method) => KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
+                CnMenuItem(label="Provider default", menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-default`, destructive=false, disabled=false, highlighted=(methodValue == ""), note="", icon="", submenu="", choose=pickMethod(""))
                 each method in account.methods key=method.id
-                  CnMenuItem(label=method.name, menuId=`provider-auth-method-${account.instanceId}-menu`, itemId=`provider-auth-method-${account.instanceId}-${method.id}`, destructive=false, disabled=false, highlighted=(method.id == methodValue), note="", icon="", submenu="", choose=pickMethod(method.id))
+                  CnMenuItem(label=method.name, menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, destructive=false, disabled=false, highlighted=(method.id == methodValue), note="", icon="", submenu="", choose=pickMethod(method.id))
           when account.url != ""
-            SetupButton(label="Open browser", disabled=off, full=false, testId=`provider-auth-open-${account.instanceId}`, press=op("setup:auth-open", account.instanceId, account.draftId, "", true))
+            SetupButton(label="Open browser", disabled=off, full=false, testId=`${idPrefix}provider-auth-open-${account.instanceId}`, press=op("setup:auth-open", account.instanceId, account.draftId, "", true))
             box position="relative" flex-shrink=0 hover=copyHover
-              button press=op("setup:auth-copy", account.instanceId, account.draftId, "", true) class=PvIconButton width="1.75rem" height="1.75rem" disabled=off opacity=(off ? 0.64 : 1) aria-label="Copy sign-in link" testId=`provider-auth-copy-${account.instanceId}`
+              button press=op("setup:auth-copy", account.instanceId, account.draftId, "", true) class=PvIconButton width="1.75rem" height="1.75rem" disabled=off opacity=(off ? 0.64 : 1) aria-label="Copy sign-in link" testId=`${idPrefix}provider-auth-copy-${account.instanceId}`
                 PvIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
               when copyOver
-                CnTooltip(tip="Copy sign-in link", tipId=`provider-auth-copy-tip-${account.instanceId}`, above=32)
+                CnTooltip(tip="Copy sign-in link", tipId=`${idPrefix}provider-auth-copy-tip-${account.instanceId}`, above=32)
           when account.docsUrl != ""
-            link href=account.docsUrl class=PvOutline testId=`provider-auth-docs-${account.instanceId}`
+            link href=account.docsUrl class=PvOutline testId=`${idPrefix}provider-auth-docs-${account.instanceId}`
               text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when account.showCancel
-            button press=op("setup:auth-cancel", account.instanceId, account.token, "", true) class=PvOutline border-width=0 background-color="#00000000" disabled=off opacity=(off ? 0.64 : 1) aria-label="Cancel sign-in" testId=`provider-auth-cancel-${account.instanceId}`
+            button press=op("setup:auth-cancel", account.instanceId, account.token, "", true) class=PvOutline border-width=0 background-color="#00000000" disabled=off opacity=(off ? 0.64 : 1) aria-label="Cancel sign-in" testId=`${idPrefix}provider-auth-cancel-${account.instanceId}`
               text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
           when account.showStart
-            SetupButton(label=account.startLabel, disabled=(account.startDisabled or busy), full=false, testId=`provider-sign-in-${account.instanceId}`, press=op("setup:auth-start", account.instanceId, account.token, methodValue, true))
+            SetupButton(label=account.startLabel, disabled=(account.startDisabled or busy), full=false, testId=`${idPrefix}provider-sign-in-${account.instanceId}`, press=op("setup:auth-start", account.instanceId, account.token, methodValue, true))
           when account.showSignOut
-            button press=askSignOut id=`provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`provider-sign-out-${account.instanceId}`
+            button press=askSignOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}`
               text "Sign out" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       when account.details
         column width="100%"
           when account.deviceCode != ""
-            row padding-top="0.5rem" padding-bottom="0.5rem" gap="0.25rem" align-items="baseline" flex-wrap="wrap" testId=`provider-auth-device-code-${account.instanceId}`
+            row padding-top="0.5rem" padding-bottom="0.5rem" gap="0.25rem" align-items="baseline" flex-wrap="wrap" testId=`${idPrefix}provider-auth-device-code-${account.instanceId}`
               text "Enter code" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               text account.deviceCode font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
               text "in your browser." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -229,7 +241,7 @@ component ProviderAccountRow
             each key in [account.formKey] key=key
               ProviderCallbackForm(account=account, off=off, op=op)
           when account.error != ""
-            text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`provider-auth-error-${account.instanceId}`
+            text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`${idPrefix}provider-auth-error-${account.instanceId}`
 
 // The credentials form (an ACP `env_var` method): one field per advertised value,
 // password-type when secret; Connect sends them; the drafts belong to this flow.
@@ -392,7 +404,7 @@ component ProviderAntigravitySetup
       each runtime in setup.runtime key=runtime.key
         ProviderRuntimeRow(runtime=runtime, instanceId=instanceId, wide=wide, busy=busy, op=op, ui=ui)
         each account in setup.account key=account.key
-          ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=true, busy=busy, op=op, askSignOut=ui("setup-logout", instanceId))
+          ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=true, busy=busy, op=op, askSignOut=ui("setup-logout", instanceId), idPrefix="")
         text runtime.pendingLabel font-size=1 height=1 overflow="hidden" color="#00000000" role="status" aria-live="polite"
         when runtime.error != ""
           column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.5rem" align-items="flex-start" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"
@@ -433,16 +445,16 @@ component ProviderWizardAuthStep
   view
     column width="100%" min-height="18rem" testId="acp-sign-in"
       each account in auth.account key=account.key
-        ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=false, busy=busy, op=op, askSignOut=askSignOut)
+        ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=false, busy=busy, op=op, askSignOut=askSignOut, idPrefix="wizard-")
       when length(auth.account) == 0
-        SetupRowFrame(divided=false, tight=false, testId=`provider-account-${auth.instanceId}`)
+        SetupRowFrame(divided=false, tight=false, testId=`wizard-provider-account-${auth.instanceId}`)
           row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
             column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
               row min-height="1.25rem" align-items="center"
                 text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-              text auth.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId=`provider-account-description-${auth.instanceId}`
+              text auth.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId=`wizard-provider-account-description-${auth.instanceId}`
             when auth.discovering
-              SetupButton(label="Sign in", disabled=true, full=false, testId=`provider-sign-in-${auth.instanceId}`, press=op("setup:retry", auth.instanceId, "", "", false))
+              SetupButton(label="Sign in", disabled=true, full=false, testId=`wizard-provider-sign-in-${auth.instanceId}`, press=op("setup:retry", auth.instanceId, "", "", false))
             when not auth.discovering and auth.docsUrl != ""
-              link href=auth.docsUrl class=PvOutline testId=`provider-auth-docs-${auth.instanceId}`
+              link href=auth.docsUrl class=PvOutline testId=`wizard-provider-auth-docs-${auth.instanceId}`
                 text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"

@@ -129,8 +129,8 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     for (const [press, keys, test] of [['opened(false)', 'ArrowDown', 'open-first'], ['opened(true)', 'ArrowUp', 'open-last']])
       expect(open).toContain(`button popovertarget=menuId popovertargetaction="show" press=${press} aria-keyshortcuts=(armed ? "${keys}" : "") aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 opacity=0 testId=\`\${menuId}-${test}\``);
     // Every popover menu's trigger that counts its keyboard openings has them, armed by its own focus.
-    // Not: the sign-in method menu (fix-provider-auth-state owns its trigger), the Icon submenu row, the colour picker.
-    const skip = ['provider-auth-method-', 'environment-icon-', 'theme-color-'];
+    // Not: the Icon submenu row (a row inside a menu), the colour picker (not a menu).
+    const skip = ['environment-icon-', 'theme-color-'];
     const missing: string[] = [];
     let triggers = 0;
     for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
@@ -144,7 +144,7 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
       }
     }
     expect(missing).toEqual([]);
-    expect(triggers).toBeGreaterThanOrEqual(30);
+    expect(triggers).toBeGreaterThanOrEqual(31); // and the snooze clock, whose `key=` comes first (pinned in the bug 4 test)
     // Each owner bumps its count by the end the invoker reports.
     for (const [file, comp, counter] of [['pages-prs.contract', 'PrSortMenu', 'keyed'], ['r4-git.contract', 'R4GitRows', 'gitMenuKeyed'], ['settings-rows.contract', 'ScopeSentence', 'projectOpens'], ['settings-kit.contract', 'SettingsSelect', 'keyed']] as const)
       expect(await component(file, comp)).toMatch(new RegExp(`action \\w+Opened\\(last: bool\\)\\n    ${counter} = kmBump\\(${counter}, last\\)`));

@@ -44,7 +44,7 @@ That covers the hand-off and Check out menus from #293, merged before this branc
 Contract cannot open a popover from a key handler (X66, [#319](https://github.com/ccheever/exact2/issues/319)). A popover menu therefore opens on ↓/↑ through
 `KeyMenuOpen`: two invisible `popovertargetaction="show"` invokers over its trigger, armed with
 `aria-keyshortcuts` only while the trigger holds the focus. This is the approach fix-provider-auth-state found
-for its sign-in method menu. A menu that its owner mounts from state opens from the trigger's own key handler.
+for its sign-in method menu (merged in #312 without it; this branch gives that menu the shared invokers). A menu that its owner mounts from state opens from the trigger's own key handler.
 
 ## Framework decisions (Charlie, 2026-10-08)
 
@@ -61,6 +61,9 @@ The coordinator reviewed this task against Charlie's decisions on the filed issu
   row (AppKit's ring plus the highlight) is a declared difference, not covered by X61.
 - **#278 (accessibility roles).** The `aria-modal` on the 22 popover menus doubles as shortcut scoping. The
   Escape-order pin in `menu-keys.test.ts` stays.
+- **Charlie's main PR #327** (open, not merged) fixes #280 and #281, and part of #282: `showModal(id)`/`close(id)` on
+  the macOS and web hosts. The code here stays as it is until T3 adopts it. Once it is adopted, the focus plumbing for
+  bugs 16, 6 and 5 can move to `showModal`/`close`, and Custom snooze's Tab cycle changes.
 
 ## Scope and exclusions
 
@@ -72,7 +75,7 @@ Included:
 - The shared pattern on the 36 `KeyMenu` call sites. The Settings kit menus (`CnMenu`, `SkPopup`, `ScopeMenu`,
   `CoreMenu`, `TraitsMenu`) carry it to every Settings menu that uses them.
 - ↓/↑-to-open on every menu trigger:
-  - 31 popover triggers have `KeyMenuOpen`. Six gained a positioned wrapper: Keybindings and Scheduled Tasks
+  - 32 popover triggers have `KeyMenuOpen`. Six gained a positioned wrapper: Keybindings and Scheduled Tasks
     rows, the Scheduled Tasks environment, `SettingsSelect`, `GhostSelect`, and the snooze clock.
     `R7DevSelect`'s box became positioned.
   - 12 state-driven menus open from their trigger's key handler. The device rail's three menus share one handler;
@@ -87,10 +90,6 @@ Excluded:
   - The Settings icon picker is a Popover in the reference.
   - Listbox selects with a search field (model picker, branch picker) have their own arrows.
 - Framework edits. X66 is reported as #319, not changed.
-- ↓/↑ on the sign-in method menu's trigger (`providers-setup.contract` `ProviderAccountRow`).
-  fix-provider-auth-state owns that trigger's press, Space and Return, and builds its own invisible invoker
-  there. Expected merge work: whoever lands second gives the `KmItem` ids that PR's `idPrefix` and lets its
-  invoker's press bump this menu's `keyed`.
 - The Icon submenu row in Connections (`EnvironmentIconMenu`). It is a row inside a menu, where ↓ moves to the
   next row; a submenu opens on → in Base UI.
 - X52 (#280: date, time and select as macOS Tab stops) and X53 (#282: a modal opened from state), filed limits.
@@ -129,7 +128,7 @@ Tests:
   - `kmBump` evaluated as written: every bump differs from the last, with the end in its sign.
   - Every menu's `KeyMenu`, with its modality.
   - Every popover trigger that counts its keyboard openings has a `KeyMenuOpen` for its own popover and is armed
-    by its own focus (31 triggers).
+    by its own focus (32 triggers).
   - The state-driven openers.
   - Every `menuitem` in a keyboard-menu file has an `id`.
   - The bug 4, 6, 5, 13 and 16 pins.
@@ -170,8 +169,8 @@ State-driven menus (`modal=false`, 14):
 The trigger of a state-driven menu that the data module opens lets go of the focus first, so the popup can take it.
 
 ↓/↑ on a closed trigger:
-- All 31 popover triggers that count keyboard openings, through `KeyMenuOpen`. Not the sign-in method menu
-  (fix-provider-auth-state's) or the Icon submenu row.
+- All 32 popover triggers that count keyboard openings, through `KeyMenuOpen`, the sign-in method menu included
+  since #312 merged (its ids take #312's `idPrefix`). Not the Icon submenu row.
 - The 12 top-level state-driven menus, from their trigger's key handler.
 - The table Copy menu mounts at the window, outside its trigger's tree. Its ↓/↑ request carries the end
   (`keys:first`/`keys:last` before the table), and the data module hands it back as `menu.keyed`, so the menu
@@ -205,7 +204,6 @@ The trigger of a state-driven menu that the data module opens lets go of the foc
 - **Keyboard-focused rows show the AppKit focus ring as well as the highlight.** The reference shows only the
   highlight; its items are `outline-none` with a highlighted background. This is a declared difference (Charlie,
   2026-10-08): #302 (X61) covers only `input` and `textarea`.
-- **The sign-in method menu's ↓/↑** come from fix-provider-auth-state's invoker. The merge wiring is under Scope.
 - **A data-mounted menu's end is cleared when its trigger takes the focus, not on `pointerdown`.** A `pointerdown`
   would take the press from the window's light-dismiss count (#290). Consequence: if the trigger already holds the
   focus from an earlier keyboard opening, and the menu closed without moving it, a pointer press opens the menu at the
@@ -258,30 +256,34 @@ The build-7 copy is a new ad-hoc identity, so a keychain prompt asked for the la
 stale item was deleted from that lane keychain only, and the copy was re-paired through Add environment, with no
 capture while the code was on screen. The user's keychain search list is unchanged.
 
-## Resume from here (2026-10-08, stopped at the coordinator's usage limit)
+## Real-input rows deferred
 
-- **State.** Every change is committed and pushed on `feat(example)/t3-code-fix-keyboard-focus`, head `689959002`
-  plus this note. `84a52dde0` (#290) is merged.
-- **Draft PR [#310](https://github.com/ccheever/exact2/pull/310).** Open, left as a draft. Its body predates the
-  ↓/↑ ruling: it still lists ↓/↑ as "not done" and has no "Framework decisions (Charlie, 2026-10-08)" paragraph.
-  This record has both.
-- **Released or stopped.**
-  - The real-input lock: released at 08:28:43Z.
-  - The lane apps: quit by their recorded PIDs.
-  - The lane server: PID 32697 on 16181, stopped with `lane-setup.mjs stop`.
-  - The agent drives: told to quit.
-  - The user's keychain search list: unchanged, login only.
-- **To do next.**
-  1. `git fetch` and merge the base again.
-  2. Rerun the five checks and `bun scripts/caps.mjs`.
-  3. Update #310's body from this record: the ↓/↑ row with [06](https://raw.githubusercontent.com/ccheever/exact2/72d540ec9d216bdbc7024f6548cb0d2426a8085e/fix-keyboard-focus/06-arrow-down-opens-more.png) and arrows-after-final, the framework decisions paragraph, the new residuals, and X66's revised wording.
-  4. Tell the coordinator that X66 is this task's number. It stays unpublished.
-- **Expected conflicts, per the coordinator.** Whoever lands second resolves them.
-  - `providers-setup.contract` `ProviderAccountRow` (fix-provider-auth-state): the `KmItem` ids take its
-    `idPrefix`, and its invoker bumps `keyed`.
-  - `diff.contract` `DiffScopeMenu` (#308): the new `keyed` prop.
-  - `pages-pr-actions.contract` More and Check out (pr-links' `PrdActOnItems`).
+The coordinator asked for one short real-input session for the rows added after the 2026-10-08 session. It did not
+run: #307 (fix-hover-cards) held the shared lock from 10:40:48Z, and the screen was locked (checked 11:1xZ,
+`CGSSessionScreenIsLocked` true). The rows are in STATUS's "Next real-input batch". Steps, with the lane copy
+"T3 Code (Lane FKF after)" built with `--bundle` and paired through Settings › Connections › Add environment (no
+capture while the code is on screen):
+
+1. **↓/↑ on closed triggers.**
+   - On #132, click "…", then Escape; the ring is on "…". Real ↓ puts a ring on Refresh; Escape; real ↑ puts it on
+     Close pull request.
+   - Hover the Snooze-me row, click its clock, then Escape. ↓ goes to In 1 hour; Escape; ↑ goes to Custom….
+   - Click the thread title, then Escape. ↓ goes to Pin thread; Escape; ↑ goes to Delete.
+2. **Escape in the diff scope menu.** Click Changes in the details panel, then click the scope trigger. Real Escape
+   closes the menu, the trigger gets the ring, and the panel stays. A second Escape closes the panel.
+3. **Table Copy.** In a reply with a Markdown table, Tab to its Copy button. ↓ opens the menu on Copy as Markdown;
+   Escape; ↑ opens it on Copy as CSV. This needs a lane whose provider can answer.
+
+## Current state
+
+- Head: see the PR. Merged in: `84a52dde0` (#290) and `421047c46` (#312).
+  - #312's sign-in method menu now has the shared pattern: its `KmItem` ids take `idPrefix`, and its trigger has
+    `KeyMenuOpen`. #312 merged without its own invoker.
+- Draft PR #310's body is current with this record.
+- Expected conflicts, per the coordinator; whoever lands second resolves them:
+  - `diff.contract` `DiffScopeMenu` with #308: the `keyed` prop and the Escape box.
+  - The More and Check out menus with #311.
 
 ## Next action
 
-The coordinator reviews and merges the draft PR. X66 is unpublished; the coordinator files it after review.
+The coordinator reviews and merges the draft PR. X66 is filed as #319. Run the deferred real-input rows in the next batch.
