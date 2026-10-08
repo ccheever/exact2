@@ -11,7 +11,7 @@ export function mobileNewTaskRestoredProject(client: T3Client, key: string) {
   if (!draft || !key.startsWith('new-task:restored-')) return null;
   const matches = Object.entries(obj(obj(client.local).mobileRecoveredDrafts)).filter(([owner, raw]) => {
     const marker = obj(raw);
-    return owner.startsWith('outbox:') && marker.key === key && marker.origin === draft.origin && marker.environmentId === draft.environmentId
+    return (owner.startsWith('outbox:') || owner.startsWith('outbox-editor:')) && marker.key === key && marker.origin === draft.origin && marker.environmentId === draft.environmentId
       && obj(marker.creation).projectId === draft.projectId;
   });
   if (matches.length !== 1) return null;

@@ -1,4 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#retained-editor-preparation-for-terminal-recovery
+import { mobilePendingTaskDetach, mobilePendingTaskDetachedKey } from './mobile-pending-task-detach';
+import { mobilePendingTaskDraftFingerprint } from './mobile-pending-task-draft';
 import type { MobileDraftClient } from './mobile-draft-recovery';
 import { obj, str } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
@@ -47,6 +49,9 @@ export async function mobilePendingTaskRecover(client: MobileDraftClient, handle
     const source = proof && obj(obj(obj(proof.draft.recovered)[`outbox:${JSON.stringify([owner.origin, owner.environmentId, owner.commandId])}`]).pendingEditor);
     if (proof && (source?.session !== expected.session || source.draftKey !== `new-task:pending-${owner.messageId}` || !str(source.fingerprint)))
       return retained('The saved destination belongs to a different editor session.');
+    const detached = completed.handoff && !live ? mobilePendingTaskDetachedKey(client, expected) : '';
+    const newer = completed.handoff && live ? mobilePendingTaskDraftFingerprint(client, live.draftKey) : null;
+    const detachFingerprint = newer && newer !== source?.fingerprint ? newer : '';
     let fingerprint = source ? str(source.fingerprint) : '';
     if (!proof) {
       if (!live) return retained('The original saved editor is missing.');
@@ -59,7 +64,17 @@ export async function mobilePendingTaskRecover(client: MobileDraftClient, handle
       ...(live ? { editor: { expected: live, fingerprint } } : {}) });
     check();
     if (recovered.status !== 'recovered' || !recovered.handoff) return recovered;
+    if (detached) {
+      if (mobilePendingTaskDetachedKey(client, expected) !== detached) return retained('The separate saved draft changed. Reopen it from Home.');
+      await client.persist(storage); check();
+      return { ...recovered, draftKey: detached };
+    }
     if (!live) return recovered;
+    if (detachFingerprint) {
+      const draftKey = mobilePendingTaskDetach(client, live, detachFingerprint);
+      await client.persist(storage); check();
+      return { ...recovered, draftKey };
+    }
     const finished = await mobilePendingTaskEditorFinishRecovery(client, native, storage, { owner, expected: live,
       fingerprint, handoff: recovered.handoff, current: input.current });
     check();
