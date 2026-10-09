@@ -104,13 +104,51 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
   so it saw only the second. The clone now draws `DiffStatLabel` for a large source and keeps Pierre's order and zero
   rules otherwise (`diff.ts` `headerStat`); the panel total is compact ("+2.4k -1") as `DiffStatLabel` is.
 
+### Review round (2026-10-10)
+
+An independent review of draft PR #360 found four problems; the round's own drive found two more.
+
+- **PA-12: a stale focus.** The Apple host sends no blur when a focused view leaves the tree (LLP 1008), so after a
+  keyboard thread switch (the panel closes, the draft stays) the Diff could reopen on a thread whose diff lacks the
+  draft's line while `draftFocused` was still true, and ⌘↩ in the composer stopped sending. The focus is now the thread
+  key it was taken on (`DiffState.draftFocus`, `diff.ts` `noteDraftFocus`), and `draftHoldsCommandEnter` also requires
+  the card to be drawn (`draftDrawn`: the panel open, the draft's scope showing, its file listed with its patch in and
+  expanded, its end line one the file numbers). A card that mounts again takes the focus by `autofocus` and reports it.
+- **PA-6: the search field's keys.** Base UI Combobox list navigation, checked against the reference over CDP: an
+  opening starts at the selected item, ↓/↑ move the highlight (loop, and past either end to none), typing clears it,
+  Return picks the highlighted item or, with none, only closes; the pointer moves the same highlight and leaving an item
+  clears it (`resetOnPointerLeave`). The selected item keeps its own tint under the highlight (`data-selected`). In the
+  clone: `DiffBasePicker` keeps the highlight by id per opening (`session`), `dbStep` is the navigation, the search's
+  `key` takes ↓/↑ (`preventDefault`, `scrollIntoView` nearest) and its `submit` picks. A plain Enter `aria-keyshortcuts`
+  button is not heard in a text field (`ShortcutsMac.permits`), and a popover cannot be hidden from an action (X66,
+  #319), so Return empties the popover until the trigger opens it again, as the details branch picker does
+  (`r4-git.contract`); the focus goes back to the trigger.
+- **PA-6: a stale ref list.** `loadBaseRefs` drops every answer but the newest read's (a counter), so an older cwd's
+  answer after a thread switch no longer overwrites the newer one. The unread `loading` flag is gone (the reference
+  draws no loading state in this popup).
+- **PA-12 with real keys:** still open; it is the coordinator's real-input batch (steps below).
+- **Found in this round's drive: a long base overlapped the stats.** `origin/release/2026-10` drew over "+2.4k -1".
+  DiffPanel's comparison group is `overflow-hidden` and its trigger a shrink-0 `Button`, so the reference clips it; the
+  clone's group now clips the label and trigger (the popup stays outside the clip).
+- **Found in this round's drive: the selected ref's tint.** See the keys above (`light-dark(#27272a14, #f5f5f514)`, as
+  the clone's other selects).
+
+## Decision needed
+
+With a query, the reference's static Automatic row shifts its keyboard index: "rel" then ↓ lights Automatic, Return on
+it selects nothing and leaves the popup open, and a second ↓ goes to no item, so the matching refs cannot be reached
+from the keyboard ([reference and clone](https://raw.githubusercontent.com/ccheever/exact2/1a979bef7005de4b1cdc20c6cecd7aa6aa1e76ee/diff-panel-parity/decision-query-keys.png); CDP,
+`rk-05`..`rk-11` in the lane's shots). The clone follows Base UI's model over the filtered items
+instead (with a query Automatic is not an item, so ↓ lights the first matching ref and Return picks it). Keep this, or
+copy the reference's behavior?
+
 ## Acceptance results
 
 Lane `diff-panel-parity` (base port 16840): the `work` project under the reference home's `worktrees/` (so the reference
 server accepts its cwd), an `origin` remote (main, feature/audit, remote-only `release/2026-10`) and a 2,400-line
 committed file, so Changes is a large source and Uncommitted is not; providers switched off in the clone homes (no
-provider toasts, no turns). Before = `t3-code-evidence-base` (`950e8e2e5`), after = `35d40ee97`, reference = T3 Code
-`1e2ecbd975` Electron. Images: before | after | reference.
+provider toasts, no turns). Before = `t3-code-evidence-base` (`950e8e2e5`), after = `35d40ee97` (first round) and
+`1c41d6434` (review round), reference = T3 Code `1e2ecbd975` Electron. Images: before | after | reference.
 
 | Id | Result | Proof |
 | --- | --- | --- |
@@ -119,37 +157,51 @@ provider toasts, no turns). Before = `t3-code-evidence-base` (`950e8e2e5`), afte
 | PA-8 | pass | [Changes (large source)](https://raw.githubusercontent.com/ccheever/exact2/abb7b7936a40391cd5a0570f7c32bb84089be184/diff-panel-parity/pa8-header-stats.png): `src/app.ts` "+5 -1", `data/rows.txt` "+2.4k -0", total "+2.4k -1"; [Uncommitted (Pierre)](https://raw.githubusercontent.com/ccheever/exact2/c7a4f93f3ec4ea68e2635a5159ef5c278675b44d/diff-panel-parity/pa8-uncommitted-pierre-order.png): "-1 +1", "+1", as the reference |
 | PA-12 (agent) | pass | [⌘Enter saves](https://raw.githubusercontent.com/ccheever/exact2/24e4d2fc8636690c845e8a2fa6c9f4be4fc18708/diff-panel-parity/pa12-cmd-enter-saves.png): platform-delivered Meta+Enter saved "audit note" (inline card) and inserted the "app.ts L7" chip; before, the draft stayed open. Tree: `send-message` keys `''` while the draft is focused, `Meta+Enter Meta+Alt+Enter` before and after |
 | PA-12 (real keys) | open | needs real input: see the batch steps below |
+| PA-6 keys (review) | pass | [↓ ↓](https://raw.githubusercontent.com/ccheever/exact2/fddba6fa96dab33541841b1f9387c829eaf204d6/diff-panel-parity/pa6-picker-arrow-keys.png): Automatic (selected, tinted) and origin/feature/audit lit, as the reference; [↑ then Return](https://raw.githubusercontent.com/ccheever/exact2/c1d3488ce73900b2d3a60aa9fba757e98ba43f0a/diff-panel-parity/pa6-picker-return-picks.png): "Comparing feature/audit against main" in both apps. Agent tree on `1c41d6434`: "rel" ↓ Return gives origin/release/2026-10; "zzz" Return keeps the base and empties the popover; Automatic restores origin/main |
+| PA-6 long base (review) | pass | [clipped](https://raw.githubusercontent.com/ccheever/exact2/f8ac03c156dbfa3dee58f968befb245405b0aefc/diff-panel-parity/pa6-long-base-clipped.png): "→origin/release/2026-" clipped beside "+2.4k -1", as the reference; before the fix it drew over the stats |
+| PA-12 stale focus (review) | pass | unit test (no visible change): another thread, a diff without the draft's file and a collapsed file each give Send back `Meta+Enter`; a card mounted again and focused takes it. Live regression on `1c41d6434`: `send-message` keys `''` with the draft open, `Meta+Enter Meta+Alt+Enter` after ⌘↩ saved it |
+| PA-6 stale refs (review) | pass | unit test: two reads at `/a` then `/b`, `/a` answering last; the picker keeps `/b`'s refs |
 
 Known residual (framework, declared): the search field draws the native focus ring around it (X61, #302) where the
 reference draws only the underline.
 
 ## Tests
 
-`diff-panel-parity.test.ts` (7): base-ref choices and filter, the picker rows (switch / remote only / no match / other
+`diff-panel-parity.test.ts` (9): base-ref choices and filter, the picker rows (switch / remote only / no match / other
 cwd), the comparison through `T3Client.command` (listRefs payloads, the pick's `baseRef`, Uncommitted keeps it,
-Automatic), Latest turn with no turns, header counts both ways and the compact total, and the Send chords while a draft
-holds the focus (blur, closed panel, save).
+Automatic), only the newest ref read landing (review), Latest turn with no turns, header counts both ways and the
+compact total, the Send chords while a draft holds the focus (blur, closed panel, save), and a draft that left the tree
+without a blur (review: another thread, a diff without its file, its file collapsed). The picker's keys are Contract
+(`dbStep`, no unit evaluator for a `fn`): proven by the agent drive.
 
-Checks on `35d40ee97` (the feature branch merged at `6e2040c58`; later commits change this record only):
-`bun test examples/t3-code --timeout 60000` exit 0 (3,655 pass, 1 skip, 0 fail, 262 files); strict `tsc` on `app.ts`
-exit 0; `contract build examples/t3-code/app.contract` exit 0 (5,752 slots, 46 resources, 90,189 nodes;
-`app.contract` 1,230 lines); `git add -A && bun scripts/caps.mjs` exit 0; the five checks: `cargo build --all-targets
+Checks on `1c41d6434` (review round; the feature branch merged at `3b334f704`; later commits change records only):
+`bun test examples/t3-code --timeout 60000` exit 0 (3,700 pass, 1 skip, 0 fail, 265 files); strict `tsc` on `app.ts`
+exit 0; `contract build examples/t3-code/app.contract` exit 0 (5,780 slots, 46 resources, 90,284 nodes;
+`app.contract` 1,234 lines); `git add -A && bun scripts/caps.mjs` exit 0; the five checks: `cargo build --all-targets
 --keep-going` 0, `cargo test --lib --bins --tests --no-fail-fast` 0 (3,521 pass, 0 fail, 34 ignored), `cargo clippy
 --all-targets --keep-going -- -D warnings` 0, `cargo fmt --all -- --check` 0, `bun scripts/caps.mjs` 0,
 `bun scripts/boot.mjs` 0. No Rust or Swift changed, so `cargo test -p t3-code-macos --lib` and the AppKit binaries were
-not run. Bundle: `bun host/apple/build.mjs t3-code-macos --bundle` once; one live agent drive (no retry).
-The same checks ran again on `55573e65b` (same code; a continuation after a usage-limit stop kept no logs), all
-exit 0 with the same counts.
+not run. Bundle: `bun host/apple/build.mjs t3-code-macos --bundle` before the drive and once more for the one retry
+(the first drive found the long base's overlap); two live agent drives in all. The first round's checks on `35d40ee97`
+were all exit 0 as well (3,655 Bun tests).
 
 ## Real-input batch steps
 
-PA-12, real ⌘Enter (screen unlocked; lane `diff-panel-parity`, build of this branch):
-1. `EXACT_ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-panel-parity` and run the bundle
-   (`T3_LOCAL_HOME=<lane>/clone-t3-home T3_LOCAL_PORT=16842 bun host/apple/build.mjs t3-code-macos --bundle --run`).
+PA-12, real ⌘Enter, and the picker's keys in the same session (screen unlocked; lane `diff-panel-parity`, build of this
+branch). `A` = `/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit`, `L` = `$A/lanes/diff-panel-parity`.
+1. From `/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-panel-parity`, with the lane's isolation as
+   `$A/clone-drive.sh` sets it: `PATH=$HOME/.bun-1.4.2/bin:$PATH EXACT_APP_DIR=$PWD/examples/t3-code
+   T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16842 T3CODE_TELEMETRY_ENABLED=false
+   T3_LOCAL_RUNTIME_DIR=$A/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64 CODEX_HOME=$L/codex
+   CLAUDE_CONFIG_DIR=$L/claude XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state
+   XDG_CACHE_HOME=$L/xdg/cache bun host/apple/build.mjs t3-code-macos --bundle --run`.
 2. Open "Audit work thread", press Changes in the details card, expand `src/app.ts`, hover line 7 and click its "+".
 3. Type `audit note` and press ⌘Return with real keys. Pass: the card "audit note" shows under line 7 and the composer
    gets the "app.ts L7" chip; nothing is sent (the lane's clone home has its providers switched off).
+4. Click the header's "origin/main" trigger, press ↓ ↓ ↑ Return with real keys. Pass: the header reads
+   "feature/audit → main". Reopen it and click Automatic to restore origin/main.
 
 ## Next action
 
-Coordinator: review draft PR (link in the frontmatter), run the real-key row in the next batch, merge.
+Coordinator: answer "Decision needed" (the query's keyboard), run the real-key rows in the next batch, review draft PR
+(link in the frontmatter), merge.
