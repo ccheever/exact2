@@ -1,0 +1,39 @@
+#!/bin/zsh
+# One live drive of the clone for settings-appearance-and-skill-chip. Usage: drive.sh before|after
+# before: the evidence base (feature-branch tip build); after: this worktree's build. Same steps, same size.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-appearance-and-skill-chip
+S=$W/target/chip-lane/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=settings-appearance-and-skill-chip-before; else ROOTDIR=$W; LANE=settings-appearance-and-skill-chip; fi
+extra() { [ "$MODE" = after ] && print -r -- "$1"; }
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  'tap "Dismiss notification"' "clock +600 real"
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "screenshot $S/s1-12-composer-chip.png window"
+  "tree --ax composer"
+  ${(f)"$(extra 'tree chip-popover')"}
+  "tap connection-settings" "clock +1000 real"
+  "tap settings-appearance" "clock +1000 real"
+  "tap theme-duplicate-t3-chat" "clock +1000 real"
+  "screenshot $S/s1-5-duplicate.png window"
+  "tree theme-editor"
+  "tap theme-editor-save" "clock +1500 real"
+  "tap theme-edit-t3-chat-copy" "clock +1000 real"
+  "screenshot $S/s1-5-edit.png window"
+  "tree theme-editor"
+  "tap theme-editor-close" "clock +600 real"
+  "tap prompt-font-preview down at 90 13" "tap up" "clock +1000 real"
+  "screenshot $S/s1-12-preview-chip.png window"
+  "tree --ax prompt-font-preview"
+  ${(f)"$(extra 'tree chip-popover')"}
+  "tap add-theme" "clock +1500 real"
+  "tap add-theme-popular-Dracula" "clock +8000 real"
+  "screenshot $S/s1-6-open-vsx.png window"
+  "tree add-theme-dialog"
+)
+print -r -- "${(j:\n:)ops}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16920 "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
