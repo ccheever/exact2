@@ -2,20 +2,20 @@ settings-diagnostics-and-scope, review round 2026-10-10: each PG-8 hunk put back
 then bun test examples/t3-code/settings-diagnostics-scope.test.ts (6 tests). Each hunk now has a test that fails without it.
 
 === app.ts at base 6e2040c58, the rest at the fix
-(fail) Project settings opens on every environment (PG-8) > a two-checkout project's page lists both checkouts and its Danger row removes both (ProjectSettingsPanel.tsx:497-503) [6.52ms]
+(fail) Project settings opens on every environment (PG-8) > a two-checkout project's page lists both checkouts and its Danger row removes both (ProjectSettingsPanel.tsx:497-523) [3.83ms]
  5 pass
  1 fail
 === scheduled-view.ts at base 6e2040c58, the rest at the fix
-(fail) Project settings opens on every environment (PG-8) > Scheduled Tasks from a bare project id lists every checkout's tasks (taskScope) [2.33ms]
+(fail) Project settings opens on every environment (PG-8) > Scheduled Tasks from a bare project id lists every checkout's tasks (taskScope) [3.05ms]
  5 pass
  1 fail
 === source-control-view.ts at base 6e2040c58, the rest at the fix
-(fail) Project settings opens on every environment (PG-8) > Integrations from a bare project id scopes the device switches to the project and writes every checkout's override [3.72ms]
+(fail) Project settings opens on every environment (PG-8) > Integrations from a bare project id scopes the device switches to the project and writes every checkout's override [1.95ms]
  5 pass
  1 fail
 === settings-core-view.ts at base 6e2040c58, the rest at the fix
-(fail) Project settings opens on every environment (PG-8) > a bare project id is the project's group with no machine or checkout, as /projects/$projectKey redirects [25.08ms]
-(fail) Project settings opens on every environment (PG-8) > a two-checkout project's page lists both checkouts and its Danger row removes both (ProjectSettingsPanel.tsx:497-503) [3.80ms]
+(fail) Project settings opens on every environment (PG-8) > a bare project id is the project's group with no machine or checkout, as /projects/$projectKey redirects [26.43ms]
+(fail) Project settings opens on every environment (PG-8) > a two-checkout project's page lists both checkouts and its Danger row removes both (ProjectSettingsPanel.tsx:497-523) [3.80ms]
  4 pass
  2 fail
 === every file at the fix
