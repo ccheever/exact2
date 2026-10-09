@@ -51,12 +51,17 @@ component SurfacePanel
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // browser-surface: the Browser tab whose URL field has the focus, so Escape is the field's, not the panel toggle's.
+  // Kept by tab: a field that leaves without a blur (its tab switched away) never holds another tab's Escape.
+  state urlFocusTab = ""
+  action urlFocus(tab: string, on: bool)
+    urlFocusTab = on ? tab : (urlFocusTab == tab ? "" : urlFocusTab)
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
       // r4-surfaces: an open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
       when shell.panel.open
-        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme)
-        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending)
+        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId))
+        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus)
         // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
         when shell.panel.kind == "pull-request"
           R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))

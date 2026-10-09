@@ -158,7 +158,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
   const row = (id: string, label: string, icon: string, shortcut: string, available: boolean, reason: string): ShellSurface =>
     ({ id, label, icon, shortcut, available, reason: available ? '' : reason });
   return [
-    row('browser', 'Browser', 'earth', 'B', false, 'Only available in the desktop app.'),
+    row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // browser-surface: the module's WKWebView (isPreviewSupportedInRuntime)
     row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
     row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),

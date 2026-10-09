@@ -9,6 +9,7 @@ use R5Attachment from "./r5-panels-shapes.contract"
 use R6DeviceView from "./r6-device-shapes.contract"
 use R6DeviceMini from "./r6-device-shapes.contract"
 use R12TabStrip from "./r12-threads.contract"
+use BrowserPanel from "./browser-shapes.contract"
 use MediaView from "./media-actions.contract"
 
 shape R4Tab
@@ -26,6 +27,8 @@ shape R4Tab
   closeBody: string
   closeTarget: string
   menu: list<R4TabMenuItem>
+  favicon: string // browser-surface: a Browser tab's captured favicon, then the public service's
+  faviconFallback: string
 // right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
 shape R4TabMenuItem
   id: string
@@ -246,3 +249,4 @@ shape R4Panel
   attachment: R5Attachment
   deviceMini: R6DeviceMini
   tabStrip: R12TabStrip // lane r12-threads: the tab strip's scroll (r12-threads-tabs.ts)
+  browser: BrowserPanel // browser-surface: the active Browser tab (browser-surface.ts browserView)
