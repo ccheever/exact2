@@ -150,6 +150,7 @@ export function snapshot(client: T3Client, now = 0) {
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
+    threadLoading: !!client.threadId && !client.thread, // audit-wave-followups FU-1: the empty timeline's placeholder waits for the detail
     diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: diffNotGit(client) || client.diffError === NOT_GIT_REPO ? '' : client.diffError,
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),

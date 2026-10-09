@@ -545,10 +545,10 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
 
 ## Desktop update controls (no feed): declared differences
 
-Task `20261009-blocked-desktop-update-controls`, option (a), draft PR pending the user's decision (X40 stays closed).
-- **No Tab stop on the disabled "Check for updates" control (new framework gap, issue: number pending).** Builders file
-  nothing, so the coordinator files it from the draft in [PR #368](https://github.com/ccheever/exact2/pull/368)
-  ("Coordinator action") and puts the number here and in the task record. The reference's
+Task `20261009-blocked-desktop-update-controls`, option (a), merged as #368 on the user's decision of 2026-10-10 (X40 stays closed).
+- **No Tab stop on the disabled "Check for updates" control (framework gap X70, a local draft:
+  `.exact/implementation/20261005-t3code-macos-parity/issues/20261010-x70-aria-disabled-focusable.md`; the user keeps
+  new framework drafts local).** The reference's
   `SidebarUpdatePill` is `aria-disabled`, so Tab still reaches it (focus ring, no action). Contract has no
   `aria-disabled` (`contract vocab`), and a `disabled` button takes no focus, as a disabled `<button>` on the web; the
   clone's control (`sidebar-icons.contract` `SidebarUpdatePill`) is skipped by Tab. Its label, dimmed state, tooltip and

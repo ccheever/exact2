@@ -1,14 +1,14 @@
 ---
 name: 20261009-blocked-desktop-update-controls
 plan: 20261005-t3code-macos-parity
-implementation: implemented-pending-decision
+implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-desktop-update-controls
 pr_url: https://github.com/ccheever/exact2/pull/368
-verified_commit: null
+verified_commit: 4524d91ed08843fb2368e685fcbfcf93449a251b
 ---
 
 # The reference's no-feed update controls (sidebar "Check for updates", Settings nav button, Update track): option (a) built, pending the user's decision
@@ -174,3 +174,7 @@ step 1 goes into the next real-input batch either way it lands.
 
 Coordinator, before a merge (review of 2026-10-10): file the `aria-disabled` issue from the PR's draft and put its number
 in "Declared difference (option a)" above and in the `EXACT2-GAPS.md` row (both say "number pending").
+
+## Delivery
+
+Merged on 2026-10-10 as `4524d91ed` (#368, squash). The user decided on 2026-10-10 to build option (a): the no-feed controls are built; the X40 feed stays closed. The aria-disabled gap (the disabled control takes no Tab stop) is the local draft X70, not filed (the user's choice for local drafts). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

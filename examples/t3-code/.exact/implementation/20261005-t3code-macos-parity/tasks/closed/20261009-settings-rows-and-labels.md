@@ -3,12 +3,12 @@ name: 20261009-settings-rows-and-labels
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-rows-and-labels
 pr_url: https://github.com/ccheever/exact2/pull/367
-verified_commit: null
+verified_commit: 1329775c0ec68f5156424f8a6a76d4f988ae0b10
 ---
 
 # Settings rows and labels: confirmations, inheritance, policy tooltips, scheduled-task texts, Connections and Source Control names
@@ -232,3 +232,7 @@ left-aligned), and the picker has no "Showing 100 of 122 refs" status, server-si
 [settings-diagnostics-and-scope](20261009-settings-diagnostics-and-scope.md), and `settings-scheduled.contract` and
 `settings-source-control.contract` with [model-picker-parity](20261009-model-picker-parity.md). The second of these to
 merge keeps both sides.
+
+## Delivery
+
+Merged on 2026-10-10 as `1329775c0` (#367, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
