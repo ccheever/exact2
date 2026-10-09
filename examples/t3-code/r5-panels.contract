@@ -20,7 +20,7 @@ use prdTone from "./pages-pr-detail.contract"
 use prdCheckIcon from "./pages-pr-detail.contract"
 use prdCheckTone from "./pages-pr-detail.contract"
 use ChatDocument from "./markdown.contract"
-use MarkdownBlocks from "./markdown.contract"
+use DiagramBlocks from "./markdown.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use PgIcon from "./pages-icons.contract"
@@ -138,6 +138,8 @@ component R5PrSurfaceBody
 component R5AttachmentBody
   props
     att: R5Attachment
+    // audit-wave-followups-3 FW-2: app.contract's filesMarkdown, which parses the attachment as ChatMarkdown does.
+    documents: list<ChatDocument>
     scheme: string
     sheet: bool
     local: action
@@ -159,10 +161,11 @@ component R5AttachmentBody
           text att.error text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
           button press=local("surface-r5-att-retry", att.id, "") testId="attachment-retry" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000"
             text "Try again" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-      when att.preview == "markdown"
-        scroll flex=1 min-height=0 width="100%" testId="attachment-markdown"
-          column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
-            MarkdownBlocks(document=att.markdown, local=local, code=att.code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false)
+      // The rendered Markdown's glyphs, rebuilt per scheme as Files' are (R4FilesBody).
+      when att.preview == "markdown" and scheme == "dark"
+        R5AttachmentMarkdown(att=att, documents=documents, scheme=scheme, local=local)
+      when att.preview == "markdown" and scheme != "dark"
+        R5AttachmentMarkdown(att=att, documents=documents, scheme=scheme, local=local)
       when att.preview == "table"
         scroll flex=1 min-height=0 width="100%" testId="attachment-table"
           column min-width="100%"
@@ -185,6 +188,22 @@ component R5AttachmentBody
         column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" testId="attachment-no-preview"
           text "No preview for this file" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           text att.noPreview max-width="24rem" text-align="center" font-size="0.75rem" line-height="1.21875rem" color=r5Muted()
+
+// AttachmentFilePreview: <ChatMarkdown text cwd={undefined} className="mx-auto max-w-4xl px-6 py-5" /> in a ScrollArea, the
+// chat renderer Files' rendered file uses (R4FilePreview), with no folder (r5-panels-attach.ts renderedAttachment).
+component R5AttachmentMarkdown
+  props
+    att: R5Attachment
+    documents: list<ChatDocument>
+    scheme: string
+    local: action
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
+  view
+    scroll flex=1 min-height=0 width="100%" testId="attachment-markdown"
+      column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
+        each document in filter(documents, (entry) => entry.id == `attachment:${att.id}`) key=document.id
+          DiagramBlocks(document=document, local=local, code=att.code, diagrams=att.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=att.codeCopied, copiedNonce=att.codeCopyNonce, env=att.md, urls=att.mdUrls, source="", cite=noCite)
 
 component R5AttachmentHeader
   props

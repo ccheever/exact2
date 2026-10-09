@@ -136,6 +136,13 @@ fn synInk(cls: string): string = cls == "kw" ? "light-dark(#d32a61, #ff678d)" : 
 
 shape TranscriptMarkdown
   documents: list<ChatDocument>
+// renderFileMarkdown's message record (id, kind, a title it ignores, the text): kind "file" (Files' rendered file) lets
+// task checkboxes write; kind "attachment" (a sent attachment's preview, audit-wave-followups-3 FW-2) has no folder.
+shape MarkdownSource
+  id: string
+  kind: string
+  title: string
+  body: string
 
 // A chip's presentation (r4-timeline-chips.ts), matched to its run by href:
 // kind "link" (a file link's full path), "mention", "file", "video", "image",

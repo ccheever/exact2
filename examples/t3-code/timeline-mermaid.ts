@@ -120,7 +120,9 @@ export function retryMermaid(code: string): string {
 /**
  * markdown-links-and-files-preview: FileMarkdownPreview is ChatMarkdown, so a rendered Markdown file's settled
  * ```mermaid fences draw as diagrams too (MarkdownMermaidCodeBlock, isStreaming false). Files asks for them while it
- * builds its view and remembers them, per client, so the expand button can open them.
+ * builds its view and remembers them, per client, so the expand button can open them. A sent attachment's rendered
+ * Markdown is ChatMarkdown too (audit-wave-followups-3 FW-2, r5-panels-attach.ts) and asks the same way: the right
+ * panel shows one of the two at a time.
  */
 const fileFences = new WeakMap<object, string[]>();
 export async function filesMermaid(client: T3Client, native: Native | null | undefined, markdown: string): Promise<MermaidDiagramView[]> {

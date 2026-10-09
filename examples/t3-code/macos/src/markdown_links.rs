@@ -76,6 +76,25 @@ fn link_href(href: &str) -> String {
     }
 }
 
+/// AttachmentFilePreview's ChatMarkdown has no `cwd` (audit-wave-followups-3 FW-2):
+/// resolveMarkdownFileLinkTarget finds no folder for a relative destination, so the
+/// anchor is a plain one, which the desktop window opens nowhere (its window-open
+/// handler passes only safe external URLs): link-coloured text with no target, as an
+/// emptied anchor is. An absolute path or a `file:` URL is still a chip.
+fn link_href_without_cwd(href: &str) -> String {
+    let resolved = link_href(href);
+    match resolved.strip_prefix(FILE_LINK) {
+        Some(target)
+            if !target.to_ascii_lowercase().starts_with("file:")
+                && !target.starts_with('/')
+                && !windows_drive(target) =>
+        {
+            NO_HREF.to_string()
+        }
+        _ => resolved,
+    }
+}
+
 /// `- [ ] `, `1. [x] `: the `[` of a list item's task marker (GFM wants whitespace and
 /// some text after it), from the item's text after its bullet. `more`: the text goes on
 /// in later runs (`- [ ] **Write**`: emphasis, code or a link right after the marker).
@@ -303,6 +322,49 @@ mod link_tests {
         // A table cell copies the label alone, as serializeAnchor does for a link with no href.
         let parsed = markdown_parse::parse("[parser](fixture.txt:3)", &|href| link_href(href));
         assert_eq!(cell_markdown(&parsed.blocks[0].runs), "parser");
+    }
+
+    #[test]
+    fn an_attachment_has_no_folder_for_relative_links() {
+        // audit-wave-followups-3 FW-2: AttachmentFilePreview's ChatMarkdown (no `cwd`): a relative
+        // destination is targetless link text, an absolute one or a `file:` URL a chip; its tasks are disabled.
+        let source = Value::list(vec![Value::record(vec![
+            Value::str("attachment:a1"),
+            Value::str("attachment"),
+            Value::str(""),
+            Value::str("[rel](src/a.ts) [abs](/repo/a.ts) [url](file:///repo/b.ts) [web](https://a.com)\n\n- [x] done\n"),
+        ])]);
+        let Value::Record(answer) = Markdown
+            .query("renderFileMarkdown", &[source])
+            .expect("answer")
+        else {
+            panic!("answer")
+        };
+        let Value::List(documents) = &answer[0] else {
+            panic!("documents")
+        };
+        let blocks = blocks_of(&documents[0]);
+        let links: Vec<(&str, &str)> = runs_of(blocks[0])
+            .iter()
+            .filter(|r| !r[6].as_str().unwrap_or("").is_empty())
+            .map(|r| (r[5].as_str().unwrap_or(""), r[6].as_str().unwrap_or("")))
+            .collect();
+        assert_eq!(
+            links,
+            vec![
+                ("", "link"),
+                ("t3-file:/repo/a.ts", "file"),
+                ("t3-file:file:///repo/b.ts", "file"),
+                ("https://a.com", "link-start"),
+            ]
+        );
+        assert_eq!(blocks[1][16].as_str(), Some("done"));
+        assert_eq!(blocks[1][17], Value::Number(-1.0));
+        assert_eq!(
+            link_href_without_cwd("C:/repo/a.ts"),
+            format!("{FILE_LINK}C:/repo/a.ts")
+        );
+        assert_eq!(link_href_without_cwd("./a.ts"), NO_HREF);
     }
 
     #[test]

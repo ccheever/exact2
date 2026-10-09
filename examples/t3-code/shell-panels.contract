@@ -70,7 +70,7 @@ component SurfacePanel
         when shell.panel.kind == "pull-request"
           R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
         when shell.panel.kind == "attachment"
-          R5AttachmentBody(att=shell.panel.attachment, scheme=scheme, sheet=sheet, local=local)
+          R5AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local)
       else
         row height=52 flex-shrink=0 padding-right="0.8125rem" box-sizing="border-box" align-items="center" justify-content="flex-end" gap="0.25rem" position="relative" z-index=20
           when sheet

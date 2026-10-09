@@ -78,6 +78,11 @@ describe('one resolved colour scheme', () => {
     expect(terminal.match(/border-color="light-dark\(#e4e4e7cc, #ffffff0c\)"/g)?.length).toBe(2);
     // TH-7: the expanded Mermaid diagram's card.
     expect(await source('app-overlays.contract')).toContain('DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)');
+    // audit-wave-followups-3 FW-1: the card is the page's colour as the window draws it (the drawing's paints resolve by
+    // the same appearance), so a light drawing never sits on a black card; the drawing is still rebuilt per scheme.
+    const dialog = await source('timeline-mermaid.contract');
+    expect(dialog).toContain('background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff12), 0 25px 50px -12px #00000040"\n            when scheme == "dark"\n              MermaidSvg(');
+    expect(dialog).not.toContain('background-color="#0a0a0a"');
   });
 
   // The theme editor's first appearance is useTheme's resolvedTheme (SettingsPanels.tsx:1189 ThemeLibrary
