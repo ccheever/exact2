@@ -288,6 +288,13 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     expect(menu).toContain('row align-items="flex-start" key=subEscape');
     expect(menu).toContain('searchEscape=closeSub, control=control)');
     expect(menu).not.toContain('focus("pr-filters-keys")');
+    // The menu's keys then go on from that row (from Author, ↓ is Labels, as on the reference): a Filters row moves the
+    // focus from itself, since the popup's KeyMenu knows only the rows its own keys reached.
+    expect(menu).toContain('derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"),');
+    expect(menu).toContain('KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=keyed, gap="0px", modal=true)');
+    expect(menu).toContain('  action subKey(name: string, k: string, e: KeyboardEvent)\n');
+    expect(menu).toContain('    else if not e.metaKey and not e.ctrlKey and not e.altKey\n');
+    expect(menu).toContain('      match kmTarget(filterItems, `pr-filter-${name}`, k)\n        case some(item)\n          preventDefault()\n          stopPropagation()\n          focus(item.id)\n        case none');
     expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
   });
   test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {

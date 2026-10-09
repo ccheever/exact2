@@ -11,7 +11,7 @@ use PgIcon from "./pages-icons.contract"
 use PgGlyph from "./pages-icons.contract"
 use BrandGitHub from "./settings-brands.contract"
 use PrEmptyState from "./r5-shell-prs.contract"
-use KmItem from "./menu-keys.contract"
+use KmItem, kmTarget from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use PrSpeedAction from "./pages-pr-quick.contract"
@@ -462,7 +462,8 @@ component PrFiltersMenu
   action triggerKey(k: string)
     if kmOpenKey(k)
       keyed = kmBump(keyed, false)
-  action subKey(name: string, k: string)
+  derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")]
+  action subKey(name: string, k: string, e: KeyboardEvent)
     if k == "ArrowRight" or kmOpenKey(k)
       preventDefault()
       sub = name
@@ -470,6 +471,16 @@ component PrFiltersMenu
       subLeft = false
       subKeyed = subKeyed + 1
       focus("pr-filters-sub-keys")
+    else if not e.metaKey and not e.ctrlKey and not e.altKey
+      // FW-3: ↓, ↑, Home, End and a letter go on from the row that has the focus, however it got it (a press, the
+      // Escape that closed its submenu), as Base UI's list navigation does from its highlighted row: the popup's
+      // KeyMenu knows only the rows its own keys reached (from Author, ↓ is Labels, not State).
+      match kmTarget(filterItems, `pr-filter-${name}`, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          focus(item.id)
+        case none
   action subBack(k: string)
     if k == "ArrowLeft" and sub != ""
       preventDefault()
@@ -515,7 +526,7 @@ component PrFiltersMenu
                 KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)
                   PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, searchEscape=closeSub, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
-            KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px", modal=true)
+            KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=keyed, gap="0px", modal=true)
               PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), leave=rowLeft("state"), testId="pr-filter-state")
               PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), leave=rowLeft("involvement"), testId="pr-filter-involvement")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
