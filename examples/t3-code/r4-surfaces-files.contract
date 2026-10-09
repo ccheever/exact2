@@ -274,7 +274,8 @@ component R4FilePreview
             when line.kind == "note"
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
             when line.kind == "draft"
-              // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts); the Files draft does not track them yet (fileComment ignores them).
+              // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
+              // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts, audit-wave-followups FU-3).
               DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing

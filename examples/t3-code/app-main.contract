@@ -132,7 +132,10 @@ component ChatColumn
   // adds the canvas's insetEnd (`--chat-lane-inset-end`) on its end side; the composer stack is the lane itself. Until
   // the canvas first answers, chat is centred.
   derive laneInset = canvas.ready ? canvas.insetEnd : 0
-  derive overlaid = length(data.messages) > 0
+  // ChatView isDraftHeroState: only a draft with an empty timeline centres the composer under the hero; a server thread
+  // with no messages docks it at the foot over the timeline's placeholder (audit-wave-followups FU-1).
+  derive hero = length(data.messages) == 0 and data.threadId == ""
+  derive overlaid = not hero
   derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
   derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
   view
@@ -141,13 +144,19 @@ component ChatColumn
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
-      when length(data.messages) == 0
+      when hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           when viewport.prefersColorScheme == "dark"
             EmptyThread(data=data, home=home, scheme="dark", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
           else
             EmptyThread(data=data, home=home, scheme="light", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
-      else
+      when length(data.messages) == 0 and data.threadId != ""
+        // MessagesTimeline's empty state (no rows, not working): centred in the timeline under the docked composer; while
+        // the thread's detail loads the pane stays blank (hideEmptyPlaceholder: threadDetailLoading).
+        column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" align-items="center" justify-content="center" testId="empty-timeline"
+          when not data.threadLoading and not data.running
+            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)" testId="empty-timeline-hint"
+      when length(data.messages) > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
@@ -198,7 +207,7 @@ component ChatColumn
       // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
       when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
-      when length(data.messages) == 0 and data.connected and data.projectId != ""
+      when hero and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
         box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")

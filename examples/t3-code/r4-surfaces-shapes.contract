@@ -238,6 +238,8 @@ shape TerminalSurfaceClose
   target: string
 
 shape R4Panel
+  key: string // audit-wave-followups FU-2: the thread (or draft) the panel belongs to (rightPanelStore byThreadKey)
+  launcher: bool // open on the launcher alone (isOpen with no surface)
   terminalClose: TerminalSurfaceClose
   terminal: TerminalDrawerView
   open: bool
