@@ -39,7 +39,8 @@ component TipCard2
 //   (62pt down), centred 78/50/22pt in from the sidebar's edge.
 // - Footer (SidebarUtilityItem): side top, 4pt above the 32pt buttons (36pt
 //   up from the bottom); Settings aligns to its start at 8pt, Pull Requests and
-//   Usage are centred at 60 and 60 or 96pt.
+//   Usage are centred at 60 and 60 or 96pt; SidebarUpdatePill's "Check for
+//   updates" is centred on the pill, 24pt in from the sidebar's edge.
 component SidebarEdgeTips
   inject
     rem: number
@@ -64,6 +65,8 @@ component SidebarEdgeTips
       TipCard(label="Pull Requests", shown=(hoverId == "sidebar-pull-requests"))
     row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
+    row position="absolute" left=(width - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
+      TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))
 
 // SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers.
 component ProviderPill

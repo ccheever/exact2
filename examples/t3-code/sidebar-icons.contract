@@ -34,3 +34,16 @@ component SidebarProjectGlyph
           image g.src width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` object-fit="contain" flex-shrink=0 aria-hidden=true
         else
           ProjectMark(label=g.text, muted=false, ink=(dim ? g.gray : g.ink), surface=(dim ? g.graySurface : g.surface), size=size)
+
+// SidebarUpdatePill (SidebarUpdatePill.tsx) as the reference draws it with no update feed: this build has
+// none (X40, closed by the user's decision), so `canCheckForUpdate` is false and the control is the disabled
+// round RefreshCw button (opacity 60%, not-allowed). Its owner draws the "Check for updates" tooltip (side
+// top) from the wrapper's hover; a press does nothing. No check, download or install exists behind it.
+component SidebarUpdatePill
+  props
+    color: string
+    testId: string
+  view
+    button disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color="#00000000" opacity=0.6 display="flex" flex-direction="row" align-items="center" justify-content="center"
+      svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
+        path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" stroke=color stroke-width=2 stroke-linecap="round" stroke-linejoin="round"

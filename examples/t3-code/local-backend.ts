@@ -4,22 +4,28 @@
 // ("This machine") from it. The bearer stays native (memory only); TypeScript sees only whether it
 // is ready. Once the server answers, the status also carries its descriptor's environment id,
 // label and version, and `enabled` is the Local environment switch the backend started with.
-// `desktopSettings` are the four keys of `<T3 home>/userdata/desktop-settings.json` this app changes
+// `desktopSettings` are the five keys of `<T3 home>/userdata/desktop-settings.json` this app changes
 // (decision U7: the original app's file, owned by the native side as by Electron's main process;
 // T3DesktopSettings.swift); `writeDesktopSettings` is the renderer's IPC setter.
 import { obj, str, num, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
+import { CLIENT_VERSION } from './version-skew';
 
 export type DesktopServerExposureMode = 'local-only' | 'network-accessible';
-/** The desktop settings this app reads and writes (DesktopSettings' local and exposure keys). */
+export type DesktopUpdateChannel = 'latest' | 'nightly';
+/** The desktop settings this app reads and writes (DesktopSettings' local, exposure and update-channel keys). */
 export interface DesktopSettingsFacts {
   localEnvironmentEnabled: boolean;
   serverExposureMode: DesktopServerExposureMode;
   tailscaleServeEnabled: boolean;
   tailscaleServePort: number;
+  /** The Update track (General › About): the saved preference, which this build's absent update feed never reads. */
+  updateChannel: DesktopUpdateChannel;
 }
-/** DEFAULT_DESKTOP_SETTINGS' four keys. */
-export const defaultDesktopSettings = (): DesktopSettingsFacts => ({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
+/** resolveDefaultDesktopUpdateChannel (apps/desktop/src/updates/updateChannels.ts): nightly for an `x-nightly.YYYYMMDD.N` version. */
+export const defaultUpdateChannel = (version: string): DesktopUpdateChannel => /^[^-+]+-nightly\.\d{8}\.\d+$/.test(version) ? 'nightly' : 'latest';
+/** DEFAULT_DESKTOP_SETTINGS' keys, with resolveDefaultDesktopSettings' channel for this client's version. */
+export const defaultDesktopSettings = (): DesktopSettingsFacts => ({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: defaultUpdateChannel(CLIENT_VERSION) });
 /** The native side normalized them already; anything else is the default. */
 export function parseDesktopSettings(value: unknown): DesktopSettingsFacts {
   const raw = obj(value), port = raw.tailscaleServePort;
@@ -28,6 +34,7 @@ export function parseDesktopSettings(value: unknown): DesktopSettingsFacts {
     serverExposureMode: raw.serverExposureMode === 'network-accessible' ? 'network-accessible' : 'local-only',
     tailscaleServeEnabled: raw.tailscaleServeEnabled === true,
     tailscaleServePort: typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65_535 ? port : 443,
+    updateChannel: raw.updateChannel === 'latest' || raw.updateChannel === 'nightly' ? raw.updateChannel : defaultUpdateChannel(CLIENT_VERSION),
   };
 }
 
@@ -55,7 +62,7 @@ export interface LocalBackendStatus {
   pid: number | null;
   /** The Local environment switch the backend runs with (false: no server runs). */
   enabled: boolean;
-  /** desktop-settings.json's Local environment switch, Network access and Tailscale Serve (decision U7). */
+  /** desktop-settings.json's Local environment switch, Network access, Tailscale Serve and Update track (decision U7). */
   settings: DesktopSettingsFacts;
   /** The running server's descriptor (`/.well-known/t3/environment`), once it answered. */
   environmentId: string;
@@ -106,7 +113,7 @@ export async function readLocalBackend(native: Native): Promise<LocalBackendStat
 
 /**
  * `desktopSettingsSet`: one DesktopAppSettings setter (setLocalEnvironmentEnabled, setServerExposureMode,
- * setTailscaleServe), persisted to desktop-settings.json before it answers. The owner's status takes the
+ * setTailscaleServe, setUpdateChannel), persisted to desktop-settings.json before it answers. The owner's status takes the
  * new keys at once (the announce that follows re-reads them). A write failure throws the reference's
  * "Desktop settings write failed during <operation> at <path>." and changes nothing.
  */
