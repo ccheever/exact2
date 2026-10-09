@@ -1,0 +1,36 @@
+settings-rows-and-labels: review fixes (2026-10-10), text before/after
+
+Before = evidence-base build (feature tip 950e8e2e5), lane settings-rows-and-labels-before.
+After  = this branch's bundle (b6efbf144), lane settings-rows-and-labels. Same steps, agent mode, 1280x840 (target/evidence2/drive.sh).
+Reference = T3 Code 1e2ecbd975 (Electron) on lane settings-rows-and-labels.
+Lane project many-refs: 122 local branches; trunk (current) and topic-001..120 have newer commits than main,
+so main is not on the first page of 100 ("Showing 100 of 122 refs" in the reference).
+
+== R2 (S2-6): New task > Project many-refs > Base branch trigger ==
+before:    "From origin/main"   (the feature tip always added origin/ while Start from origin was on)
+PR head c1db7295c (unit test, no drive): "From main"   (baseLocal read only the first 100 refs)
+after:     "From origin/main"   (chooseProject asked the root's page to look main up by name; it is a local branch)
+reference: "From origin/main"   (WorktreeBaseBranchPicker selectedRefQuery: listRefs { query: "main", limit: 10 })
+
+== R1 (S2-8): Connections > Add environment > Host "https://not a url/pair#token=abc" > Add environment ==
+before:    Host field keeps the link, Pairing code empty; error "invalid URL: invalid international domain name"
+after:     Host "https://not%20a%20url", Pairing code "abc"; error and toast:
+           "Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment))."
+reference: Host "https://not%20a%20url", Pairing code "abc"; the same error and toast text.
+
+== R1: parsePairing / pairingFields, PR head before this round vs now ==
+parsePairing("https://not a url/pair#token=abc", "")
+  PR head before this round (c1db7295c): {"origin":"https://not%20a%20url","credential":"","unreachable":true}
+  now: {"origin":"https://not%20a%20url","credential":"abc","unreachable":true}
+parsePairing("", "https://not a url/pair#token=abc")
+  PR head before this round (c1db7295c): {"origin":"https://not%20a%20url","credential":"","unreachable":true}
+  now: {"origin":"https://not%20a%20url","credential":"abc","unreachable":true}
+parsePairing("https://not a url/pair?token=query", "")
+  PR head before this round (c1db7295c): {"origin":"https://not%20a%20url","credential":"","unreachable":true}
+  now: {"origin":"https://not%20a%20url","credential":"query","unreachable":true}
+parsePairing("https://not a url/pair?host=http%3A%2F%2F127.0.0.1%3A3773#token=secret", "")
+  PR head before this round (c1db7295c): {"origin":"https://not%20a%20url","credential":"","unreachable":true}
+  now: {"origin":"http://127.0.0.1:3773","credential":"secret"}
+pairingFields("https://not a url/pair#token=abc") [Add environment's Host field split]
+  PR head before this round (c1db7295c): {"source":"https://not a url/pair#token=abc","host":"","code":""}
+  now: {"source":"https://not a url/pair#token=abc","host":"https://not%20a%20url","code":"abc"}
