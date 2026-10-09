@@ -8,6 +8,9 @@ use super::*;
 /// step late, still finds its rows painted.
 const UNHURRIED_LEAD: f32 = 0.75;
 const UNHURRIED_FRAMES: u32 = 2;
+/// ms since a scroll step within which the feed is still stepping (a frame
+/// and a half at 120 Hz).
+const STEP_MS: f64 = 12.0;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// When only scrollers whose rows the last paint drew moved since it,
@@ -32,10 +35,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// while the view ran past the last drawn row).
     pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
         let _s = Section::begin(c"exact refine");
+        // While the feed travels fast its window leads that way, unless the
+        // reader says how it leads.
+        let lead = self.leads().filter(|_| velocity == 0.0);
+        let velocity = lead.unwrap_or(velocity);
         // A pass that can wait for more travel does: the rows the travel
         // brings into the window then mount in one commit. Owed once the
         // steps stop (`CanvasHost::owed`).
-        self.waiting = limit.is_none() && self.batches();
+        let stepped = self.travel.asked();
+        self.waiting = limit.is_none() && self.batches(lead.is_some(), stepped);
         if self.waiting {
             // Its pictures do not wait: one that came into view since the
             // last pass is asked for now (heavy's placeholders showed for
@@ -58,7 +66,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
         self.leftover = self.p.collections_pending();
-        self.p.slice_collections(None, 0.0);
+        // Every report between this pass and the next goes with its lead (a
+        // frame's own, the reader's next ask for what a slice left): one
+        // without it found the rows mounted ahead past its window, and
+        // retired the farthest of them for the next pass to build again.
+        self.p.slice_collections(None, lead.unwrap_or(0.0));
+        self.led = lead.is_some();
         if measure {
             let mut after = std::mem::take(&mut self.rows_after);
             self.feed_rows(&mut after);
@@ -87,21 +100,58 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.move_tracks && self.lead && !self.sliced
     }
 
-    /// Whether this pass can wait ([`crate::travel::Travel::waits`]): a
-    /// scroll step came within the last frame and a half, the windows lead,
-    /// and the last pass left no rows to build (a slice's rest is not kept
-    /// waiting). `EXACT_PASS_BATCH=0`: never.
-    fn batches(&self) -> bool {
+    /// The velocity the feed's window leads by
+    /// ([`crate::travel::Travel::lead`]), while the feed travels: until
+    /// [`crate::travel::SETTLE_MS`] pass without a scroll step, so a pass
+    /// that ran long, or a frame the reader dropped, does not end it.
+    /// `EXACT_PASS_LEAD=0`: never (a viewport each side, as slow travel has).
+    fn leads(&self) -> Option<f64> {
+        static ON: std::sync::LazyLock<bool> =
+            std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_LEAD").is_ok_and(|v| v == "0"));
+        let travels = self.now() - self.scrolled_at < crate::travel::SETTLE_MS;
+        self.travel.lead().filter(|_| *ON && self.lead && travels)
+    }
+
+    /// Whether a moved paint owes a paint: once moves pause (a frame
+    /// without one), the paint brings boxes, hits and pictures up to date.
+    /// So does a pass that waits, and a window that leads once its steps
+    /// stop: owed the pass that takes it back to a viewport each side when
+    /// the travel has ended (asked before that, it waits).
+    pub fn owed(&self) -> bool {
+        (self.moved > 0 && self.moves < 1000)
+            || self.waiting
+            || (self.led && self.now() - self.scrolled_at >= STEP_MS)
+    }
+
+    /// Whether this pass can wait: the windows lead, the last pass left no
+    /// rows to build (a slice's rest is not kept waiting), and a scroll
+    /// step came within the last frame and a half with less travel since
+    /// the last pass than one is worth ([`crate::travel::Travel::waits`]).
+    ///
+    /// Under a lead (`led`) that the last pass filled, it waits as that
+    /// reach allows ([`crate::travel::Travel::waits_led`]) however long ago
+    /// the step came (a paint between the step and this ask can take a
+    /// frame and a half); the pass that starts a lead found a window of
+    /// one viewport, and waits as slow travel does. An ask with no step
+    /// since the last (`stepped`: the reader's timer, once the steps pause)
+    /// waits too: what it would mount is past where the view came to rest,
+    /// and the pass that ends the lead retires it. `EXACT_PASS_BATCH=0`:
+    /// never.
+    fn batches(&self, led: bool, stepped: bool) -> bool {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
+        if !*ON || !self.lead || self.leftover {
+            return false;
+        }
         let viewport = self
             .feed
             .and_then(|id| self.p.host().kernel().node(id))
             .map_or(self.viewport.1, |n| n.frame.height);
-        *ON && self.lead
-            && self.now() - self.scrolled_at < 12.0
-            && self.travel.waits(viewport)
-            && !self.leftover
+        if led && self.led {
+            !stepped || self.travel.waits_led(viewport)
+        } else {
+            self.now() - self.scrolled_at < STEP_MS && self.travel.waits(viewport)
+        }
     }
 
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this

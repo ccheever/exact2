@@ -83,6 +83,8 @@ mod typing;
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
 #[path = "presenter/swipe_tests.rs"]

@@ -871,6 +871,8 @@ impl Collection {
         let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
         let toward_start = fill.velocity < 0.0;
         let mut pending = false;
+        // Window rows a slice leaves for the next: retiring rows wait for them.
+        let mut more = 0;
         let mut admitted = std::collections::BTreeSet::new();
         // A retire-only report builds what it owes and nothing optional.
         let building = if fill.no_build {
@@ -888,6 +890,9 @@ impl Collection {
             }
             optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
             pending = optional.len() > limit as usize;
+            if !fill.no_build {
+                more = optional.len().saturating_sub(limit as usize);
+            }
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
         // With reuse, the rows nothing mounts are built once the retiring
@@ -924,7 +929,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), Vec::new(), None, frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), None, 0, frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -1002,7 +1007,7 @@ impl Collection {
         // Rows still needed after the retiring ones may take the kept rows
         // past the window, farthest first.
         let hold = port.filter(|_| reusing && !update);
-        let kept = self.build_needed(u, needed, retiring, kept, hold, frames)?;
+        let kept = self.build_needed(u, needed, retiring, kept, hold, more, frames)?;
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();
