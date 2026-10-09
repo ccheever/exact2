@@ -6,6 +6,7 @@ import Foundation
 
 extension T3Module: T3BrowserSessionOwner {
     func browserOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
+        if browserSessions.performProfiles(request, reply: reply) { return } // part 4: clearing, the cookie import (T3BrowserSessions+Profiles.swift)
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
         case "browserAutomation":

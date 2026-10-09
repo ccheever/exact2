@@ -321,7 +321,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
     deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(),
+    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // part 4: the client's profiles for the "+" menu and the launcher
   };
 }
 /** The device the rendered right panel shows (shouldRenderPreviewMiniPlayer's renderedRightPanelSurface), if any. */
