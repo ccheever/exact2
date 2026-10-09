@@ -243,7 +243,7 @@ Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, 
 #368 (the user decided to build the no-feed update controls), #367, plus #353 and Browser part 2 (#352, merged on the
 user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. In flight: markdown-links-and-files-preview,
 usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
-and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/20261010-audit-wave-followups-2.md),
+and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/closed/20261010-audit-wave-followups-2.md),
 then [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
 flatten after the fix waves). New local framework draft: [X70](issues/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in

@@ -3,12 +3,12 @@ name: 20261010-audit-wave-followups-2
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-audit-wave-followups-2
 pr_url: https://github.com/ccheever/exact2/pull/376
-verified_commit: null
+verified_commit: fea35ef11246fb4bc65b6765fd181d8402793948
 ---
 
 # More differences the audit fix agents found outside their tasks (second set)
@@ -166,3 +166,7 @@ checks on the merge head.
 ## Next action
 
 Review and merge.
+
+## Delivery
+
+Merged on 2026-10-10 as `fea35ef11` (#376, squash) after an independent review and its repair round.
