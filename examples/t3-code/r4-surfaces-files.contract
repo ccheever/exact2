@@ -128,8 +128,11 @@ component R4FileHeader
             ShellIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
       when files.canRender
         R4Toggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
-      when files.preview == "code" or (files.preview != "" and not files.rendered and files.preview != "loading" and files.preview != "error")
+      // Word wrap reaches only the text bodies: an image, a video, a rendered document or page has none (showsRawText).
+      when files.rawText
         R4Toggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", "", ""))
+      when files.openInBrowser
+        R4Toggle(id="open-browser", label="Open file in preview browser", icon="earth", pressed=false, hovered=hovered, hover=hover, press=local("surface-files-open-browser", files.path, ""))
       when files.preview != ""
         R4Toggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
 
@@ -257,9 +260,10 @@ component R4FilePreview
     // media-actions: an image or video file with its menu, tooltip and failure states (FilesMedia).
     when files.preview == "media"
       FilesMedia(media=files.media, local=local)
-    // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame).
-    when files.preview == "html"
-      box hatch="t3-media" data-media-url=files.url data-media-kind="html" data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId="file-html"
+    // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame);
+    // a PDF, always rendered, in the module's PDFView (X29), as an attachment's.
+    when files.preview == "html" or files.preview == "pdf"
+      box hatch="t3-media" data-media-url=files.url data-media-kind=files.preview data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId=`file-${files.preview}`
     when files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
@@ -270,7 +274,8 @@ component R4FilePreview
             when line.kind == "note"
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
             when line.kind == "draft"
-              DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment)
+              // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts); the Files draft does not track them yet (fileComment ignores them).
+              DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
             textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"

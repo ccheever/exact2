@@ -76,6 +76,8 @@ final class T3ComposerEditor {
         self.hatch = hatch
         proxy.editor = self
         styler.editor = self
+        styler.press.surface = hatch == .t3Composer ? "composer" : "preview"
+        styler.press.owner = { [weak self] in self?.owner ?? "" }
     }
 
     // MARK: Elements
@@ -133,6 +135,7 @@ final class T3ComposerEditor {
     }
 
     private func textChanged() {
+        styler.press.close() // an edit closes a skill chip's details (the reference's popover holds the focus)
         styler.restyle()
         refresh()
     }
@@ -206,6 +209,8 @@ final class T3ComposerEditor {
         guard view === textView, view.isEditable, !view.hasMarkedText() else { return false }
         // The prompt sample is ComposerPromptEditor with no command-key handler: Tab and ⇧Tab
         // keep walking the Settings page, and only the chips' own keys apply.
+        // Escape closes an open skill chip's details first (Base UI's Popover).
+        if selector == #selector(NSResponder.cancelOperation(_:)), styler.press.isOpen { styler.press.close(); return true }
         if hatch != .t3Composer {
             switch selector {
             case #selector(NSResponder.insertTab(_:)): view.window?.selectNextKeyView(view); return true

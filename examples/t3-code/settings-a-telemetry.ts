@@ -2,7 +2,7 @@
 // Reference ResourceTelemetryDiagnostics.tsx (+ .logic.ts), resourceTelemetryState.ts
 // and DiagnosticsSettings.tsx's process signals. The snapshot is the
 // `subscribeResourceTelemetry` stream (one subscription while the page is open);
-// the timeline is `server.getResourceTelemetryHistory` (stale after 5 s); signals
+// the timeline is `server.getResourceTelemetryHistory` (once per visit, window and Refresh); signals
 // go through `server.signalProcess`, SIGKILL only after a confirmation.
 import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
@@ -76,7 +76,7 @@ export function dxFinish(table: DxTable): DxTable {
 
 // ── State: the subscription, the last snapshot, the timeline window, collapsed rows, signals ──
 type Telemetry = { id: string; generation: number; snapshot: Obj | null; error: string; window: string; collapsed: Set<string>; liveCollapsed: Set<string>;
-  history: { key: string; at: number; value: Obj | null; error: string } | null; signaling: Set<string>; kill: { pid: number; start: number; target: string } | null };
+  history: { key: string; value: Obj | null; error: string } | null; signaling: Set<string>; kill: { pid: number; start: number; target: string } | null };
 const states = new WeakMap<T3Client, Telemetry>();
 const stateOf = (client: T3Client): Telemetry => {
   let state = states.get(client);
@@ -114,12 +114,18 @@ export async function syncTelemetry(client: T3Client, native: Native | null | un
 }
 
 const WINDOWS: Record<string, [number, number]> = { '5m': [300_000, 15_000], '15m': [900_000, 30_000], '30m': [1_800_000, 60_000], '1h': [3_600_000, 120_000] };
-async function history(client: T3Client, native: Native, now: number, refresh: number): Promise<Telemetry['history']> {
-  const state = stateOf(client), window = WINDOWS[state.window] ?? WINDOWS['15m']!, key = `${state.window}|${refresh}`;
-  // resourceTelemetryHistory: staleTimeMs 5_000.
-  if (state.history && state.history.key === key && now - state.history.at < 5000) return state.history;
-  try { state.history = { key, at: now, value: await client.restAccess(native).request('server.getResourceTelemetryHistory', { windowMs: window[0], bucketMs: window[1] }), error: '' }; }
-  catch (error) { if (letGo(error)) throw error; state.history = { key, at: now, value: state.history?.value ?? null, error: error instanceof Error ? error.message : 'Could not load resource history.' }; }
+/** The timeline the page shows while `active` (null otherwise): read before the stream opens (telemetryPage). */
+export async function telemetryTimeline(client: T3Client, native: Native | null | undefined, active: boolean, refresh: number): Promise<Telemetry['history']> {
+  return active && native?.available && client.ready ? history(client, native, refresh) : null;
+}
+async function history(client: T3Client, native: Native, refresh: number): Promise<Telemetry['history']> {
+  const state = stateOf(client), window = WINDOWS[state.window] ?? WINDOWS['15m']!, key = `${generationOf(client)}|${state.window}|${refresh}`;
+  // resourceTelemetryHistory (staleTimeMs 5_000): Atom.swr revalidates when the page mounts, never on a re-render (a sample,
+  // a minute tick), so one read per visit, window and Refresh; closing the page drops it (syncTelemetry). A shared read: an
+  // answer asked again before its reply joins it (diagnostics-view.ts).
+  if (state.history && state.history.key === key) return state.history;
+  try { state.history = { key, value: await client.restAccess(native).read('server.getResourceTelemetryHistory', { windowMs: window[0], bucketMs: window[1] }), error: '' }; }
+  catch (error) { if (letGo(error)) throw error; state.history = { key, value: state.history?.value ?? null, error: error instanceof Error ? error.message : 'Could not load resource history.' }; }
   return state.history;
 }
 
@@ -232,10 +238,15 @@ export function telemetryView(client: T3Client, now: number, timeline: Telemetry
   };
 }
 
-/** The Diagnostics page's telemetry: subscribe, read the timeline, project the view. */
+/**
+ * The Diagnostics page's telemetry: read the timeline, then subscribe, then project the view. The reads land first: the
+ * server sends the stream's current sample at once, draining it asks the page again (data.telemetry) and Exact forgets
+ * this answer, dropping a reply that reached the transport but not yet this answer; the next answer's shared read joins
+ * only a read still pending, so it sent the timeline again (lane trace: 13 ms after the first reply ended).
+ */
 export async function telemetryPage(client: T3Client, native: Native | null | undefined, active: boolean, now: number, refresh: number) {
+  const timeline = await telemetryTimeline(client, native, active, refresh);
   await syncTelemetry(client, native, active);
-  const timeline = active && native?.available && client.ready ? await history(client, native, now, refresh) : null;
   return telemetryView(client, now, timeline);
 }
 

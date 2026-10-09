@@ -25,15 +25,24 @@ final class T3BrowserView: ExactNativeInstance {
         return T3BrowserView(props: props, events: events, sessions: sessions)
     }
 
-    /// The page's box: the borrowed web view fills its bounds, which `fitScale` scales into its frame.
+    /// The page's box: the borrowed web view fills its bounds, which `fitScale` scales into its frame. Until the layout
+    /// first sizes the box (`sized`), it scales nothing and holds no page: its first frame is a placeholder, and the
+    /// page would lay out at it over the props' scale (1,578 × 1,183 for a 1280 × 800 tab fitted at 0.41, #352).
     final class Host: NSView {
         override var isFlipped: Bool { true }
         var fitScale: CGFloat = 1 { didSet { if fitScale != oldValue { applyScale() } } }
+        private(set) var sized = false
+        /// The layout's first size: the view makes or borrows its page then.
+        var onSized: (() -> Void)?
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
+            let first = !sized && newSize.width > 0 && newSize.height > 0
+            if first { sized = true }
             applyScale()
+            if first { onSized?() }
         }
         func applyScale() {
+            guard sized else { return }
             let scale = fitScale > 0.0001 && fitScale.isFinite ? fitScale : 1
             let target = NSSize(width: frame.width / scale, height: frame.height / scale)
             if bounds.size != target { setBoundsSize(target) }
@@ -41,6 +50,7 @@ final class T3BrowserView: ExactNativeInstance {
         }
         override func layout() {
             super.layout()
+            guard sized else { return }
             for view in subviews { view.frame = bounds }
         }
     }
@@ -59,6 +69,7 @@ final class T3BrowserView: ExactNativeInstance {
         self.sessions = sessions
         super.init(events: events)
         host.setAccessibilityElement(false)
+        host.onSized = { [weak self] in self?.apply() }
         apply()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let command = self.previewCommand(for: event) else { return event }
@@ -80,7 +91,8 @@ final class T3BrowserView: ExactNativeInstance {
         previewKeys = Self.parseKeys(props["keys"] ?? "")
         let id = props["tab"] ?? ""
         guard !id.isEmpty else { return release() }
-        let next = sessions.ensure(id: id, url: props["url"] ?? "", profile: props["profile"] ?? "default", environment: props["environment"] ?? "")
+        guard host.sized else { return } // the page is made or borrowed at the box's laid-out size (Host.onSized)
+        let next = sessions.ensure(id: id, url: props["url"] ?? "", profile: props["profile"] ?? "default", environment: props["environment"] ?? "", size: host.bounds.size)
         if session !== next { release() }
         session = next
         if next.web.superview !== host {

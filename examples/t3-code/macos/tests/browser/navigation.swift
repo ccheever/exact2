@@ -15,6 +15,8 @@ final class BrowserNavigationTests: XCTestCase {
         fixture = try Fixture()
         fixture.page("/size", "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Size</title><style>:root{color-scheme:light dark}body{margin:0;font:16px -apple-system;background:#fff;color:#111}@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}@media (max-width: 500px){h1{color:#1b8a3a}}</style><body><h1>Probe</h1><p id=p></p><input id=f><script>window.keys=0;document.addEventListener('keydown',()=>window.keys++);const show=()=>{document.getElementById('p').textContent=innerWidth+' × '+innerHeight+' · dpr '+devicePixelRatio+' · '+(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')};addEventListener('resize',show);matchMedia('(prefers-color-scheme: dark)').addEventListener('change',show);show()</script>")
         fixture.page("/other", "<!doctype html><title>Other</title>")
+        // The size the page has when its first script runs: its first layout (#352, part 4's default viewport).
+        fixture.page("/first", "<!doctype html><meta name=viewport content='width=device-width'><title>First</title><script>window.first = innerWidth + 'x' + innerHeight</script>")
         sessions = T3BrowserSessions(agent: true, changed: { _ in })
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
         window.orderFrontRegardless()
@@ -66,6 +68,39 @@ final class BrowserNavigationTests: XCTestCase {
     private func key(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags) -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                          context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+
+    /// A page the data module lists at a fixed viewport (`browserSync` with its size and zoom) is made at that size
+    /// before its first load, so its first layout is the viewport: part 4's drive saw an iPhone 12 Pro tab at 125%
+    /// lay its first page out at 512 × 384, the web view's first 640 × 480 (#352).
+    func testAPageSyncedAtAFixedViewportLaysOutAtItFirst() {
+        sessions.sync([["id": "tab-first", "url": "\(fixture.base)/first", "profile": "default", "environment": "env-1", "width": 390, "height": 844],
+                       ["id": "tab-first-zoom", "url": "\(fixture.base)/first", "profile": "default", "environment": "env-1", "width": 390, "height": 844, "zoom": 1.25]])
+        let plain = sessions.sessions["tab-first"]!, zoomed = sessions.sessions["tab-first-zoom"]!
+        spin(until: { plain.report["kind"] as? String == "Success" && zoomed.report["kind"] as? String == "Success" })
+        XCTAssertEqual(evaluate(plain.web, "window.first"), "390x844", "the first layout is the viewport")
+        // At 125% the page is 487.5 × 1,055 points; WebKit lays the half point out as 389 CSS px, as the stage's box does
+        // (T3BrowserViewport.matches allows the pixel). The first layout is the size the page keeps.
+        XCTAssertEqual(evaluate(zoomed.web, "window.first"), viewport(zoomed.web), "at 125% too")
+        XCTAssertTrue(["389x844", "390x844"].contains(evaluate(zoomed.web, "window.first")))
+        XCTAssertEqual(zoomed.zoomFactor, 1.25)
+        XCTAssertEqual(zoomed.web.frame.size, NSSize(width: 487.5, height: 1055))
+    }
+
+    /// A page a stage shows is made, or borrowed, at the box's laid-out size: the box applies its fit scale only once
+    /// the layout has sized it, so the page never lays out at the box's first 640 × 480 frame over that scale (1,280 ×
+    /// 960 here; 1,578 × 1,183 in the live drive on #352).
+    func testAShownPageIsMadeAtItsStagesLaidOutSize() {
+        let view = T3BrowserView(props: ["tab": "tab-shown", "url": "\(fixture.base)/first", "profile": "default", "environment": "env-1", "fit-scale": "0.5"],
+                                 events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), sessions: sessions)
+        window.contentView!.addSubview(view.host)
+        spin(until: { false }, timeout: 0.8) // mounted, not laid out yet: time enough for a page to load
+        view.host.frame = NSRect(x: 0, y: 0, width: 195, height: 422) // the layout: iPhone 12 Pro at half size
+        spin(until: { self.sessions.sessions["tab-shown"]?.report["kind"] as? String == "Success" })
+        let session = sessions.sessions["tab-shown"]!
+        XCTAssertEqual(evaluate(session.web, "window.first"), "390x844", "the first layout is the viewport, not the box's first frame over its scale")
+        XCTAssertEqual(viewport(session.web), "390x844")
+        view.destroy()
     }
 
     func testZoomIsThePagesZoomOnTheReferenceLadderAndOutlivesANavigation() throws {

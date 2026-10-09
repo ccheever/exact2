@@ -208,6 +208,20 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await openLinkFromUi(page.client, page.native, 'button-page', 'https://ci.example.com/run/2');
     expect(external(page.ops)).toEqual(['https://ci.example.com/run/2']);
   });
+  it('a work-log web search result ("external") opens the system browser even when the setting says T3 Code, ⌘ or not (timeline-work-rows TH-5)', async () => {
+    // V2ItemInspector's result is a target=_blank link; the desktop's setWindowOpenHandler hands it to the shell.
+    for (const modifiers of ['', 'meta']) {
+      const { client, rpcs, ops, native } = linkClient({ preference: 'app', modifiers });
+      await chatLocal(client, native, 'link-open', 'external', 'https://example.test/tables');
+      expect(external(ops)).toEqual(['https://example.test/tables']);
+      expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
+      expect(ops.some(op => op.op === 'composerSendIntent')).toBe(false);
+    }
+    const { client } = linkClient();
+    const refused: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: { opened: false } }; } };
+    await openLinkFromUi(client, refused, 'external', 'https://example.test/tables');
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
+  });
   it('a link the system browser could not open says so', async () => {
     const { client } = linkClient({ preference: 'system' });
     const native: Native = { available: true, watch() {}, async later(request) { return obj(request).op === 'composerSendIntent' ? { ok: true, generation: 0, value: {} } : { ok: true, generation: 0, value: { opened: false } }; } };

@@ -6,6 +6,16 @@ import AppKit
 extension T3Module {
     /// The composer's text view (T3Composer.swift), attached files (T3ComposerAttach.swift) and send intent (T3ComposerIntent.swift).
     func composerOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
+        // A skill chip's press, the newest of the composer's and the Settings prompt sample's, and the app's close (T3ComposerChipPress.swift).
+        if let op = request["op"] as? String, op == "editorChip" || op == "editorChipClose" {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return reply.send(["ok": false, "generation": 0]) }
+                let presses = [self.composer.editor.styler.press, self.promptPreview.styler.press]
+                if op == "editorChipClose" { presses.forEach { $0.close(seq: request["seq"] as? Int ?? -1) } }
+                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": T3ComposerChipPress.latest(presses)])
+            }
+            return
+        }
         if let op = request["op"] as? String, op.hasPrefix("editor") {
             DispatchQueue.main.async { [weak self] in reply.send(self?.composer.perform(request) ?? ["ok": false, "generation": 0]) }
             return

@@ -21,7 +21,7 @@ import {
   reportAutomationFocus,
 } from './browser-automation';
 import { fleet, type FleetEntry } from './settings-b-fleet';
-import { browserHost, liveSessions, listPreviewSessions } from './browser-surface';
+import { browserHost, liveSessions, listPreviewSessions, syncNativeSessions } from './browser-surface';
 import { EMPTY_THREAD_PREVIEW_STATE, PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot, type ThreadPreviewState } from './browser-state';
 import { surfaceStore } from './r4-surfaces-panel';
 import type { T3Client } from './client';
@@ -438,6 +438,35 @@ describe('the host on the client', () => {
     adoptAutomationTabs(client);
     expect(Object.keys(browserHost(client).store.read({ environmentId: 'env-1', threadId: 'thread-2' }).sessions)).toEqual(['tab-7']);
     expect(surfaceStore(client).panels.get('env-1:thread-2')?.surfaces.map(surface => surface.id)).toEqual(['browser:tab-7']);
+  });
+  it('keeps a tab opened with open: false out of view on the agent’s next operation (the note’s suppress)', async () => {
+    const run = async (suppress: boolean) => {
+      const note = { requestId: 'r0', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-1', epoch: 'epoch-1', present: false, suppress, snapshot: loaded('tab-7') };
+      const { client, sent } = await subscribed({ presentation: { browserAutomation: { opened: [note] } }, list: () => ({ sessions: [loaded('tab-7')], serverEpoch: 'epoch-1', revision: 4 }) });
+      await listPreviewSessions(client, module, ref);
+      adoptAutomationTabs(client);
+      previewStreamEvent(client, requestEntry('r1', { operation: 'click', tabId: 'tab-7', input: { x: 1, y: 1 } }));
+      await automationPrepare(client, module);
+      expect(plans(sent)[0]).toMatchObject({ requestId: 'r1', tabId: 'tab-7', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-7') });
+      return surfaceStore(client).panels.get('env-1:thread-1');
+    };
+    expect((await run(true))?.visible ?? false).toBe(false);
+    expect(await run(false)).toMatchObject({ active: 'browser:tab-7', visible: true });
+  });
+  it('tells the module which of its opens it adopted, so the open answers only after the adoption (#352)', async () => {
+    const note = { requestId: 'r0', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-1', epoch: 'epoch-1', present: false, suppress: true, snapshot: loaded('tab-7') };
+    const { client, sent } = fakeClient({ list: () => ({ sessions: [loaded('tab-7')], serverEpoch: 'epoch-1', revision: 4 }) });
+    await listPreviewSessions(client, module, ref);
+    await syncNativeSessions(client, module); // the server's `opened` event already listed tab-7: not an adoption
+    client.presentation = { browserAutomation: { opened: [note] } };
+    adoptAutomationTabs(client);
+    await syncNativeSessions(client, module);
+    adoptAutomationTabs(client); // a note is adopted once
+    await syncNativeSessions(client, module);
+    const tab = previewRuntimeTabId(ref, 'epoch-1', 'tab-7');
+    expect(sent.filter(request => request.op === 'browserSync').map(request => [(request.tabs as Obj[]).map(entry => entry.id), request.adopted])).toEqual([
+      [[tab], []], [[tab], ['connection-1\u0000r0']],
+    ]);
   });
   it('applies preview events to the threads it keeps state for', () => {
     const { client } = fakeClient();
