@@ -3,12 +3,12 @@ name: 20261009-diff-panel-parity
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-panel-parity
 pr_url: https://github.com/ccheever/exact2/pull/360
-verified_commit: null
+verified_commit: fea18077477000f33e76d12f8ddf1388d9ccd148
 ---
 
 # Diff panel: base-ref comparison, scope menu rows, header stats order, and ⌘Enter on a comment draft
@@ -247,3 +247,7 @@ branch). `A` = `/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audi
 ## Next action
 
 Coordinator: run the real-key rows in the next batch, review draft PR (link in the frontmatter), merge.
+
+## Delivery
+
+Merged on 2026-10-10 as `fea180774` (#360, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

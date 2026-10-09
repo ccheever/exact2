@@ -33,12 +33,15 @@ export function defaultModelKey(config: Obj, projectId: string, project: Obj | n
 }
 
 type Choice = { value: string; label: string; selected: boolean };
-type BranchRef = { value: string; label: string; search: string; badge: string };
-/** BranchPickerRefItem: the name and its tag (current, worktree, remote, default). */
+type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };
+/**
+ * BranchPickerRefItem: the name and its tag (current, worktree, remote, default). `remote` is the ref's own isRemote, which
+ * the trigger reads (settings-scheduled.contract taskBaseLabel: "origin/" only for a listed local branch).
+ */
 export function branchRef(ref: Obj, projectCwd: string): BranchRef {
   const name = str(ref.name), worktree = str(ref.worktreePath);
   const badge = ref.current === true ? 'current' : worktree && projectCwd && worktree !== projectCwd ? 'worktree' : ref.isRemote === true ? 'remote' : ref.isDefault === true ? 'default' : '';
-  return { value: name, label: name, search: name.toLowerCase(), badge };
+  return { value: name, label: name, search: name.toLowerCase(), badge, remote: ref.isRemote === true };
 }
 
 /** resolveSettingsScope for this page over every live environment (the groups are the focused environment's). */
@@ -76,16 +79,17 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
-// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs): read when the editor opens and kept while it stays
-// open, as the picker's query atom is, never again on a wake or the minute tick; Refresh and a new connection read again.
-type Refs = { projectId: string; error: string; refs: BranchRef[] };
+// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs) and its selectedRefQuery lookups by name: read when the
+// editor opens and kept while it stays open, as the picker's query atoms are, never again on a wake or the minute tick;
+// Refresh, a new connection and a new base to look up read again.
+type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[] };
 const editorRefs = new WeakMap<T3Client, { key: string; branches: Refs[] }>();
 
-export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', refresh = 0) {
+export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[],
     editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
-    branches: [] as { projectId: string; error: string; refs: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+    branches: [] as Refs[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
   if (!active || editor !== 'task') editorRefs.delete(client);
   if (!active) return empty;
   try {
@@ -119,18 +123,31 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       return { value: `${provider.instanceId}:${model.slug}`, name: str(model.name, str(model.slug)), driver: str(provider.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
     }));
     if (draft.modelKey && !models.some(model => model.value === draft.modelKey)) models.unshift({ value: draft.modelKey, label: draft.modelKey.slice(draft.modelKey.indexOf(':') + 1), selected: false });
-    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), once per editor visit.
-    const refsKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh, ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`)].join('|');
+    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), and the base when the chosen
+    // project's page does not list it: the picker's selectedRefQuery asks for it by name (limit 10), so a local branch past
+    // the first page still reads "From origin/<ref>". The base is the draft's in its project, and the editor's after it
+    // switched project (`taskBase`, settings-scheduled.contract chooseProject). A failed lookup leaves it unknown.
+    const key = `${editing.environmentId}:${target?.taskId || 'new'}`;
+    const switched = new URLSearchParams(taskBase);
+    const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }];
+    if (switched.get('key') === key) wanted.push({ projectId: str(switched.get('project')), ref: str(switched.get('ref')).trim() });
+    // Once per editor visit: the bases to look up are part of the key, so a new one reads again.
+    const refsKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
+      ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`), ...wanted.map(entry => `${entry.projectId}@${entry.ref}`)].join('|');
     let kept = editorRefs.get(client);
     if (!kept || kept.key !== refsKey) {
       // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
       // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
-      const listRefs = (payload: Obj) => editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload);
+      const listRefs = async (payload: Obj) => arr((await (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload))).refs);
       const branches = await Promise.all(projects.map(async project => {
+        const cwd = str(project.workspaceRoot), projectId = str(project.id);
         try {
-          const refs = arr((await listRefs({ cwd: str(project.workspaceRoot), limit: 100 })).refs);
-          return { projectId: str(project.id), error: '', refs: refs.map(ref => branchRef(ref, str(project.workspaceRoot))) };
-        } catch (error) { if (letGo(error)) throw error; return { projectId: str(project.id), error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[] }; }
+          const refs = await listRefs({ cwd, limit: 100 });
+          const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !refs.some(ref => str(ref.name) === entry.ref)).map(entry => entry.ref))];
+          const selected = (await Promise.all(unlisted.map(async name => (await listRefs({ cwd, query: name, limit: 10 }).catch((error: unknown): Obj[] => { if (letGo(error)) throw error; return []; }))
+            .filter(ref => str(ref.name) === name)))).flat();
+          return { projectId, error: '', refs: refs.map(ref => branchRef(ref, cwd)), selected: selected.map(ref => branchRef(ref, cwd)) };
+        } catch (error) { if (letGo(error)) throw error; return { projectId, error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[], selected: [] as BranchRef[] }; }
       }));
       editorRefs.set(client, kept = { key: refsKey, branches });
     }
@@ -138,7 +155,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,
-      editors: [{ ...draft, key: `${editing.environmentId}:${target?.taskId || 'new'}`, missing }],
+      editors: [{ ...draft, key, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })), models,
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
       environments: environments.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),

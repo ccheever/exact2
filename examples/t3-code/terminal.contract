@@ -104,7 +104,7 @@ component TerminalDrawer
     each key in (view.available ? [view.threadKey] : []) key=key
       column flex-shrink=0 box-sizing="border-box" interpolate-size="allow-keywords" height=(view.open ? height : 0) min-height=0 min-width=0 overflow="hidden" transition=(motion ? `height ${look.panelMs}ms ease-out` : "none") testId="terminal-drawer" aria-label="Terminal drawer"
         // The clipping parent animates; the terminal keeps its full grid through opening and closing.
-        column height=height flex-shrink=0 min-width=0 position="relative" box-sizing="border-box" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(not view.open) testId="terminal-drawer-inner"
+        column height=height flex-shrink=0 min-width=0 position="relative" box-sizing="border-box" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color="light-dark(#fcfcfc, #0a0a0a)" inert=(not view.open) testId="terminal-drawer-inner"
           box position="absolute" left=0 right=0 top=0 height="0.375rem" z-index=20 cursor="row-resize" touch-action="none" pan=resize panrelease=release role="separator" aria-orientation="horizontal" aria-label="Resize terminal drawer" testId="terminal-drawer-resize"
           TerminalContent(view=view, look=look, dark=dark, closePending=closePending, command=command, confirm=confirm)
 
@@ -180,7 +180,7 @@ component TerminalToolbar
     confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, `${view.commandPrefix}:close`, view.closeTitle, view.closeBody, true)
     focus("app-confirm-cancel")
   view
-    row align-items=(strip ? "stretch" : "center") align-self=(strip ? "stretch" : "auto") border-radius=(strip ? "0px" : "0.375rem") border-width=(strip ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color=(strip ? "#00000000" : "light-dark(#fcfcfc, #0a0a0a)") box-shadow=(strip ? "none" : "0 1px 2px #0000000d") testId="terminal-drawer-toolbar"
+    row align-items=(strip ? "stretch" : "center") align-self=(strip ? "stretch" : "auto") border-radius=(strip ? "0px" : "0.375rem") border-width=(strip ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff0c)" background-color=(strip ? "#00000000" : "light-dark(#fcfcfc, #0a0a0a)") box-shadow=(strip ? "none" : "0 1px 2px #0000000d") testId="terminal-drawer-toolbar"
       TerminalAction(icon="split-horizontal", label=view.splitLabel, disabled=view.splitDisabled, id="terminal-split", strip=strip, edge=false, press=command(`${view.commandPrefix}:split`, `${view.threadKey}|${view.terminalId}`, "", 0))
       when not strip
         box width=1 height="1rem" background-color="light-dark(#e4e4e7, #ffffff1a)"

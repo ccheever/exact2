@@ -1,8 +1,9 @@
 // dialog-shortcut-focus: what keyboard focus can reach while a dialog is open, read from the Contract
 // sources as context-menu-hookup.test.ts reads its handlers. Sequential focus follows tree order on every
 // host and skips a node whose `tabindex` is negative (HTML's rule, LLP 1088 D7.3), so a component's
-// controls in source order, less those, are its reference Tab order. On macOS the host also skips date,
-// time and select inputs (X52); they are kept here, as the reference has them. These checks guard the
+// controls in source order, less those, are its reference Tab order. On macOS the host also skips time
+// and select inputs (X52); they are kept here, as the reference has them (Custom snooze's date is a
+// button since shell-sidebar-palette-keys, as the reference's is, so X52 no longer skips it). These checks guard the
 // wiring; the behavior is proven by the macOS drives in tasks/20261008-dialog-shortcut-focus.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
@@ -78,7 +79,10 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
   });
 
   test('Custom snooze: one stop for the schedule type, the fields, Cancel, Snooze, then Close (DialogPopup renders it last)', async () => {
-    const lines = await component('sidebar-overlays.contract', 'SidebarSnoozeDialog');
+    // shell-sidebar-palette-keys (TH-8): the date is SnoozeDateField's button; its calendar popover is shut at open.
+    const field = await component('snooze-calendar.contract', 'SnoozeDateField');
+    const trigger = field.slice(0, field.findIndex(line => line.includes('column id="snooze-calendar"')));
+    const lines = (await component('sidebar-overlays.contract', 'SidebarSnoozeDialog')).flatMap(line => line.trim().startsWith('SnoozeDateField(') ? trigger : [line]);
     // The two arms of `when data.sidebar.dialogMode == "date"` … `else`, each with what surrounds them.
     const indent = (line: string) => line.length - line.trimStart().length;
     const when = lines.findIndex(line => line.trim() === 'when data.sidebar.dialogMode == "date"');

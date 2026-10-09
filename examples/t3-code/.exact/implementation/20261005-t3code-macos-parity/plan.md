@@ -196,22 +196,22 @@ after the tasks it shares files with have merged.
 
 Wave 1:
 1. [settings-diagnostics-and-scope](tasks/closed/20261009-settings-diagnostics-and-scope.md): S2-2 (high, Diagnostics empty),
-   S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md).
+   S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md).
 2. [timeline-work-rows](tasks/closed/20261009-timeline-work-rows.md): TH-1 to TH-6, TH-10.
-3. [diff-panel-parity](tasks/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
+3. [diff-panel-parity](tasks/closed/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
 4. [right-panel-launcher-and-files](tasks/closed/20261009-right-panel-launcher-and-files.md): PA-1, PA-2, PA-4, PA-5, PA-10.
 5. [composer-provider-state-and-details](tasks/closed/20261009-composer-provider-state-and-details.md): CO-5, CO-6, CO-8, CO-9,
    CO-10, PA-9.
-6. [settings-appearance-and-skill-chip](tasks/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
+6. [settings-appearance-and-skill-chip](tasks/closed/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
 7. [settings-escape-and-nav](tasks/closed/20261009-settings-escape-and-nav.md): S1-1, S1-2, S2-1 (one root cause), S1-3, S1-4,
    S2-5.
 8. [snapshot-permission-helper](tasks/closed/20261009-snapshot-permission-helper.md): PG-9.
 
 Wave 2:
-9. [app-color-scheme](tasks/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
+9. [app-color-scheme](tasks/closed/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
    (`app-window.contract`).
-10. [shell-sidebar-palette-keys](tasks/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
-11. [settings-rows-and-labels](tasks/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
+10. [shell-sidebar-palette-keys](tasks/closed/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
+11. [settings-rows-and-labels](tasks/closed/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
     S2-10, S2-9's row alignment. After 1 (`settings-core.ts`).
 12. [markdown-links-and-files-preview](tasks/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
     (`r4-surfaces-files.contract`). TH-9 matches the live reference (the user's "match the pin" rule).
@@ -228,7 +228,7 @@ Real-input rows: SH-1, PA-12, S1-3, S1-4, S1-12, S2-5, PG-9 and PG-10's system n
 the screen is unlocked. PG-9's grant row needs the user present.
 
 Blocked:
-- [blocked-desktop-update-controls](tasks/20261009-blocked-desktop-update-controls.md): SH-6, S1-13. The user's X40 scope
+- [blocked-desktop-update-controls](tasks/closed/20261009-blocked-desktop-update-controls.md): SH-6, S1-13. The user's X40 scope
   decision applies, but the closed app-update-feed record's "equals the reference" claim does not hold. The coordinator
   builds option (a) as a draft PR; the user decides by merging it (build) or closing it (keep out).
 - [blocked-theme-usage-highlight](tasks/20261009-blocked-theme-usage-highlight.md): S1-7. Waits for X69 on `main`.
@@ -239,13 +239,19 @@ draft. `issue-open` reproduces it and checks it against #321. Publication needs 
 Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
 draft PR (option a of the blocked record).
 
-Progress (2026-10-10): merged #357, #356, #355, #359, #365, #362 and #361 (records in `tasks/closed/`); #360 waits for a
-reference-matching change to its comparison picker; wave 2b (settings-pages-subscribed-config, shell-sidebar-palette-keys,
-settings-rows-and-labels), markdown-links-and-files-preview, app-color-scheme and the update-controls draft are in flight.
-[audit-wave-followups](tasks/20261010-audit-wave-followups.md) holds four differences the fix agents found outside their tasks.
+Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, #360, #364, #366, #370, #369,
+#368 (the user decided to build the no-feed update controls), #367, plus #353 and Browser part 2 (#352, merged on the
+user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. In flight: markdown-links-and-files-preview,
+usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
+and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/20261010-audit-wave-followups-2.md),
+then [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
+flatten after the fix waves). New local framework draft: [X70](issues/20261010-x70-aria-disabled-focusable.md) (kept
+local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
+a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
+real lane accounts; #227/#228 stay with the user.
 
 Coordinator additions:
-- [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
+- [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
   (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.
 - [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
   2 MiB test-thread limit (X67, main `issues/20261009-compiler-small-stack-depth.md`), which unblocks main adoption
