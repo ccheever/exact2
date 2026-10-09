@@ -376,7 +376,7 @@ fn a_failure_that_brings_no_answer_frees_the_queue() {
     r.data().fail_parse = false;
     assert!(r
         .journal()
-        .any(|l| l.contains("failed and is no longer pending: it ends unsent")));
+        .any(|l| l.contains("failed and is no longer pending: it is not retried")));
     assert_eq!(slot(&r, "log"), "", "no `then` for no answer");
     assert_eq!(r.timer_due_ms(), Some(0.0));
     r.advance(0.0).unwrap();

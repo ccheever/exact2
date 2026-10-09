@@ -503,7 +503,7 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   const spring = timeReporter(new URLSearchParams({agent:'1', timeZone:'America/Los_Angeles', epoch:String(Date.UTC(2026, 2, 8, 9))}));
   expect(spring(1800000)).toEqual([Date.UTC(2026, 2, 8, 9), -480]);
   expect(spring(7200000)).toEqual([Date.UTC(2026, 2, 8, 9), -420]);
-  for (const epoch of ['-1', 'yesterday']) expect(() => launchFacts({epoch})).toThrow('epoch:');
+  for (const epoch of ['-1', 'yesterday', 'NOW', 'now ']) expect(() => launchFacts({epoch})).toThrow('epoch:');
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});
   const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));

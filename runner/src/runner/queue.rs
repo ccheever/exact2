@@ -128,7 +128,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The scan (D3), after every commit concludes, whether it stood or
-    /// was refused, and on a refused admission's early return: a stalled
+    /// was refused: a stalled
     /// mutation whose basis a standing commit changed is let go, and a
     /// free mutation with a send waiting is due now.
     pub(super) fn arm_next(&mut self, stood: bool) {

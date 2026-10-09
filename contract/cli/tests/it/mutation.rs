@@ -397,9 +397,9 @@ fn send_asks_the_host_and_fulfill_fills_the_slot() {
 }
 
 /// No host delivers a ticket twice, so a reply the source fails to take is
-/// let go: the mutation ends unsent and the view stops showing it pending.
+/// let go without retry, and the view stops showing the mutation pending.
 #[test]
-fn a_failed_fulfill_ends_the_mutation_unsent() {
+fn a_failed_fulfill_ends_the_mutation_without_retry() {
     let mut r = boot();
     r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
     let ticket = r.take_requests()[0].ticket;
@@ -412,7 +412,7 @@ fn a_failed_fulfill_ends_the_mutation_unsent() {
     assert!(r.journal().any(|l| l.contains("parse refused")));
     assert!(r
         .journal()
-        .any(|l| l.contains("failed and is no longer pending: it ends unsent")));
+        .any(|l| l.contains("failed and is no longer pending: it is not retried")));
     assert!(
         r.fulfill(ticket, ok(200)).unwrap().is_none(),
         "a released ticket commits nothing"
@@ -420,7 +420,7 @@ fn a_failed_fulfill_ends_the_mutation_unsent() {
 }
 
 #[test]
-fn a_mutation_refused_admission_ends_unsent_and_is_never_retried() {
+fn a_mutation_refused_admission_is_never_retried() {
     let mut r = boot();
     r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
     let ticket = r.take_requests()[0].ticket;
@@ -435,7 +435,7 @@ fn a_mutation_refused_admission_ends_unsent_and_is_never_retried() {
     assert!(r.take_requests().is_empty(), "a write is never retried");
     assert!(r
         .journal()
-        .any(|l| l.contains("was refused admission: it ends unsent")));
+        .any(|l| l.contains("failed and is no longer pending: it is not retried")));
 }
 
 #[test]

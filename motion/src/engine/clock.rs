@@ -53,6 +53,10 @@ impl Engine {
     /// plays join it as new ones would (D4); a kept start would be a member
     /// out of phase.
     pub fn set_animation_clock(&mut self, node: u64, clock: Option<&str>) {
+        (self.links.set_animation_clock)(self, node, clock)
+    }
+
+    pub(super) fn set_animation_clock_full(&mut self, node: u64, clock: Option<&str>) {
         match clock {
             Some(name) if self.clocks.of.get(&node).map(String::as_str) != Some(name) => {
                 self.clocks.of.insert(node, name.to_owned());
@@ -74,12 +78,20 @@ impl Engine {
     /// Hold every clock join until [`Engine::join_clocks`]: a commit's rows
     /// are applied first (`MotionSync::apply`).
     pub fn hold_clock_joins(&mut self) {
+        (self.links.hold_clock_joins)(self)
+    }
+
+    pub(super) fn hold_clock_joins_full(&mut self) {
         self.clocks.held = true;
     }
 
     /// Join the plays that started, resumed or moved onto a clock since the
     /// joins were held (D3, D4), and stop holding them.
     pub fn join_clocks(&mut self) {
+        (self.links.join_clocks)(self)
+    }
+
+    pub(super) fn join_clocks_full(&mut self) {
         self.clocks.held = false;
         let joining = std::mem::take(&mut self.clocks.joining);
         if joining.is_empty() {
@@ -243,6 +255,13 @@ impl Engine {
 /// The last cycle boundary of `origin`'s timeline at or before `now`: an
 /// iteration, or two under `alternate`, so a joiner's first is forwards and
 /// it ends on the keyframe it would end on alone.
+impl Clocks {
+    /// Whether `node` is on a clock timeline or joining one.
+    pub(super) fn names(&self, node: u64) -> bool {
+        self.of.contains_key(&node) || self.joining.contains_key(&node)
+    }
+}
+
 pub(super) fn boundary(animation: &Animation, now: f64, origin: f64) -> f64 {
     let alternates = matches!(
         animation.direction,

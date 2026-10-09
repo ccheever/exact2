@@ -184,7 +184,7 @@ fn documents(path: &str) -> Result<Document, String> {
     use exact_data::documents::{resolve, Resolved};
     Ok(match resolve(path)? {
         Resolved::Root(name) => Document::Root(name),
-        Resolved::Real(real) => Document::Real(real),
+        Resolved::Real { directory, path } => Document::Real { directory, path },
     })
 }
 

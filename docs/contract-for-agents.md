@@ -873,7 +873,7 @@ drawn title bar) is a bug. On iOS:
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` it shows the format as a placeholder (`mm/dd/yyyy`), as the web and macOS do, and a choice fills it |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
@@ -900,13 +900,19 @@ An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
 [`schema.json`](../kernel/tables/schema.json)'s `symbols`; a player's are `play`,
 `pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
-`skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
+`skip-forward-30`, `speaker`, `speaker-mute` and `moon`; an unknown role is refused
+with the list), `symbol:sf/<name>` (an SF Symbol by its Apple name: drawn on Apple
+only, blank on the web and Linux with no warning, where `layout` reports `reason:
+"platform"`; a tab or button that must show everywhere takes a role), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
-Linux answers `unsupported`. Keep a picked photo by copying it to
+Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
+{"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
+reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
+through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
@@ -1179,8 +1185,9 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
   another word is refused. `fit-content` measures the route laid out alone, its
-  height left to its children, so nothing sized from the sheet counts (a `vh`
-  height or min/max height is `auto` there); a route
+  height left to its children, so nothing sized from the sheet counts; on iOS every
+  viewport unit (`vw`, `vh`, `vmin`, `vmax`, and kin) is the window's in every sheet, never the
+  sheet's, so `min-height: 100vh` opens the sheet at its maximum; a route
   that scrolls is measured by its scroll extent, so give its rows
   `flex-shrink: 0`. The route does
   not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
@@ -1380,6 +1387,17 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
+Apple native modules can include asset catalogs beside their Swift sources:
+`modules/apple/*.xcassets`, or `ios/modules/*.xcassets` / `macos/modules/*.xcassets`
+when the app has a platform-local module directory. The local directory replaces
+`modules/apple` for that platform; tvOS uses the iOS directory. The Apple build
+compiles these catalogs together with its generated assets into the main bundle.
+On macOS, a catalog makes the dev build and agent launch the assembled `.app`.
+Load custom symbols with `UIImage(named: "donut", in: .main, with: configuration)`
+or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
+`symbol:sf/...` still looks up system symbols only. Catalog changes require a
+new native build; they are not web assets or live update payloads.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
@@ -1420,11 +1438,38 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
+`href=` (an `a`). In the terminal a click on the run runs its
+handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the
+navigation root, and an `http`, `https`, `mailto` or `tel` URL leaves the app,
+as `openURL` does. An app without routes that wants a run to act in the app
+(the LLP reader's cross-references) gives the run `press=`. In a terminal the
+mouse is the app's only full screen or while a dialog is open; inline, ⌘-click
+on the run's link is the terminal's own.
+
 Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
 files. Compile against the files to check keys and placeholders. Formatting
 functions accept a narrow set of literal formats; app wording is an app `fn`.
 
 ## Inspection and testing
+
+On Apple development builds, an `iframe`'s web content is inspectable from
+Safari's Develop menu. Enable Safari's web developer features, launch the app,
+and select its web view under Develop. This inspects the embedded page; use the
+agent operations below for Exact's native tree. Production builds
+(`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
+web-view inspection disabled.
+
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D) opens with the
+build it is in: the app and version, when, where and with which Xcode it was
+built, the exact2 commit and the app's own (with branch and a dirty flag), the
+build kind, the device, and the app's release notes. `host/apple/build.mjs`
+stamps these into the bundle's Info.plist on every build, `--archive` included,
+so a shipped binary carries the build machine's host name and the commits too.
+Release notes are `release-notes.md` beside `app.contract`: UTF-8 text, shown as
+written, up to 16 KB; no file, no section. A deploy script that publishes the
+build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
+it. Copy (iOS and macOS) takes all of it as text.
 
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
@@ -1451,6 +1496,10 @@ commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-schem
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
+`type` also sets a control's value: `type "persona" "bob"` chooses a
+`select`'s option by its `value`, and a date, time, range or checkbox takes
+its value the same way, in a drive or a test (a tap does not open a native
+`select`'s menu under the driver).
 `tree --ax` prints the platform's accessibility tree, as VoiceOver would read it.
 Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
@@ -1565,7 +1614,12 @@ To test going offline after the data loaded (a Snapback4 partition, which
 cannot open before its first sync, is the usual case), put `clock data` first;
 a runner note names a `fail fetch` armed before the data loaded.
 `times N` fails only the next N; `pass fetch "<prefix>"` stops it; a counted
-fault that never fired fails the test. The app's own `catch`, error record and
+fault that never fired fails the test. A fault reaches only fetches that start
+after it: a request already in flight with the same arguments is reused by the
+runner (one request per resource and arguments), so re-opening the screen while
+it is pending gets that request's answer, not the fault. Arm the fault before
+the request starts (as the launch line, or before the step that first loads
+it), or let the pending one settle (`clock data`) first. The app's own `catch`, error record and
 retry run, so this checks the real error handling (LLP 1103). A drive takes
 `--fail-fetch <prefix>` at open and the ops `"fail fetch <prefix> [times N]"`
 and `"pass fetch <prefix>"`; `state.faults` shows each prefix's hits.
@@ -1590,7 +1644,10 @@ tested against a stand-in server that never answers (the reference's
 "exactTimeout").
 
 A test whose text depends on the date names its `epoch`; without one it runs at
-the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
+the driver's 2026-01-01 UTC. A drive or test whose app talks to a live backend
+(`snapback4 dev` runs on real time) says `--epoch now` or `epoch now`: the
+machine's clock, read once at launch, from which `clock` moves the date as
+before, so the app's dates agree with the server's but differ run to run. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "list" into "key"` (a virtualized list's row brought into view by its key,
 so the next step can tap a row outside the rendered window),

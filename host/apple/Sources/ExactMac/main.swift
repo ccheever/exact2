@@ -413,6 +413,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// answer started is held until it lands, five seconds at most (LLP
     /// 1097 D10).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A repeated quit joins the existing hold: it neither asks the app
+        // again nor starts a fresh five-second deadline.
+        if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
             w.front()
             return .terminateCancel
@@ -425,7 +428,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     var quitting: StorageHold?
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
-    /// Event, the last window closing): every session still live goes now,
+    /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
     /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
     /// window's own teardown (`windowWillClose`) waits for the next turn of
@@ -471,6 +474,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
 
 let delegate = Delegate()
 app.delegate = delegate
+
+// A supervisor's SIGTERM follows the same cancellable quit as the menu
+// (#269). The signal handler does no AppKit work; the retained source runs
+// on the main queue. A caught signal, unlike SIG_IGN, resets to the default
+// when an executed helper starts, so the helper can still be terminated.
+signal(SIGTERM) { _ in }
+let quitSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+quitSignal.setEventHandler {
+    // terminateLater spins AppKit's modal loop. Leave the dispatch callback
+    // first, so the main queue can deliver storage completions in that loop.
+    RunLoop.main.perform(inModes: [.common]) {
+        // AppKit may force a repeated terminate without asking the delegate.
+        // The first request already owns the storage hold and its deadline.
+        if delegate.quitting?.holding == true { return }
+        app.terminate(nil)
+    }
+}
+quitSignal.resume()
 
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?

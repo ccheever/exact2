@@ -687,6 +687,45 @@ impl<D: DataSource> Presenter<D> {
         self.collection_scroll_turn(view, false);
     }
 
+    /// A wheel moved `view`: its collection turn now, or after the frame
+    /// when turns are deferred.
+    pub(super) fn collection_scrolled_or_deferred(&mut self, view: ViewId) {
+        match &mut self.deferred_collections {
+            Some(views) => {
+                if !views.contains(&view) {
+                    views.push(view);
+                }
+            }
+            None => self.collection_scrolled(view),
+        }
+    }
+
+    /// Run a scrolled list's collection turn (feedback, rows mounted and
+    /// unmounted, the commit's layout) after the frame that shows the new
+    /// offset rather than before it: the frame paints the rows already
+    /// mounted — the list's overscan covers the travel — and the turn runs
+    /// in the time left before the next one (RecyclerView's prefetch after
+    /// the frame). The host calls [`Presenter::run_deferred_collections`]
+    /// once its frame is submitted.
+    pub fn set_deferred_collections(&mut self, on: bool) {
+        if !on {
+            self.run_deferred_collections();
+        }
+        self.deferred_collections = on.then(Vec::new);
+    }
+
+    /// The collection turns deferred since the last call; whether any ran.
+    pub fn run_deferred_collections(&mut self) -> bool {
+        let views = match &mut self.deferred_collections {
+            Some(views) if !views.is_empty() => std::mem::take(views),
+            _ => return false,
+        };
+        for id in views {
+            self.collection_scrolled(id);
+        }
+        true
+    }
+
     // Only Arrange's prevalidated, adapter-owned edge step uses this order.
     // External scroll still retires stale contact before accepting new facts.
     pub(super) fn collection_scrolled_by_arrange(&mut self, view: ViewId) {

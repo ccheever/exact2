@@ -1193,9 +1193,12 @@ impl LayoutTree {
                 }
             }
         }
+        // `&mut measure`, as the boundaries take it: one measure type, so the
+        // engine's algorithms compile once (by value, every app carried two
+        // copies; LLP 1047.001).
         let result = self
             .taffy
-            .compute_layout_with_measure(root, available, measure);
+            .compute_layout_with_measure(root, available, &mut measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
         self.provisional_chrome |= provisional_button;
         if let Some(view) = invalid_button {
@@ -1368,12 +1371,15 @@ impl LayoutTree {
         tree
     }
 
-    /// A separate engine tree of `slot`'s subtree, for a trial that must
-    /// leave the ordinary tree, its caches and its frames alone; its handles
-    /// by slot. The arena's own handles are never written.
-    pub(crate) fn of_subtree(arena: &NodeArena, slot: u32) -> (LayoutTree, HashMap<u32, NodeId>) {
+    /// A separate engine tree of the subtrees at `roots`, for a trial that
+    /// must leave the ordinary tree, its caches and its frames alone; its
+    /// handles by slot. The arena's own handles are never written.
+    pub(crate) fn of_subtrees(
+        arena: &NodeArena,
+        roots: &[u32],
+    ) -> (LayoutTree, HashMap<u32, NodeId>) {
         let mut tree = LayoutTree::new();
-        let slots = arena.subtree(slot);
+        let slots: Vec<u32> = roots.iter().flat_map(|&r| arena.subtree(r)).collect();
         let nodes: HashMap<u32, NodeId> = slots
             .iter()
             .map(|&s| {
@@ -1394,6 +1400,20 @@ impl LayoutTree {
             tree.set_children(node, &children);
         }
         (tree, nodes)
+    }
+
+    /// Give `node`, standing in for `parent`, those of `parent`'s children
+    /// `nodes` holds, in the order its layout takes them.
+    pub(crate) fn adopt(
+        &mut self,
+        arena: &NodeArena,
+        parent: u32,
+        node: NodeId,
+        nodes: &HashMap<u32, NodeId>,
+    ) {
+        let children =
+            order::laid_out(arena, parent, &self.taffy, node, |c| nodes.get(&c).copied());
+        self.set_children(node, &children);
     }
 }
 

@@ -38,6 +38,11 @@ impl Executor {
             ),
         }
     }
+    /// Where the app's files are, for a request whose body is one of them
+    /// (LLP 1108 D6 R2): set before the first request.
+    pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        self.core.set_app_roots(roots);
+    }
     /// Earlier admitted ordered outcomes have all reached the UI pump.
     pub fn ordered_idle(&self) -> bool {
         self.core.ordered_idle()
@@ -77,6 +82,8 @@ impl Executor {
 /// own methods, behind a trait so that an archive that links no I/O names
 /// none of them, nor the transports and stores they reach.
 pub trait Io {
+    /// [`Executor::set_app_roots`].
+    fn set_app_roots(&self, roots: [std::path::PathBuf; 3]);
     /// [`Executor::ordered_idle`].
     fn ordered_idle(&self) -> bool;
     /// [`Executor::resume_ordered`].
@@ -96,6 +103,9 @@ pub trait Io {
 }
 
 impl Io for Executor {
+    fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        Executor::set_app_roots(self, roots)
+    }
     fn ordered_idle(&self) -> bool {
         Executor::ordered_idle(self)
     }

@@ -37,12 +37,18 @@ struct HeaderShape: Equatable {
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
+        /// The colour the author gave the item's face, light and dark: a
+        /// symbol's tint, else a `color` set on the button itself. Nil
+        /// (UIKit's tint, the platform default) for an inherited or
+        /// platform colour.
+        let tint: [[Double]]?
         init(_ button: NodeView) {
-            var symbol: String?, text = ""
+            var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
-                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name }
-                    else if child.isParagraph, text.isEmpty { text = child.accessibleText }
+                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+                        if symbol == nil { symbol = name; ink = (child, "tint_color") }
+                    } else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? (child, "text_color") }
                     else { walk(child) }
                 }
             }
@@ -62,9 +68,21 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
+            // The platform's tint unless the button says otherwise: a
+            // symbol's own tint, or a `color` set on the button rather than
+            // inherited from the page (the same as the nearest node above).
+            let above = sequence(first: button.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
+            let own = button.style["text_color"].flatMap { $0.key == above?.style["text_color"]?.key ? nil : $0 }
+            let symbolTint = ink?.1 == "tint_color" ? ink?.0.style["tint_color"] : nil
+            let row = [symbolTint, own].lazy.compactMap { $0 }.first { !$0.isSystemColor }
+            if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
+                tint = [light, dark]
+            } else {
+                tint = nil
+            }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? [])" }
     }
     let header: NodeView
     let title: String
@@ -637,6 +655,11 @@ extension NavigationHost {
         }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
+        // The authored `color` of a plain item's face; a prominent item's
+        // tint is its fill, which `color` is not.
+        if let tint = i.tint, !i.prominent, i.badge == nil {
+            item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
+        }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
             // A drawn face is its own shape: no glass capsule around it.
@@ -715,6 +738,14 @@ extension NavigationHost {
     /// takes the whole of its own (ExactViewIOS `fit`).
     var wantsWholeView: Bool {
         (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
+    }
+
+    /// `wantsWholeView` for the root's containers alone, whatever a sheet
+    /// shows: what the window's own viewport is, which the viewport units
+    /// resolve against (LLP 1075.003 §9.11; Astra's review).
+    var rootWantsWholeView: Bool {
+        (tabOwner != nil && !ExactEnv.authoredChrome)
+            || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
     }
 
     /// What Exact's containers cover of each route — its controller's safe

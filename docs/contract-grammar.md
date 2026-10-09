@@ -354,7 +354,7 @@ special typing; it is not a source-language type annotation.
 test-file     = { launch | test } ;                   (* a top-level launch line: every test's *)
 test          = "test" STRING block( { launch } { step } ) ;
 launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
-              | "epoch" ( STRING | NUMBER ) NL       (* "2026-09-21T12:00:00Z" or Unix ms *)
+              | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
@@ -396,7 +396,10 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
 each once. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. A file whose
-assertions depend on the date says so in the file. Before the first step, and
+assertions depend on the date says so in the file. `epoch now` is the machine's
+clock, read once as each test launches, for a test whose app talks to a live
+backend on real time (`snapback4 dev`); its dates differ run to run, so its
+expects do not name them. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`
@@ -584,7 +587,7 @@ Compiler intrinsics and special forms additionally include:
 | --- | --- |
 | `offline` | A request the source made reached no server (no connection, DNS, TLS, a reset, the driver's `fail fetch`) and the source let the rejection through |
 | `timeout` | A request's deadline (`exactTimeout`) passed, let through |
-| `refused` | The host refused a request outside the app's grants, let through |
+| `refused` | The host refused a request outside the app's grants or limits (admission, or a response over its size limit), let through |
 | `shape` | The answer is outside the resource's declared shape |
 | `storage` | A storage call failed (a coded storage refusal: `denied`, `full`, `EBUSY`, a filesystem error, storage unavailable here), let through |
 | `error` | Anything else: the source's own error (a TypeScript `throw` or rejection, a Rust source's `Err`), an aborted request, a host that cannot make it, a module over its time budget |
@@ -594,8 +597,10 @@ rejection or did not catch it; an error the module makes of its own is
 `error`. An HTTP error status is an answer, never a failure: a module that
 throws on a 500 fails with `error`. A Rust source's own error is `error` on
 every host. A request the caller aborted is `error`. A response over its size
-limit is `offline` on the web and on Apple's plain HTTP (the transport reports
-it as a lost connection); Apple's event stream still says `refused` (QUEUE). A
+limit (`exactIndependentHttp.maxResponseBytes`, else the host's 64 MiB; a
+stream's event or message over its ceiling) is `refused` on every host: the
+server answered, and the host will not take more than the app said it would;
+asking again gets the same answer, which `offline` would not imply. A
 new code is a breaking change; branch with a default case.
 
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
@@ -739,7 +744,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
-| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key gives the origin) |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
@@ -866,6 +871,13 @@ canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="no
 
 A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
+On macOS, the unmodified `ContextMenu` key opens it at the focused node's
+visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
+A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
+handler runs before its `contextPopover` opens; a field keeps its editing
+menu. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
+default on macOS, matching Chrome on that platform. Native context menus retain
+the existing `disabled` guard, including on plain containers.
 
 `wheel` is DOM's: a wheel's turn or a trackpad's scroll over the node, heard by
 every node from it up that declares it, innermost first. Its `WheelEvent` is
@@ -1199,7 +1211,7 @@ The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
 `load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
-`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
+`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
@@ -1227,6 +1239,8 @@ argument validation. Use the working implementation when selecting arguments:
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
+| `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
+| `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5) | [the harness](../apps/harness/terminal.contract) |
 | `fastSeek(id, seconds)`, `load(id)`: a `video` or `audio`, by HTML's method names (LLP 1042 §3). `fastSeek` seeks each time it runs, where a bound `currentTime` seeks only when its value changes; every host seeks to the exact time, which HTML's approximate-for-speed allows. `load` loads the source again, as a changed `src` does: the bound `currentTime` waits for its metadata and a bound `paused` false plays | [media tests](../contract/cli/tests/it/media.rs), [media conformance plan](../host/web-js/conformance/media.contract) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 | `playSound(src, at=, gain=, group=)`: a new voice of a declared sound (a literal `src` must be declared, `type-sound-undeclared`), starting at `at` on the runner's clock (`performanceNow()`'s milliseconds; the past and the default are the commit's time), at a linear `gain` 0–1 (default 1; a literal outside is refused, a computed one clamped), in a `group` that is monophonic by start time. `playSounds(hits)`: one voice per item of a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number`, `group: string`. `stopSounds()`, `stopSounds(group=)`: what sounds stops, what waits is cancelled. The runner keeps the voice table (`state sounds`); the web and Apple play it, Linux and Windows keep the record (LLP 1096) | [sound tests](../contract/cli/tests/it/sound.rs), [sounds conformance](../host/web-js/conformance/sounds/app.contract) |

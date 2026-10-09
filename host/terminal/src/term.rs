@@ -564,6 +564,24 @@ pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> S
     )
 }
 
+/// Hand the URLs the app asked to open (`openURL`, a clicked link) to the
+/// system's opener, detached: the terminal stays the app's.
+fn open_outbound<D: DataSource>(host: &mut Host<D>) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    for url in host.outbound.drain(..) {
+        let _ = std::process::Command::new(opener)
+            .arg(&url)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
 /// Run the host in this terminal until the app or the user quits.
 pub fn run<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
     let stdin = rustix::stdio::stdin();
@@ -714,6 +732,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
                 Input::Paste(text) => host.paste(&text),
             }
         }
+        open_outbound(host);
     }
 }
 

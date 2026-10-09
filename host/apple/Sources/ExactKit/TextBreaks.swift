@@ -162,9 +162,18 @@ extension TextEngine {
         return boundaries
     }
     static func pieces(_ text: NSString, boundaries: [Int]) -> [String] {
+        pieceRanges(text, boundaries: boundaries).map { piece in
+            let s = text.substring(with: piece.range)
+            return piece.hyphenated ? String(s.dropLast()) + "-" : s
+        }
+    }
+    /// The pieces as UTF-16 ranges of `text`. A piece is `hyphenated` when it
+    /// breaks right after a soft hyphen, which then shows as a hyphen
+    /// (CSS Text 3 §5.3) and counts toward the piece's width.
+    static func pieceRanges(_ text: NSString, boundaries: [Int]) -> [(range: NSRange, hyphenated: Bool)] {
         guard text.length > 0 else { return [] }
         func trims(_ ch: unichar) -> Bool { hangingSpace(ch) || forcedBreak(ch) }
-        var pieces: [String] = []
+        var pieces: [(range: NSRange, hyphenated: Bool)] = []
         var start = 0
         for end in boundaries where end > start {
             var trimmed = end
@@ -172,11 +181,7 @@ extension TextEngine {
             var lead = start
             while lead < trimmed, trims(text.character(at: lead)) { lead += 1 }
             if trimmed > lead {
-                var piece = text.substring(with: NSRange(location: lead, length: trimmed - lead))
-                // A break right after a soft hyphen shows one (inkedSoftHyphen
-                // reads the line's last character): min-content counts it.
-                if trimmed == end, text.character(at: end - 1) == 0xAD { piece = String(piece.dropLast()) + "-" }
-                pieces.append(piece)
+                pieces.append((NSRange(location: lead, length: trimmed - lead), trimmed == end && text.character(at: end - 1) == 0xAD))
             }
             start = end
         }

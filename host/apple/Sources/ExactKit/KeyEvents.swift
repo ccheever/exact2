@@ -128,6 +128,7 @@ extension Presenter {
             keyUp(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
+            if contextMenuKey(event, in: window) { return true }
         }
         return menus.key(event) || dialogs.key(event)
     }

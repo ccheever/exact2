@@ -464,13 +464,15 @@ fn response_ceiling_and_missing_continuations_fail_without_poisoning_the_lane() 
         None,
     )
     .unwrap();
-    assert!(matches!(
+    // A response over its size limit is Refused (`failure(x)`'s `refused`),
+    // with the web's words, as a stream's body over its ceiling is.
+    assert_eq!(
         collect(&core, &woke, 1)[0].1,
         Outcome::Failed {
-            kind: FailureKind::Network,
-            ..
+            kind: FailureKind::Refused,
+            message: "HTTP response exceeds limit".into(),
         }
-    ));
+    );
     core.run(job(2, Request::continuation(1)), None).unwrap();
     assert!(matches!(
         collect(&core, &woke, 1)[0].1,
@@ -712,26 +714,175 @@ fn forgotten_independent_reads_release_their_transports_and_admission() {
 }
 
 #[test]
-fn ordered_admission_charges_request_buffers_until_a_job_runs() {
+fn ordered_reads_queue_in_order_and_count_undrained_results() {
     let (core, fixture, woke) = setup();
     core.run(job(0, Request::get("https://example.test/hold")), None)
         .unwrap();
     fixture.wait_held(1);
-    // Six asks at boot were Crew's; the count is the limit now, not bytes.
+    for ticket in 1..128 {
+        core.run(
+            job(
+                ticket,
+                Request::get(&format!("https://example.test/read/{ticket}")),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        core.run(job(128, Request::get("https://example.test/read")), None),
+        Err("native executor admission limit reached")
+    );
+    fixture.release();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.shared.state.lock().unwrap().completed[0].len() < 128 {
+        woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        core.begin_pump();
+    }
+    // Isolate the capacity check from the refusal fence; the Bridge test
+    // proves that the host only lifts the fence after refusal settlement.
+    core.resume_ordered();
+    assert_eq!(
+        core.run(job(129, Request::get("https://example.test/read")), None),
+        Err("native executor admission limit reached"),
+        "completed but undrained reads still count"
+    );
+    assert_eq!(
+        collect(&core, &woke, 128)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        (0..128).collect::<Vec<_>>()
+    );
+    let mut sent = vec!["https://example.test/hold".to_string()];
+    sent.extend((1..128).map(|ticket| format!("https://example.test/read/{ticket}")));
+    assert_eq!(fixture.state.lock().unwrap().2, sent);
+    assert!(settled(&core));
+    core.resume_ordered();
+    core.run(job(130, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 130);
+    assert!(settled(&core));
+}
+
+#[test]
+fn ordered_waiting_bytes_include_writes_and_leave_room_for_progress() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    // 15 writes can enter before the 16-ticket bound. Six more reads put
+    // all waiting buffers just over 63 MiB, although reads alone are 18 MiB.
+    for ticket in 1..=21 {
+        let mut request = if ticket <= 15 {
+            Request::post_json("https://example.test/write", "")
+        } else {
+            Request::get("https://example.test/read")
+        };
+        request.body = Vec::with_capacity(3 << 20);
+        core.run(job(ticket, request), None).unwrap();
+    }
+    let mut request = Request::get("https://example.test/refused");
+    request.body = Vec::with_capacity(3 << 20);
+    assert_eq!(
+        core.run(job(22, request), None),
+        Err("native ordered queue byte limit reached")
+    );
+    {
+        let state = core.shared.state.lock().unwrap();
+        let waiting: usize = state.jobs[0].iter().map(|job| job.charge).sum();
+        assert!(waiting > 63 << 20 && waiting <= 64 << 20);
+        assert!(state.counts[0] < 128, "bytes refused before count");
+        assert!(state.bytes[0] <= BYTES[0]);
+    }
+    fixture.release();
+    assert_eq!(
+        collect(&core, &woke, 22)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        (0..22).collect::<Vec<_>>()
+    );
+    assert_eq!(fixture.state.lock().unwrap().2.len(), 22);
+    assert!(settled(&core));
+    core.resume_ordered();
+    core.run(job(23, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 23);
+    assert!(settled(&core));
+}
+
+#[test]
+fn writes_and_opaque_work_keep_the_sixteen_ticket_admission_bound() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
     for ticket in 1..16 {
         core.run(job(ticket, Request::get("https://example.test/read")), None)
             .unwrap();
     }
-    assert!(core
-        .run(job(16, Request::get("https://example.test/read")), None)
-        .is_err());
-    fixture.release();
+    let mut native = Request::native(vec![]);
+    native.http = HttpScheduling::Ordered;
+    let mut auth = Request::auth(vec![]);
+    auth.http = HttpScheduling::Ordered;
+    for request in [
+        Request::post_json("https://example.test/refused-write", "{}"),
+        Request::continuation(1),
+        Request::storage(vec![]),
+        Request::capture_surface("surface"),
+        native,
+        auth,
+    ] {
+        // Each candidate must hit its own count check, not the previous
+        // candidate's ordered refusal fence.
+        core.resume_ordered();
+        assert_eq!(
+            core.run(job(16, request), None),
+            Err("native executor admission limit reached")
+        );
+    }
+    let called = Arc::new(AtomicUsize::new(0));
+    let work_called = called.clone();
+    core.resume_ordered();
     assert_eq!(
-        collect(&core, &woke, 16)
-            .into_iter()
-            .map(|v| v.0)
-            .collect::<Vec<_>>(),
-        (0..16).collect::<Vec<_>>()
+        core.run(
+            job(16, Request::get("https://example.test/opaque")),
+            Some(Box::new(move || {
+                work_called.fetch_add(1, Ordering::SeqCst);
+                Outcome::Storage(vec![])
+            })),
+        ),
+        Err("native executor admission limit reached")
+    );
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 16).len(), 16);
+    assert_eq!(called.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.state.lock().unwrap().2.len(), 16);
+    assert!(settled(&core));
+}
+
+#[test]
+fn forgotten_ordered_backlog_releases_queued_buffers_and_aborts_running_read() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    for ticket in 1..128 {
+        let mut request = Request::get("https://example.test/never-sent");
+        request.body = Vec::with_capacity(256 << 10);
+        core.run(job(ticket, request), None).unwrap();
+    }
+    core.forget(|_| false);
+    until_settled(&core);
+    assert!(core.ordered_idle());
+    core.run(job(128, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 128);
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/hold", "https://example.test/read"]
     );
     assert!(settled(&core));
 }
@@ -919,3 +1070,6 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
 
 #[path = "executor_timeout_tests.rs"]
 mod timeout;
+
+#[path = "executor_body_tests.rs"]
+mod body_from;

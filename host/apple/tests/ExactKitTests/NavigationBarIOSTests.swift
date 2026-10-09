@@ -93,6 +93,7 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(top.navigationItem.largeTitleDisplayMode, .always)
         XCTAssertEqual(top.navigationItem.rightBarButtonItems?.count, 1, "the header's Compose button")
         XCTAssertEqual(top.navigationItem.rightBarButtonItems?.first?.accessibilityLabel, "Compose")
+        XCTAssertNil(top.navigationItem.rightBarButtonItems?.first?.tintColor, "the page's inherited `color` is not the button's: UIKit's tint")
         XCTAssertNil(top.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hatch-more" }, "no module, no hatch")
         let header = try node(session, "header-home")
         XCTAssertTrue(header.isHidden, "iOS does not paint the header the bar shows")
@@ -106,6 +107,33 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(state(session, "composed") as? Double, 0)
         try tap(top.navigationItem.rightBarButtonItems?.first)
         until("Compose pressed once") { state(session, "composed") as? Double == 1 }
+    }
+
+    /// A bar item takes a `color` set on its button (a symbol's, its tint):
+    /// a header's Cancel in the app's accent is not UIKit's. A colour the
+    /// button only inherits, or a platform colour, leaves UIKit's.
+    func testABarItemTakesItsButtonsAuthoredColour() throws {
+        let p = Presenter()
+        let canvasText: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["text_color": [181, 86, 43, 255]]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Cancel"]],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["text_color": canvasText]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Done"], "style": ["text_color": canvasText]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": [17, 17, 17, 255]]],
+            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "style": ["text_color": [17, 17, 17, 255]]],
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Edit"], "style": ["text_color": [17, 17, 17, 255]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 5, "ids": [1, 3, 6]],
+            ["op": "roots", "ids": [5]],
+        ]))
+        let accent = HeaderShape.Item(try XCTUnwrap(p.views[1])), plain = HeaderShape.Item(try XCTUnwrap(p.views[3]))
+        XCTAssertEqual(accent.title, "Cancel")
+        XCTAssertEqual(accent.tint, [[181, 86, 43, 255], [181, 86, 43, 255]])
+        XCTAssertNil(plain.tint, "a platform colour is UIKit's to draw")
+        XCTAssertNil(HeaderShape.Item(try XCTUnwrap(p.views[6])).tint, "an inherited colour is UIKit's to draw")
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an

@@ -474,7 +474,8 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
-                let mut engine = Engine::new();
+                // Settled values only when the plan animates nothing (LLP 1047.001).
+                let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
@@ -724,6 +725,16 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP

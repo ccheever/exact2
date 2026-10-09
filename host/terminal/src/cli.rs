@@ -106,6 +106,35 @@ fn tree<D: DataSource>(host: &Host<D>) -> String {
             for c in n.children() {
                 walk(host, c, depth + 1, out);
             }
+        } else {
+            runs(host, id, depth + 1, out);
+        }
+    }
+    /// A paragraph's inline runs that carry a `testId` (a link the agent
+    /// taps): named, with their text, where the paragraph's own line is.
+    fn runs<D: DataSource>(
+        host: &Host<D>,
+        id: exact_kernel::ViewId,
+        depth: usize,
+        out: &mut String,
+    ) {
+        let kernel = host.kernel();
+        let Some(n) = kernel.node(id) else { return };
+        for c in n.children() {
+            let Some(run) = kernel.node(c) else { continue };
+            if let Some(test_id) = run.props.str(exact_kernel::PropId::TestId) {
+                let text: String = run.text_runs().iter().map(|r| r.text.to_string()).collect();
+                let shown = if host.is_presented_run(c) {
+                    ""
+                } else {
+                    " (off the screen)"
+                };
+                out.push_str(&format!(
+                    "{}Run #{test_id} {text:?}{shown}\n",
+                    "  ".repeat(depth)
+                ));
+            }
+            runs(host, c, depth + 1, out);
         }
     }
     for root in kernel.roots() {
@@ -221,6 +250,10 @@ pub fn run<D: DataSource>(
             "tap" => {
                 let id = arg();
                 match host.by_test_id(&id) {
+                    // An inline run (a link in a paragraph) as a click on it.
+                    Some(v) if host.is_presented_run(v) => {
+                        host.press_run(v);
+                    }
                     Some(v) if host.on_screen(v) => host.press(v),
                     Some(_) => {
                         eprintln!("tap: #{id} is not on the screen");
@@ -331,6 +364,10 @@ pub fn run<D: DataSource>(
             }
         }
         pump(&mut host, &mut vt);
+        // Headless, nothing opens: say what would have.
+        for url in host.outbound.drain(..) {
+            eprintln!("open {url}");
+        }
         if vt.unanswered() > 0 {
             eprintln!("{op}: the writer is waiting on a position answer it never got");
             return ExitCode::FAILURE;

@@ -15,7 +15,7 @@ component Menus
   view
     column testId="root" contextmenu=outer gap=4 padding=8
       text heard testId="heard"
-      row testId="row" contextmenu=inner padding=8 background-color="#ddd"
+      row testId="row" tabindex=0 contextmenu=inner padding=8 background-color="#ddd"
         text "row"
       textarea testId="area" value="" height=40
       box testId="pad" disabled=true wheel=spun width=120 height=40 background-color="#bbb"

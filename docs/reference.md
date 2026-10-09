@@ -55,9 +55,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.13**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.16**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`67b2ce28a3823f3dd1728dc4a2421995e1b12ac8`. `snapback4/` is one client for an
+`468d3aa5be3eee914883e37f3ab0424030ac882d`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
@@ -213,6 +213,13 @@ the manifest's `app.command` into the first of `~/.local/bin`, `/usr/local/bin`,
 `~/bin` that is already on `PATH` (`EXACT_BIN_DIR` overrides), and prints the
 line to add when none is.
 
+A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
+`beforeunload` handlers can cancel, pending storage gets the same five-second
+hold, and each session's native module is destroyed before exit. Repeated SIGTERM
+requests share that hold's original deadline. A module's `destroy()` still runs
+synchronously on the main thread; the storage deadline does not bound it.
+SIGKILL cannot run this cleanup.
+
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
 it. Each MIME type it accepts must be one the Apple hosts map to a system type
@@ -315,7 +322,8 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
-Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
+Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
+read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
 `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
@@ -370,7 +378,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
@@ -379,6 +387,15 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `queueMicrotask`, `Promise` | |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
+
+On native hosts, ordinary ordered `GET`/`HEAD` reads wait in the same FIFO as
+writes: up to 128 queued, running and unconsumed requests, with at most 64 MiB
+of waiting request buffers. Other ordered work retains a 16-request admission
+bound. A full queue rejects explicitly; the runtime never restarts the whole
+source on that refusal, since earlier turns may have written already. For
+example, 20 resources fetching once beside one source fetching 20 times can
+all wait and answer. A failed resource keeps its last value; `refresh` asks
+again. See LLP 1041 §8.4 for the byte reservations and cancellation policy.
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
@@ -613,7 +630,13 @@ each voice ended is the same on every host and under the driver's clock
 Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
 root `audio_session` is the Apple audio session every sound, video and canvas
 shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
-audio keeps playing) or `"playback"`. WebKit's Audio Session API takes it too;
+audio keeps playing) or `"playback"`. Under `"playback"` the session is held
+only while something has sound: the sound arm and a canvas's audio once they
+start, a `video` or `audio` while it has a source and is not muted, and a
+media-session claimant (`metadata=`, which Now Playing needs). When the last
+of those is muted or gone, the session goes back to ambient, which mixes with
+other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
+paused podcast resumes, once no player is left. WebKit's Audio Session API takes it too;
 the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
@@ -715,7 +738,11 @@ for (const name of await storage.fs.readdir(folder)) {
 | `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
-refused. A document needs no app storage: a drive without `--storage` reaches
+refused. Native folder handles retain the selected directory even if its
+pathname moves. Descendant symlinks and Windows reparse points are refused,
+including in intermediate folders; explicitly choosing a file through a
+symlink still selects its target. A native selection whose filename is not
+valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
 it. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
@@ -820,7 +847,7 @@ Browser navigation, both Apple cold/warm handlers and malformed-link refusals ar
 tested. The page cannot detect installation, and does not trigger signing/builds.
 
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
-there); `app.ts` can't import npm packages; signed delivery of TypeScript and Rust
+there); `app.ts` can't import npm packages' code, only their types (`import type`); signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.

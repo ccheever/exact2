@@ -843,7 +843,12 @@ call outside them fails. The capabilities are:
 - *A domain failure is data.* `addBook` returns `ok: false` with a message
   rather than throwing, so the view can say what happened. A thrown error
   leaves a resource `failed(…)` and a mutation without an answer.
-- *`app.ts` imports only local files.* npm packages are not bundled yet.
+- *`app.ts` imports local files, and only types from packages.* An `import
+  type` (or a name used only as a type) may reach a package's declarations,
+  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
+  and every build checks against them. Importing a package's code is refused
+  (`module outside captured app: …/node_modules/…`): npm packages are not
+  bundled yet.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
@@ -1212,8 +1217,11 @@ them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
-nothing from it; a height in `vh` (the sheet's height on iOS) counts as
-`auto`. A route that scrolls itself is measured by what it scrolls,
+nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and their
+`s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
+smaller and larger side), as CSS's `vh` is the viewport's and never a
+dialog's, so `height: 50vh` is half the screen at any sheet height
+and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
 laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
 Linux show a modal route as authored and ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).

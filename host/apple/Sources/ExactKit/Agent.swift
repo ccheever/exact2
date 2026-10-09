@@ -228,7 +228,7 @@ public final class Agent {
                 r = mediaSessionTap(req, action: action) // LLP 1098 D10, never a press
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
-            } else { r = session.canvases.releaseContact(req) ?? tap(req) }
+            } else { r = settling(session.canvases.releaseContact(req) ?? tap(req)) }
             #if os(macOS)
             // A press the app answered with `close()` (a "Don't Save") took
             // the window, and its session with it: the reply says so, as
@@ -238,7 +238,7 @@ public final class Agent {
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
-        case "reveal": Agent.reply(tagged(reveal(req))) // before a tap or a type: a target out of view, scrolled into it
+        case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
@@ -318,6 +318,19 @@ public final class Agent {
               let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }
         var out = r
         for (key, value) in tags where out[key] == nil { out[key] = value }
+        return out
+    }
+
+    /// A tap or a reveal refused while native work still moves (a push, a
+    /// sheet, a menu, the keyboard, a scroll correction: what `clock settle`
+    /// waits for) names the remedy, as the web carrier's refusal does: the
+    /// agent's clock does not wait for the platform's own timing (LLP
+    /// 1086.000.000 D2; the first diaries' R2 retried until it found it).
+    func settling(_ r: [String: Any]) -> [String: Any] {
+        // A refusal that already names it (a confirmation's) is left as it is.
+        guard let error = r["error"] as? String, !error.contains("clock settle"), nativeInFlight() else { return r }
+        var out = r
+        out["error"] = "\(error); native work is still in flight (a transition, the keyboard or a scroll): `clock settle` first, then try again"
         return out
     }
 
@@ -463,7 +476,8 @@ public final class Agent {
             }
         }
         if grid {
-            do { next.rects = try Segments.even(viewport: presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
+            // The window's segments, as the host sends them (LLP 1075.003 §9.11).
+            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return "prefer: \(error)" }
         }
         return session.segments(next).map { "prefer: \($0)" }
     }

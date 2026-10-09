@@ -25,10 +25,43 @@ function deadlineOf(init) {
   return { ms, signal: AbortSignal.timeout(ms) };
 }
 
-export async function fetchWith(set, input, init = {}) {
+// `exactIndependentHttp.maxResponseBytes`: the largest body the fetch takes,
+// checked with Hermes's words (js/src/prelude.js); without it, the ordered
+// lane's 64 MiB, as on native. Browsers have no lanes, so only the bound applies.
+function ceilingOf(init) {
+  const independent = init.exactIndependentHttp;
+  if (independent === undefined) return 64 * 1024 * 1024;
+  const n = independent?.maxResponseBytes;
+  if (!Number.isInteger(n) || n <= 0 || n > 67108864) throw new TypeError('exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864');
+  return n;
+}
+
+// Read a response's clone to its end, refused the moment it passes `limit`
+// (LLP 1109 D3: a response over its size limit is `refused` on every host).
+// A failed read lets both branches go at once: a branch's cancel settles only
+// when the other's does, so awaiting one would wait on a body that never ends.
+async function within(response, limit) {
+  const reader = response.clone().body?.getReader();
+  if (!reader) return;
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      if ((size += value.length) > limit) throw new FetchError('Refused', 'HTTP response exceeds limit');
+    }
+  } catch (error) { reader.cancel().catch(() => {}); response.body?.cancel().catch(() => {}); throw error; }
+}
+
+// `expires`, when a caller already spent part of the deadline (an
+// `exactBodyFrom` read, ts-fetch.js): its instant on the page's clock and the
+// deadline as the caller gave it, checked just before the request goes out.
+export async function fetchWith(set, input, init = {}, expires = null) {
   let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
+  const until = expires ?? (deadline ? { at: performance.now() + deadline.ms, ms: deadline.ms } : null);
+  const ceiling = ceilingOf(init);
   try {
     asset = hostAsset(input, init);
     value = typeof Request === 'function' && input instanceof Request ? input.url
@@ -41,7 +74,7 @@ export async function fetchWith(set, input, init = {}) {
   // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
   if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   try {
-    const { exactTimeout: _, ...rest } = init;
+    const { exactTimeout: _, exactIndependentHttp: __, ...rest } = init;
     // The caller's signal, from `init` or the input `Request` (`null`
     // clears the Request's, `undefined` keeps it, as `fetch` has them).
     const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
@@ -54,6 +87,9 @@ export async function fetchWith(set, input, init = {}) {
       deadline.signal.addEventListener('abort', relay, { once: true });
       signal = own ? AbortSignal.any([own, ended.signal]) : ended.signal;
     } else signal = rest.signal;
+    // By the clock, just before it goes out: grant work and a body read that
+    // held the event loop past the deadline fire no timer first.
+    if (until && performance.now() >= until.at) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
     const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
@@ -63,9 +99,10 @@ export async function fetchWith(set, input, init = {}) {
     // Its clone is read whole before it answers, as the native executor
     // collects a body: within the deadline, so a stalled body is this fetch's
     // Timeout, and a body the network cuts off is its Network failure
-    // (`failure(x)`'s `offline`, LLP 1109 D3); the response keeps its URL,
+    // (`failure(x)`'s `offline`, LLP 1109 D3); one over its ceiling is
+    // Refused, and the response is let go. The response keeps its URL,
     // type and null body, and its own read is served from what the clone took.
-    await response.clone().arrayBuffer();
+    await within(response, ceiling);
     if (deadline) deadline.signal.removeEventListener('abort', relay);
     return response;
   }
@@ -95,7 +132,9 @@ export function createRequestExecutor(appId, sourceSet, readBody = response => r
       return { storage: await (await storage).run(req.storage, admitted) };
     }
     try {
-      const response = await fetchWith(admitted, req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
+      // Its ceiling bounds the read inside `fetchWith` too, so an oversized body that never ends is refused, not awaited.
+      const response = await fetchWith(admitted, req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw,
+        ...(req.maxResponseBytes != null ? { exactIndependentHttp: { maxResponseBytes: req.maxResponseBytes } } : {}) });
       return { status: response.status, headers: [...response.headers], body: new Uint8Array(await readBody(response, req.maxResponseBytes)) };
     } catch (error) {
       return { failed: error?.kind === 'Refused' ? 2 : 1, message: String(error?.message ?? error) };

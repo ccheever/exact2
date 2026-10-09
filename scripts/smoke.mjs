@@ -777,8 +777,8 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
   writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state minute = 0\n  action tick\n    minute = time.epochAtZero + performanceNow()\n  task minutes mount\n    every(60000, tick)\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text `${time.epochAtZero}|${time.utcOffset}|${minute}` testId="date"\n      text t("greeting") testId="greeting"\n');
   const compiled = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
-  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
-    const f = await open({host, browser: 'chrome', plan, ...options});
+  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}, {epoch:'now'}]) {
+    const launched = Date.now(), f = await open({host, browser: 'chrome', plan, ...options});
     try {
       const lang = options.locale === 'ar-EG' ? 'ar' : options.locale ? 'fr' : 'en';
       const dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -786,7 +786,9 @@ if (apple && !device) await httpFrameSmoke({ host, open, check });
       const tree = await f.tree();
       check(byTestId(tree, 'place')?.props.text === expected, `launch facts: expected ${expected}, got ${byTestId(tree, 'place')?.props.text}`);
       // LLP 1027.000.000 D3: the drive's epoch and its zone's offset; the agent clock moves the date.
-      const [epoch, offset] = options.epoch ? [1790000000000, -240] : [1767225600000, 0];
+      // `now` is the machine's clock, read once as the drive launched (a drive against a live backend).
+      const [epoch, offset] = options.epoch === 'now' ? [Number(byTestId(tree, 'date')?.props.text.split('|')[0]), 0] : options.epoch ? [1790000000000, -240] : [1767225600000, 0];
+      if (options.epoch === 'now') check(epoch >= launched && epoch <= Date.now(), `--epoch now: expected the launch instant, got ${epoch} (launched ${launched})`);
       check(byTestId(tree, 'date')?.props.text === `${epoch}|${offset}|0`, `launch date: expected ${epoch}|${offset}|0, got ${byTestId(tree, 'date')?.props.text}`);
       await f.clock('+60000');
       check(byTestId(await f.tree(), 'date')?.props.text === `${epoch}|${offset}|${epoch + 60000}`, 'the agent clock moves the date');

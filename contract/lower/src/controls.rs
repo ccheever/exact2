@@ -198,18 +198,18 @@ pub(crate) fn control(
 
 /// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
 /// D1), cited by each refusal.
-pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no camera.\"";
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no `capture` on the picker (the camera is a native module, §Components, 2026-10-02).\"";
 
 /// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
-/// refused, and so are `*/*` and an empty list.
+/// refused, naming the camera's route, and so are `*/*` and an empty list.
 fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
     if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
         return err(
             "lower-picker-capture",
-            format!("`capture` opens a camera, which is not admitted: {PICKER_ADMISSION}"),
+            format!("`capture` is not admitted on the picker; take a photo with an app native module behind the `device.camera` grant, as `apps/recorder` is for the microphone: {PICKER_ADMISSION}"),
             a.span,
         );
     }

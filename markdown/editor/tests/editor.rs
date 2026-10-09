@@ -182,11 +182,20 @@ fn backspace_after_a_link_deletes_its_text() {
 
 #[test]
 fn select_all_and_type_replaces_everything() {
-    let mut p = Page::open("plain **bold** and *it*");
-    let len = p.e.source().len() as u32;
-    p.e.select(0, len, None);
-    p.type_("Z");
-    assert_eq!(p.source(), "Z");
+    for source in [
+        "plain **bold** and *it*",
+        "# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```",
+        "- [x] done\n\n> quoted",
+    ] {
+        let mut p = Page::open(source);
+        p.e.select_all();
+        p.type_("Z");
+        assert_eq!(p.source(), "Z");
+        p.tool("undo");
+        assert_eq!(p.source(), source);
+        p.tool("redo");
+        assert_eq!(p.source(), "Z");
+    }
 }
 
 #[test]

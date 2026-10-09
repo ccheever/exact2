@@ -28,6 +28,9 @@ fn name(s: &str) -> io::Result<CString> {
     CString::new(s).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))
 }
 fn open_at(dir: &File, path: &str, flags: i32) -> io::Result<File> {
+    open_at_mode(dir, path, flags, 0o600)
+}
+fn open_at_mode(dir: &File, path: &str, flags: i32, mode: u32) -> io::Result<File> {
     let path = name(path)?;
     // SAFETY: the descriptor and terminated pathname are live throughout openat.
     let fd = unsafe {
@@ -35,7 +38,7 @@ fn open_at(dir: &File, path: &str, flags: i32) -> io::Result<File> {
             dir.as_raw_fd(),
             path.as_ptr(),
             flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            0o600,
+            mode,
         )
     };
     if fd < 0 {
@@ -48,8 +51,11 @@ fn directory(dir: &File, path: &str) -> io::Result<File> {
     open_at(dir, path, libc::O_RDONLY | libc::O_DIRECTORY)
 }
 fn mkdir(dir: &File, path: &str) -> io::Result<()> {
+    mkdir_mode(dir, path, 0o700)
+}
+fn mkdir_mode(dir: &File, path: &str, mode: libc::mode_t) -> io::Result<()> {
     let path = name(path)?;
-    if unsafe { libc::mkdirat(dir.as_raw_fd(), path.as_ptr(), 0o700) } == 0 {
+    if unsafe { libc::mkdirat(dir.as_raw_fd(), path.as_ptr(), mode) } == 0 {
         Ok(())
     } else {
         let e = io::Error::last_os_error();
@@ -244,21 +250,33 @@ impl AppDirectories {
     }
     /// Exact patch 9 (`fs.compressImage`): a regular file's bytes, at most
     /// `cap` of them, read through the opened descriptor, under `fs.read`.
-    pub(crate) fn read_capped(
+    /// Public since Exact patch 10: an embedder's request body from an app
+    /// file (exact2 LLP 1108 D6 R2, `exactBodyFrom`) reads through it.
+    pub fn read_capped(
         &self,
         grants: &GrantSet,
         path: &str,
         cap: u64,
     ) -> Result<Vec<u8>, HostError> {
+        let mut bytes = Vec::new();
+        self.open_file(grants, path)?
+            .take(cap)
+            .read_to_end(&mut bytes)
+            .map_err(error)?;
+        Ok(bytes)
+    }
+    /// Exact patch 10: a regular file opened for reading through the
+    /// directory handles, under `fs.read`, as [`Self::read_capped`] opens it,
+    /// for an embedder that reads it in its own steps (exact2's
+    /// `exactBodyFrom` stops between chunks when its request has ended).
+    pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
         self.parse(path)?;
         crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
         let file = self.open(path)?;
         if !file.metadata().map_err(error)?.is_file() {
             return Err(error("read needs a regular file"));
         }
-        let mut bytes = Vec::new();
-        file.take(cap).read_to_end(&mut bytes).map_err(error)?;
-        Ok(bytes)
+        Ok(file)
     }
     pub(crate) fn run(
         &self,
@@ -401,6 +419,153 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
         .ok_or_else(|| error("atomic write needs a filename"))?;
     atomic(&File::open(parent).map_err(error)?, leaf, data).map_err(error)?;
     Ok(FsResult::Done)
+}
+
+/// Exact document paths resolve beneath the directory retained at selection.
+/// Every component is opened relative to an owned descriptor with NOFOLLOW;
+/// neither a replaced root name nor a descendant symlink redirects an op.
+fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat> {
+    let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = match leaf {
+        Some(leaf) => {
+            let leaf = name(leaf)?;
+            // SAFETY: the parent, terminated leaf and output remain live;
+            // the OS inspects this entry without following a symlink.
+            unsafe {
+                libc::fstatat(
+                    parent.as_raw_fd(),
+                    leaf.as_ptr(),
+                    info.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            }
+        }
+        None => unsafe { libc::fstat(parent.as_raw_fd(), info.as_mut_ptr()) },
+    };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the successful OS call initialized info.
+    let info = unsafe { info.assume_init() };
+    if info.st_mode & libc::S_IFMT == libc::S_IFLNK {
+        return Err(io::Error::from_raw_os_error(libc::ELOOP));
+    }
+    Ok(info)
+}
+
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    let parts: Vec<_> = if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('/').collect()
+    };
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', '\0']))
+    {
+        return Err(io::Error::other("invalid document path"));
+    }
+    let mut parents = vec![root.try_clone()?];
+    if op == FsOp::Mkdir {
+        for part in parts {
+            mkdir_mode(parents.last().unwrap(), part, 0o777)?;
+            parents.push(directory(parents.last().unwrap(), part)?);
+        }
+        return Ok(FsResult::Done);
+    }
+    let (leaf, ancestors) = parts
+        .split_last()
+        .map_or((None, &[][..]), |(leaf, parents)| (Some(*leaf), parents));
+    for part in ancestors {
+        parents.push(directory(parents.last().unwrap(), part)?);
+    }
+    let parent = parents.last().unwrap();
+    let open = || match leaf {
+        Some(leaf) => open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK),
+        None => parent.try_clone(),
+    };
+    let regular = |file: &File| -> io::Result<()> {
+        let meta = file.metadata()?;
+        if meta.is_dir() {
+            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+        }
+        if !meta.is_file() {
+            return Err(io::Error::other("document must be a regular file"));
+        }
+        Ok(())
+    };
+    match op {
+        FsOp::ReadFile => {
+            let mut file = open()?;
+            regular(&file)?;
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes)?;
+            Ok(FsResult::Bytes(bytes))
+        }
+        FsOp::ReadDir => {
+            let dir = match leaf {
+                Some(leaf) => directory(parent, leaf)?,
+                None => parent.try_clone()?,
+            };
+            Ok(FsResult::Names(names(&dir)?))
+        }
+        FsOp::Stat => {
+            let meta = document_metadata(parent, leaf)?;
+            Ok(FsResult::Stat(Stat {
+                size: u64::try_from(meta.st_size).unwrap_or(0),
+                is_file: meta.st_mode & libc::S_IFMT == libc::S_IFREG,
+                is_directory: meta.st_mode & libc::S_IFMT == libc::S_IFDIR,
+                modified_ms: u64::try_from(meta.st_mtime)
+                    .map(|s| {
+                        s.saturating_mul(1000)
+                            .saturating_add((meta.st_mtime_nsec as u64) / 1_000_000)
+                    })
+                    .unwrap_or(0),
+            }))
+        }
+        FsOp::WriteFile | FsOp::AppendFile => {
+            let leaf = leaf.ok_or_else(|| io::Error::from_raw_os_error(libc::EISDIR))?;
+            let flags = libc::O_WRONLY
+                | libc::O_CREAT
+                | libc::O_NONBLOCK
+                | if op == FsOp::AppendFile {
+                    libc::O_APPEND
+                } else {
+                    0
+                };
+            let mut file = open_at_mode(parent, leaf, flags, 0o666)?;
+            regular(&file)?;
+            if op == FsOp::WriteFile {
+                file.set_len(0)?;
+            }
+            file.write_all(data.unwrap_or(&[]))?;
+            Ok(FsResult::Done)
+        }
+        FsOp::AtomicWriteFile => {
+            let leaf = leaf.ok_or_else(|| io::Error::from_raw_os_error(libc::EISDIR))?;
+            match document_metadata(parent, Some(leaf)) {
+                Ok(meta) if meta.st_mode & libc::S_IFMT == libc::S_IFREG => {}
+                Ok(_) => return Err(io::Error::other("document must be a regular file")),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            atomic(parent, leaf, data.unwrap_or(&[]))?;
+            Ok(FsResult::Done)
+        }
+        FsOp::Remove => {
+            let leaf =
+                leaf.ok_or_else(|| io::Error::other("cannot remove the chosen directory"))?;
+            let meta = document_metadata(parent, Some(leaf))?;
+            unlink(parent, leaf, meta.st_mode & libc::S_IFMT == libc::S_IFDIR)?; // empty directories only
+            Ok(FsResult::Done)
+        }
+        _ => Err(io::Error::other("operation is not available on a document")),
+    }
 }
 
 /// Admit a database in its logical namespace before selecting a native filename.

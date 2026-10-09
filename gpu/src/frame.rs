@@ -341,6 +341,7 @@ impl Module {
 static SHOWN: AtomicUsize = AtomicUsize::new(0);
 
 /// Register (or, with `None`, remove) the presenter's callback.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn on_presented(callback: Option<extern "C" fn()>) {
     SHOWN.store(callback.map_or(0, |f| f as usize), Ordering::SeqCst);
 }

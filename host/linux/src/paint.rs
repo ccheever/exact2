@@ -1095,7 +1095,18 @@ impl Painter {
                     value,
                     masked: node.props.str(PropId::Type) == Some("password"),
                     origin: (content.0, oy),
+                    width: content.2,
+                    multiline,
                 };
+                // A single line is shaped unconstrained, so `text-align` places
+                // it here; a textarea's paragraph is laid out at the field's
+                // width and aligns its own lines.
+                let ox = content.0
+                    + if multiline {
+                        0.0
+                    } else {
+                        caret::line_left(&computed, content.2, paragraph.width)
+                    };
                 let focused = walk.scene.focus == Some(node.id);
                 let selection = walk.scene.selection.filter(|_| focused);
                 if let Some(s) = selection {
@@ -1110,7 +1121,7 @@ impl Painter {
                             color: ink,
                             source: node.id,
                         }],
-                        (content.0, oy),
+                        (ox, oy),
                         ts,
                     );
                 }
