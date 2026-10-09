@@ -124,7 +124,9 @@ component PrdWords
       preventDefault()
       cancel()
   view
-    column width="100%" min-width=0 gap=(open ? "0.5rem" : "0px") key=keys tabindex=-1 testId=testId
+    // aria-modal while it edits: its Escape cancels (PullRequestMarkdownEditor prevents it) rather than the Pull Requests
+    // page's Back taking it, as only shortcuts inside a shown modal are heard (usage-and-pr-pages PG-7).
+    column width="100%" min-width=0 gap=(open ? "0.5rem" : "0px") key=keys tabindex=-1 aria-modal=open testId=testId
       when open
         row align-self="flex-start" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="group" aria-label="Markdown editor mode"
           PrdSegment(label="Write", pressed=(not previewing), disabled=saving, press=preview(false), testId=`${testId}-write`)
@@ -208,7 +210,8 @@ component PrdTitle
       editing = false
   view
     when open
-      column width="100%" margin-top="0.25rem" gap="0.5rem" testId="pull-request-title-editor"
+      // aria-modal: its Escape cancels the edit, not the page's Back (usage-and-pr-pages PG-7).
+      column width="100%" margin-top="0.25rem" gap="0.5rem" aria-modal=true testId="pull-request-title-editor"
         input value=draft input=edit key=keys autofocus=true disabled=saving aria-label="Pull request title" autocorrect="off" spellcheck="false" testId="pull-request-title-input" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
         row width="100%" justify-content="flex-end" gap="0.5rem"
           PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=saving, press=cancel, testId="pull-request-title-cancel")

@@ -151,7 +151,8 @@ component UsagePricesApply
         UsageSchemeIcon(name="chevron-down", size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
       KeyMenuOpen(menuId="usage-prices-apply", armed=keyArmed, opened=keyOpened)
       column id="usage-prices-apply" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-prices-apply-layer"
-        column width=`${prices.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
+        // MenuPopup: content-sized from its measured width, its glass drawn opaque (as the environment menu, usage-and-pr-pages PG-5).
+        column min-width=`${prices.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
           KeyMenu(menuId="usage-prices-apply-keys", items=concat([KmItem(id="usage-prices-apply-all", label="All environments")], map(prices.targets, (target) => KmItem(id=`usage-prices-apply-${target.key}`, label=target.label))), keyed=keyed, gap="0px", modal=true)
             CheckRow(label="All environments", status="", disabled=false, checked=prices.allChecked, press=op("usage-prices-env", "", ""), testId="usage-prices-apply-all")
             box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"

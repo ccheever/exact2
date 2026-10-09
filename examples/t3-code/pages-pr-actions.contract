@@ -357,7 +357,8 @@ component PaFreshnessMark
           PgIcon(name="layers", size=12, color=paWarn())
         text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
         PgIcon(name="triangle-alert", size=14, color=paWarn())
-      row id="pr-freshness" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
+      // aria-modal: while it shows, its Escape closes it, not the Pull Requests page (usage-and-pr-pages PG-7).
+      row id="pr-freshness" popover="auto" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-freshness-layer"
         PaFreshnessCard(actions=actions, scheme=scheme, act=act, keep=stay, testId="pr-freshness-popover")
 
 // PopoverPopup (compact, max-w-80): the sentence, "Changes can be cleanly merged.", each way to update.

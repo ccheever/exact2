@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
-  curvePath, buildChart, presentUsage, emptyUsage, usageKeys, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from './pages-usage';
+  curvePath, buildChart, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from './pages-usage';
+import { keybindingDefaults } from './keybinding-settings';
 import { collectLimitAccounts, collectLimitPools } from './usage-limits-pools';
 import { formatResetsIn } from './usage-limits';
 import { adoptPagesPrefs, pagesPrefs } from './pages-prefs';
@@ -12,6 +13,18 @@ test('usage figures format as usageFormat.ts does', () => {
     .toEqual(['19.9B', '228M', '7.20M', '804K', '999', '20B']);
   expect([formatPercent(0.589), formatPercent(0.0004), formatPercent(0)]).toEqual(['58.9%', '<0.1%', '0.0%']);
   expect([formatCount(1022), formatDayShort('2026-09-05')]).toEqual(['1,022', 'Sep 5']);
+});
+
+// usage-and-pr-pages PG-2: usageFormat.ts's CURRENCY is Intl.NumberFormat("en-US", USD, 2 digits), which rounds
+// half away from zero on the shortest digits (0.825 → $0.83); Bun's Intl is ICU, as Chrome's is, so it is the oracle.
+test('USD amounts round as the reference currency format does (half-expand, PG-2)', () => {
+  const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  expect([formatUsd(0.825), formatUsd(0.46 + 0.365), formatUsd(1.275), formatUsd(0.005), formatUsd(0.125), formatUsd(999.995), formatUsd(-0.825), formatUsd(-0.004), formatUsd(0)])
+    .toEqual(['$0.83', '$0.83', '$1.28', '$0.01', '$0.13', '$1,000.00', '-$0.83', '-$0.00', '$0.00']);
+  const values = [0, -0, 0.004, 0.0049999, 0.005, 0.015, 0.045, 0.825, 1.005, 1.275, 2.675, 8.345, 13644.97, 999.995, 1234567.891,
+    123456789.995, 1e-7, 5e-324, 1e21, 1.5e22, 1.7976931348623157e308, -0.004, -0.825, -1234.565, NaN, Infinity, -Infinity];
+  for (let step = 0; step < 4000; step += 1) values.push(step / 1000, step / 1000 + 0.0005, (step * 7919) % 100003 / 200, -(step / 400));
+  for (const value of values) expect(formatUsd(value)).toBe(currency.format(value));
 });
 
 test('windows are calendar days ending today, or an exact rolling 24 hours', () => {
@@ -112,9 +125,26 @@ test('usage shortcuts resolve with usagePageOpen and the last binding wins', () 
     { command: 'chat.new', shortcut: { key: 'c' }, whenAst: { type: 'identifier', name: 'terminalFocus' } },
   ];
   expect(usageKeys({ keybindings }, chord)).toEqual([
-    { id: 'usage.period.day', chord: 'Meta+Shift+1', kind: 'window', value: '1', days: 1, label: 'Past 24h' },
-    { id: 'usage.cost', chord: 'c', kind: 'metric', value: 'cost', days: 0, label: 'Cost' },
+    { id: 'usage.period.day', chord: 'Meta+Shift+1', kind: 'window', value: '1', days: 1, label: 'Past 24h', title: 'Past 24h (⇧⌘1)' },
+    { id: 'usage.cost', chord: 'c', kind: 'metric', value: 'cost', days: 0, label: 'Cost', title: 'Cost (C)' },
   ]);
+});
+
+// usage-and-pr-pages PG-4: each toggle's and select option's title is shortcutTitle(option), as the reference reads
+// it from the served keybindings (the audit's reference: Cost (C) … 90 days (⇧⌘4)).
+test('the metric and period options carry their label and shortcut as their title (PG-4)', () => {
+  const chord = (shortcut: Obj) => [shortcut.modKey ? 'Meta' : '', shortcut.shiftKey ? 'Shift' : '', String(shortcut.key)].filter(Boolean).join('+');
+  const usage = keybindingDefaults.filter(entry => entry.command.startsWith('usage.'));
+  const keybindings = [{ command: 'commandPalette.toggle', shortcut: { key: 'k', modKey: true }, whenAst: null }, ...usage.map(entry => {
+    const parts = entry.key.split('+'), key = parts.pop()!;
+    return { command: entry.command, shortcut: { key, modKey: parts.includes('mod'), shiftKey: parts.includes('shift') }, whenAst: entry.when ? { type: 'identifier', name: entry.when } : null };
+  })];
+  expect(usageKeys({ keybindings }, chord).map(entry => entry.title).sort()).toEqual(
+    ['Cost (C)', 'Tokens (T)', 'Limits (L)', 'Past 24h (⇧⌘1)', '7 days (⇧⌘2)', '30 days (⇧⌘3)', '90 days (⇧⌘4)'].sort());
+  // A command bound twice is titled by its effective binding, which usageKeys lists first.
+  const twice = usageKeys({ keybindings: [...keybindings, { command: 'usage.cost', shortcut: { key: 'x', modKey: true, altKey: true }, whenAst: null }] }, chord);
+  expect(twice.filter(entry => entry.id === 'usage.cost').map(entry => entry.title)).toEqual(['Cost (⌥⌘X)', 'Cost (C)']);
+  expect(shortcutGlyphs({ key: 'arrowup', ctrlKey: true })).toBe('⌃Up');
 });
 
 test('the metric and period are remembered in the preference record; Limits and 30 days on a first visit', () => {

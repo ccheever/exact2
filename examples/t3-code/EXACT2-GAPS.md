@@ -64,6 +64,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X64 | A wrapped paragraph drawn from a text raster keeps painting its old raster after an update shrinks it below the raster size (16,384 device pixels) on macOS; the tree, `layout` and the capture path have the new text ([#316](https://github.com/ccheever/exact2/issues/316), filed 2026-10-08; reproduced in a one-file app on main `475043d20`, after #305) | The Settings › Providers list row stayed "Not authenticated" after Reconnect (#298 bug 19); the editor's status detail ran under the name field after Disconnect | host | the list row's status and the editor's status line are keyed by their status, so a new status is a new node (`20261008-fix-provider-auth-state`); **fixed in open main PR #327** (Charlie, full): T3 waits and resumes in the main-adoption round after it merges; then #312's status-keyed redraw goes |
 | X65 | A press on a `scroll` node's empty area (its port's ground, beyond the content) reaches no node on macOS, so no `pointerdown` runs on the `scroll` node or an ancestor; on the web the scroll element takes it and it bubbles ([#317](https://github.com/ccheever/exact2/issues/317), filed 2026-10-08, reproduced on main `b896050d7`) | Light dismiss of a pinned usage-segment popover by a press on the Usage page's ground (`20261008-popover-escape-parity`) | host | a full-height column (`usage-ground`) under the Usage page's scroll content; attempt withdrawn, no fix in progress: #327 withdrew its attempt and #317 stays open |
 | X66 | A popover cannot be shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover` are not host commands) and has no `toggle` event; the only way today is an invisible `popovertargetaction` invoker laid over the trigger and pressed by a scoped `aria-keyshortcuts` (the popover sibling of #282; filed as #319, which waits for an owner ruling on its design; reproduced in two one-file apps on main `9314e7a81`) | Base UI Menu's ↓/↑ on a closed trigger (open and focus the first or last item); state that follows a menu's open state (the sidebar row's hover actions kept shown while its snooze menu is open, #298 bug 4); #290's light dismiss and #307's in-scroll Usage card | contract/host | `KeyMenuOpen` (`menu-keys.contract`): two invisible invokers over each popover menu's trigger, armed by its focus; a keyboard opening's count whose sign is the end (`kmBump`); menus the data module mounts read the end their trigger's keys set; the snooze row pins while the focus is in the menu or the pointer is on a menu row (`20261008-fix-keyboard-focus`); a combobox's Return in its search field (a plain Enter shortcut is not heard in a text field) empties its popover until the trigger opens it again: the details branch picker (`r4-git.contract`) and the Diff comparison target (`diff.contract` `DiffBasePicker`, diff-panel-parity) |
+| X71 | `Intl.NumberFormat` on Apple rounds half to even: Hermes's `PlatformIntlApple.mm` formats through an `NSNumberFormatter` whose `roundingMode` it never sets (AppKit's default is `.halfEven`), where ICU in Chrome rounds `halfExpand` from the number's shortest digits, so USD 0.825 prints $0.82, not $0.83 (local draft, not filed; read in the pinned Hermes source and reproduced with an `NSNumberFormatter` configured as it configures one, not run in the app's Hermes; the user keeps new framework drafts local) | The Usage page's amounts (`usageFormat.ts` CURRENCY: the Past 24h row, the Day table, the model dialog's Cost by type; 2026-10-09 audit PG-2) | js runtime | none needed: `formatUsd` (`pages-usage.ts`) rounds the shortest digits half away from zero itself, with Bun's ICU `Intl.NumberFormat` as its test oracle (`pages-usage.test.ts`, usage-and-pr-pages) |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
@@ -553,6 +554,28 @@ Task `20261009-blocked-desktop-update-controls`, option (a), merged as #368 on t
   `aria-disabled` (`contract vocab`), and a `disabled` button takes no focus, as a disabled `<button>` on the web; the
   clone's control (`sidebar-icons.contract` `SidebarUpdatePill`) is skipped by Tab. Its label, dimmed state, tooltip and
   no-op press match.
+
+## Usage and Pull Requests pages: declared differences
+
+Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
+- **USD rounding (X71).** The reference formats amounts with `Intl.NumberFormat` (ICU, half away from zero). The clone
+  formats them itself rather than through Hermes's Apple `Intl` (half to even): the same text on every host.
+- **Escape on the Pull Requests page.** `useEscapeToGoBack` hears a window `keydown` that no control prevented. Exact
+  hears an `aria-keyshortcuts` button before any `key` handler, so the page's Back (Escape) would take the Escape of a
+  popover or an editor that owns it. The page's owners are `aria-modal` while they own it, as Settings' popovers and
+  recorder are (only shortcuts inside the frontmost shown modal are heard): the row checks popover, the review composer,
+  the base freshness popover, the reaction and people pickers while they show, and a pull request editor (title,
+  description or remark, a reply, a code comment draft) while it is open. The menus (Sort, Filters, the provider, the
+  stack, the Code tab's scope, the hand-off and `…` menus) were modal already. Two effects differ from the reference:
+  while one of those editors is open, the app's other shortcuts (⌘K, ⌘B, ⌘W…) wait until it closes (the reference hears
+  them while you type), and an Escape with the focus outside an open editor stays on the page (the reference leaves).
+  The Usage page's narrow selects are `aria-modal` too (Base UI's Select popup is modal). Not an exact2 gap (the web's
+  `keydown` also reaches document handlers, as Settings' note says); recorded because the reference's controls prevent
+  the Escape they take.
+- **Toggle tooltips.** The Usage metric and period toggles and the narrow selects' options carry the reference's
+  `title` ("Cost (C)", "Past 24h (⇧⌘1)"): Exact's `title` is the platform's tooltip (`NSView.toolTip`), as Electron
+  shows the native one. An agent drive reads it as the element's `description` in `tree --ax`; the tooltip itself shows
+  only under a real pointer in an active app.
 
 ## Not exact2 asks (stay in the app module)
 

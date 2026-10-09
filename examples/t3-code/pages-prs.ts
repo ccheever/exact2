@@ -448,7 +448,7 @@ export function emptyList(prefs: PrPrefs, query: string) {
     checksLabel: CHECKS.find(option => option.value === (prefs.checks || 'all'))?.label ?? 'All', projectLabel: 'All projects', projectId: prefs.projectId,
     hosts: [] as { value: string; label: string; selected: boolean; unavailable: string }[],
     projects: [] as { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean; unavailable: string }[],
-    authors: [] as { key: string; login: string; avatar: string; initial: string; detail: string; selected: boolean }[],
+    authors: [] as { key: string; login: string; name: string; avatar: string; initial: string; detail: string; selected: boolean }[],
     labelFacets: [] as { key: string; name: string; color: string; count: number; selected: boolean }[],
     groups: [] as { key: string; label: string; count: number; rows: PrRow[] }[], truncated: false, errors: [] as { key: string; text: string }[], total: 0,
     authorLabel: prefs.author || 'Anyone', labelsLabel: labels.length ? `${labels.length} selected` : 'Any',
@@ -498,8 +498,10 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
     if (!inState) continue;
     for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
   }
-  view.authors = [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.merged - a.merged || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login))).slice(0, 10)
-    .map(author => { const person = actor(author.actor); return { key: person.login.toLowerCase(), login: person.login, avatar: person.avatar, initial: person.initial, detail: `${author.merged} merges loaded`, selected: lower(prefs.author) === person.login.toLowerCase() }; });
+  // Every author with a row in the state: the Author submenu shows the chosen one and ten that match its search
+  // (PullRequestAuthorFilter, pages-prs.contract prVisibleAuthors; usage-and-pr-pages PG-6).
+  view.authors = [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.merged - a.merged || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login)))
+    .map(author => { const person = actor(author.actor); return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial, detail: `${author.merged} merges loaded`, selected: lower(prefs.author) === person.login.toLowerCase() }; });
   const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
   view.labelFacets = [...prefs.labels.filter(label => !labels.has(label.toLowerCase())).map(name => ({ name, color: '', count: 0 })), ...[...labels.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))]
     .map(label => ({ key: label.name.toLowerCase(), name: label.name, color: label.color, count: label.count, selected: chosen.has(label.name.toLowerCase()) }));
