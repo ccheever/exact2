@@ -28,17 +28,19 @@ function client(scratch = ''): T3Client {
 }
 
 describe('New thread in...', () => {
-  test('the current project first, then by activity; no thread-jump hints', () => {
+  // shell-sidebar-palette-keys (SH-3): the desktop build numbers the picks by thread.jump.N (isDesktop).
+  test('the current project first, then by activity; thread.jump.N numbers the picks', () => {
     const rows = commandView(client(), { page: 'new-thread-in', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false }).rows;
     expect(rows.map(entry => entry.title)).toEqual(['Parity fixture', 'Single checkout two', 'Scratch']);
-    expect(rows.every(entry => entry.shortcut === '')).toBe(true);
+    expect(rows.map(entry => [entry.shortcut, entry.jump])).toEqual([['⌘1', 'Meta+1'], ['⌘2', 'Meta+2'], ['', '']]);
     expect(rows[0]!.header).toBe('Projects');
     expect(rows.map(entry => entry.index)).toEqual([0, 1, 2]);
   });
   test('the Scratch project is the trailing "No project" when the server offers one', () => {
     const items = newThreadInItems(client('/scratch'));
     expect(items.map(item => item.row.title)).toEqual(['Parity fixture', 'Single checkout two', 'No project']);
-    expect(items[2]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '' });
+    // The fixture binds thread.jump.1 and .2 only, so the third row has no number.
+    expect(items[2]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '', jump: '' });
     const c = client('/scratch'); c.projectId = 'p2';
     expect(newThreadInItems(c).map(item => item.row.arg)).toEqual(['p2', 'p1', 'scratch']);
   });

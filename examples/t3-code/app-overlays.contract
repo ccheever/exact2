@@ -78,6 +78,7 @@ component WelcomeLayer
   props
     welcome: WelcomeView
     viewport: Viewport
+    scheme: string
     welcomeStep: string
     commandPending: bool
     modalError: string
@@ -101,7 +102,7 @@ component WelcomeLayer
     welcomeHelpOpen = not welcomeHelpOpen
   view
     when welcome.show
-      when viewport.prefersColorScheme == "dark"
+      when scheme == "dark"
         WelcomeWizard(view=welcome, scheme="dark", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
       else
         WelcomeWizard(view=welcome, scheme="light", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
@@ -116,6 +117,7 @@ component WindowOverlays
     popoverSession: number
     catalog: PickerCatalog
     viewport: Viewport
+    scheme: string
     modelQuery: string
     modelTarget: PickerTarget
     composerLeft: number
@@ -171,19 +173,19 @@ component WindowOverlays
     when modelsOpen
       ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     when paletteOpen
-      CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
-    when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"
+      CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
+    when detailsOpen and conversationWidth < 984 and scheme == "dark"
       ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-    when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme != "dark"
+    when detailsOpen and conversationWidth < 984 and scheme != "dark"
       ThreadDetailsPanel(details=details, right=(((rightPanel or data.diffOpen) and not narrowDiff) ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth + 13 : 13), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
-    R6PrLayers(details=details, scheme=viewport.prefersColorScheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
-    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(viewport.prefersColorScheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations
+    R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
+    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations
     when details.ready and details.git.dialog == "publish"
       R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
     // lane r9-connect: the branch pickers' PullRequestThreadDialog (r9-connect.contract).
     when shell.prCheckout.open
-      R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal, command=command)
+      R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
     when titleMenuOpen
       TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
     when data.revertPending != ""
@@ -191,14 +193,14 @@ component WindowOverlays
     when data.imagePreviewId != ""
       ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, source=data.imagePreviewSource, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
     each diagram in data.diagramPreview key=diagram.id
-      DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=viewport.prefersColorScheme, local=chatLocal)
+      DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)
     // r4-composer: a shelf video's expanded preview (r4-composer.contract).
     each video in data.composerVideoPreview key=video.id
       VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
     when data.planSaveOpen
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
     when shell.panel.deviceSetup
-      R4DeviceSetup(device=shell.panel.device, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, local=chatLocal, command=command)
+      R4DeviceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
     // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     when data.serverUpdate.confirmTitle != ""
       AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
@@ -207,10 +209,10 @@ component WindowOverlays
       ResetCreditDialog(prefix="cclocal:usage", target=data.composer.resetConfirm, busy=commandPending, command=command)
     when confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", cancel=confirmUi(false), confirm=confirmUi(true))
-    when viewport.prefersColorScheme == "dark"
+    when scheme == "dark"
       ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     else
       ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     // lane r8-keys: a Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
     each menu in data.tableMenu key=menu.id
-      R8TableMenu(menu=menu, dark=(viewport.prefersColorScheme == "dark"), local=chatLocal)
+      R8TableMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)

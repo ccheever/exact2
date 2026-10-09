@@ -4,12 +4,19 @@
 // `exactDelivery` resource) stand in for the Electron updater's state: a binary
 // with no update store linked answers the `embedded` stream, which is the
 // reference's disabled updater (Check for Updates, disabled, "Up to date"); a
-// staged entry is a downloaded update ("Install", after a confirmation).
+// staged entry is a downloaded update ("Install", after a confirmation). With no
+// store, the Update track is the reference's no-feed select (blocked-desktop-update-
+// controls, option a): enabled, it saves desktop-settings.json's `updateChannel`
+// (DesktopUpdates.setChannel: persist, then a base state that checks nothing) and
+// shows what it saved; nothing is checked, downloaded or installed (X40 stays closed).
 import type { T3Client } from './client';
 import { coreRow, type CoreRow } from './settings-core';
-import { ClientError } from './protocol';
+import { ClientError, type Native } from './protocol';
 import { mobileBetaRow, showMobileBeta } from './settings-mobile-beta';
 import { CLIENT_VERSION } from './connections';
+import { defaultUpdateChannel, writeDesktopSettings, type DesktopUpdateChannel } from './local-backend';
+import { letGo } from './let-go';
+import { pushToast } from './toast';
 
 export type DeliveryFacts = { stream: string; staged: boolean };
 const facts = new WeakMap<T3Client, DeliveryFacts>();
@@ -25,10 +32,12 @@ const factsOf = (client: T3Client): DeliveryFacts => facts.get(client) ?? { stre
 export const updatesEnabled = (delivery: DeliveryFacts) => delivery.stream !== '' && delivery.stream !== 'embedded';
 /** A stream is `<channel>/<compatibilityId>`; nightly is the only other track the reference names. */
 export const updateChannel = (delivery: DeliveryFacts) => delivery.stream.split('/')[0] === 'nightly' ? 'nightly' : 'latest';
+/** The saved track (`DesktopSettings.updateChannel`), the reference's `updateState.channel` while it has no feed. */
+const savedChannel = (client: T3Client): DesktopUpdateChannel => client.localBackend?.settings.updateChannel ?? defaultUpdateChannel(CLIENT_VERSION);
 
 /** The About rows: Version (with its update button) and Update track. */
 export function aboutRows(client: T3Client, version: string): CoreRow[] {
-  const delivery = factsOf(client), enabled = updatesEnabled(delivery), channel = updateChannel(delivery);
+  const delivery = factsOf(client), enabled = updatesEnabled(delivery), channel = enabled ? updateChannel(delivery) : savedChannel(client);
   const options = [['latest', 'Stable'], ['nightly', 'Nightly']].map(([value, label]) => ({ id: value!, value: value!, label: label!, detail: '', icon: '', selected: value === channel, disabled: false }));
   return [
     coreRow('version', 'Version', delivery.staged ? 'Update available.' : 'Current version of the application.', 'version', {
@@ -38,9 +47,10 @@ export function aboutRows(client: T3Client, version: string): CoreRow[] {
       disabled: !enabled && !delivery.staged,
       note: delivery.staged ? 'Update downloaded. Click to restart and install.' : 'Up to date',
     }),
-    // The track is the stream's channel, fixed when the binary was delivered: shown, not switchable here.
+    // No store: the saved preference, switchable (disabled only while a change runs, the command's busy).
+    // A linked stream's channel was fixed when the binary was delivered: shown, not switchable here.
     coreRow('update-track', 'Update track', 'Use stable releases or nightly builds. Switch back anytime.', 'select', {
-      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: true, menuWidth: 0,
+      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0,
     }),
     // f1dcd93931: Mobile app after the version/update rows on a Nightly build or the Nightly track.
     ...(showMobileBeta(CLIENT_VERSION, channel) ? [mobileBetaRow(client)] : []),
@@ -59,4 +69,37 @@ export function updateCommand(client: T3Client, row: string, part: string): stri
     return '';
   }
   throw new ClientError('Unsupported update action.');
+}
+
+/** DesktopUpdates.ts DesktopUpdateChannelPersistenceError: setChannel's wrap of a failed settings write. */
+export class DesktopUpdateChannelPersistenceError extends Error {
+  readonly _tag = 'DesktopUpdateChannelPersistenceError';
+  override readonly name = 'DesktopUpdateChannelPersistenceError';
+  constructor(readonly channel: DesktopUpdateChannel, readonly cause: unknown) { super(`Failed to persist the ${channel} desktop update channel.`); }
+}
+
+/**
+ * What the reference's renderer reads when `bridge.setUpdateChannel` rejects: Electron's `ipcRenderer.invoke` wraps the
+ * main process's `error.toString()` (the tagged error's name, then its message) in its own Error.
+ */
+export const setUpdateChannelFailure = (error: Error): string => `Error invoking remote method 'desktop:update-set-channel': ${String(error)}`;
+
+/**
+ * settings-core row `update-track` (handleUpdateChannelChange): the same track does nothing; another is saved
+ * through `desktopSettingsSet` (DesktopAppSettings.setUpdateChannel, which also marks it the user's choice).
+ * A failed write changes nothing and says so in the reference's toast: DesktopUpdates.setChannel's persistence
+ * error, as the renderer reads it across the IPC.
+ */
+export async function updateTrackCommand(client: T3Client, native: Native, value: string): Promise<string> {
+  if (value !== 'latest' && value !== 'nightly') throw new ClientError('Unsupported update track.');
+  if (updatesEnabled(factsOf(client)) || value === savedChannel(client)) return '';
+  try {
+    await writeDesktopSettings(native, { updateChannel: value }, client).catch((cause: unknown) => {
+      throw cause instanceof ClientError && cause.kind === 'DesktopSettings' ? new DesktopUpdateChannelPersistenceError(value, cause) : cause;
+    });
+  } catch (error) {
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Could not change update track', description: error instanceof Error ? setUpdateChannelFailure(error) : 'Update track change failed.', stacked: true });
+  }
+  return '';
 }
