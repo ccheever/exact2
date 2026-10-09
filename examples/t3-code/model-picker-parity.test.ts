@@ -169,3 +169,15 @@ describe('S2-4: Scheduled Tasks\' Model and the writer model open the provider p
     expect(rows.find(row => row.kind === 'model')).toMatchObject({ checked: true, valueLabel: 'Claude Sonnet 5.5', driver: 'claudeAgent', status: '' });
   });
 });
+
+// Read from the Contract source, as dialog-focus.test.ts reads its dialogs: z-index orders siblings, and the window's picker
+// and the scheduled task editor's overlay are siblings, so a Settings row's picker must stack above that dialog (S2-4, live drive).
+describe('the Settings picker stacks above the scheduled task editor (model-picker-parity.contract wiring)', () => {
+  test('anchored z-index beats the editor overlay', async () => {
+    const picker = await Bun.file(new URL('model-picker.contract', import.meta.url)).text();
+    const editor = await Bun.file(new URL('settings-scheduled.contract', import.meta.url)).text();
+    const anchored = Number(/z-index=\(anchored \? (\d+) : 30\)/.exec(picker)?.[1]);
+    const overlay = Number(/testId="scheduled-task-overlay"/.test(editor) ? /z-index=(\d+)[^\n]*testId="scheduled-task-overlay"/.exec(editor)?.[1] : NaN);
+    expect(anchored).toBeGreaterThan(overlay);
+  });
+});

@@ -183,8 +183,9 @@ component ModelPicker
     if name == "ArrowUp"
       focus(`picker-rail-${origin <= 0 ? length(catalog.providers) : origin - 1}`)
   view
-    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=29 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker"
-    column position="absolute" left=x top=y width=width height=height border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
+    // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40; model-picker-parity S2-4).
+    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker"
+    column position="absolute" left=x top=y width=width height=height border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=(anchored ? 50 : 30)
       column width="100%" height="100%" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
         row width="100%" flex=1 min-height=0
           when sidebar
