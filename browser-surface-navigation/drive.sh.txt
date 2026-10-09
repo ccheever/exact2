@@ -1,0 +1,68 @@
+#!/bin/zsh
+# browser-surface-navigation: the live drive (retry: drive 1 stopped at op 9 on its own wrong test id) (agent mode, lane env, 1280x840, light). Not committed.
+# Lane: ports 16700 (the embedded T3 server), 16701 (the fixture), 16749 (closed: the failure).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation
+L=$W/target/bsn/lane
+P=${1:-drive}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+export EXACT_APP_DIR=${APP_DIR:-$W/examples/t3-code}
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16700 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+FIXTURE_PORT=16701 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd ${CHECKOUT:-$W}
+S=$OUT
+OPS=(
+  "clock +15000 real" "clock +6000 real"
+  "tap toggle-right-panel" "clock +1500 real"
+  # A new tab: the empty state lists the live local servers (the scanner polls every 3 s).
+  "tap surface-browser" "clock +7000 real" "screenshot $S/01-empty-servers.png" tree
+  "tap browser-server-localhost:16701" "clock +3500 real" "screenshot $S/02-server-opened.png" logs
+  "type browser-url 127.0.0.1:16701/a" "type browser-url key Enter" "clock +3000 real"
+  # The unreachable page and its Details.
+  "type browser-url 127.0.0.1:16749" "type browser-url key Enter" "clock +4000 real" "screenshot $S/03-failed.png"
+  "tap browser-failed-details-toggle" "clock +600 real" "screenshot $S/04-failed-details.png" tree
+  "type browser-url 127.0.0.1:16701/b" "type browser-url key Enter" "clock +3500 real"
+  # The More menu: the device toolbar, Appearance and Zoom rows.
+  "tap browser-more" "clock +900 real" "screenshot $S/05-more-menu.png" tree
+  "tap browser-zoom-in" "clock +400 real" "tap browser-zoom-in" "clock +500 real" "screenshot $S/06-zoom-125.png" tree
+  "tap browser-zoom-reset" "clock +400 real"
+  "tap browser-more-appearance" "clock +700 real" "screenshot $S/07-appearance-menu.png"
+  "tap browser-appearance-dark" "clock +1200 real" "screenshot $S/08-dark.png" tree
+  "tap browser-appearance-system" "clock +600 real"
+  "tap browser-more-device-toolbar" "clock +2500 real" "screenshot $S/09-device-toolbar.png" tree
+  "tap browser-preset" "clock +800 real" "screenshot $S/10-preset-list.png"
+  "tap browser-preset-iphone-12-pro" "clock +2500 real" "screenshot $S/11-iphone-12-pro.png" tree
+  "tap browser-viewport-rotate" "clock +2500 real" "screenshot $S/12-rotated.png" tree
+  "tap browser-viewport-lock" "clock +500 real"
+  "tap browser-rail-east drag 80 0" "clock +2500 real" "screenshot $S/13-dragged-locked.png" tree
+  "tap browser-viewport-lock" "clock +500 real"
+  "type browser-viewport-width 500" "type browser-viewport-width key Enter" "clock +2500 real" "screenshot $S/14-typed-width.png" tree
+  "tap browser-viewport-close" "clock +2500 real" "screenshot $S/15-fill-again.png"
+  # The preview's chords from the page (the module's monitor), then ⇧⌘J.
+  "type browser-page key Meta+=" "clock +500 real" "screenshot $S/16-key-zoom.png" tree
+  "type browser-page key Meta+0" "clock +800 real"
+  "type browser-page key Meta+l" "clock +600 real" tree
+  "tap shortcut-preview.toggle" "clock +1500 real" "screenshot $S/17-toggled-off.png"
+  "tap shortcut-preview.toggle" "clock +2000 real" "screenshot $S/18-toggled-on.png" tree
+  # A second tab shows Recently used (the visits above) and Local servers; one recent row removed, one opened.
+  "tap panel-add-surface" "clock +800 real" "tap add-surface-browser" "clock +7000 real" "screenshot $S/19-recents.png" tree
+  "tap \"Remove 127.0.0.1:16749 from history\" hover" "clock +400 real" "tap \"Remove 127.0.0.1:16749 from history\"" "clock +1500 real" tree
+  "tap \"Page A\"" "clock +3500 real" "screenshot $S/20-recent-opened.png" tree
+  logs state
+)
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+echo DRIVE-DONE
