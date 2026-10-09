@@ -281,7 +281,8 @@ component PagesCover
     usageWindowSet: action
     usageBreakdownSet: action
     usageRefreshNow: action
-    openPage: action
+    // A page's Back (Escape): the page before it, else the thread (useNavigateBack).
+    pageBack: action
     prList: PrListView
     prTyped: bool
     prQuery: string
@@ -326,17 +327,17 @@ component PagesCover
       box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
         when utilityPage == "usage"
           when scheme == "dark"
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
           else
-            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
+            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
         when utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
             when scheme == "dark"
-              PrList(controlsLeft=data.controlsLeft, page=prList, scheme="dark", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=openPage(""))
+              PrList(controlsLeft=data.controlsLeft, page=prList, scheme="dark", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
             else
-              PrList(controlsLeft=data.controlsLeft, page=prList, scheme="light", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=openPage(""))
+              PrList(controlsLeft=data.controlsLeft, page=prList, scheme="light", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
             when prSelected != "" and prPanelOpen
-              PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), local=chatLocal)
+              PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
             button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel"
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         when utilityPage == ""

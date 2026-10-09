@@ -68,6 +68,22 @@ component PrdSegment
     button press=press hover=hover disabled=disabled aria-pressed=pressed testId=testId height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(pressed ? "light-dark(#ffffff, #ffffff1f)" : (over ? "light-dark(#ffffff8c, #ffffff0d)" : "#00000000")) box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
       text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(pressed or over ? preInk() : preMuted())
 
+// The markdown editor's Write and Preview: a PrdSegment that tells the editor when it takes or loses the focus.
+component PrdModeSegment
+  props
+    label: string
+    pressed: bool
+    disabled: bool
+    press: action
+    focusing: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover focus=focusing(true) blur=focusing(false) disabled=disabled aria-pressed=pressed testId=testId height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(pressed ? "light-dark(#ffffff, #ffffff1f)" : (over ? "light-dark(#ffffff8c, #ffffff0d)" : "#00000000")) box-shadow=(pressed ? "0 1px 2px #0000001a" : "none") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(pressed or over ? preInk() : preMuted())
+
 // A body of words where it sits, and the box it is rewritten in (PullRequestMarkdownEditor, with
 // PullRequestCommentBody's 240pt hold for a remark). One markdown slot shows either the saved words
 // or, while editing, the preview — the pull request's own renderer, fed the draft once (`preview`) —
@@ -114,25 +130,49 @@ component PrdWords
     if expanded
       scrollIntoView(frameId, block="nearest")
     expanded = not expanded
+  // usage-and-pr-pages PG-7: PullRequestMarkdownEditor's onKeyDown hears the keys of everything in it, so the editor
+  // holds Escape (PrPanel's "pr-escape-hold") while its field or its Write/Preview toggle has the focus (`inside`
+  // counts their focus and blur, in either order; no focus-within, X54), and lets go as it closes or saves (the
+  // reference leaves Escape to the page while a save is out): a field the view removes sends no blur. Save's press
+  // takes the focus from the field; ⌘↵ lets go as its key comes up (`keyup`: the save's own action sends its write, so
+  // the hold's report waits for the next event). Typing takes it again after a failed save.
+  state inside = 0
+  state keySaved = false
+  action part(on: bool)
+    let focusCount = max(0, inside + (on ? 1 : -1))
+    inside = focusCount
+    local("pr-escape-hold", testId, focusCount > 0 ? "true" : "")
+  action letGo
+    inside = 0
+    local("pr-escape-hold", testId, "")
+  action typed(text: string)
+    edit(text)
+    local("pr-escape-hold", testId, "true")
+  action cancelNow
+    cancel()
+    letGo()
   action keys(k: string, e: KeyboardEvent)
     if open and k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey
       preventDefault()
       stopPropagation()
       if not saveDisabled and not e.repeat
+        keySaved = true
         save()
     else if open and k == "Escape" and not saving
       preventDefault()
-      cancel()
+      cancelNow()
+  action keysUp(k: string)
+    if keySaved
+      keySaved = false
+      letGo()
   view
-    // aria-modal while it edits: its Escape cancels (PullRequestMarkdownEditor prevents it) rather than the Pull Requests
-    // page's Back taking it, as only shortcuts inside a shown modal are heard (usage-and-pr-pages PG-7).
-    column width="100%" min-width=0 gap=(open ? "0.5rem" : "0px") key=keys tabindex=-1 aria-modal=open testId=testId
+    column width="100%" min-width=0 gap=(open ? "0.5rem" : "0px") key=keys keyup=keysUp tabindex=-1 testId=testId
       when open
         row align-self="flex-start" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="group" aria-label="Markdown editor mode"
-          PrdSegment(label="Write", pressed=(not previewing), disabled=saving, press=preview(false), testId=`${testId}-write`)
-          PrdSegment(label="Preview", pressed=previewing, disabled=saving, press=preview(true), testId=`${testId}-preview`)
+          PrdModeSegment(label="Write", pressed=(not previewing), disabled=saving, press=preview(false), focusing=part, testId=`${testId}-write`)
+          PrdModeSegment(label="Preview", pressed=previewing, disabled=saving, press=preview(true), focusing=part, testId=`${testId}-preview`)
         when not previewing
-          textarea value=draft input=edit autofocus=true disabled=saving rows=6 placeholder=placeholder aria-label=label autocorrect="off" spellcheck="false" testId=`${testId}-text` width="100%" min-height="8.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
+          textarea value=draft input=typed focus=part(true) blur=part(false) autofocus=true disabled=saving rows=6 placeholder=placeholder aria-label=label autocorrect="off" spellcheck="false" testId=`${testId}-text` width="100%" min-height="8.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
       when not open or previewing
         row width="100%" align-items="flex-start" gap="0.25rem"
           column flex=1 min-width=0
@@ -155,7 +195,7 @@ component PrdWords
             PrdEditButton(label=pencilLabel, shown=hovered, still=still, press=begin, testId=`${testId}-edit`)
       when open
         row width="100%" justify-content="flex-end" gap="0.5rem"
-          PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=saving, press=cancel, testId=`${testId}-cancel`)
+          PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=saving, press=cancelNow, testId=`${testId}-cancel`)
           PrdSmallButton(label=(saving ? "Saving..." : "Save"), icon="", tone="outline", disabled=saveDisabled, press=save, testId=`${testId}-save`)
 
 component PrdShowFull
@@ -180,6 +220,8 @@ component PrdTitle
     serial: number
     still: bool
     act: action
+    // usage-and-pr-pages PG-7: the field's hold on Escape (PrPanel's "pr-escape-hold"), so the page's Back gives it up.
+    local: action
   state editing = false
   state seen = 0
   state draft = ""
@@ -187,32 +229,39 @@ component PrdTitle
   derive open = editing and seen == serial
   action hover(value: bool)
     over = value
+  // The field holds Escape while it has the focus (its onKeyDown), and lets go as it closes or saves (a disabled field
+  // hears no keys, so a save's Escape is the page's, as the reference's); typing takes it again after a failed save.
+  action hold(on: bool)
+    local("pr-escape-hold", "pull-request-title-input", on ? "true" : "")
   action begin
     editing = true
     seen = serial
     draft = title
   action edit(text: string)
     draft = text
+    hold(true)
   action cancel
     editing = false
+    hold(false)
   // saveTitle: an empty or unchanged title closes the field and sends nothing.
   action save
     if trim(draft) == "" or trim(draft) == title
       editing = false
+      hold(false)
     else if not saving
       act("edit-title", draft)
+      hold(false)
   action keys(k: string)
     if k == "Enter"
       preventDefault()
       save()
     else if k == "Escape"
       preventDefault()
-      editing = false
+      cancel()
   view
     when open
-      // aria-modal: its Escape cancels the edit, not the page's Back (usage-and-pr-pages PG-7).
-      column width="100%" margin-top="0.25rem" gap="0.5rem" aria-modal=true testId="pull-request-title-editor"
-        input value=draft input=edit key=keys autofocus=true disabled=saving aria-label="Pull request title" autocorrect="off" spellcheck="false" testId="pull-request-title-input" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
+      column width="100%" margin-top="0.25rem" gap="0.5rem" testId="pull-request-title-editor"
+        input value=draft input=edit key=keys focus=hold(true) blur=hold(false) autofocus=true disabled=saving aria-label="Pull request title" autocorrect="off" spellcheck="false" testId="pull-request-title-input" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
         row width="100%" justify-content="flex-end" gap="0.5rem"
           PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=saving, press=cancel, testId="pull-request-title-cancel")
           PrdSmallButton(label=(saving ? "Saving..." : "Save"), icon="", tone="outline", disabled=(saving or trim(draft) == ""), press=save, testId="pull-request-title-save")

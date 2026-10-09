@@ -560,22 +560,30 @@ Task `20261009-blocked-desktop-update-controls`, option (a), merged as #368 on t
 Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
 - **USD rounding (X71).** The reference formats amounts with `Intl.NumberFormat` (ICU, half away from zero). The clone
   formats them itself rather than through Hermes's Apple `Intl` (half to even): the same text on every host.
-- **Escape on the Pull Requests page.** `useEscapeToGoBack` hears a window `keydown` that no control prevented. Exact
-  hears an `aria-keyshortcuts` button before any `key` handler, so the page's Back (Escape) would take the Escape of a
-  popover or an editor that owns it. The page's owners are `aria-modal` while they own it, as Settings' popovers and
-  recorder are (only shortcuts inside the frontmost shown modal are heard): the row checks popover, the review composer,
-  the base freshness popover, the reaction and people pickers while they show, and a pull request editor (title,
-  description or remark, a reply, a code comment draft) while it is open. The menus (Sort, Filters, the provider, the
-  stack, the Code tab's scope, the hand-off and `…` menus) were modal already. Two effects differ from the reference:
-  while one of those editors is open, the app's other shortcuts (⌘K, ⌘B, ⌘W…) wait until it closes (the reference hears
-  them while you type), and an Escape with the focus outside an open editor stays on the page (the reference leaves).
-  The Usage page's narrow selects are `aria-modal` too (Base UI's Select popup is modal). Not an exact2 gap (the web's
-  `keydown` also reaches document handlers, as Settings' note says); recorded because the reference's controls prevent
-  the Escape they take.
+- **Escape on the Pull Requests page.** `useEscapeToGoBack` hears a window `keydown` that no control prevented and goes
+  back through the router's history (`useNavigateBack`). The clone keeps that history over its utility pages
+  (`app.contract` `pageTrail`, `pages-hero.contract` `pageTrailNext`), so Usage → Pull Requests → Escape is Usage, and
+  Escape again the thread; the Usage page's Escape goes back the same way. Exact hears an `aria-keyshortcuts` button
+  before any `key` handler, so the page's Back gives Escape up to whatever owns it. A pull request editor's field (the
+  title, a description or remark with its Write and Preview, a reply, the code comment draft) owns it while it has the
+  focus, as the reference's onKeyDown hears it only from there: it reports its focus to the panel (`PrPanel`
+  `escapeHeld`, as Settings' `escapeFocus`), and Escape cancels the edit; with the focus anywhere else Escape leaves the
+  page. The editors are not modal, so the app's other shortcuts (⌘K, ⌘B, ⌘W…) are heard while one is open. Two
+  differences remain, both framework gaps:
+  - The page's popovers (the row checks popover, the review composer, the base freshness popover, the reaction and
+    people pickers) are `aria-modal` while they show, as its menus (Sort, Filters, the provider, the stack, the Code
+    tab's scope, the hand-off and `…` menus) already were: a popover's showing has no event the page could give Escape
+    up by (X66, [#319](https://github.com/ccheever/exact2/issues/319)), and only shortcuts inside a shown modal are
+    heard. While one shows, the app's other shortcuts wait until it closes; the reference hears them. The Usage page's
+    narrow selects are modal too, as Base UI's Select popup is.
+  - An editor's Cancel and Save buttons report no focus (an ancestor cannot hear the focus enter its subtree, X54,
+    [#283](https://github.com/ccheever/exact2/issues/283); Write and Preview report their own). With the focus on one
+    of them, Escape leaves the page where the reference's markdown editor would cancel; the title, a reply and the
+    draft hear Escape only from their field in the reference too.
 - **Toggle tooltips.** The Usage metric and period toggles and the narrow selects' options carry the reference's
-  `title` ("Cost (C)", "Past 24h (⇧⌘1)"): Exact's `title` is the platform's tooltip (`NSView.toolTip`), as Electron
-  shows the native one. An agent drive reads it as the element's `description` in `tree --ax`; the tooltip itself shows
-  only under a real pointer in an active app.
+  `title` ("Cost (C)", "Past 24h (⇧⌘1)"): Exact's `title` is the platform's tooltip (`NSView.toolTip`, set from the
+  node's `title` in `PresenterMac`), as Electron shows the native one. TOOLTIP_EVIDENCE The tooltip itself shows only
+  under a real pointer in an active app.
 
 ## Not exact2 asks (stay in the app module)
 

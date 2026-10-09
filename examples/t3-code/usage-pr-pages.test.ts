@@ -103,17 +103,23 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(logins(visible(people, 'dev1'))).toEqual(['dev1', 'dev10', 'dev11']);
   });
 
-  test('"Search authors" is focused as the submenu opens and keeps its keys from the menu (PG-6)', async () => {
+  test('"Search authors" is focused as a press opens the submenu, Anyone from the keyboard, and keeps its keys (PG-6)', async () => {
     const menu = await component('pages-prs.contract', 'PrFiltersMenu');
     expect(menu).toContain('derive authors = prVisibleAuthors(page.authors, authorQuery)');
-    expect(menu).toContain('    if name == "author" and sub != "author"\n      focus("pr-author-search")');
-    expect(menu).toContain('focus(name == "author" ? "pr-author-search" : "pr-filters-sub-keys")');
-    // Opening Filters again starts with no search, as the reference's popup remounts its state.
+    // A press on Author focuses the search (the field's autoFocus); →, Enter or Space focus the first row, Anyone, as
+    // Base UI's submenu opened from the keyboard does (checked on the reference: a menuitemradio "Anyone").
+    expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    if name == "author" and sub != "author"\n      focus("pr-author-search")');
+    expect(menu).toContain('      sub = name\n      subPointer = false\n      subKeyed = subKeyed + 1\n      focus("pr-filters-sub-keys")');
+    // Opening Filters again, by a press, Enter, Space, ↓ or ↑, starts with no search, as the reference's popup remounts.
     expect(menu).toContain('action openMenu\n    sub = ""\n    authorQuery = ""');
     expect(menu).toContain('button popovertarget="pr-filters-menu" press=openMenu ');
+    expect(menu).toContain('  action keyOpened(last: bool)\n    keyed = kmBump(keyed, last)\n    openMenu()');
+    expect(menu).toContain('KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)');
+    // Opened by a press, the Author popup's KeyMenu sees no keyboard opening, so it leaves the focus in the search.
+    expect(menu).toContain('KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)');
     expect(menu).toContain('map(authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
     const sub = await component('pages-prs.contract', 'PrFilterSub');
-    expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey autofocus=true placeholder="Search authors" aria-label="Search authors"');
+    expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" aria-label="Search authors"');
     expect(sub).toContain('action searchKey(k: string)\n    if k != "ArrowDown" and k != "Escape"\n      stopPropagation()');
     expect(sub).toContain('each person in authors key=person.key');
     expect(sub).toContain('when length(authors) == 0\n          text "No authors found"');
@@ -132,15 +138,37 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(view.authors.find(person => person.login === 'user3')).toMatchObject({ name: 'Dana Smith', detail: '0 merges loaded' });
   });
 
-  test('an Escape nothing else holds blurs the focus and goes back to the page before (PG-7)', async () => {
-    const list = await component('pages-prs.contract', 'PrList');
-    expect(list).toContain('button press=escape aria-keyshortcuts="Escape" aria-label="Back" tabindex=-1 testId="pull-requests-key-back"');
-    expect(list).toContain('  action escape\n    blur()\n    back()');
+  test('an Escape nothing else holds blurs the focus and goes back to the page before, as history.back() (PG-7)', async () => {
+    const back = await component('pages-prs.contract', 'PrPageBack');
+    expect(back).toContain('button press=escape aria-keyshortcuts=(held ? "" : "Escape") aria-label="Back" tabindex=-1 testId="pull-requests-key-back"');
+    expect(back).toContain('  action escape\n    blur()\n    back()');
+    // The list holds Back while no panel shows; the panel holds it (with its editors' hold) while it shows.
+    expect(await component('pages-prs.contract', 'PrList')).toContain('      when not panelOpen\n        PrPageBack(held=false, back=back)');
+    expect(await component('pages-pr-detail.contract', 'PrPanel')).toContain('      PrPageBack(held=escapeHeld, back=back)');
+    // useNavigateBack: the Usage page and both Pull Requests Backs go to the page before (pageBack), not straight home.
     const cover = await component('app-main.contract', 'PagesCover');
-    expect(cover.split('\n').filter(line => line.includes('PrList(')).map(line => line.endsWith('act=prAct, back=openPage(""))'))).toEqual([true, true]);
+    expect(cover).not.toContain('openPage(""');
+    expect(cover.split('\n').filter(line => /UsagePage\(|PrList\(|PrPanel\(/.test(line)).map(line => /back=pageBack[,)]/.test(line))).toEqual([true, true, true, true, true]);
+    const root = await source('app.contract');
+    expect(root).toContain('  action openPage(name: string)\n    pageTrailNote(name)\n    utilityPage = name');
+    expect(root).toContain('      if op != "thread-pull-requests"\n        pageTrailNote(op)\n      utilityPage = op == "thread-pull-requests" ? utilityPage : op');
+    expect(root).toContain('  action pageTrailNote(name: string)\n    pageTrail = pageTrailNext(pageTrail, utilityPage, name)');
+    expect(root).toContain('  action pageBack\n    utilityPage = match at(pageTrail, -1) { case some(page) => page, case none => "" }\n    pageTrail = slice(pageTrail, 0, -1)');
   });
 
-  test('the page\'s other owners of Escape hold it as modals while they own it (PG-7)', async () => {
+  test('history: a trail of pages, as the reference\'s router history goes back through them (PG-7)', async () => {
+    // pageTrailNext (pages-hero.contract) as openPage applies it, and pageBack's step (app.contract), page by page.
+    const next = await contractFn('pages-hero.contract', 'pageTrailNext', ['trail', 'current', 'name']);
+    let page = '', trail: string[] = [];
+    const open = (name: string) => { trail = next(trail, page, name) as string[]; page = name; };
+    const back = () => { page = trail.at(-1) ?? ''; trail = trail.slice(0, -1); };
+    open('usage'); open('pull-requests'); back(); expect(page).toBe('usage'); back(); expect(page).toBe('');
+    open('usage'); open('pull-requests'); open('usage'); back(); expect(page).toBe('pull-requests'); back(); expect(page).toBe('usage'); back(); expect(page).toBe('');
+    // A thread between them starts a new trail: Escape from the page then goes to the thread.
+    open('usage'); page = ''; open('pull-requests'); back(); expect(page).toBe('');
+  });
+
+  test('the page\'s popovers and menus hold Escape as modals while they show (PG-7, X66)', async () => {
     // Popovers (Base UI Popover stops the Escape it dismisses with) while they show; menus already are (KeyMenu modal).
     expect(await source('pages-pr-quick.contract')).toContain('row id=popId popover="auto" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`\n        column width="20rem"');
     expect(await source('pages-pr-compose.contract')).toContain('row id=popId popover="auto" aria-modal=true ');
@@ -148,14 +176,56 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     const meta = await source('pages-pr-meta.contract');
     expect(meta).toContain('row id=pickerId popover="auto" aria-modal=true ');
     expect(meta).toContain('column id=menuId popover="auto" aria-modal=true ');
-    // Editors whose own key handler cancels on Escape (PullRequestMarkdownEditor, the title, a reply, a code comment).
-    const edit = await source('pages-pr-edit.contract');
-    expect(edit).toContain('key=keys tabindex=-1 aria-modal=open testId=testId');
-    expect(edit).toContain('gap="0.5rem" aria-modal=true testId="pull-request-title-editor"');
-    const threads = await source('pages-pr-threads.contract');
-    expect(threads).toContain('when replyOpen\n            // aria-modal: the reply');
-    expect(threads).toContain('aria-modal=true testId="pull-request-comment-draft"');
     // The Usage page's narrow selects are Base UI Select popups, modal too.
     expect(await component('pages-usage.contract', 'UsageSelect')).toContain('column id=menuId popover="auto" aria-modal=true ');
+  });
+
+  test('a pull request editor holds Escape from Back while its field has the focus, never as a modal (PG-7)', async () => {
+    // No editor silences the app's other shortcuts: none is aria-modal.
+    for (const file of ['pages-pr-edit.contract', 'pages-pr-threads.contract']) expect(await source(file)).not.toContain('aria-modal');
+    // PrPanel keeps the focused field's hold (from `local`, op "pr-escape-hold") for the pull request it was on.
+    const panel = await component('pages-pr-detail.contract', 'PrPanel');
+    expect(panel).toContain('derive escapeHeld = escapeField != "" and escapeRef == detail.ref and prdEscapeLive(escapeField, detail.codeTab)');
+    expect(panel).toContain('    if op == "pr-escape-hold"\n      escapeField = value == "true" ? id : (escapeField == id ? "" : escapeField)\n      escapeRef = detail.ref\n    else\n      local(op, id, value)');
+    expect(panel).toContain('local=panelLocal, still=still');
+    // The thread's pull request surface has no page Back: the holds stop there.
+    expect(await component('r5-panels.contract', 'R5PrSurfaceBody')).toContain('  action bodyLocal(op: string, id: string, value: string)\n    if op != "pr-escape-hold"\n      local(op, id, value)');
+    // The title: its field's focus and blur; cancel, Escape and a save let go; typing takes it again.
+    const title = await component('pages-pr-edit.contract', 'PrdTitle');
+    expect(title).toContain('local("pr-escape-hold", "pull-request-title-input", on ? "true" : "")');
+    expect(title).toContain('input value=draft input=edit key=keys focus=hold(true) blur=hold(false) autofocus=true');
+    expect(title).toContain('  action cancel\n    editing = false\n    hold(false)');
+    expect(title).toContain('      act("edit-title", draft)\n      hold(false)');
+    expect(title).toContain('    else if k == "Escape"\n      preventDefault()\n      cancel()');
+    expect(await source('pages-pr-detail.contract')).toContain('still=still, act=act, local=local)');
+    // The markdown editor: its field and Write/Preview count in; Escape and Cancel let go, ⌘↵ as its key comes up.
+    const words = await component('pages-pr-edit.contract', 'PrdWords');
+    expect(words).toContain('textarea value=draft input=typed focus=part(true) blur=part(false) autofocus=true');
+    expect(words).toContain('PrdModeSegment(label="Write", pressed=(not previewing), disabled=saving, press=preview(false), focusing=part, ');
+    expect(words).toContain('PrdModeSegment(label="Preview", pressed=previewing, disabled=saving, press=preview(true), focusing=part, ');
+    expect(words).toContain('key=keys keyup=keysUp tabindex=-1 testId=testId');
+    expect(words).toContain('        keySaved = true\n        save()');
+    expect(words).toContain('  action keysUp(k: string)\n    if keySaved\n      keySaved = false\n      letGo()');
+    expect(words).toContain('  action cancelNow\n    cancel()\n    letGo()');
+    expect(await component('pages-pr-edit.contract', 'PrdModeSegment')).toContain('button press=press hover=hover focus=focusing(true) blur=focusing(false) ');
+    // A reply: named by the reply serial it opened on; the code comment draft: its field.
+    const threads = await source('pages-pr-threads.contract');
+    expect(threads).toContain('local("pr-escape-hold", `reply:${card.id}:${seenReply}`, on ? "true" : "")');
+    expect(threads).toContain('textarea value=reply input=editReply key=replyKeys focus=replyHold(true) blur=replyHold(false) autofocus=true');
+    expect(threads).toContain('  action cancelReply\n    replying = false\n    replyHold(false)');
+    expect(threads).toContain('textarea id="pr-code-draft-text" value=text input=typed key=keys focus=hold(true) blur=hold(false) autofocus=true');
+    expect(await source('pages-pr-code.contract')).toContain('add=add, agent=agent, local=local)');
+  });
+
+  test('a hold stands where the data says its editor is still open: the draft, a reply not yet sent (PG-7)', async () => {
+    const live = await contractFn('pages-pr-detail.contract', 'prdEscapeLive', ['field', 'code'], { length: (items: unknown[]) => items.length, startsWith: (text: string, head: string) => text.startsWith(head) });
+    const code = (draftOpen: boolean, threads: { id: string; repliedSerial: number }[] = []) => ({ draftOpen, threads });
+    expect(live('pr-code-draft', code(true))).toBe(true);
+    expect(live('pr-code-draft', code(false))).toBe(false);
+    expect(live('reply:t1:0', code(false, [{ id: 't1', repliedSerial: 0 }]))).toBe(true);
+    // The reply went out: its thread's serial moved on, and its field is gone with no blur.
+    expect(live('reply:t1:0', code(false, [{ id: 't1', repliedSerial: 1 }]))).toBe(false);
+    expect(live('reply:t2:0', code(false, [{ id: 't1', repliedSerial: 0 }]))).toBe(false);
+    expect(live('pull-request-title-input', code(false))).toBe(true);
   });
 });

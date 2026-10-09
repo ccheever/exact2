@@ -95,23 +95,48 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
   (side top, centred, 4pt offset, the tooltipStyle popup: popover colour, 1pt border, 12/16 text, one line).
 - **PG-4.** `usageKeys` gives each shortcut UsagePage's `shortcutTitle` (`Cost (C)`, `Past 24h (⇧⌘1)`; the effective
   binding first), and `Segment` and `UsageOption` carry it as `title` through `usageTitle` (the label alone when the
-  command has no binding; Breakdown's toggles have none, as in the reference). Exact's `title` is the platform tooltip.
+  command has no binding; Breakdown's toggles have none, as in the reference). Exact's `title` is the platform tooltip
+  (`PresenterMac` sets `NSView.toolTip` from it). The agent's `tree --ax` gives no description for it (review round 1:
+  the first version's note said it did); `tree <testId>` shows it in the node's props.
 - **PG-5.** The menu's width came from measured texts, exactly as wide as its widest row, and the label's `line-clamp`
   cut "Daehyeon's MacBook Pro" at a word when the layout came out a fraction short. The measured width is now the
   menu's least width (`min-width`), and the row label keeps its width (`flex-grow=1 flex-shrink=0 white-space=nowrap`), so
   the menu grows to its rows. The glass is drawn opaque (`light-dark(#ffffff, #111111)`), as the Code tab's menus are:
   the macOS presenter draws no backdrop blur. Same for the Model prices dialog's environment menu, the narrow selects
   and the Pull Requests list's menus (`PrMenuBox`), which a toast read through in the audit's PG-6 shot.
-- **PG-6.** `PrFiltersMenu` keeps an `authorQuery`, cleared as the Filters menu opens. `PrFilterSub` draws the
-  reference's compact InputGroup ("Search authors", autofocused, focused by `open`/`subKey` as the submenu opens; its
-  keys stop at the field except ↓ and Escape). `prVisibleAuthors` lists the chosen author first, then every other whose
-  login or name holds the trimmed lower-cased search, at most 10, or "No authors found". `pages-prs.ts` now sends every
-  author with a row in the state (it cut the list to 10 before the search could see the rest) and their names.
-- **PG-7.** `PrList` has the Usage page's hidden Back (`aria-keyshortcuts="Escape"`): `blur()` then `back()` (`openPage("")`,
-  as Usage's). Exact hears a shortcut button before any `key` handler, so the page's owners of Escape are `aria-modal`
-  while they own it: the row checks popover, the review composer, the freshness popover, the reaction and people pickers,
-  and an open pull request editor (title, description or remark, reply, code comment draft). The Usage page's narrow
-  selects are modal too. Declared in `EXACT2-GAPS.md` ("Usage and Pull Requests pages").
+- **PG-6.** `PrFiltersMenu` keeps an `authorQuery`, cleared as the Filters menu opens, whether by a press, Enter or
+  Space (`openMenu`) or by ↓ or ↑ (`keyOpened`, review round 1): the reference's popup mounts afresh each time.
+  `PrFilterSub` draws the reference's compact InputGroup ("Search authors"; its keys stop at the field except ↓ and
+  Escape). Where the focus goes as the submenu opens is Base UI's, checked on the reference in review round 1: a press
+  on Author focuses the field (its autoFocus), and →, Enter or Space focus the first row, Anyone (a `menuitemradio`).
+  So a press focuses `pr-author-search` and marks the submenu `subPointer`, whose KeyMenu then sees no keyboard opening
+  (`keyed` 0) and leaves the focus; a key opens it as the other submenus are, with the focus on its first row. The field
+  is no longer `autofocus`: on the keyboard path it raced the KeyMenu's own focus. `prVisibleAuthors` lists the chosen
+  author first, then every other whose login or name holds the trimmed lower-cased search, at most 10, or "No authors
+  found". `pages-prs.ts` now sends every author with a row in the state (it cut the list to 10 before the search could
+  see the rest) and their names.
+- **PG-7.** The page has the Usage page's hidden Back (`PrPageBack`, `aria-keyshortcuts="Escape"`): `blur()` then
+  `back()`. Back is `useNavigateBack`'s history.back(): the root keeps the trail of utility pages
+  (`app.contract` `pageTrail`, `pages-hero.contract` `pageTrailNext`; a page opened from another keeps the one it left,
+  one opened from a thread starts over) and `pageBack` returns to the last of them, else the thread, for the Usage page
+  too (review round 1; before, both went straight to the thread). The list holds Back while no panel shows, and the
+  panel (`PrPanel`) while it shows. Exact hears a shortcut button before any `key` handler, so Back gives Escape up to
+  whatever owns it:
+  - A pull request editor's field owns it while it has the focus, as the reference's onKeyDown hears it only from
+    there (review round 1; the first version made the editors `aria-modal`, which silenced every other app shortcut
+    while one was open). Each field reports its focus and blur through `local` (op `pr-escape-hold`), which `PrPanel`
+    keeps as `escapeField` for the pull request it was on (`escapeHeld`; the thread's surface drops the op). The
+    markdown editor counts its field and its Write and Preview toggles (`PrdModeSegment`), as its onKeyDown sits on its
+    wrapper. A field the view removes sends no blur on macOS, so each editor lets go as it cancels or saves (a save's
+    Escape is the page's in the reference: the editor ignores it while saving, the title's field is disabled), the
+    markdown editor's ⌘↵ as its key comes up (`keyup`: the analyzer refuses the save's write and the report in one
+    action, `analyze-send-twice`), and `PrPanel` lets go of the code comment draft once no draft is open and of a reply
+    once its thread's reply serial moves on (`prdEscapeLive`). A new pull request, or closing the panel, starts over.
+  - The page's popovers (the row checks popover, the review composer, the freshness popover, the reaction and people
+    pickers) are `aria-modal` while they show, as its menus already were: a popover's showing has no event the page
+    could hold Escape by (X66, #319). The Usage page's narrow selects are modal too.
+  Declared in `EXACT2-GAPS.md` ("Usage and Pull Requests pages"), with what remains: the app's other shortcuts wait
+  while a page popover shows (X66), and the markdown editor's Cancel and Save report no focus (X54, #283).
 - Also: `probeKey` in `r5-composer-menus.ts` is a function declaration, so the import cycle through
   `r6-polish-measure.ts` no longer throws when `pages-usage.test.ts` runs alone.
 
