@@ -1,0 +1,60 @@
+browser-surface-profiles live drive before3 (agent mode, 1280x840) at 950e8e2e5 (evidence base)
+Lane ports: 16780 (the app's embedded T3 server), 16781 (cookie probe: names only, never values), 16782 (part 2's first-layout fixture).
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/). No real browser profile, Keychain item or Full Disk Access.
+
+  1 clock +15000 real  -> clock 15000 (real 15015 ms)
+  2 clock +6000 real  -> clock 21000 (real 6016 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1519 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 3014 ms)
+  8 screenshot 10-integrations.png window  -> screenshot 10-integrations.png
+  9 tree  -> tree (983 nodes)
+ 10 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+ 11 clock +1000 real  -> clock 26500 (real 1015 ms)
+ 12 screenshot 40-browser-rows.png window  -> screenshot 40-browser-rows.png
+ 13 tree  -> tree (983 nodes)
+ 14 tap settings-general  -> tapped settings-general at [128, 116]
+ 15 clock +3000 real  -> clock 29500 (real 3020 ms)
+ 16 screenshot 60-general-restore.png window  -> screenshot 60-general-restore.png
+ 17 tree  -> tree (1942 nodes)
+ 18 tap settings-go-to-threads  -> tapped settings-go-to-threads at [156.88, 26]
+ 19 clock +3000 real  -> clock 32500 (real 3014 ms)
+ 20 tap toggle-right-panel  -> tapped toggle-right-panel at [1253, 26]
+ 21 clock +2000 real  -> clock 34500 (real 2014 ms)
+ 22 screenshot 30-launcher.png window  -> screenshot 30-launcher.png
+ 23 tree  -> tree (540 nodes)
+ 24 tap surface-browser  -> tapped surface-browser at [1010.5, 334]
+ 25 clock +3000 real  -> clock 37500 (real 3015 ms)
+ 26 screenshot 32-browser-tab.png window  -> screenshot 32-browser-tab.png
+ 27 type browser-url 127.0.0.1:16781/cookies  -> typed into browser-url
+ 28 type browser-url key Enter  -> typed into browser-url key Enter
+ 29 clock +4000 real  -> clock 41500 (real 4015 ms)
+ 30 screenshot 33-cookies.png window  -> screenshot 33-cookies.png
+ 31 tap browser-more  -> tapped browser-more at [1260, 71.5]
+ 32 clock +1000 real  -> clock 42500 (real 1013 ms)
+ 33 screenshot 34-more-profile.png window  -> screenshot 34-more-profile.png
+ 34 tree  -> tree (683 nodes)
+ 35 tap browser-more  -> tapped browser-more at [1260, 71.5]
+ 36 clock +500 real  -> clock 43000 (real 517 ms)
+ 37 tap panel-add-surface  -> tapped panel-add-surface at [872.52, 26]
+ 38 clock +1000 real  -> clock 44000 (real 1015 ms)
+ 39 screenshot 36-plus-menu.png window  -> screenshot 36-plus-menu.png
+ 40 tree  -> tree (683 nodes)
+ 41 logs  -> logs (4096 lines)
+
+Module browser lines (t3.browser):
+
+fixture.log:
+  fixture on 16781
+  2026-10-09T20:18:58.134Z GET / cookie names=[]
+  2026-10-09T20:19:15.241Z GET /cookies cookie names=[]
+  2026-10-09T20:19:15.256Z GET /favicon.ico cookie names=[]
+
+End:
+  fixture pid 60805
+  brave stand-in pid 60806
+  agent pid 60814
+  t3 app exit 0
+  agent exit 0
