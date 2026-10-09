@@ -33,7 +33,7 @@ final class T3BrowserAutomation: NSObject {
         var network: [[String: Any]] = []
         var actions: [[String: Any]] = []
         var audible = false, muted = false
-        var colorScheme = "system", controller = "none"
+        var controller = "none"
         var pointer: [String: Any]?
     }
     private(set) var tabs: [String: Tab] = [:]
@@ -100,9 +100,10 @@ final class T3BrowserAutomation: NSObject {
     /// The module's status (`presentation.browserAutomation`): each page's audio, appearance, controller and the
     /// agent's last pointer; the tabs this host opened.
     var status: [String: Any] {
-        ["browserAutomation": ["tabs": tabs.mapValues { tab -> [String: Any] in
-            ["audible": tab.audible, "muted": tab.muted, "colorScheme": tab.colorScheme, "controller": tab.controller, "pointer": tab.pointer ?? NSNull()]
-        }, "opened": opened, "answered": Array(answered.suffix(8))]]
+        // The appearance is the page's own: part 2's Appearance menu sets it too (T3BrowserSession+Navigation.swift).
+        ["browserAutomation": ["tabs": Dictionary(uniqueKeysWithValues: tabs.map { id, tab -> (String, [String: Any]) in
+            (id, ["audible": tab.audible, "muted": tab.muted, "colorScheme": sessions?.sessions[id]?.colorScheme ?? "system", "controller": tab.controller, "pointer": tab.pointer ?? NSNull()])
+        }), "opened": opened, "answered": Array(answered.suffix(8))]]
     }
 
     // MARK: Requests
@@ -156,8 +157,7 @@ final class T3BrowserAutomation: NSObject {
             case "setColorScheme":
                 let session = try await requireReady(context)
                 let scheme = context.input["colorScheme"] as? String ?? "system"
-                session.web.appearance = scheme == "dark" ? NSAppearance(named: .darkAqua) : scheme == "light" ? NSAppearance(named: .aqua) : nil
-                tabs[session.id]?.colorScheme = scheme
+                session.setColorScheme(scheme) // part 2's mechanism (the page view's appearance), one for the menu and the agent
                 changed()
                 return .success(["tabId": context.tabId ?? "", "colorScheme": scheme])
             case "snapshot": return .success(try await controlled(context, "snapshot") { try await self.snapshot(context, $0) })
@@ -188,6 +188,7 @@ final class T3BrowserAutomation: NSObject {
             return !session.closed
         }
         guard ready, let session = sessions?.sessions[runtimeId] else { throw HostError.overlayTimeout(budget) }
+        T3BrowserViewport.hold(context.plan["viewportSetting"] as? [String: Any], session) // part 2: the tab's fixed size
         return session
     }
 
@@ -264,6 +265,7 @@ final class T3BrowserAutomation: NSObject {
         var tabId = plan["tabId"] as? String, runtimeId = plan["runtimeId"] as? String
         let reused = tabId != nil
         var needsOverlay = plan["needsOverlay"] as? Bool ?? false
+        var applied: [String: Any]?, adopted: [String: Any]?
         if !reused {
             guard let create = plan["create"] as? [String: Any] else { throw HostError.operation("no tab to reuse and nothing to create") }
             let reply = await call("preview.open", create, context)
@@ -274,24 +276,70 @@ final class T3BrowserAutomation: NSObject {
             runtimeId = Self.runtimeId(environment: context.environmentId, thread: context.threadId, epoch: plan["epoch"] as? String, tab: created)
             let idle = (snapshot["navStatus"] as? [String: Any])?["_tag"] as? String ?? "Idle"
             needsOverlay = create["url"] != nil || idle != "Idle" // previewAutomationOpenNeedsOverlay
+            // previewAutomationDefaultViewport: a new tab on Fill takes the agent default (1280×800) before the data module
+            // adopts it; a failed resize fails the request once the tab is adopted, as the reference's does.
+            var failure: Error?
+            adopted = snapshot
+            if let size = plan["defaultViewport"] as? [String: Any], ((snapshot["viewport"] as? [String: Any])?["_tag"] as? String ?? "fill") == "fill" {
+                let resized = await call("preview.resize", ["threadId": context.threadId, "tabId": created, "viewport": size], context)
+                if resized["ok"] as? Bool == true, let value = resized["value"] as? [String: Any] {
+                    adopted = value; applied = size
+                    // The page at the default before its first load (the reference's webview mounts at it): made here, or,
+                    // if the server's `opened` event already had the data module make it at Fill, sized now.
+                    if let points = T3BrowserViewport.size(size), let runtimeId, let sessions {
+                        let nav = value["navStatus"] as? [String: Any], loading = (nav?["_tag"] as? String ?? "Idle") != "Idle"
+                        let page = sessions.ensure(id: runtimeId, url: loading ? nav?["url"] as? String ?? "" : "", profile: value["profileId"] as? String ?? "default",
+                                                   environment: context.environmentId, size: NSSize(width: points.width, height: points.height))
+                        T3BrowserViewport.hold(size, page)
+                    }
+                }
+                else { failure = HostError.operation("preview.resize failed: \((resized["error"] as? [String: Any])?["message"] ?? "")") }
+            }
             opened.append(["requestId": context.requestId, "connectionId": context.connectionId, "environmentId": context.environmentId, "threadId": context.threadId, "fleet": context.fleet ?? "",
-                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": snapshot, "present": plan["present"] as? Bool ?? false])
+                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": adopted ?? snapshot, "present": plan["present"] as? Bool ?? false,
+                           "suppress": plan["suppress"] as? Bool ?? false]) // `open: false` keeps the tab out of view (adoptAutomationTabs)
             if opened.count > 16 { opened.removeFirst(opened.count - 16) }
             note("opened \(created) for \(context.requestId)")
             changed()
+            if let failure { throw failure }
+            // The answer waits until the data module has adopted the tab: its browserSync lists this note as adopted
+            // (adoptedAutomationNotes). The agent's next request is then planned against its store and the suppression
+            // `open: false` records; the page's existence no longer implies that, as the host makes the page itself.
+            // A tab with a page to load fails as the overlay wait did; an Idle one answers after at most 3 s.
+            let key = "\(context.connectionId)\u{0}\(context.requestId)"
+            let budget = max(0, Int((context.deadline.timeIntervalSinceNow * 1000).rounded()))
+            let adoption = needsOverlay ? context.deadline : min(context.deadline, Date().addingTimeInterval(3))
+            let listed = await Self.waitForHostReadiness(deadline: adoption) { [weak self] in self?.sessions?.adopted.contains(key) ?? false }
+            if !listed, needsOverlay { throw HostError.overlayTimeout(budget) }
         }
-        if needsOverlay { _ = try await requireReady(context, tabId: tabId, runtimeId: runtimeId) }
+        if needsOverlay {
+            let session = try await requireReady(context, tabId: tabId, runtimeId: runtimeId)
+            T3BrowserViewport.hold(applied, session)
+        }
         if plan["present"] as? Bool == true, let runtimeId {
             // waitForPreviewPresentation: settle briefly so an active-thread open reports visible=true.
             let settle = Date().addingTimeInterval(0.5)
             _ = await Self.waitForHostReadiness(deadline: settle) { [weak self] in self?.sessions?.sessions[runtimeId].map(Self.visible) ?? false }
+            // A stage that already shows another tab gets the new tab's fit scale with its props, before the layout gives
+            // its box the new frame, so a shown page can take its fixed size (the default, or a reused tab's own) a
+            // moment after it shows; the answer reads the size the page renders (the reference's page mounts at it).
+            let fixed = applied ?? (reused ? context.plan["viewportSetting"] as? [String: Any] : nil)
+            if let fixed, T3BrowserViewport.size(fixed) != nil, let session = sessions?.sessions[runtimeId] {
+                let rendered = min(context.deadline, Date().addingTimeInterval(2))
+                while Date() < rendered, Self.visible(session), !session.closed {
+                    if let viewport = await measure(session), T3BrowserViewport.matches(fixed, viewport) { break }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
         }
         if reused, let url = (plan["url"] as? String).flatMap(URL.init(string:)), let runtimeId {
             let session = try await requireReady(context, tabId: tabId, runtimeId: runtimeId)
             session.navigate(url)
             try await waitForNavigation(context, session, readiness: "load", timeoutMs: context.timeoutMs)
         }
-        return await status(context, tabId: tabId, runtimeId: runtimeId)
+        var value = await status(context, tabId: tabId, runtimeId: runtimeId)
+        if let adopted { value["viewportSetting"] = adopted["viewport"] ?? (["_tag": "fill"] as [String: Any]) } // the new tab's, as currentStatus reads the store
+        return value
     }
 
     /// previewRuntimeTabId: `JSON.stringify([environmentId, threadId, serverEpoch, tabId])`.
@@ -307,15 +355,15 @@ final class T3BrowserAutomation: NSObject {
         }
     }
 
-    // MARK: Resize (the "resize" case; a fixed viewport is part 2's)
+    // MARK: Resize (the "resize" case; a fixed viewport is part 2's device toolbar)
 
     @MainActor private func resize(_ context: Context) async throws -> [String: Any] {
         let session = try await requireReady(context)
         guard let setting = context.plan["viewport"] as? [String: Any], let tag = setting["_tag"] as? String else { throw HostError.operation("no viewport setting") }
-        // Hook: browser-surface part 2 (navigation) renders a freeform or preset viewport (the device toolbar).
-        guard tag == "fill" || T3BrowserViewport.renders(setting, session) else { throw HostError.operation("a \(tag) viewport arrives with browser-surface part 2 (the device toolbar)") }
+        guard T3BrowserViewport.renders(setting) else { throw HostError.operation("a \(tag) viewport without its size") }
         let reply = await call("preview.resize", ["threadId": context.threadId, "tabId": context.tabId ?? "", "viewport": setting], context)
         guard reply["ok"] as? Bool == true else { throw HostError.operation("preview.resize failed") }
+        T3BrowserViewport.hold(setting, session)
         let timeoutMs = context.input["timeoutMs"] as? Int ?? context.timeoutMs
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
         var measured: [String: Int]?
@@ -324,7 +372,15 @@ final class T3BrowserAutomation: NSObject {
             if let viewport = await measure(session), T3BrowserViewport.matches(setting, viewport) { measured = viewport; break }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        guard let measured else { throw HostError.viewportTimeout(timeoutMs) }
+        guard let measured else {
+            // shouldRollbackPreviewViewport: back to the tab's previous size when it differs. The reference also checks that
+            // the store's latest setting is still this one and the server epoch unchanged; the module sees neither.
+            if let previous = context.plan["viewportSetting"] as? [String: Any], T3BrowserViewport.key(previous) != T3BrowserViewport.key(setting) {
+                let back = await call("preview.resize", ["threadId": context.threadId, "tabId": context.tabId ?? "", "viewport": previous], context)
+                if back["ok"] as? Bool == true { T3BrowserViewport.hold(previous, session) }
+            }
+            throw HostError.viewportTimeout(timeoutMs)
+        }
         return ["tabId": context.tabId ?? "", "setting": setting, "viewport": measured]
     }
 
@@ -649,10 +705,28 @@ final class T3BrowserAutomationMessages: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// A fixed viewport (freeform or a device preset) is browser-surface part 2's device toolbar. Part 2 replaces this
-/// hook with the view that renders one; until then only Fill renders.
+/// A fixed viewport (freeform or a device preset, its size resolved by the data module) is browser-surface part 2's:
+/// a page the panel shows is sized by its stage (BrowserStage in browser-stage.contract, T3BrowserView.Host) from the
+/// tab's snapshot; a page no stage holds (another thread shown, the panel hidden, not shown yet) is sized here, at
+/// `width × zoom` by `height × zoom` points as the stage sizes it, so the page measures the viewport either way.
 enum T3BrowserViewport {
-    static func renders(_ setting: [String: Any], _ session: T3BrowserSession) -> Bool { setting["_tag"] as? String == "fill" }
+    static func size(_ setting: [String: Any]) -> (width: Int, height: Int)? {
+        guard setting["_tag"] as? String != "fill", let width = (setting["width"] as? NSNumber)?.intValue, let height = (setting["height"] as? NSNumber)?.intValue,
+              width > 0, height > 0 else { return nil }
+        return (width, height)
+    }
+    static func renders(_ setting: [String: Any]) -> Bool { setting["_tag"] as? String == "fill" || size(setting) != nil }
+    /// browserViewportSettingKey.
+    static func key(_ setting: [String: Any]) -> String {
+        guard let tag = setting["_tag"] as? String, tag != "fill", let size = size(setting) else { return "fill" }
+        return "\(tag):\(size.width):\(size.height):\(tag == "preset" ? setting["presetId"] as? String ?? "" : "")"
+    }
+    static func hold(_ setting: [String: Any]?, _ session: T3BrowserSession) {
+        guard let setting, let size = size(setting), !(session.web.superview is T3BrowserView.Host) else { return }
+        let zoom = CGFloat(session.zoomFactor)
+        let target = NSSize(width: CGFloat(size.width) * zoom, height: CGFloat(size.height) * zoom)
+        if session.web.frame.size != target { session.web.setFrameSize(target) }
+    }
     /// isPreviewViewportReady: Fill is whatever the panel gives; a fixed size matches within a pixel.
     static func matches(_ setting: [String: Any], _ viewport: [String: Int]) -> Bool {
         guard setting["_tag"] as? String != "fill" else { return true }
