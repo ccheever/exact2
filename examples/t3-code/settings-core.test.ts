@@ -8,6 +8,7 @@ import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue,
 import { toasts } from './toast';
 import { fleet } from './settings-b-fleet';
 import { applyBrowserDefault, browserDefaultsView } from './browser-defaults';
+import { integrationRows } from './source-control-view';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -232,6 +233,39 @@ describe('writes through the command', () => {
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
     expect(restoreLabels(client.local as never, client.config.settings as Obj, false)).toEqual([]);
     expect(browserDefaultsView(client)).toMatchObject({ viewportValue: 'fill', zoomLabel: '100%', appearanceLabel: 'System', frameRateLabel: '30 fps', keyPresses: false, autoShow: true });
+  });
+  test('restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)', async () => {
+    const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
+    applyBrowserDefault(client, 'zoom', '1.25');
+    // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual(['Snooze limited threads', 'Browser zoom', 'Agent browser access']);
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, false)).toEqual(['Browser zoom']);
+    expect(restoreLabels(client.local as never, { enableAgentBrowserAccess: true }, true)).toEqual(['Browser zoom']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, enableAgentBrowserAccess: true } });
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual([]);
+    expect(integrationRows(client.config.settings as Obj, '', 'Studio', true).browser[0]).toMatchObject({ title: 'Agent browser access', checked: true });
+    // Alone, it still enables Restore and names itself; Confirm writes only it.
+    const only = fake({ enableAgentBrowserAccess: false });
+    expect(await settingsCore(as(only), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Agent browser access.' });
+    await applyCoreSetting(as(only), native, 'restore-device-defaults:|||', '');
+    expect(only.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
+  test('a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore)', async () => {
+    // The reference's one patch carries environment-wide keys, so planScopedSettingsPatch plans no server write there; the
+    // device keys save, so no warning. Clearing p1's override here would turn its agent browser access off (the environment's).
+    const overrides = { p1: { enableAgentBrowserAccess: true, responseStreamingMode: 'token' }, p2: { sidebarAutoSettleAfterDays: 7 } };
+    const client = fake({ enableAgentBrowserAccess: false, projectSettingsOverrides: overrides });
+    for (const id of ['restore-device-defaults:||repo|', 'restore-device-defaults:||repo|p1']) {
+      applyDeviceSetting(client.local as never, 'diffLayout', 'split');
+      const notices = toasts(as(client)).length;
+      expect(await applyCoreSetting(as(client), native, id, '')).toBe('Device settings restored');
+      expect([client.writes, (client.local.clientSettings as Obj).diffLayout, toasts(as(client)).length]).toEqual([[], 'stacked', notices]);
+      expect((client.config.settings as Obj).projectSettingsOverrides).toEqual(overrides);
+    }
+    // The environment scope still re-grants it on the environment.
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
   });
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();
