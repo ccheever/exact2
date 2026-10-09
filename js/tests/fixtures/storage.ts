@@ -112,6 +112,24 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  if (op === "doc-link") {
+    const steps = [
+      () => storage.fs.readFile(value),
+      () => storage.fs.writeFile(value, bytes("written")),
+      () => storage.fs.appendFile(value, bytes("appended")),
+      () => storage.fs.atomicWriteFile(value, bytes("atomic")),
+      () => storage.fs.stat(value),
+      () => storage.fs.readdir(value),
+      () => storage.fs.mkdir(value),
+      () => storage.fs.rm(value),
+    ];
+    const out: string[] = [];
+    for (const step of steps) {
+      try { await step(); out.push("allowed"); }
+      catch (error: any) { out.push(error.message.includes("doc:/") ? "refused" : "wrong namespace"); }
+    }
+    return {text: out.join(" ")};
+  }
   // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
   // listed, read, written beside, and refused past what it holds.
   if (op === "doc") {
@@ -263,6 +281,31 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     const shrunk = storage.fs.compressImage(data + "/noise.bmp", data + "/slow.jpg", { maxDimension: 3000, maxBytes: 20_000_000 }).catch((e) => e.code);
     const wrote = storage.fs.writeFile(data + "/second", bytes("second"));
     return Promise.all([shrunk, wrote]).then(([code]) => ({text: String(code)}));
+  }
+  // `exactBodyFrom` (LLP 1108 D6 R2): the host reads the file into the
+  // body. The reply's text, or the rejection's name, kind and message.
+  if (op === "upload") {
+    try {
+      const r = await fetch("https://example.test/upload", { method: "POST", headers: { "content-type": "image/jpeg" }, exactBodyFrom: value } as any);
+      return {text: r.status + " " + await r.text()};
+    } catch (e:any) { return {text: e.name + " " + e.kind + " " + e.message}; }
+  }
+  // What `fetch` itself refuses, before any request: each a TypeError.
+  if (op === "upload-refusals") {
+    const url = "https://example.test/upload", data = storage.fs.directories.data, out: string[] = [];
+    const inits: any[] = [
+      { method: "POST", exactBodyFrom: 42 },
+      { method: "POST", exactBodyFrom: "/tmp/photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/../photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/photo.jpg", body: "x" },
+      { exactBodyFrom: data + "/photo.jpg" },
+      { method: "HEAD", exactBodyFrom: data + "/photo.jpg" },
+      { method: "POST", exactBodyFrom: data + "/" + "\ud800".repeat(1500) },
+    ];
+    for (const init of inits) {
+      try { await fetch(url, init); out.push("sent"); } catch (e:any) { out.push(e.name + ": " + e.message); }
+    }
+    return {text: out.join("\n")};
   }
   if (op === "write-slow") {
     await storage.fs.writeFile(storage.fs.directories.data + "/slow.jpg", bytes(value));

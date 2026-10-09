@@ -208,7 +208,18 @@ export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
     Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
     addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
     addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
-  const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
+  // The cross-browser parity sheet (`lineHeight` set) also pins a default native button's UA metrics to
+  // Chrome's: each engine's UA sheet sizes a bare `<button>` its own way (plain HTML, 16px page: padding
+  // 1px 6px in Chrome, 1px 4px in Firefox, 0 6px 1px and an 11px font in WebKit, so "Case 1" is 58.3, 52.9
+  // and 50.6 px wide), and with these rows all three agree within 0.3 px. Only the styles that keep the UA
+  // box (`bordered`, the default, and `gray`); the others set their own padding (host/web/index.html).
+  // A native field (`data-native`) the same way: its UA padding, border and `normal` line height differ
+  // (plain HTML, 16px system-ui: an input is 24, 26 and 30 px tall, a two-row textarea 42, 48 and 46).
+  // Over index.html's `[data-native] { all: revert }`, under a field's authored (inline) rows.
+  const controls = "#exact-root button:is([data-button-style=bordered],[data-button-style=gray]){padding:1px 6px;border-width:2px}"
+    + ` #exact-root input[data-native]{padding:1px 2px;border-width:2px;line-height:${lineHeight}}`
+    + ` #exact-root textarea[data-native]{padding:2px;border-width:1px;line-height:${lineHeight}}`;
+  const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}} ${controls}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
 

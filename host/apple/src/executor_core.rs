@@ -86,6 +86,26 @@ struct Shared {
     state: Mutex<State>,
     ready: Condvar,
     abort: AbortController,
+    /// Where the app's files are, as the host names them; unset on a host or
+    /// drive that has none.
+    root_paths: std::sync::OnceLock<[std::path::PathBuf; 3]>,
+    /// Their directory handles, for a body read from one
+    /// (`Request::body_from`): opened at the first such request and pinned
+    /// from then on, as storage's are, or why they would not open. Not at
+    /// boot: opening makes the directories, and a cold boot opens no app
+    /// storage (fieldnotes' `apple_module_replacement_…` test).
+    roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
+}
+
+impl Shared {
+    /// The app's directories for `request`: opened by the first request,
+    /// worker's or stream's, whose body is an app file; `None` for any other
+    /// request, which leaves them unopened, or when the host named none.
+    pub(super) fn roots_for(&self, request: &Request) -> body::Roots<'_> {
+        request.body_from.as_ref()?;
+        let paths = self.root_paths.get()?;
+        Some(self.roots.get_or_init(|| body::open(paths)))
+    }
 }
 
 /// Count/byte reservations last until the UI takes the result, not merely
@@ -145,6 +165,8 @@ impl Core {
             }),
             ready: Condvar::new(),
             abort: AbortController::new(),
+            root_paths: std::sync::OnceLock::new(),
+            roots: std::sync::OnceLock::new(),
         });
         let reserve = || {
             LIVE_WORKERS
@@ -196,6 +218,13 @@ impl Core {
         core
     }
 
+    /// Where `app:/data`, `app:/cache` and `app:/tmp` are, for a request
+    /// whose body is one of the app's files (LLP 1108 D6 R2). Set once,
+    /// before the first request; without it such a request is refused.
+    pub(super) fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        let _ = self.shared.root_paths.set(roots);
+    }
+
     #[cfg(test)]
     pub(super) fn run(&self, r: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.run_owned(r, work.map(OwnedWork::Now))
@@ -212,6 +241,9 @@ impl Core {
             // A deadline on work that cannot take one (a stream, a
             // continuation, native work) is refused here, before any path.
             if let Some(why) = r.request.timeout_refusal() {
+                return Err(why);
+            }
+            if let Some(why) = r.request.body_from_refusal() {
                 return Err(why);
             }
             let (lane, charge, limit) = reservation(&r.request)?;
@@ -666,6 +698,7 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
         request.method.capacity(),
         request.body.capacity(),
         request.grants.as_ref().map_or(0, String::capacity),
+        request.body_from.as_ref().map_or(0, String::capacity),
         request.storage.as_ref().map_or(0, Vec::capacity),
         request
             .headers
@@ -760,21 +793,25 @@ fn worker(
             let abort = abort.clone();
             shared.abort.signal().register(move || abort.abort())
         };
-        let outcome =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                match scoped_bindings(&grants, request.grants.as_deref(), &host) {
-                    Some(Err(message)) => failed(FailureKind::Refused, message),
-                    Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort),
-                    None => execute(
-                        bindings.as_ref().ok_or(unbound.as_str()),
-                        request,
-                        forced,
-                        work,
-                        &abort,
-                    ),
-                }
-            }))
-            .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let files = Files {
+                roots: shared.roots_for(&request),
+                grants: &grants,
+            };
+            match scoped_bindings(&grants, request.grants.as_deref(), &host) {
+                Some(Err(message)) => failed(FailureKind::Refused, message),
+                Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &abort, &files),
+                None => execute(
+                    bindings.as_ref().ok_or(unbound.as_str()),
+                    request,
+                    forced,
+                    work,
+                    &abort,
+                    &files,
+                ),
+            }
+        }))
+        .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
         complete(&shared, ticket, outcome);
     }
 }
@@ -844,12 +881,20 @@ fn retained(outcome: &Outcome) -> usize {
     }
 }
 
+/// What a body read from an app file needs: where the files are, and the
+/// app's grants (the request's own scope narrows them).
+struct Files<'a> {
+    roots: body::Roots<'a>,
+    grants: &'a str,
+}
+
 fn execute(
     bindings: Result<&ibex2::host::Bindings, &str>,
-    request: Request,
+    mut request: Request,
     forced: bool,
     work: Option<Work>,
     abort: &AbortController,
+    files: &Files<'_>,
 ) -> Outcome {
     if abort.signal().aborted() {
         return failed(FailureKind::Aborted, "native request aborted");
@@ -888,6 +933,36 @@ fn execute(
         HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
     };
     let timeout = request.timeout_ms;
+    // The whole exchange, headers and body, ends by the deadline: the
+    // platform's idle timeout alone would let a server that trickles bytes
+    // hold the ordered lane for as long as it likes. It is armed before a
+    // body is read from a file, which counts against it too.
+    let deadline = match timeout.map(|ms| Deadline::arm(ms, abort)).transpose() {
+        Ok(deadline) => deadline,
+        // A deadline that cannot be kept is refused, never silently none.
+        Err(why) => return failed(FailureKind::Refused, why),
+    };
+    // The body from an app file, read now, as late as can be, and refused
+    // before anything is sent (LLP 1108 D6 R2). The deadline or an abort
+    // ends the request while the file is read, and nothing is sent.
+    let ended = || {
+        if deadline.as_ref().is_some_and(Deadline::passed) {
+            Some(failed(
+                FailureKind::Timeout,
+                format!("the request timed out after {} ms", timeout.unwrap_or(0)),
+            ))
+        } else if abort.signal().aborted() {
+            Some(failed(FailureKind::Aborted, "native request aborted"))
+        } else {
+            None
+        }
+    };
+    if let Err(outcome) = body::resolve(files.roots, files.grants, &mut request, &ended) {
+        return outcome;
+    }
+    if let Some(outcome) = ended() {
+        return outcome;
+    }
     let mut req = fetch_request(request, forced);
     req.max_body = Some(limit);
     // The platform's idle timeout (URLSession's, 60 s by default) follows
@@ -895,14 +970,6 @@ fn execute(
     // deadline does (so the reply says Timeout, not a network error), and a
     // deadline over 60 s is not cut short by it.
     req.timeout = timeout.map(|ms| std::time::Duration::from_millis(u64::from(ms) + 1_000));
-    // The whole exchange, headers and body, ends by the deadline: the
-    // platform's idle timeout alone would let a server that trickles bytes
-    // hold the ordered lane for as long as it likes.
-    let deadline = match timeout.map(|ms| Deadline::arm(ms, abort)).transpose() {
-        Ok(deadline) => deadline,
-        // A deadline that cannot be kept is refused, never silently none.
-        Err(why) => return failed(FailureKind::Refused, why),
-    };
     let result = b
         .fetch
         .stream(req, &abort.signal())
@@ -1018,6 +1085,9 @@ fn fetch_failure(e: ibex2::boundary::HostError, abort: &AbortController) -> Outc
 
 #[path = "executor_stream.rs"]
 mod stream;
+
+#[path = "executor_body.rs"]
+mod body;
 
 #[cfg(test)]
 #[path = "executor_tests.rs"]

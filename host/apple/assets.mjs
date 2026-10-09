@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve, isAbsolute } from 'node:path';
 import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// The build's stamp, which build.mjs merges into Info.plist beside the icon keys.
+export { buildInfo } from './buildinfo.mjs';
 
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });

@@ -1113,6 +1113,40 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     exact_data::documents::forget(9101);
 }
 
+#[test]
+#[cfg(unix)]
+fn typescript_document_operations_refuse_descendant_symlinks() {
+    use std::os::unix::fs::symlink;
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside").unwrap();
+    symlink(outside.join("secret"), folder.join("link")).unwrap();
+    symlink(&outside, folder.join("dir-link")).unwrap();
+    let doc = exact_data::documents::mint(&folder, 9102).unwrap();
+    let mut module = root.module();
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    for leaf in ["link", "dir-link/secret"] {
+        assert_eq!(
+            call(
+                &mut module,
+                &mut store,
+                "doc-link",
+                &format!("{doc}/{leaf}")
+            ),
+            ["refused"; 8].join(" ")
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret")).unwrap(),
+        "outside"
+    );
+    exact_data::documents::forget(9102);
+}
+
 /// No later UI request is needed to finish writes these answers already
 /// issued. LLP 1097 D4.5 deletes the answer-to-answer deferral, so every
 /// answer begins at once and the discarded send has already issued: its

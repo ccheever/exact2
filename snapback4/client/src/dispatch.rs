@@ -8,7 +8,8 @@
 //! - `read {name, args, now}`: a named query, answered by the device.
 //! - `route {name}`: `"device"` when the device answers that query (every
 //!   table it reads is synced), `"server"` when it reads an `online only`
-//!   table or view and the server answers it (`POST /q/<name>`).
+//!   table or view and the server answers it (`POST /q/<name>`), `"held"`
+//!   when the schema holds it to the device (never ask the server).
 //! - `write {name, args, now, key?}`: admit a write and its prediction;
 //!   `{id, state:"pending", newIds}` or `{id, state:"failed", why}`, final:
 //!   never sent, and `outcome` and `refusals` answer it. With an idempotency
@@ -95,11 +96,7 @@ pub fn dispatch(
     };
     let answer = match op {
         "read" => client.read(core, text(request, "name")?, args(), now(false)?)?,
-        "route" => json!(if client.answers_on_device(core, text(request, "name")?)? {
-            "device"
-        } else {
-            "server"
-        }),
+        "route" => json!(client.route(core, text(request, "name")?)?),
         "write" => {
             let key = request.get("key").and_then(Json::as_str);
             client.write(core, text(request, "name")?, args(), now(true)?, key)?

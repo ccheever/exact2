@@ -8,7 +8,7 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering } from './ts-fetch.js';
+import { answering, files as bodyFiles } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
@@ -279,6 +279,7 @@ function storageOf(grants) {
 const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
+  bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
   data.grants = setAppGrantSet(tsGrantSet);
   const storage = storageOf(tsGrantSet);
   // The module's storage, as the runner's `state.background` (LLP 1097 D8).

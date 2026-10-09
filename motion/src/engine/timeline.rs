@@ -44,6 +44,13 @@ pub(super) struct Timelines {
     bound: Vec<(u64, NamedTimeline, [f64; 2])>,
 }
 
+impl Timelines {
+    /// Whether `node` is a timeline's source or follows one.
+    pub(super) fn names(&self, node: u64) -> bool {
+        self.sources.iter().any(|s| s.0 == node) || self.bound.iter().any(|b| b.0 == node)
+    }
+}
+
 impl Engine {
     /// Declare (or with `None`, retract) the timeline `node`'s presented
     /// translate drives, and whether it reads the `x` axis.

@@ -536,6 +536,9 @@ impl<D: DataSource> Bridge<D> {
                     )
                 });
                 if let Some(executor) = &executor {
+                    if let Some(roots) = host.app_roots() {
+                        executor.set_app_roots(roots);
+                    }
                     host.listen(executor.waker());
                 }
                 self.canvas_hooks(&mut host, &hooks);
@@ -884,6 +887,9 @@ impl<D: DataSource> Bridge<D> {
             )
         });
         if let Some(executor) = &executor {
+            if let Some(roots) = candidate.host.app_roots() {
+                executor.set_app_roots(roots);
+            }
             candidate.host.listen(executor.waker());
         }
         self.canvas_hooks(&mut candidate.host, &candidate.hooks);

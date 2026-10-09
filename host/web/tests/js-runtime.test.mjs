@@ -27,7 +27,7 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
 stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g;');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', 'export const answering = { call: null };');
+stub('ts-fetch.js', 'export const answering = { call: null }; export const files = { appId: null };');
 stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.

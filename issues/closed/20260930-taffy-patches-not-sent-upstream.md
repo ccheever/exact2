@@ -1,6 +1,7 @@
 # Complete the remaining vendored Taffy aspect-ratio upstream submission
 
-**Status:** Closed (2026-10-02; submissions and coverage audit complete)
+**Status:** Closed
+**Resolution:** Submissions and coverage audit complete on 2026-10-02; upstream equivalents are mapped in vendor/taffy/EXACT-PATCHES.md.
 **Systems:** vendored Taffy
 **Severity:** P4
 **Author:** Claude (Fable 5.1) for Charlie Cheever

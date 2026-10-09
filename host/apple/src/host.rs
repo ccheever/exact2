@@ -727,6 +727,16 @@ impl<D: DataSource> Host<D> {
         self.runner.data().grants().to_string()
     }
 
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
+    }
+
     /// What the last commit kept or forgot, into the platform's store (LLP
     /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
     /// login; kept answers queued for their writer thread (`store.rs`). A

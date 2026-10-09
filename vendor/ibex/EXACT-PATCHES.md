@@ -103,6 +103,11 @@ Ibex. `doc:/` is the capability namespace for a person-chosen document.
 `src/{bindings.rs,boundary_abi.rs,task.rs}` and `src/stdlib/fs.rs` add the
 embedder's document table and dispatch `doc:/` operations through it. Real
 paths never enter guest errors; rename/copy/realpath remain refused.
+The table now returns an owned directory handle and relative name, rather than
+a physical path (2026-10-06). `app_fs_{unix,windows}.rs` execute document work
+relative to that handle, refusing symlinks/reparse points in every descendant
+component. `rm` remains nonrecursive. Atomic writes rename within the retained
+parent, and explicit file selections through a symlink still select its target.
 
 ### 6. denied redirect diagnostics
 
@@ -160,10 +165,25 @@ registry's lock, so it abandons no call registered after its retirement. The cod
 the job's start. `bindings/storage.d.ts` declares it. Ibex holds no codec:
 without one the op answers `unsupported` before reading.
 
+### 10. `AppDirectories::read_capped` is public
+
+From exact2 LLP 1108 D6 R2 (2026-10-08): `fetch(url, {exactBodyFrom})` sends an
+app file as a request body, read by the embedder's HTTP executor when it runs
+the request, never by the guest. `app_fs_unix.rs`'s `read_capped` (patch 9),
+which admits `fs.read`, opens the file through the directory handles, refuses
+anything but a regular file and reads at most `cap` bytes from the opened
+descriptor, is now `pub` so that executor uses the same checks and cap as
+`compressImage`. No behaviour changes. Unix only, as before; the embedder
+reads through `stdlib::fs::run` elsewhere. `AppDirectories::open_file` (the
+same admission, parse, open and regular-file check, returning the opened
+`File`) is public too, so the embedder reads in chunks and stops between
+them once its request has ended; `read_capped` reads through it.
+
 ### Windows chosen-document EISDIR
 
-`src/stdlib/fs.rs` opens one handle with backup semantics, checks that same
-handle's metadata, and reads through it. `windows_document_tests.rs` covers
+`src/stdlib/windows_directory.rs` opens the document relative to its retained
+parent, refuses reparse points, checks that same handle's metadata, and reads
+through it. `windows_document_tests.rs` covers
 bytes, directory refusal, grant-before-resolution, and ACL denial. This avoids
 a racy precheck and does not reinterpret ordinary access-denied errors.
 

@@ -59,17 +59,16 @@ check('only the innermost pressable shows the press, and only while inside', asy
     };
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
-    // Host glass/dimming remains stacking even against authored `none`.
+    // Host glass remains stacking even against an authored `none`. The button rules are scoped to
+    // #exact-root, and a disabled native button dims by its accent fill, not a filter (55fcdee61).
     expect(await evaluate(`(() => {
       const out = [];
       for (const style of ['glass', 'prominent-glass', 'clear-glass', 'prominent-clear-glass']) {
         const el = document.createElement('button');
         el.dataset.buttonStyle = style;
-        el.style.backdropFilter = 'none';
-        el.style.filter = 'none'; el.disabled = true;
-        document.body.append(el);
-        const cs = getComputedStyle(el);
-        out.push(cs.backdropFilter !== 'none' && cs.filter === 'opacity(0.45)');
+        el.style.backdropFilter = 'none'; el.disabled = true;
+        document.getElementById('exact-root').append(el);
+        out.push(getComputedStyle(el).backdropFilter !== 'none');
         el.remove();
       }
       return out;

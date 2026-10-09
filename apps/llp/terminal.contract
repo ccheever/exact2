@@ -1,0 +1,418 @@
+// LLP in a terminal (LLP 1101): the reader's corpus, documents and search,
+// full screen, over the same data module as the windowed reader
+// (`apps/llp/data`). What a terminal reader needs that a window does not —
+// find in the page, the links as a list, the neighbours in number order —
+// is the data module's `page(path, find)`; the rest is this screen.
+//
+// Keys: the arrows, `j` and `k`, Space, Page Up/Down, Home and End scroll,
+// `g` and `G` go to the top and the end; `t` the tree of documents, `o` the
+// outline, `/` find (Enter keeps it, `n` and `N` walk it, Esc drops it), `l`
+// the links, `[` and `]` the documents before and after, `b` back to the one
+// before, `q` quits. A click on a cross-reference opens it.
+
+// The path the reader was started on: a corpus directory or a document.
+shape Start
+  path: string
+
+shape Entry
+  id: string
+  number: string
+  title: string
+  path: string
+  kind: string
+  status: string
+  depth: number
+  overlay: string
+  current: bool
+  hits: number
+
+shape Index
+  root: string
+  project: string
+  total: number
+  shown: number
+  entries: list<Entry>
+
+// A run of a block, split where the find matches: `hit` is the match's
+// ordinal from 1, or 0. `id` is the page's only span of that name (`b4s0`).
+shape Span
+  id: string
+  text: string
+  weight: number
+  slant: string
+  mono: bool
+  href: string
+  hit: number
+
+// A table cell; `grow` is its column's weight (its widest cell).
+shape Part
+  id: string
+  spans: list<Span>
+  grow: number
+
+// One block; `id` (`b0`, `b1`, …) is the element `scrollIntoView` names.
+shape Piece
+  id: string
+  kind: string
+  depth: number
+  marker: string
+  lang: string
+  header: bool
+  spans: list<Span>
+  cells: list<Part>
+
+shape Heading
+  id: string
+  text: string
+  level: number
+
+// A link in the page; `title` is a corpus document's number and title, or
+// the target itself.
+shape Link
+  id: string
+  text: string
+  local: bool
+  href: string
+  block: string
+  title: string
+
+shape Page
+  path: string
+  name: string
+  number: string
+  title: string
+  kind: string
+  status: string
+  message: string
+  failed: bool
+  blocks: list<Piece>
+  outline: list<Heading>
+  hits: number
+  marks: list<string>
+  links: list<Link>
+  prev: string
+  next: string
+
+fn label(e: Entry): string = e.number != "" ? e.number : e.path
+fn headColor(level: number): string = level == 1 ? "#ffaf5f" : (level == 2 ? "#87afff" : (level == 3 ? "#afd7ff" : "#d0d0d0"))
+fn spanInk(s: Span, cur: number): string = s.hit > 0 and s.hit == cur ? "#000000" : (s.mono ? "#d7af87" : (s.href != "" ? "#5fafff" : "inherit"))
+fn spanFill(s: Span, cur: number): string = s.hit > 0 ? (s.hit == cur ? "#ffd700" : "#5f5f00") : "transparent"
+
+component Reader
+  resource start = start() as shape Start
+  // Which document is open: the start path until a document is chosen.
+  state chosen = ""
+  // Find in the page: what is typed, whether the bar is open, and which
+  // match is current (from 1).
+  state find = ""
+  state finding = false
+  state cur = 0
+  // The tree's filter, a search over every document's text.
+  state filter = ""
+  // The documents opened before this one, newest first: `b` goes back.
+  state history = []
+
+  derive asked = chosen != "" ? chosen : start.path
+  resource page = page(asked, find) as shape Page
+  resource index = index(asked, filter, "", false) as shape Index
+
+  derive hits = page.hits
+  derive here = indexOf(map(index.entries, e => e.current), true)
+
+  action open(path: string)
+    if path != "" and path != page.path
+      history = concat([page.path], history)
+      chosen = path
+      cur = 0
+      scrollIntoView("top", block="start")
+  action back
+    match first(history)
+      case some(path)
+        history = slice(history, 1)
+        chosen = path
+        cur = 0
+        scrollIntoView("top", block="start")
+      case none
+        history = history
+  // A link in the text: a document of this corpus opens here; anything
+  // else goes to the system (a browser, mail).
+  action follow(href: string)
+    match first(filter(page.links, k => k.href == href))
+      case some(k)
+        if k.local
+          open(k.href)
+        else
+          openURL(k.href)
+      case none
+        openURL(href)
+  // From the tree: a document found by the filter opens with the filter
+  // as its find, its first match in view.
+  action pick(path: string)
+    if filter != ""
+      find = filter
+    filter = ""
+    open(path)
+  action setFilter(value: string)
+    filter = value
+  action firstMatch
+    match first(index.entries)
+      case some(e)
+        close("tree")
+        pick(e.path)
+      case none
+        filter = filter
+
+  // Find. Typing finds as it goes; Enter keeps the matches and gives the
+  // keys back to the page; Esc drops them.
+  action startFind
+    finding = true
+    focus("find")
+  action setFind(value: string)
+    find = value
+    cur = 0
+  action onFindKey(key: string, e: KeyboardEvent)
+    if key == "Enter"
+      finding = false
+      show(cur == 0 ? 1 : cur)
+      preventDefault()
+    else
+      if key == "Escape"
+        stopFind()
+        preventDefault()
+  action stopFind
+    finding = false
+    find = ""
+    cur = 0
+  action show(k: number)
+    if hits > 0
+      cur = k
+      match at(page.marks, k - 1)
+        case some(block)
+          scrollIntoView(block, block="center")
+        case none
+          cur = k
+  action nextMatch
+    show(cur >= hits ? 1 : cur + 1)
+  action prevMatch
+    show(cur <= 1 ? hits : cur - 1)
+  // The first match comes into view as the find is typed, and when a
+  // document opens with a find in hand.
+  task follow when find != "" and hits > 0 and cur == 0 key=`${page.path}|${find}`
+    after(1, nextMatch)
+
+  action toHeading(id: string)
+    scrollIntoView(id, block="start")
+  action toTop
+    scrollIntoView("top", block="start")
+  action toEnd
+    scrollIntoView("end", block="end")
+  // A row at a time, as `j` and `k` do in a pager (a row is 16 pixels).
+  action lineDown
+    scrollBy("page", 0, 16)
+  action lineUp
+    scrollBy("page", 0, -16)
+  action quit
+    close()
+  action openTree
+    showModal("tree")
+  action openOutline
+    showModal("outline")
+  action openLinks
+    showModal("links")
+
+  view
+    column width="100%" height="100%"
+      // What is open.
+      row padding="0 1ch" gap="2ch" background-color="#262626" flex-shrink=0 testId="header"
+        when page.number != ""
+          text `LLP ${page.number}` font-weight=700 color="#ffaf5f" flex-shrink=0
+        text page.title font-weight=700 white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1
+        text `${page.kind}${page.status != "" ? ` · ${page.status}` : ""}` color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" min-width=0 margin-left="auto"
+      when page.failed
+        text page.message color="#ff5f5f" padding="0 1ch" testId="failed"
+      scroll id="page" flex=1 min-height=0 testId="page"
+        column align-items="center" width="100%"
+          column max-width="100ch" width="100%" box-sizing="border-box" padding="0 2ch 1lh 2ch"
+            view id="top"
+            each b in page.blocks key=b.id
+              Block(b=b, cur=cur, follow=follow)
+            view id="end"
+      // Find, while it is being typed.
+      when finding
+        row padding="0 1ch" gap="1ch" background-color="#1c1c1c" flex-shrink=0 testId="find-bar"
+          text "/" color="#ffd700" font-weight=700 flex-shrink=0
+          input id="find" value=find input=setFind key=onFindKey placeholder="find in this document" flex-grow=1 testId="find"
+          text (find == "" ? "" : (hits == 0 ? "no matches" : (hits == 1 ? "1 match" : `${hits} matches`))) color="#8a8a8a" flex-shrink=0
+      // The keys, each a button a click presses too.
+      row padding="0 1ch" gap="2ch" color="#8a8a8a" background-color="#1c1c1c" flex-shrink=0 testId="status"
+        Key(k="t", keys="t", what="tree", press=openTree)
+        Key(k="o", keys="o", what="outline", press=openOutline)
+        Key(k="/", keys="/", what="find", press=startFind)
+        when find != "" and not finding
+          Pair(a="n", akeys="n", b="N", bkeys="Shift+N", what="match", first=nextMatch, second=prevMatch)
+          button appearance="none" press=stopFind aria-keyshortcuts="Escape" display="flex" flex-shrink=0 testId="key-clear"
+            text "esc" color="#d0d0d0" font-weight=700
+            text " clear" white-space="pre"
+          text (hits == 0 ? `no “${find}”` : `${cur}/${hits} “${find}”`) color="#ffd700" white-space="nowrap" flex-shrink=0
+        Key(k="l", keys="l", what="links", press=openLinks)
+        Pair(a="[", akeys="[", b="]", bkeys="]", what="doc", first=open(page.prev), second=open(page.next))
+        when not isEmpty(history)
+          Key(k="b", keys="b", what="back", press=back)
+        Pair(a="j", akeys="j", b="k", bkeys="k", what="line", first=lineDown, second=lineUp)
+        Pair(a="g", akeys="g", b="G", bkeys="Shift+G", what="ends", first=toTop, second=toEnd)
+        Key(k="q", keys="q", what="quit", press=quit)
+        text page.name color="#585858" margin-left="auto" white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1
+
+      // The corpus, in number order, sub-documents under their parents.
+      // The open document has the focus when it opens; `/` filters over
+      // every document's text.
+      dialog id="tree" closedby="any" top="1lh" bottom="2lh" left="4ch" right="4ch" border="thin solid #87afff" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="tree"
+        row gap="2ch" flex-shrink=0
+          text (index.project != "" ? `Documents — ${index.project}` : "Documents") font-weight=700 color="#87afff"
+          text (filter == "" ? `${index.total}` : `${index.shown} of ${index.total} contain “${filter}”`) color="#8a8a8a" margin-left="auto"
+        row gap="1ch" flex-shrink=0
+          text "/" color="#ffd700" flex-shrink=0
+          input value=filter input=setFilter submit=firstMatch aria-keyshortcuts="/" placeholder="filter: number, title or any text — ↓ to the list" flex-grow=1 testId="tree-filter"
+        scroll flex=1 min-height=0 margin-top="1lh" testId="tree-list"
+          each e, i in index.entries key=e.id
+            button press=pick(e.path) commandfor="tree" command="close" autofocus=(filter == "" and i == here) text-align="start" width="100%" testId=`tree-${label(e)}`
+              row width="100%" gap="1ch" padding-right="1ch" box-sizing="border-box"
+                text label(e) width="14ch" box-sizing="border-box" flex-shrink=0 padding-left=`${e.depth * 2}ch` color=(e.current ? "#ffaf5f" : "#8a8a8a") font-weight=(e.current ? 700 : 400)
+                text e.title flex-grow=1 flex-shrink=1 min-width=0 white-space="nowrap" text-overflow="ellipsis" font-weight=(e.current ? 700 : 400)
+                when e.overlay != ""
+                  text e.overlay color="#5fd7af" flex-shrink=0
+                text e.kind color="#6c6c6c" width="10ch" flex-shrink=0 white-space="nowrap" text-overflow="ellipsis"
+                when filter != ""
+                  text `${e.hits}` color="#ffd700" width="5ch" text-align="end" flex-shrink=0
+        text "↑/↓ move · enter open · / filter · esc close" color="#6c6c6c" flex-shrink=0
+
+      // The headings; Enter goes to one.
+      dialog id="outline" closedby="any" top="1lh" bottom="2lh" right="2ch" width="60ch" border="thin solid #ffaf5f" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="outline"
+        text "Outline" font-weight=700 color="#ffaf5f" flex-shrink=0
+        scroll flex=1 min-height=0 margin-top="1lh"
+          when isEmpty(page.outline)
+            text "No headings" color="#6c6c6c"
+          each h in page.outline key=h.id
+            button press=toHeading(h.id) commandfor="outline" command="close" text-align="start" padding-left=`${(h.level - 1) * 2}ch` testId=`outline-${h.id}`
+              text h.text color=headColor(h.level) white-space="nowrap" text-overflow="ellipsis" min-width=0 font-weight=(h.level <= 2 ? 700 : 400)
+
+      // Every link in the page: a document of this corpus opens here;
+      // anything else is shown, to open from the terminal (⌘-click).
+      dialog id="links" closedby="any" top="1lh" bottom="2lh" left="4ch" right="4ch" border="thin solid #5fafff" border-radius="1ch" padding="0 1ch" background-color="#121212" display="flex" flex-direction="column" testId="links"
+        text `Links (${length(page.links)})` font-weight=700 color="#5fafff" flex-shrink=0
+        scroll flex=1 min-height=0 margin-top="1lh"
+          when isEmpty(page.links)
+            text "No links in this document" color="#6c6c6c"
+          each k in page.links key=k.id
+            when k.local
+              button press=open(k.href) commandfor="links" command="close" text-align="start" width="100%" testId=`link-${k.id}`
+                row width="100%" gap="2ch"
+                  text k.text color="#5fafff" font-weight=700 flex-shrink=0 white-space="nowrap"
+                  text k.title color="#8a8a8a" white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1
+            else
+              button press=toHeading(k.block) commandfor="links" command="close" text-align="start" width="100%" testId=`link-${k.id}`
+                row width="100%" gap="2ch"
+                  text k.text white-space="nowrap" flex-shrink=0
+                  text k.href href=k.href color="#5f87af" text-decoration-line="underline" white-space="nowrap" text-overflow="ellipsis" min-width=0 flex-shrink=1
+
+// One key in the status bar: its label, its shortcut and what it does. A
+// click presses it too.
+component Key
+  props
+    k: string
+    keys: string
+    what: string
+    press: action
+  view
+    button appearance="none" press=press aria-keyshortcuts=keys display="flex" flex-shrink=0 testId=`key-${what}`
+      text k color="#d0d0d0" font-weight=700
+      text ` ${what}` white-space="pre"
+
+// Two keys that go opposite ways, under one word: `j k line`.
+component Pair
+  props
+    a: string
+    akeys: string
+    b: string
+    bkeys: string
+    what: string
+    first: action
+    second: action
+  view
+    row flex-shrink=0 gap="1ch"
+      button appearance="none" press=first aria-keyshortcuts=akeys testId=`key-${what}-${a}`
+        text a color="#d0d0d0" font-weight=700
+      button appearance="none" press=second aria-keyshortcuts=bkeys testId=`key-${what}-${b}`
+        text b color="#d0d0d0" font-weight=700
+      text what
+
+// A block, in cells: headings by colour and weight, a blank row before
+// each paragraph, lists hung on their markers, code on a fill, quotes
+// behind a bar, tables by rows.
+component Block
+  props
+    b: Piece
+    cur: number
+    follow: action
+  view
+    when b.kind == "heading"
+      column id=b.id margin-top="1lh"
+        text color=headColor(b.depth) font-weight=700 testId=`block-${b.id}`
+          when b.depth > 2
+            text `${b.depth == 3 ? "▸ " : "· "}` color="#6c6c6c" white-space="pre"
+          Spans(spans=b.spans, cur=cur, follow=follow)
+        when b.depth <= 2
+          view border-bottom=(b.depth == 1 ? "thin solid #ffaf5f" : "thin solid #3a3a3a")
+    else when b.kind == "paragraph"
+      text id=b.id margin-top="1lh" testId=`block-${b.id}`
+        Spans(spans=b.spans, cur=cur, follow=follow)
+    else when b.kind == "meta"
+      row id=b.id testId=`block-${b.id}`
+        text b.marker width="13ch" flex-shrink=0 white-space="nowrap" text-overflow="ellipsis" color="#8a8a8a" font-weight=700
+        text flex-grow=1 flex-shrink=1 min-width=0
+          Spans(spans=b.spans, cur=cur, follow=follow)
+    else when b.kind == "item"
+      row id=b.id padding-left=`${b.depth * 2}ch` testId=`block-${b.id}`
+        text `${b.marker} ` white-space="pre" color="#ffaf5f" flex-shrink=0
+        text flex=1 min-width=0
+          Spans(spans=b.spans, cur=cur, follow=follow)
+    else when b.kind == "code"
+      column id=b.id margin-top="1lh" background-color="#1c1c1c" padding="0 1ch" testId=`block-${b.id}`
+        when b.lang != ""
+          text b.lang color="#6c6c6c" align-self="end"
+        text white-space="pre-wrap"
+          Spans(spans=b.spans, cur=cur, follow=follow)
+    else when b.kind == "quote"
+      row id=b.id margin-top="1lh" padding-left=`${(b.depth - 1) * 2}ch` testId=`block-${b.id}`
+        text "▌ " white-space="pre" color="#5f5f87" flex-shrink=0
+        text flex=1 min-width=0 color="#afafd7" font-style="italic"
+          Spans(spans=b.spans, cur=cur, follow=follow)
+    else when b.kind == "rule"
+      view id=b.id margin="1lh 0 0 0" border-bottom="thin solid #585858" testId=`block-${b.id}`
+    else when b.kind == "table-row"
+      row id=b.id margin-top=(b.header ? "1lh" : "0") border-bottom=(b.header ? "thin solid #585858" : "none") gap="2ch" testId=`block-${b.id}`
+        each c in b.cells key=c.id
+          text flex-grow=c.grow flex-shrink=1 flex-basis=0 min-width=0 font-weight=(b.header ? 700 : 400)
+            Spans(spans=c.spans, cur=cur, follow=follow)
+    else when b.kind == "image"
+      text id=b.id margin-top="1lh" color="#6c6c6c" testId=`block-${b.id}`
+        text "[image] " white-space="pre"
+        Spans(spans=b.spans, cur=cur, follow=follow)
+    else
+      text id=b.id color="#6c6c6c" white-space="pre-wrap" testId=`block-${b.id}`
+        Spans(spans=b.spans, cur=cur, follow=follow)
+
+// A block's runs as inline text: bold and italic as written, code warm,
+// links blue and underlined (a click follows one; OSC 8 too), find matches
+// on a fill, the current one bright.
+component Spans
+  props
+    spans: list<Span>
+    cur: number
+    follow: action
+  view
+    each s in spans key=s.id
+      when s.href != ""
+        text s.text font-weight=s.weight font-style=s.slant href=s.href press=follow(s.href) color=spanInk(s, cur) background-color=spanFill(s, cur) text-decoration-line="underline" testId=`link-${s.id}`
+      else
+        text s.text font-weight=s.weight font-style=s.slant color=spanInk(s, cur) background-color=spanFill(s, cur)

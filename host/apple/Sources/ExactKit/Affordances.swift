@@ -39,8 +39,8 @@ extension NodeView {
     /// configuration, so every trait they resolve by is here too, and the
     /// system colours' generation (LLP 1095 D5).
     var symbolLookKey: String {
-        [style["symbol_rendering"]?.string ?? "", "\(style["symbol_palette"] ?? .null)",
-         "\(number("symbol_value", -1))", "\(style["tint_color"] ?? .null)", "\(drawsDark)",
+        [style["symbol_rendering"]?.string ?? "", (style["symbol_palette"] ?? .null).key,
+         "\(number("symbol_value", -1))", (style["tint_color"] ?? .null).key, "\(drawsDark)",
          "\(drawsHighContrast ?? SystemColor.highContrast)", "\(drawsElevated)", "\(SystemColor.generation)", bakedTintKey].joined(separator: "|")
     }
     /// The inherited tint, when the look bakes it into the image: a
@@ -51,7 +51,7 @@ extension NodeView {
         let bakes = (mode == "hierarchical" && (symbolTint == nil || style["tint_color"]?.namesTint == true))
             || (mode == "palette" && style["symbol_palette"]?.namesTint == true)
         guard bakes, let tint = viewTint else { return "" }
-        return "\(SystemColor.channels("@tint", dark: drawsDark, tintColor: tint, fallback: nil) ?? [])"
+        return (SystemColor.channels("@tint", dark: drawsDark, tintColor: tint, fallback: nil) ?? []).map { "\($0)" }.joined(separator: ",")
     }
 
     /// The symbol's configuration: its size and weight, then its rendering

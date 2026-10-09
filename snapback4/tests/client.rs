@@ -638,6 +638,52 @@ fn a_kept_receipt_settles_its_write_without_resending() {
     assert_eq!(bodies(&hana.inbox()), [("sent once".into(), false)]);
 }
 
+/// A receipt keeps the store its write was sent to, and settling passes it
+/// on (Snapback4 0.4.16: a late success belongs to the dispatching store);
+/// the outcome an app reads never carries it.
+#[test]
+fn a_receipt_keeps_its_dispatching_store_and_answers_without_it() {
+    let server = Server::start();
+    let mut hana = Device::new("hana");
+    hana.open(server.port);
+    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    let store = hana.call(json!({"op": "sync_state", "capture": false}))["store_id"].clone();
+    assert!(store.is_string(), "{store}");
+    let written = hana.write("bound", now());
+    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    let history = hana.call(json!({"op": "meta", "key": "write-history"}));
+    let kept: Vec<Value> = serde_json::from_str(history.as_str().unwrap()).unwrap();
+    let kept = kept.iter().find(|w| w["id"] == written["id"]).unwrap();
+    assert_eq!(kept["store_id"], store, "{kept}");
+
+    // A receipt bound to another store settles without resending, and the
+    // outcome read back from history drops the binding.
+    let other = hana.write("elsewhere", now());
+    let entry = hana.call(json!({"op": "queued"}))[0].clone();
+    let sent = server.fetch("hana", &json!({"method": "POST", "path": "/m/send",
+        "body": {"id": entry["id"], "args": entry["args"], "newIds": entry["new_ids"], "store_id": store}}));
+    assert_eq!(sent["body"]["state"], "sent", "{sent}");
+    let receipt = json!({"state": "sent", "id": entry["id"], "seq": sent["body"]["seq"],
+        "replayed": true, "store_id": "a-store-adopted-since"});
+    hana.call(json!({"op": "keep_write", "value": receipt.to_string()}));
+    hana.reopen();
+    assert!(hana.open(server.port));
+    let mut sends = 0;
+    let done = hana.sync_with(&server, |fetch, real| {
+        sends += usize::from(is_send(fetch));
+        real()
+    });
+    assert_eq!(done, json!({"ok": true}));
+    assert_eq!(sends, 0);
+    assert!(hana.queued().is_empty());
+    let outcome = hana.call(json!({"op": "outcome", "id": other["id"]}));
+    assert_eq!(outcome["state"], "sent", "{outcome}");
+    assert!(outcome.get("store_id").is_none(), "{outcome}");
+    let mut rows = bodies(&hana.inbox());
+    rows.sort();
+    assert_eq!(rows, [("bound".into(), false), ("elsewhere".into(), false)]);
+}
+
 /// Clocks may carry fractions; a write needs one. Every outbox entry names
 /// the opened viewer, and the device's identity cannot be replaced.
 #[test]

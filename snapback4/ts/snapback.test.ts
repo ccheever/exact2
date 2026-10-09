@@ -49,6 +49,21 @@ query myDrafts():
 query total():
   return count(messages)
 
+query oldest():
+  return messages first 5 by byTime
+
+table pings:
+  author: principal
+  public 'pings are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  ephemeral 4s
+
+mutation ping():
+  row = insert pings { author: viewer }
+  return { id: row.id }
+
 mutation draft(body: text <=50):
   row = insert drafts { author: viewer, body, at: now }
   return { id: row.id }
@@ -539,6 +554,17 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
       expect(unreached.offline).toBe(true);
       expect(unreached.server).toBeUndefined();
     });
+    // A page ordered against the horizon (`first 5` of a `last 100` sync):
+    // the device holds none of those rows and says `unknown`; the server
+    // answers it whole. Offline, the device's rows are a partial, marked.
+    const first = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
+    expect(first.server).toBe(true);
+    expect(first.data!.length).toBe(5);
+    await offline(async () => {
+      const partial = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
+      expect(partial.offline).toBe(true);
+      expect(partial.complete).not.toBe(true);
+    });
   } else {
     // The device vouched for it (complete coverage): then it must be the truth.
     expect(local.loading).not.toBe(true);
@@ -581,4 +607,117 @@ test('a write the device refuses is failed at once, never sent, and answered by 
   expect(await olga.refusals()).toEqual([]);
   expect((await olga.outcome(approved.id)).state).toBe('failed');
   await olga.close();
+}, 60_000);
+
+test('two sources polling one partition at once share the poll', async () => {
+  const openKim = onePage('kim', join(scratch, 'kim'));
+  const [a, b] = await Promise.all([openKim(), openKim()]);
+  expect(await a.sync()).toEqual({ ok: true });
+  // Two polls at once: neither supersedes the other (E_STALE before sharing).
+  const both = await Promise.all([a.poll(0), b.poll(0)]);
+  expect(both[0]).toBe(both[1]);
+  await a.close();
+  await b.close();
+}, 60_000);
+
+test('an ephemeral write is refused at once, not queued; poll opens a never-synced partition', async () => {
+  const lee = await open('lee', join(scratch, 'lee'));
+  // poll() before any sync opens the partition first (it threw E_OFFLINE).
+  expect(typeof await lee.poll(0)).toBe('boolean');
+  const pinged = await lee.write('ping', {}, Date.now());
+  expect(pinged.state).toBe('failed');
+  if (pinged.state === 'failed') expect(pinged.why.code).toBe('E_CLIENT_UNSUPPORTED');
+  expect((await lee.outcome(pinged.id)).state).toBe('failed');
+  expect((await lee.refusals()).map(r => r.id)).toContain(pinged.id);
+  expect((await lee.status()).queued).toEqual([]);
+  // The next write is unaffected and takes its own id.
+  const sent = await lee.write('send', { body: 'after a ping' }, Date.now());
+  expect(sent.state).toBe('pending');
+  expect(sent.id).not.toBe(pinged.id);
+  expect(await lee.sync()).toEqual({ ok: true });
+  expect((await lee.outcome(sent.id)).state).toBe('sent');
+  await lee.close();
+}, 60_000);
+
+test('a round its answer could not finish is cancelled by the next round, so the client is not left busy', async () => {
+  const { webDevice } = await import('./web.ts');
+  const page = storage(join(scratch, 'una'));
+  const device = await webDevice(page, 'test.exact.snapback4', 'app:/data/inbox.sqlite', `file://${wasm}`);
+  // Natively the device refuses a call once the answer that made it has
+  // ended, as a superseded answer's round finds when its reply comes.
+  let ended = false;
+  const native = { call: (request: Record<string, unknown>) => {
+    if (ended) throw new Error('native call outside an answer');
+    return device.call(request as never);
+  } };
+  const una = await Snapback.open({ app: 'test.exact.snapback4', name: 'inbox', origin, viewer: 'dev:una',
+    headers: () => ({ 'x-snapback-persona': 'una' }), storage: page, native, wasm: `file://${wasm}` });
+  expect(await una.sync()).toEqual({ ok: true });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const reply = await realFetch(input as never, init);
+    if (String(input).endsWith('/sync')) ended = true;
+    return reply;
+  }) as typeof fetch;
+  try { await expect(una.sync()).rejects.toThrow(/outside an answer/); }
+  finally { globalThis.fetch = realFetch; ended = false; }
+  expect(await una.sync()).toEqual({ ok: true });
+  await una.close();
+  await device.close?.();
+}, 60_000);
+
+test('the README\'s persona switch waits for the other persona\'s write in flight before closing its partition', async () => {
+  // The guestbook's `using`, as the README has it.
+  const readme = (await Bun.file(resolve(import.meta.dir, '../README.md')).text());
+  const source = readme.slice(readme.indexOf('// One partition open at a time'), readme.indexOf('type Row = { id: string; author: string;'));
+  const js = new Bun.Transpiler({ loader: 'ts' }).transformSync(`${source}\nexport { using };`).replace(/^export \{ using \};?\s*$/m, '');
+  const using = new Function('Snapback', 'appId', 'origin', `${js}\nreturn using;`)(Snapback, 'test.exact.snapback4', origin) as
+    <T>(persona: string, storage: unknown, native: unknown, work: (db: InstanceType<typeof Snapback>) => Promise<T>) => Promise<T>;
+  // A native module: one partition at a time, refusing a second open.
+  const { webDevice } = await import('./web.ts');
+  const page = storage(join(scratch, 'switch'));
+  let open: Awaited<ReturnType<typeof webDevice>> | undefined;
+  const native = { call: async (request: Record<string, unknown>) => {
+    if (request.op === 'open') {
+      if (open) throw new Error('close the current Snapback4 partition before opening another');
+      open = await webDevice(page, 'test.exact.snapback4', String(request.path), `file://${wasm}`);
+    }
+    if (!open) throw new Error('Snapback4 partition is not open');
+    const answer = await open.call(request as never);
+    if (request.op === 'close') { await open.close?.(); open = undefined; }
+    return answer;
+  } };
+  expect(await using('alice', page, native, db => db.sync())).toEqual({ ok: true });
+  // Alice's write is on the network when the app switches to Bob.
+  const realFetch = globalThis.fetch;
+  let release!: () => void;
+  const held = new Promise<void>(done => { release = done; });
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).includes('/m/send')) await held;
+    return realFetch(input as never, init);
+  }) as typeof fetch;
+  try {
+    const posting = using('alice', page, native, async db => {
+      const written = await db.write('send', { body: 'switched' }, Date.now());
+      await db.sync();
+      return (await db.outcome(written.id)).state;
+    });
+    await new Promise(r => setTimeout(r, 50));
+    const bob = using('bob', page, native, db => db.sync());
+    release();
+    expect(await posting).toBe('sent');
+    expect(await bob).toEqual({ ok: true });
+  } finally { globalThis.fetch = realFetch; }
+  await using('bob', page, native, db => db.close());
+}, 60_000);
+
+test('at bake (a native module that is not available) open refuses with code bake and calls nothing', async () => {
+  const calls: unknown[] = [];
+  const native = { available: false, call: (request: unknown) => { calls.push(request); throw new Error('native storage is unavailable during bake or in an unconfigured host'); } };
+  const refused = await Snapback.open({ app: 'test.exact.snapback4', name: 'baked', origin, viewer: 'dev:bake',
+    storage: storage(join(scratch, 'bake')), native, wasm: `file://${wasm}` }).catch(error => error);
+  expect(refused).toBeInstanceOf(Error);
+  expect((refused as { code?: string; kind?: string }).code).toBe('bake');
+  expect((refused as { code?: string; kind?: string }).kind).toBe('Unavailable');
+  expect(calls).toEqual([]);
 }, 60_000);

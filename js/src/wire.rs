@@ -52,6 +52,13 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
                     .ok_or("a request timeout must be 1 to 3600000 ms")? as u32,
             ),
         },
+        // `exactBodyFrom`: the path alone; the host reads the file when it
+        // runs the request, so the bytes never cross the module.
+        body_from: match j.get("body_from") {
+            None | Some(Json::Null) => None,
+            Some(Json::String(path)) => Some(path.clone()),
+            Some(_) => return Err("exactBodyFrom must be an app:/ path".into()),
+        },
     })
 }
 
