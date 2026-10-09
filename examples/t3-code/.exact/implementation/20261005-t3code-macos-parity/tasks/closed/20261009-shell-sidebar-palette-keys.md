@@ -3,12 +3,12 @@ name: 20261009-shell-sidebar-palette-keys
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-shell-sidebar-palette-keys
 pr_url: https://github.com/ccheever/exact2/pull/370
-verified_commit: null
+verified_commit: 771833b4ca90eabb4ce4de6f79abd4036f779bfe
 ---
 
 # Shell: ⌘N on a focused row, the ⇧⌘S undo notice, the palette's project picks, the no-projects header and the snooze date
@@ -167,3 +167,7 @@ home as usual with two projects, Verification fixture and work).
 
 Coordinator: review the draft PR; run "Real-input batch steps" 1–2 in the next batch. Step 1 closes SH-1 (open until
 then); step 2 confirms SH-3's ⌘2 with real keys (SH-3's acceptance is agent-only and passes).
+
+## Delivery
+
+Merged on 2026-10-10 as `771833b4c` (#370, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

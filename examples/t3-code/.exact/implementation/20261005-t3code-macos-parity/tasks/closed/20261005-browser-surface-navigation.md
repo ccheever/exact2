@@ -3,12 +3,12 @@ name: 20261005-browser-surface-navigation
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-navigation-v2
 pr_url: https://github.com/ccheever/exact2/pull/352
-verified_commit: 26f5c90661e84f867a6b57747f0a23ebd0c1117b
+verified_commit: ab220bfdb3cf5c81636591ff89f0f3ca1c37b250
 ---
 
 # Browser surface part 2: navigation, history, zoom and the device toolbar
@@ -323,3 +323,7 @@ release the lock.
 ## Next action
 
 #352 stays a draft (Charlie, 2026-10-09). Check 4 (Rotate and Lock by real input) passed on `26f5c9066` (2026-10-09 13:39-13:41Z, [record](https://raw.githubusercontent.com/ccheever/exact2/05a75796fa6dbf344fa13622d2ff11e2ae7c3890/browser-surface-navigation-v2/realinput-26f5c9066.txt)). Left: the rest of the real-input batch (steps above). Then the coordinator's conflict check and Charlie's review; no merge here. Part 4 (#354) holds item 10's Settings rows, and its default zoom goes into the `zoom` that `browserSync` carries.
+
+## Delivery
+
+Merged on 2026-10-10 as `ab220bfdb` (#352, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
