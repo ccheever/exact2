@@ -1,0 +1,24 @@
+audit-wave-followups live drives (agent mode, scripts/agent.mjs macos via target/t3-audit/clone-drive.sh, 1280x840, fresh --storage per run)
+Before: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base (950e8e2e5), lane audit-wave-followups-before
+After: this branch (code of e3443c45c), lane audit-wave-followups; reference: Electron T3 Code 1e2ecbd975 over CDP
+
+Ops:
+  $A/clone-drive.sh $LANE 16320 \
+    "clock +20000 real" "clock +3000 real" "tap Dismiss" "clock +1000 real" \
+    'tap "Audit empty thread"' "clock +4000 real" "screenshot $O/fu1-empty-thread.png window" \
+    "tap toggle-right-panel" "clock +1500 real" "screenshot $O/fu2-thread-launcher.png window" \
+    "type composer key Meta+Shift+n" "clock +2500 real" "screenshot $O/fu2-fresh-draft.png window" \
+    'tap "Audit empty thread"' "clock +3000 real" "screenshot $O/fu2-back-on-thread.png window" \
+    "tap surface-files" "clock +2500 real" "tap tree-src" "clock +1500 real" "tap app.ts" "clock +2500 real" \
+    "tap file-comment-3" "clock +1500 real" 'type diff-comment-text "audit note"' "clock +500 real" "screenshot $O/fu3-draft.png window" "tree" \
+    "type diff-comment-text key Meta+Enter" "clock +2000 real" "screenshot $O/fu3-after-cmd-enter.png window" \
+    "tap connection-settings" "clock +2500 real" "screenshot $O/fu5-settings.png window" \
+    "type t3-code key Meta+k" "clock +1500 real" "screenshot $O/fu5-palette.png window" \
+    "type palette-input key Escape" "clock +2000 real" "screenshot $O/fu5-after-escape.png window" \
+    > $O/drive.jsonl 2> $O/drive.err
+
+send-message aria-keyshortcuts with the Files comment draft focused (tree after typing 'audit note'):
+  before: accessibilityKeyShortcuts":"Meta+Enter Meta+Alt+Enter"
+  after: accessibilityKeyShortcuts":""
+
+Exit codes: before 0, after (final) 0; after first try 0 (FU-3 left an empty draft card: fixed by e3443c45c)
