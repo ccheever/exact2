@@ -149,6 +149,7 @@ private final class Presentation {
     let backgroundNode: NodeView?
     weak var backgroundHome: UIView?
     let backgroundHomeFrame: CGRect
+    let backgroundHomeSize: CGSize
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -170,6 +171,7 @@ private final class Presentation {
         backgroundNode = node
         backgroundHome = background.view.superview
         backgroundHomeFrame = background.view.frame
+        backgroundHomeSize = background.view.superview?.bounds.size ?? .zero
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
         self.home = home
@@ -342,7 +344,19 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         layer.backgroundHome?.addSubview(background.view)
-        background.view.frame = layer.backgroundHomeFrame
+        // The home can still have the presentation's size (the viewport was
+        // the sheet's till it is fitted again, on the next turn): the view
+        // takes the margins it had to the home, so the home growing back
+        // brings it to its frame through its flexible size, not past it by
+        // the difference (a tab bar 62 pt low under a closing sheet, then a
+        // snap back once the sheet was gone).
+        var frame = layer.backgroundHomeFrame
+        if let home = layer.backgroundHome {
+            let mask = background.view.autoresizingMask
+            if mask.contains(.flexibleWidth) { frame.size.width += home.bounds.width - layer.backgroundHomeSize.width }
+            if mask.contains(.flexibleHeight) { frame.size.height += home.bounds.height - layer.backgroundHomeSize.height }
+        }
+        background.view.frame = frame
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired

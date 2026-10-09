@@ -37,32 +37,74 @@ final class RouteController: UIViewController {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
     }
+    /// The views from this route's down to `scroll`'s parent, laid out in
+    /// turn: a node passes a new safe area down a level a layout, where
+    /// UIKit's own views pass it to every descendant at once.
+    func propagateSafeArea(to scroll: UIView) {
+        var chain: [UIView] = []
+        var at: UIView? = scroll.superview
+        while let v = at { chain.insert(v, at: 0); if v === view { break }; at = v.superview }
+        guard chain.first === view else { return }
+        for v in chain { v.setNeedsLayout(); v.layoutIfNeeded() }
+    }
     /// The scroller the bar follows (LLP 1075.003 §3.7), given to UIKit at
-    /// once when the route has been laid out in a window, or joins a stack
-    /// shown in one (`nav`, before a push: the push starts with it). A bar
+    /// once unless the route has never been laid out in a window. A bar
     /// first laid out in the window over a scroller it already follows rests
-    /// with its large title collapsed (iOS 26): a route of a stack not yet
-    /// shown (a tab's, the first at launch) takes it the turn after it is
+    /// with its large title collapsed (iOS 26), a pushed route's too: given
+    /// before its push, under its header, the bar showed the inline title
+    /// over the scroller to the push's end. A route not yet shown (a tab's,
+    /// the first at launch, a pushed `scroll`) takes it the turn after it is
     /// first laid out in, or appears in, the window (a view whose size has
     /// not changed is not laid out again), the bar laid out large and the
     /// scroller at rest under it. Not at `viewDidAppear`, which a tab's
-    /// selection animation holds back past an authored scroll.
+    /// selection animation holds back past an authored scroll. A pushed
+    /// grouped list is given as its route appears (`givesAsItAppears`).
     private(set) weak var topScroll: UIScrollView?
     private var trackQueued = false
     private var laidOut = false
-    func track(_ scroll: UIScrollView?, in nav: UINavigationController?) {
+    /// A pushed grouped list, its push held till the list was laid out
+    /// under the bar (`NavigationHost.holdsPush`): given to UIKit as its
+    /// route appears, before UIKit lays the push out, in the safe area of
+    /// the bar it is pushed from and at its top, as UIKit's own list is.
+    var givesAsItAppears = false
+    func track(_ scroll: UIScrollView?) {
         topScroll = scroll
-        let shown = nav?.view.window != nil && nav?.viewControllers.contains { ($0 as? RouteController)?.laidOut == true } == true
-        if scroll == nil || laidOut || shown { give(scroll) }
+        if scroll == nil || laidOut { give(scroll) }
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
+        #if os(iOS)
+        if givesAsItAppears, let topScroll, contentScrollView(for: .top) !== topScroll {
+            // UIKit sets the titles from there, as for its own list: on iPad
+            // it reads the list as scrolled under the pushed bar's taller
+            // large state and rests inline (LLP 1084 §6.5). No fix-up owed.
+            propagateSafeArea(to: topScroll)
+            give(topScroll)
+            settleOwed = false
+        }
+        givesAsItAppears = false
+        #endif
         queueTrack()
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         #if !os(tvOS)
         settle()
+        #endif
+    }
+    // A bar back in portrait over a `scroll` at its top stayed inline (iOS
+    // 26.5), where UIKit's own scroll view expands: its titles are set
+    // again once the rotation ends. A grouped list's collection view is
+    // UIKit's own and does as UIKit's does (inline on 26.5, large on 27.2).
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        #if !os(tvOS)
+        guard let scroll = contentScrollView(for: .top), !(scroll is GroupedScroller),
+              navigationItem.largeTitleDisplayMode == .always else { return }
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.settleOwed = true
+            DispatchQueue.main.async { self?.settle() }
+        }
         #endif
     }
     override func viewDidLayoutSubviews() {
@@ -91,14 +133,17 @@ final class RouteController: UIViewController {
     /// is owed: after the batch (a grouped list's insets follow in its own
     /// sync), once the route shows on top of its stack, the bar over a
     /// scroller at its top is sized to its large title, as the web shows a
-    /// header above content at its top in full, and over one scrolled it
-    /// sets its titles again, its large title turned off and on.
+    /// header above content at its top in full, and over one scrolled it is
+    /// laid out and, below its large height, sets its titles again, its
+    /// large title turned off and on. A bar that stops following a scroller
+    /// (a `between`) keeps its title still, and in full, as UIKit's own bar
+    /// over no scroller: one left collapsed is grown to its large title.
     private func give(_ scroll: UIScrollView?) {
         let old = contentScrollView(for: .top)
         guard old !== scroll else { return }
         setContentScrollView(scroll, for: .top)
         #if !os(tvOS)
-        settleOwed = scroll != nil && navigationItem.largeTitleDisplayMode == .always
+        settleOwed = (scroll != nil || old != nil) && navigationItem.largeTitleDisplayMode == .always
         #endif
         guard let bar = navigationController?.navigationBar else { return }
         if old != nil {
@@ -113,25 +158,54 @@ final class RouteController: UIViewController {
     private var settleOwed = false
     /// Paid on top of the stack with no push or pop in flight: a transition
     /// holds it to its end, and a route not shown to its `viewDidAppear`.
-    /// A finger on the scroller sets the titles itself.
+    /// A finger on the scroller sets the titles itself. The bar is only
+    /// ever grown to its large title: on iOS 27.2 a large bar sized to fit
+    /// at the end of a push or pop collapsed over a list at its top. With no
+    /// scroller it rests as at a scroller's top. Over a scroller at its top
+    /// the bar is laid out first: UIKit moves the large title into the
+    /// scroller when the bar is laid out over it, not when the bar is given
+    /// it, and a title left in the bar is clipped by the bar's title view (a
+    /// subtitle set at rest cut off the title's top, where UIKit's own,
+    /// in the scroller, shows whole). Over a scrolled one a bar still at its
+    /// large height stays so, as UIKit's own over a list placed a little past
+    /// its top: the large title rides up with the list (iOS 26.5, 27.2). One
+    /// below it sets its titles again: laid out only, over a list past the
+    /// large title it showed neither title (iOS 26.5).
     private func settle() {
-        guard settleOwed, let scroll = contentScrollView(for: .top), let nav = navigationController,
-              nav.topViewController === self, view.window != nil else { return }
+        guard settleOwed, let nav = navigationController, nav.topViewController === self, view.window != nil else { return }
+        let scroll = contentScrollView(for: .top)
         if let transition = nav.transitionCoordinator {
             transition.animate(alongsideTransition: nil) { [weak self] _ in DispatchQueue.main.async { self?.settle() } }
             return
         }
         settleOwed = false
-        guard !scroll.isTracking, !scroll.isDecelerating else { return }
+        if let scroll, scroll.isTracking || scroll.isDecelerating { return }
         let bar = nav.navigationBar
-        if scroll.contentOffset.y <= 0.5 - scroll.adjustedContentInset.top {
-            bar.sizeToFit()
+        if scroll.map({ $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top }) ?? true {
+            if scroll != nil {
+                bar.setNeedsLayout()
+                bar.layoutIfNeeded()
+            }
+            if bar.sizeThatFits(bar.bounds.size).height > bar.bounds.height + 0.5 { bar.sizeToFit() }
+            else if scroll == nil, !nav.isNavigationBarHidden {
+                // After a push and a pop the bar's fitting height is its
+                // current one (iOS 27.2): hidden and shown again in the same
+                // turn, it is laid out anew over no scroller, large.
+                nav.setNavigationBarHidden(true, animated: false)
+                nav.view.layoutIfNeeded()
+                nav.setNavigationBarHidden(false, animated: false)
+                nav.view.layoutIfNeeded()
+            }
         } else {
-            let mode = navigationItem.largeTitleDisplayMode
-            navigationItem.largeTitleDisplayMode = .never
+            bar.setNeedsLayout()
             bar.layoutIfNeeded()
-            navigationItem.largeTitleDisplayMode = mode
-            bar.layoutIfNeeded()
+            if bar.bounds.height < bar.intrinsicContentSize.height - 0.5 {
+                let mode = navigationItem.largeTitleDisplayMode
+                navigationItem.largeTitleDisplayMode = .never
+                bar.layoutIfNeeded()
+                navigationItem.largeTitleDisplayMode = mode
+                bar.layoutIfNeeded()
+            }
         }
     }
     #endif
@@ -435,7 +509,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         nativeMoved = false; settled = false
         syncing = true
         defer { syncing = false; presenter.flushPendingFocus() }
-        guard let p = projection(batch) else { settled = true; return }
+        guard let p = projection(batch) else { settled = true; heldPush = nil; return }
+        // A held route no longer wanted is not pushed later.
+        if let held = heldPush, !p.wanted.contains(where: { $0.contains { $0 === held.route } }) { heldPush = nil }
         let root = p.root, wanted = p.chosen
         let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
         reshape(p)
@@ -465,7 +541,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
                 let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
                     && !nav.viewControllers.contains { $0 === stack.last }
-                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
+                let animated = (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil
+                if animated, let top = stack.last, holdsPush(top, in: nav) {
+                    pendingSync = true
+                    continue
+                }
+                nav.setViewControllers(stack, animated: animated)
                 recordOwned(nav)
             }
             nav.view.layoutIfNeeded()
@@ -510,6 +591,49 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         reportCovers()
         refitForBars()
         settled = true
+        // A held push goes once the covers this batch reported are laid out.
+        if heldPush != nil { presenter.afterBatch { [weak self] in self?.releaseHeldPush() } }
+    }
+
+    /// An animated push of a route whose large title collapses with a
+    /// grouped list waits till the list is built and laid out under the bar,
+    /// its header in the bar taking no room (LLP 1084 §6.5): UIKit lays a
+    /// push out over the list it pushes, inset by the bar it is pushed from,
+    /// and on iPad rests inline where the pushed bar's large state is taller.
+    /// A list made after the push showed the large title there. At most two
+    /// turns. A `scroll` is not held: UIKit's own scroll view pushes large
+    /// either way, and one of Exact's given as it appeared went inline.
+    var heldPush: (route: RouteController, nav: UINavigationController, turns: Int)?
+    private func holdsPush(_ top: RouteController, in nav: UINavigationController) -> Bool {
+        #if os(iOS)
+        guard !nav.viewControllers.contains(where: { $0 === top }), let node = top.collapseScroll,
+              node.kind == "list", node.props["listStyle"] != nil, let lists = presenter.groupedLists,
+              top.navigationItem.largeTitleDisplayMode == .always else { heldPush = nil; return false }
+        let header = top.lifted?.bounds.height ?? 0
+        let scroll = lists.scroller(for: node.id)
+        let ready = header < 0.5 && scroll != nil
+        let turns = heldPush?.route === top ? heldPush!.turns : 0
+        if ready || turns >= 2 {
+            heldPush = nil
+            top.givesAsItAppears = true
+            return false
+        }
+        if heldPush?.route !== top { heldPush = (top, nav, 0) }
+        presenter.requestProjectionSync()
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// The held push goes once its list is laid out: after the batch that
+    /// reported its covers, or with the projection sync that builds a list
+    /// whose model was busy in the batch.
+    func releaseHeldPush() {
+        guard var held = heldPush, pendingSync, !changing, !syncing, !presenter.applying, !presenter.modals.inTransition else { return }
+        held.turns += 1
+        heldPush = held
+        sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
     }
 
     /// The container standing in for the routes paints where they are in
@@ -923,6 +1047,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         routeIDs = []
         changing = false
         pendingSync = false
+        heldPush = nil
         interactiveSource = nil
         interactiveTransition = false
         lastTransition = "idle"

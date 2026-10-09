@@ -468,7 +468,7 @@ extension NavigationHost {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
-            collapse(c, shape: shape, scroll: scroll, in: nav)
+            collapse(c, shape: shape, scroll: scroll)
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
@@ -609,7 +609,7 @@ extension NavigationHost {
     /// where the browser's does while the bar's height changes. An inline
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change.
-    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?, in nav: UINavigationController) {
+    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
         let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
@@ -631,7 +631,7 @@ extension NavigationHost {
         }
         c.collapseScroll = target
         if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        c.track(target.flatMap(shownScroll), in: nav)
+        c.track(target.flatMap(shownScroll))
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -639,9 +639,13 @@ extension NavigationHost {
     /// The view that scrolls in a node's place: a grouped list's collection
     /// view over its hidden authored scroll (LLP 1084 D8), else the node's
     /// own. UIKit puts a large title inside the scroller it tracks (iOS
-    /// 26), so a hidden one would hide the title.
+    /// 26), so a hidden one would hide the title. A list not made yet has
+    /// none until `trackGroupedLists`: given the hidden scroll first, a
+    /// pushed route changed scroller as its push began, and the bar laid out
+    /// then showed the inline title over the large one to the push's end.
     private func shownScroll(of node: NodeView) -> UIScrollView? {
-        (node.kind == "list" && node.props["listStyle"] != nil ? presenter.groupedLists?.scroller(for: node.id) : nil) ?? node.scroll
+        guard node.kind == "list", node.props["listStyle"] != nil, let lists = presenter.groupedLists else { return node.scroll }
+        return lists.scroller(for: node.id)
     }
 
     /// After a batch's grouped lists are built (`groupedLists.sync`, which
@@ -650,7 +654,7 @@ extension NavigationHost {
     func trackGroupedLists() {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             guard let node = c.collapseScroll, let shown = shownScroll(of: node), c.topScroll !== shown else { continue }
-            c.track(shown, in: c.navigationController)
+            c.track(shown)
         }
     }
 
@@ -784,7 +788,17 @@ extension NavigationHost {
         var wanted: [UInt32: HostCover] = [:]
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
-            guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A held push's route (`holdsPush`): its header goes into the bar
+            // before the push, so its list is laid out under it.
+            let held = heldPush?.route === c ? heldPush?.nav : nil
+            // A route a pop takes away: UIKit takes it off its stack (its
+            // `navigationController` is nil) as the pop begins and keeps its
+            // layout to the pop's end. Uncovered, its header moved its list
+            // under a bar that did not move, and after a cancelled swipe that
+            // bar showed no title (iPad, LLP 1084 §6.5).
+            let leaving = allNavigations.first { !$0.viewControllers.contains(c) && $0.transitionCoordinator?.viewController(forKey: .from) === c }
+            guard let nav = held ?? leaving ?? c.navigationController,
+                  held != nil || leaving != nil || nav.viewControllers.contains(c) else { continue }
             let shows = barShows(nav)
             guard shows || whole else { continue }
             if let header = c.lifted { wanted[header.id] = .whole }

@@ -39,6 +39,8 @@ package final class Presenter {
                 groupedLists.sync(changed: [])
                 navigation.trackGroupedLists()
             }
+            // A push held for a list built here goes now.
+            navigation.releaseHeldPush()
             segments.sync()
             controls.sync()
         }
