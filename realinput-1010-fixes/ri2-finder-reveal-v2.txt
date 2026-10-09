@@ -1,0 +1,37 @@
+realinput-1010-fixes RI-2, review round 1: the helper row's click now runs the reveal the way the reference does,
+from the active app. Status: implemented, NOT verified (real-input batch step 2 decides).
+
+Reference (T3 Code 1e2ecbd975, apps/desktop/src/permissions/MacPermissionHelper.ts:100-117, 145-148): the helper is an
+ordinary focusable BrowserWindow (shown with showInactive). A click on it makes T3 Code the active app, then the row's
+"finder" message runs Electron.shell.showItemInFolder(bundle), an NSWorkspace reveal asked by the active app: Finder
+comes to the front, and the helper hides on its next sync (System Settings no longer frontmost, :165-168).
+
+Clone before this round (3be705a83, T3PermissionHelper.swift:76-86): the panel is non-activating, so T3 Code is not the
+active app at the click; it called yieldActivation(to: Finder), activateFileViewerSelecting, then
+NSRunningApplication(Finder).activate(options: []). Under macOS 14+ cooperative activation, a yield or an activation
+request from an app that is not active may be ignored; the only test was a call order on fakes.
+
+Clone after (T3PermissionHelper.swift:72-92):
+    struct T3FinderReveal {
+        var activateSelf: () -> Void = { if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) } }
+        var yield: (String) -> Void = { NSApp.yieldActivation(toApplicationWithBundleIdentifier: $0) }
+        var select: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+        var activate: (String) -> Void = { _ = NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.activate(options: []) }
+        func reveal(_ url: URL) { activateSelf(); yield(Self.finder); select(url); activate(Self.finder) }
+    }
+  The click activates T3 Code as the reference's click on its window does (the same self-activation call the helper's
+  finish already uses, returnTo, which the attended run saw bring T3 Code front); T3 Code, now active, yields to
+  Finder, asks for the reveal and asks Finder to activate. Showing the panel and dragging from it still never activate
+  T3 Code, so System Settings stays frontmost during a drag (the #359 drag rows that passed are unchanged).
+  The doc comment no longer claims Finder is activated "once its window is open": nothing waits for Finder's window.
+
+AppKit test (macos/tests/snapshot/permission-helper.swift), after:
+  expect(steps == ["activate T3 Code", "yield com.apple.finder", "select /Applications/T3 Code (Exact).app",
+                   "activate com.apple.finder"], ...)
+  -> "54 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)", exit 0.
+  This checks the call order only. It does not show Finder coming to the front.
+
+Not verifiable here: activation is the window server's decision; the screen is locked and agent mode has no System
+Settings. Real-input batch step 2 (task record) reads the front app after a real click. One possible difference to
+watch there: a programmatic activation may bring T3 Code's main window forward with it (a click on the reference's
+helper brings only the helper), so the step records whether T3 Code's main window ends above System Settings.
