@@ -19,6 +19,7 @@ private final class T3ComposerContainer: UIView {
 final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoint {
     private let root = T3ComposerContainer()
     private weak var voice: T3MobileVoiceEditor?
+    private weak var operations: T3MobileComposerOperations?
     private var editor: T3MobileOwnedComposerView?
     private var state: T3ComposerProtocolState?
     private var control: T3ComposerControl?
@@ -28,15 +29,21 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     private var alive = true
     private var applying = false
     private var voiceOwner = ""
+    private var terminalCommand: T3ComposerReplace?
+    private var terminalEnvelope: [String: Any]?
     override var view: UIView { root }
     override var focusTarget: UIView? { editor?.textView }
     var composerIdentity: T3ComposerIdentity? { state?.identity }
     var composerSnapshot: T3ComposerSnapshot? { editor?.sourceSnapshot() }
     var composerEventCount: Int { state?.count ?? 0 }
-    var composerMounted: Bool { alive && root.window != nil && state?.readyAcknowledged == true }
+    var composerMounted: Bool {
+        alive && root.window != nil && state?.readyAcknowledged == true && control?.active == true
+            && control?.editable == true && control?.readOnly == false && UIApplication.shared.applicationState == .active
+    }
 
-    init(voice: T3MobileVoiceEditor, events: ExactNativeEvents) {
+    init(voice: T3MobileVoiceEditor, operations: T3MobileComposerOperations? = nil, events: ExactNativeEvents) {
         self.voice = voice
+        self.operations = operations
         super.init(events: events)
         root.isAccessibilityElement = false
     }
@@ -53,6 +60,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         guard next.identity == state.identity else { return }
         let acknowledged = state.acknowledge(next)
         self.state = state; control = next
+        if state.terminalID.isEmpty { terminalCommand = nil; terminalEnvelope = nil }
         configureInteraction(next, acknowledged: acknowledged)
         guard acknowledged else { return }
         editor.textView.adoptPasteURIs(next.adoptedPasteURIs ?? [])
@@ -61,7 +69,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         configurePresentation(next.presentation, editor: editor)
         applying = false
         if let command = next.command {
-            handle(command, control: next)
+            _ = try? applyInvocation(identity: next.identity, command: command)
         } else if next.acknowledgedEventCount == self.state?.count, editor.textView.markedTextRange == nil {
             applying = true
             setDocument(next.document, editor: editor)
@@ -88,6 +96,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         bind(editor)
         voiceOwner = next.voiceOwner ?? next.owner
         voice?.register(self, owner: voiceOwner)
+        operations?.register(self)
         emit("ready", allowUnacknowledged: true)
     }
 
@@ -127,32 +136,63 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
     // Separate source-rich callback channel. Parent must integrate explicit handlers before activation.
     private func rich(_ kind: String, from sender: T3MobileOwnedComposerView?, payload: [String: Any]) {
-        guard alive, !applying, let sender, sender === editor, let state, state.readyAcknowledged,
+        guard alive, !applying, let sender, sender === editor, var state, state.readyAcknowledged,
               let snapshot = composerSnapshot, let identity = composerIdentity else { return }
         if kind != "contentSize", control?.active != true { return }
-        if kind.hasPrefix("paste"), control?.editable != true || control?.readOnly == true || snapshot.composing || root.window == nil { return }
-        send(["owner": identity.owner, "editorId": identity.editorId, "routeVisit": identity.routeVisit,
+        if kind.hasPrefix("paste"), control?.editable != true || control?.readOnly == true || snapshot.composing || root.window == nil || UIApplication.shared.applicationState != .active { return }
+        // A source paste can precede the JS observation of its last keystroke.
+        // Capture one complete foundation event; both channels carry identical
+        // source state and retained command outcome, never the inner view counter.
+        let observation: [String: Any]?
+        if ["pasteImages", "pasteText", "pasteContext"].contains(kind) {
+            observation = state.event("selection", snapshot: snapshot)
+            self.state = state
+        } else { observation = nil }
+        var data = payload
+        if observation != nil {
+            data.removeValue(forKey: "eventCount"); data.removeValue(forKey: "value"); data.removeValue(forKey: "selection")
+        }
+        var message: [String: Any] = ["owner": identity.owner, "editorId": identity.editorId, "routeVisit": identity.routeVisit,
             "renderEpoch": identity.renderEpoch, "mountId": identity.mountId, "eventCount": state.count,
             "kind": kind, "richEventId": UUID().uuidString, "value": snapshot.value,
             "selection": ["start": snapshot.selection.start, "end": snapshot.selection.end],
-            "composing": snapshot.composing, "focused": snapshot.focused, "payload": payload], rich: true)
+            "composing": snapshot.composing, "focused": snapshot.focused, "payload": data]
+        if let observation { message["editorEvent"] = observation; send(observation, rich: false) }
+        send(message, rich: true)
     }
 
-    private func handle(_ command: T3ComposerReplace, control: T3ComposerControl) {
-        guard var state, let editor else { return }
+    func applyInvocation(identity: T3ComposerIdentity, command: T3ComposerReplace) throws -> [String: Any] {
+        try command.validate()
+        guard alive, var state, state.identity == identity, state.readyAcknowledged,
+              let editor, let control, root.window != nil else {
+            throw T3ComposerOperationFailure("superseded", "The captured editor is no longer mounted.")
+        }
+        if !state.terminalID.isEmpty {
+            if let terminalCommand, terminalCommand.commandId == command.commandId {
+                guard terminalCommand.sameRequest(command), let terminalEnvelope else {
+                    throw T3ComposerOperationFailure("arguments", "A command identifier cannot name a different replacement.")
+                }
+                return terminalEnvelope
+            }
+            throw T3ComposerOperationFailure("busy", "Another replacement awaits acknowledgment.")
+        }
+        guard command.expected.eventCount <= state.count else {
+            throw T3ComposerOperationFailure("superseded", "The captured editor revision is unavailable.")
+        }
         let before = editor.sourceSnapshot()
         let active = control.active && control.editable && !control.readOnly && root.window != nil && UIApplication.shared.applicationState == .active
         let refusal = state.replacementRefusal(command, snapshot: before, active: active)
-        // A repeated or blocked command cannot replace the retained terminal outcome.
-        guard state.terminalID.isEmpty, command.expected.eventCount <= state.count else { return }
         if refusal == nil {
             applying = true
             editor.applyReplacement(value: command.next.value, selection: command.next.selection, tokensJson: command.next.tokensJson)
             applying = false
         }
         if let event = state.finish(command, applied: refusal == nil, reason: refusal ?? "", snapshot: editor.sourceSnapshot()) {
-            self.state = state; send(event, rich: false)
+            self.state = state; terminalCommand = command; terminalEnvelope = event
+            send(event, rich: false)
+            return event
         }
+        throw T3ComposerOperationFailure("superseded", "The replacement was already handled.")
     }
     private func setDocument(_ document: T3ComposerDocument, editor: T3MobileOwnedComposerView) {
         let selection: Any = document.selection.map { ["start": $0.start, "end": $0.end] } ?? NSNull()
@@ -209,7 +249,8 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
 
     func applyVoiceSelection(identity: T3ComposerIdentity, expectedText: String, start: Int, end: Int, revision: Int) -> Bool {
-        guard alive, composerMounted, state?.identity == identity, revision > voiceRevision,
+        guard alive, composerMounted, control?.active == true, control?.editable == true, control?.readOnly == false,
+              state?.identity == identity, revision > voiceRevision,
               let editor, editor.sourceSnapshot().value == expectedText, editor.textView.markedTextRange == nil,
               T3ComposerSelection(start: start, end: end).valid(expectedText) else { return false }
         voiceRevision = revision
@@ -218,9 +259,11 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         return true
     }
     private func retireEditor() {
+        operations?.unregister(self)
         voice?.unregister(self)
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil
         state = nil; control = nil; focusIntent = nil; presentation = nil; voiceRevision = 0; voiceOwner = ""
+        terminalCommand = nil; terminalEnvelope = nil
     }
     override func destroy() { guard alive else { return }; alive = false; retireEditor() }
 }

@@ -30,6 +30,7 @@ shape SettingsScopeEvent
   selection: string
   close: bool
 shape MobileLayout
+  displayScale: number
   safeTop: number
   safeBottom: number
   liquidGlass: bool

@@ -76,13 +76,20 @@ final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
         func answer(_ value: [String: Any] = [:]) { reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": value]) }
         if action == "status" { answer(status()); return }
         if action == "selection" {
-            do { answer(try editor.selection(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "", optional: request["optional"] as? Bool == true)) }
+            do {
+                let revision = try T3ComposerVoiceCapture.revision(request["sourceRevision"])
+                answer(try editor.selection(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "",
+                    optional: request["optional"] as? Bool == true, sourceRevision: revision))
+            } catch let failure as T3ComposerOperationFailure { reply(Self.failure(failure.kind, failure.message, request)) }
+            catch let failure as VoiceFailure { reply(Self.failure(failure.code, failure.message, request)) }
             catch { reply(Self.failure("superseded", "The draft editor changed before voice input could start.", request)) }
             return
         }
         if action == "selection-commit" {
-            editor.stage(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "",
-                start: request["start"] as? Int ?? 0, end: request["end"] as? Int ?? 0, revision: request["revision"] as? Int ?? 0)
+            guard editor.stage(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "",
+                start: request["start"] as? Int ?? 0, end: request["end"] as? Int ?? 0, revision: request["revision"] as? Int ?? 0) else {
+                reply(Self.failure("superseded", "Rich editor changes require their captured compare-and-apply command.", request)); return
+            }
             answer(); return
         }
         if action == "settings" {

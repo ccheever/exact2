@@ -1,0 +1,303 @@
+// Inactive app-owned Thread rich editor runtime. No producer or root activation.
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+import type { T3Client } from './shared/client';
+import { arr,obj,str,type Obj } from './shared/domain';
+import { ClientError,reply,type Native,type Files } from './shared/protocol';
+import { letGo } from './shared/let-go';
+import { fleet } from './shared/settings-b-fleet';
+import { mobileDraftAttachmentsOrdered } from './draft-attachment-order';
+import { draftFiles } from './shared/composer-editor-files';
+import { stage } from './shared/composer-controls';
+import { messageContext,workspaceCwd } from './shared/composer-editor';
+import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
+import { mobileComposerTarget,mobileComposerTargetCurrent } from './composer-target';
+import { mobileDraftChanged } from './draft';
+import { mobileComposerContextRead,mobileComposerContextCapture,mobileComposerContextCommit } from './composer-command-context';
+import { mobileNewTaskContextProject,type MobileMessageContext } from './mobile-new-task-context';
+import { mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
+import { mobileComposerTrigger,mobileComposerCommandRows,mobileComposerCommandReplacement,replaceTextRange,
+  resolveProviderSkillsForCwd,mobileComposerThreadRecord,mobileComposerPullRequestRecord,
+  type ComposerCommandItem,type ComposerTrigger,type ServerProvider } from './composer-command-model';
+import { mobileComposerCommandPresentation,type ComposerCommandPopover } from './composer-command-presentation';
+import { mobileComposerQueryDemand,mobileComposerQuerySnapshot,mobileComposerQueryPrepare,
+  type ComposerQueryDemand,type ComposerQueryInput,type ComposerQueryLane } from './composer-command-query';
+import { mobileComposerEditorAccept,mobileComposerEditorDecodeEvent,mobileComposerEditorStageEffect,mobileComposerEditorCommitted,
+  mobileComposerEditorControlled,mobileComposerEditorCommand,type ComposerEditorDocument,type ComposerEditorEffect } from './composer-editor-state';
+import { editorCopy,mobileEditorOwner,mobileEditorOwnerAdmit,mobileEditorOwnerRevision,mobileEditorOwnerChanged,mobileEditorCaptureIntent,
+  mobileEditorIntentCurrent,mobileEditorClaimEffect as claimOwnerEffect,type EditorOwner,type EditorRouteInput,type EditorRootEffect,type EditorIntentCapture } from './composer-editor-owner';
+export { mobileEditorCaptureIntent,mobileEditorPublishCommitted } from './composer-editor-owner';
+export type { EditorRouteInput,EditorIntentCapture } from './composer-editor-owner';
+
+export interface EditorPresentation {
+  themeJson:string; placeholder:string; fontSize:number; lineHeight:number;
+  enterBehavior:'send'|'newline'; fontFamily?:string; contentInsetVertical?:number; scrollEnabled?:boolean; autoCorrect?:boolean; spellCheck?:boolean;
+  textPasteThresholdBytes?:number; maxInputChars?:number; submitTitle?:string; alternateSubmitTitle?:string; iconUris:Record<string,string>;
+  hasCompactableConversation:boolean; offersUsageLimits:boolean; allowInteractionMode:boolean;
+  repository:string; permissionRevision:string; session?:Obj;
+}
+export interface EditorWake { key:string; dueAt:number; delayMs:number }
+export interface EditorProjection {
+  enabled:boolean; admission:string; revision:number; pendingCommandKey:string; configuration:string; menu:ComposerCommandPopover; menuRevision:string;
+  queries:{immediateKey:string;immediateAt:number;immediateClockOffset:number;path:EditorWake;pullRequests:EditorWake;discovery:EditorWake};
+  effect:EditorRootEffect|null; message:string;
+}
+export interface EditorResult { revision:number; message:string; effect:EditorRootEffect|null; admission:string }
+interface Runtime {
+  owner:EditorOwner; provider:ComposerQueryInput['provider']; presentation:EditorPresentation; confirmed:readonly ComposerInlineToken[];
+  query:ComposerQueryDemand; trigger:ComposerTrigger|null; items:ComposerCommandItem[]; menuRevision:string;
+  wakes:Record<ComposerQueryLane,EditorWake>; immediateKey:string; immediateAt:number;immediateClockOffset:number; catalog:string;
+}
+const runtimes=new WeakMap<T3Client,Runtime>();
+const emptyWake=():EditorWake=>({key:'',dueAt:0,delayMs:0});
+const closed=():ComposerCommandPopover=>({admission:'',visible:false,title:'',empty:'',rows:[]});
+const superseded=()=>new ClientError('The composer changed. Try again in the current draft.','superseded');
+const mounted=(owner:EditorOwner)=>({...owner.state.identity,mountId:owner.state.mountId});
+function provider(client:T3Client):ComposerQueryInput['provider'] {
+  const value=arr(client.config.providers).find(p=>p.instanceId===client.providerId);
+  return value?{...editorCopy(value),instanceId:str(value.instanceId),driver:str(value.driver),skills:arr(value.skills),slashCommands:arr(value.slashCommands)} as unknown as ServerProvider&{instanceId:string}:null;
+}
+function current(client:T3Client,runtime:Runtime):boolean {
+  return runtimes.get(client)===runtime && mobileEditorOwner(client)===runtime.owner && runtime.owner.route.active
+    && mobileComposerTargetCurrent(client,runtime.owner.target)
+    && runtime.catalog===mobileCacheCatalogIdentity(fleet.saved,client.environmentId);
+}
+function requireCurrent(client:T3Client,runtime:Runtime):void {if(!current(client,runtime))throw superseded()}
+function context(client:T3Client,owner:EditorOwner,value=owner.state.value,added?:Obj):MobileMessageContext|undefined {
+  const saved=mobileComposerContextRead(client,owner.target.key,value);if(!saved.ok)throw new ClientError(saved.error,'retained');
+  const records=new Map<string,Obj>();
+  for(const record of [...arr(messageContext(client,value)?.records),...(saved.context?.records??[]),...(added?[added]:[])])records.set(str(record.contextId),record);
+  return records.size?{version:1,records:[...records.values()]}:undefined;
+}
+function clipboardAttachments(client:T3Client,key:string) {
+  return mobileDraftAttachmentsOrdered(client,key,[...(client.local.snapshotDrafts[key]??[]).map(image=>({id:str(image.id),
+    uploadedAttachmentId:str(image.uploadId)||undefined,uploadEnvironmentId:str(image.uploadId)?client.environmentId:undefined})),
+    ...draftFiles(client.local).filter(file=>file.draftKey===key&&file.environmentId===client.environmentId).map(file=>({id:file.id,
+      uploadedAttachmentId:file.attachmentId,uploadEnvironmentId:file.attachmentId?file.environmentId:undefined}))]);
+}
+function document(client:T3Client,runtime:Runtime,value=runtime.owner.state.value,added?:Obj,displayOnly=false) {
+  const p=runtime.presentation,source=runtime.provider??provider(client),cwd=workspaceCwd(client);
+  let records:MobileMessageContext|undefined;
+  try{records=context(client,runtime.owner,value,added)}catch(error){
+    if(!displayOnly)throw error;runtime.owner.error=error instanceof Error?error.message:'This draft context is unavailable.';
+  }
+  return mobileComposerDocument({value,context:records,environmentId:client.environmentId,
+    attachments:clipboardAttachments(client,runtime.owner.target.key),skills:source?resolveProviderSkillsForCwd(source,cwd):[],confirmedTokens:runtime.confirmed,
+    iconUri:path=>p.iconUris[mobileComposerFileIcon(path)]??null});
+}
+function reconcile(client:T3Client,runtime:Runtime,now:number,wallTime=Date.now()):void {
+  requireCurrent(client,runtime);
+  const owner=runtime.owner,p=runtime.presentation,state=owner.state,cwd=workspaceCwd(client);
+  const trigger=mobileComposerTrigger(state.value,state.selection,!owner.route.readOnly&&!owner.route.voiceBusy&&state.focused,state.composing);
+  runtime.trigger=trigger;
+  const selected=provider(client);
+  const input:ComposerQueryInput={...mounted(owner),documentRevision:state.eventCount,prompt:state.value,
+    active:!!state.mountId&&!owner.route.readOnly&&!owner.route.voiceBusy,environmentId:client.environmentId,cwd,projectId:client.projectId,
+    repository:p.repository,provider:selected,trigger,permissionRevision:p.permissionRevision,...(p.session?{session:p.session}:{})};
+  runtime.query=mobileComposerQueryDemand(client,input,now);
+  const query=mobileComposerQuerySnapshot(client,runtime.query.admission,now);
+  runtime.provider=query.provider??selected;
+  runtime.items=mobileComposerCommandRows({trigger,selectedProviderStatus:query.provider??selected,projectCwd:cwd||null,hasThread:true,
+    hasCompactableConversation:p.hasCompactableConversation,offersUsageLimits:p.offersUsageLimits,allowInteractionMode:p.allowInteractionMode,
+    environmentId:client.environmentId,currentThreadId:client.threadId,threadShells:client.shell.threads.map(t=>({environmentId:client.environmentId,
+      id:str(t.id),title:str(t.title),updatedAt:str(t.updatedAt),archivedAt:typeof t.archivedAt==='string'?t.archivedAt:null})),
+    pathEntries:query.pathEntries,pullRequestEntries:query.pullRequests});
+  runtime.menuRevision=JSON.stringify([owner.admission,runtime.query.admission,state.eventCount,trigger,runtime.items,p.allowInteractionMode]);
+  const identity=JSON.stringify(mounted(owner));
+  const identities:Record<ComposerQueryLane,string>={
+    path:JSON.stringify([identity,'path',client.environmentId,cwd,trigger?.kind==='path'?trigger.query.trim():'',p.permissionRevision]),
+    pullRequests:JSON.stringify([identity,'pullRequests',trigger?.kind==='pull-request'?trigger.query:null]),
+    discovery:JSON.stringify([identity,'discovery',runtime.query.discovery.key])};
+  for(const lane of ['path','pullRequests','discovery'] as const){const due=runtime.query[lane];
+    runtime.wakes[lane]=due.key&&due.delayMs>0?{key:identities[lane],dueAt:due.dueAt,delayMs:due.delayMs}:emptyWake()}
+  const immediate=(['path','pullRequests','discovery'] as const).flatMap(lane=>{
+    const due=runtime.query[lane];return due.key&&due.delayMs===0?[[lane,due.key]]:[]});
+  const nextImmediate=immediate.length?JSON.stringify([runtime.query.admission,immediate]):'';
+  if(nextImmediate!==runtime.immediateKey){runtime.immediateKey=nextImmediate;runtime.immediateAt=now;runtime.immediateClockOffset=now-wallTime}
+}
+function empty(client:T3Client):EditorProjection {
+  return {enabled:false,admission:'',revision:mobileEditorOwnerRevision(client),pendingCommandKey:'',configuration:'',menu:closed(),menuRevision:'',
+    queries:{immediateKey:'',immediateAt:0,immediateClockOffset:0,path:emptyWake(),pullRequests:emptyWake(),discovery:emptyWake()},effect:null,message:''};
+}
+/** Pure IO-free projection may observe an event; only Action claims its effects. */
+export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawLatch:string,presentation:EditorPresentation,now:number,wallTime=Date.now()):EditorProjection {
+  const target=mobileComposerTarget(client),catalog=mobileCacheCatalogIdentity(fleet.saved,client.environmentId);
+  const prior=runtimes.get(client),owner=mobileEditorOwnerAdmit(client,target,route,catalog);
+  if(!owner){
+    if(prior){mobileComposerQueryDemand(client,{...mounted(prior.owner),documentRevision:prior.owner.state.eventCount,prompt:prior.owner.state.value,
+      active:false,environmentId:prior.owner.target.environmentId,cwd:'',projectId:'',repository:'',provider:null,trigger:null,permissionRevision:''},now)}
+    runtimes.delete(client);return empty(client);
+  }
+  let runtime=prior;
+  if(!runtime || runtime.owner!==owner){runtime={owner,provider:null,presentation:editorCopy(presentation),confirmed:[],query:{revision:0,admission:'',path:emptyWake(),pullRequests:emptyWake(),discovery:emptyWake()},
+    trigger:null,items:[],menuRevision:'',wakes:{path:emptyWake(),pullRequests:emptyWake(),discovery:emptyWake()},immediateKey:'',immediateAt:now,immediateClockOffset:now-wallTime,catalog};runtimes.set(client,runtime)}
+  runtime.presentation=editorCopy(presentation);
+  if(rawLatch){const accepted=mobileComposerEditorAccept(owner.state,rawLatch);if(accepted.accepted)owner.state=accepted.state}
+  reconcile(client,runtime,now,wallTime);
+  let tokensJson='[]',clipboardFragment='';
+  try {const doc=document(client,runtime,owner.state.value,undefined,true);runtime.confirmed=doc.confirmedTokens;tokensJson=doc.tokensJson;clipboardFragment=doc.clipboardFragment}
+  catch(error){owner.error=error instanceof Error?error.message:'This draft context is unavailable.'}
+  const query=mobileComposerQuerySnapshot(client,runtime.query.admission,now),control=mobileComposerEditorControlled(owner.state,tokensJson);
+  // This increment dispatches commands through invocation-owned CAS, not render effects.
+  const configuration=JSON.stringify({...control,command:null,active:route.active,editable:!route.readOnly&&!route.voiceBusy,readOnly:route.readOnly||route.voiceBusy,
+    focusIntent:route.focusIntent,voiceOwner:target.editorOwner,presentation:{themeJson:presentation.themeJson,placeholder:presentation.placeholder,
+      fontSize:presentation.fontSize,lineHeight:presentation.lineHeight,enterBehavior:presentation.enterBehavior,clipboardFragment,
+      fontFamily:presentation.fontFamily??'DMSans-Regular',contentInsetVertical:presentation.contentInsetVertical??0,scrollEnabled:presentation.scrollEnabled??true,
+      autoCorrect:presentation.autoCorrect??true,spellCheck:presentation.spellCheck??true,textPasteThresholdBytes:presentation.textPasteThresholdBytes??0,maxInputChars:presentation.maxInputChars??1_000_000,
+      ...(presentation.submitTitle!==undefined?{submitTitle:presentation.submitTitle}:{}),...(presentation.alternateSubmitTitle!==undefined?{alternateSubmitTitle:presentation.alternateSubmitTitle}:{})}});
+  const menu=mobileComposerCommandPresentation({admission:owner.admission,trigger:runtime.trigger?.kind??null,items:runtime.items,
+    loading:runtime.trigger?.kind==='path'?query.pathPending:query.pullRequestsPending,error:runtime.trigger?.kind==='pull-request'?query.pullRequestsError||null:null,voiceBusy:route.voiceBusy});
+  if(owner.dismissed===runtime.menuRevision)menu.visible=false;
+  return {enabled:true,admission:owner.admission,revision:client.revision+owner.state.revision+mobileEditorOwnerRevision(client)+query.revision,
+    pendingCommandKey:owner.pending?.id??'',configuration,menu,menuRevision:runtime.menuRevision,queries:{immediateKey:runtime.immediateKey,immediateAt:runtime.immediateAt,immediateClockOffset:runtime.immediateClockOffset,...editorCopy(runtime.wakes)},effect:editorCopy(owner.effects[0]??null),message:owner.error};
+}
+function result(client:T3Client,runtime:Runtime,message=''):EditorResult {
+  return {revision:client.revision+runtime.owner.state.revision+mobileEditorOwnerRevision(client),message,
+    effect:editorCopy(runtime.owner.effects[0]??null),admission:runtime.owner.admission};
+}
+/** Synchronous prefix reduces newest text and command effects before persistence awaits. */
+async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Files):Promise<EditorResult> {
+  requireCurrent(client,runtime);const owner=runtime.owner,effect=owner.state.latestEffect;
+  let saving:Promise<{revision:number;message:string}>|null=null,needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown;
+  try {
+  if(effect && owner.state.stagedEventCount<effect.event.eventCount){
+    if(effect.writeText){
+      saving=mobileDraftChanged(client,owner.state.value,native,storage,owner.target.owner);
+      if((client.local.drafts[owner.target.key]??'')!==owner.state.value)throw new ClientError('This editor cannot replace the current answer.','retained');
+    }
+    const claimed=mobileComposerEditorStageEffect(owner.state,effect.id);owner.state=claimed.state;staged=claimed.effect;
+    if(staged)owner.document.selection={...owner.state.selection};
+    if(staged && ['focus','blur','submit'].includes(staged.event.kind)){
+      const rootEffect:EditorRootEffect={id:staged.id,kind:staged.event.kind as EditorRootEffect['kind'],payload:JSON.stringify({...mounted(owner),eventCount:staged.event.eventCount,documentRevision:owner.document.revision,value:owner.state.value,alternate:staged.event.alternate??false})};
+      if(rootEffect.kind==='submit'){
+        if(owner.effects.some(item=>item.kind==='submit'))owner.error='A previous submit action is still waiting. Keep this draft.';
+        else owner.effects.push(rootEffect);
+      }else{owner.effects=owner.effects.filter(item=>item.kind==='submit');owner.effects.push(rootEffect)}
+    }
+  }
+  const terminal=owner.state.commandEffect;
+  if(terminal){
+    const pending=owner.pending;
+    if(!pending || pending.id!==terminal.event.commandId || pending.revision!==terminal.event.commandRevision)throw superseded();
+    if(terminal.event.kind==='commandApplied'){
+      if(pending.added){const guard=mobileComposerContextCapture(client,mobileComposerTarget(client));
+        if(!guard || !mobileComposerContextCommit(client,guard,owner.state.value,pending.added))throw new ClientError('The context could not be retained. Keep this draft.','retained');needsSave=true}
+      if(pending.mode){
+        if(pending.settings===settings(client,runtime)){stage(client,{interactionMode:pending.mode});client.revision++;needsSave=true}
+        else owner.error='The model or mode changed before this selection finished. Keep the current choice.';
+      }
+    }
+    const claimed=mobileComposerEditorStageEffect(owner.state,terminal.id);owner.state=claimed.state;if(claimed.effect)owner.pending=null;
+  }
+  }catch(error){prefixError=error}
+  if(saving){const answer=await saving;requireCurrent(client,runtime);if(answer.message)throw new ClientError(answer.message)}
+  else if(needsSave){await client.persist(storage);requireCurrent(client,runtime)}
+  if(prefixError!==undefined)throw prefixError;
+  if(staged)owner.state=mobileComposerEditorCommitted(owner.state,staged);
+  return result(client,runtime);
+}
+function settings(client:T3Client,runtime:Runtime):string{return JSON.stringify([client.providerId,client.modelId,client.interactionMode,runtime.presentation.allowInteractionMode])}
+function actionRuntime(client:T3Client,route:EditorRouteInput):Runtime {
+  const runtime=runtimes.get(client),owner=runtime?.owner;
+  if(!runtime || !owner || !route.active || route.routeVisit!==owner.route.routeVisit || route.editorId!==owner.route.editorId
+    || route.environmentId!==owner.target.environmentId || route.threadId!==owner.target.threadId)throw superseded();
+  requireCurrent(client,runtime);owner.route=editorCopy(route);return runtime;
+}
+async function invokeCommand(client:T3Client,runtime:Runtime,native:Native,storage:Files):Promise<EditorResult> {
+  requireCurrent(client,runtime);const command=runtime.owner.state.pendingCommand;
+  if(!command || !runtime.owner.pending)throw superseded();
+  const response=reply(await native.later({op:'composerEditorApply',generation:runtime.owner.target.generation,identity:mounted(runtime.owner),command}));
+  requireCurrent(client,runtime);
+  if(!response.ok)throw new ClientError(response.error?.message||'The editor could not apply the change.',response.error?.kind||'protocol');
+  if(response.generation!==runtime.owner.target.generation)throw superseded();
+  const terminal=mobileComposerEditorDecodeEvent(obj(response.value).event);
+  if(!terminal || terminal.commandId!==command.commandId || terminal.commandRevision!==command.commandRevision
+    || terminal.owner!==command.owner || terminal.editorId!==command.editorId || terminal.routeVisit!==command.routeVisit
+    || terminal.renderEpoch!==command.renderEpoch || terminal.mountId!==command.mountId)throw superseded();
+  const accepted=mobileComposerEditorAccept(runtime.owner.state,terminal);
+  if(accepted.accepted)runtime.owner.state=accepted.state;
+  else {
+    // A later reservation is possible only after this command's terminal was ACKed.
+    const state=runtime.owner.state;
+    if(state.ackCommandId===command.commandId || state.lastCommandRevision>command.commandRevision && state.issuedCommandIds.includes(command.commandId))return result(client,runtime);
+    throw superseded();
+  }
+  return consume(client,runtime,native,storage);
+}
+/** Reserve all plain effects before native dispatch. No settings or context change
+ * occurs merely because a caller requested a replacement. */
+export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIntentCapture,next:ComposerEditorDocument,
+  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null):Promise<EditorResult> {
+  const runtime=runtimes.get(client);if(!runtime || !mobileEditorIntentCurrent(client,capture))throw superseded();
+  requireCurrent(client,runtime);const owner=runtime.owner;
+  if(owner.route.readOnly || owner.route.voiceBusy || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
+  const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,added));
+  if(!prospective.ok)throw new ClientError(prospective.error,'retained');
+  const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
+  const reserved=mobileComposerEditorCommand(owner.state,id,revision,{...next,tokensJson:doc.tokensJson});
+  if(!reserved.command)throw superseded();
+  owner.pending={id,revision,...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture)};
+  owner.state=reserved.state;
+  return invokeCommand(client,runtime,native,storage);
+}
+export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
+  action:'event'|'rich'|'pick'|'dismiss'|'retry',payload:string,native:Native,storage:Files,clock:()=>number=Date.now):Promise<EditorResult> {
+  const runtime=actionRuntime(client,route),owner=runtime.owner;
+  try {
+    if(action==='rich')throw new ClientError('Rich paste and context actions are not integrated yet.','unsupported');
+    if(action==='event'){
+      const accepted=mobileComposerEditorAccept(owner.state,payload);if(!accepted.accepted)throw superseded();owner.state=accepted.state;
+      return await consume(client,runtime,native,storage);
+    }
+    if(action==='retry'){
+      if(payload!==owner.pending?.id)throw superseded();return await invokeCommand(client,runtime,native,storage);
+    }
+    reconcile(client,runtime,clock());
+    if(action==='dismiss'){if(payload!==runtime.menuRevision)throw superseded();owner.dismissed=runtime.menuRevision;return result(client,runtime)}
+    let requested:Obj;try{requested=obj(JSON.parse(payload))}catch{throw superseded()}
+    if(requested.admission!==owner.admission || requested.menuRevision!==runtime.menuRevision || owner.dismissed===runtime.menuRevision)throw superseded();
+    const item=runtime.items.find(row=>row.id===requested.id),trigger=runtime.trigger;
+    if(!item || !trigger || owner.route.readOnly || owner.route.voiceBusy)throw superseded();
+    let added:Obj|undefined,text='',cursor=0,mode:'plan'|'default'|null=null;
+    if(item.type==='thread' || item.type==='pull-request'){
+      added=obj(item.type==='thread'?mobileComposerThreadRecord(item.thread,item.label)
+        :mobileComposerPullRequestRecord(item.pullRequest,`pr_${owner.state.identity.renderEpoch.replace(/-/g,'_')}_${++owner.serial}`));
+      const insertion=formatComposerContextReference({kind:str(added.kind),contextId:str(added.contextId),label:str(added.label)})+' ';
+      ({text,cursor}=replaceTextRange(owner.state.value,trigger.rangeStart,trigger.rangeEnd,insertion));
+    }else{
+      const replacement=mobileComposerCommandReplacement({draftMessage:owner.state.value,trigger,item,allowInteractionMode:runtime.presentation.allowInteractionMode});
+      if(!replacement)throw superseded();({text,cursor}=replacement);mode=replacement.interactionMode;
+    }
+    const capture=mobileEditorCaptureIntent(client,owner.target,'suggestion');if(!capture)throw superseded();
+    return await mobileEditorRequestIntent(client,capture,{value:text,selection:{start:cursor,end:cursor}},added,native,storage,mode);
+  }catch(error){if(letGo(error))throw error;requireCurrent(client,runtime);owner.error=error instanceof Error?error.message:'Could not update the composer.';mobileEditorOwnerChanged(client);return result(client,runtime,owner.error)}
+}
+/** Timer identity is source debounce identity; request scope is resolved only when
+ * this still-current timer fires. PR project changes do not restart its query timer. */
+export async function mobileEditorQueryWake(client:T3Client,key:string,native:Native,clock:()=>number=Date.now):Promise<{revision:number}> {
+  const runtime=runtimes.get(client);if(!runtime)throw superseded();requireCurrent(client,runtime);
+  const lane=(['path','pullRequests','discovery'] as const).find(name=>runtime.wakes[name].key===key && !!key);
+  if(!lane || clock()<runtime.wakes[lane].dueAt)return {revision:runtime.query.revision};
+  reconcile(client,runtime,clock());
+  // The wake can turn immediate at its deadline; its admitted request remains current.
+  const answer=await mobileComposerQueryPrepare(client,runtime.query.admission,lane,runtime.query[lane].key,native,clock);
+  requireCurrent(client,runtime);return answer;
+}
+export async function mobileEditorPrepareImmediate(client:T3Client,admission:string,key:string,native:Native,clock:()=>number=Date.now):Promise<{revision:number}> {
+  const runtime=runtimes.get(client);if(!runtime || runtime.owner.admission!==admission)throw superseded();requireCurrent(client,runtime);
+  if(!key || key!==runtime.immediateKey)return {revision:runtime.query.revision};
+  const expected=runtime.query.admission;const due=(['path','pullRequests','discovery'] as const).filter(lane=>runtime.query[lane].key&&runtime.query[lane].delayMs===0);
+  // Independent reads share this invocation only. Await every result before returning.
+  let abandoned:unknown;
+  const check=()=>{if(abandoned!==undefined)throw abandoned;requireCurrent(client,runtime)};
+  const guarded:Native={available:native.available,watch(topic){check();native.watch(topic)},async later(input){
+    check();try{const value=await native.later(input);check();return value}catch(error){if(letGo(error)&&abandoned===undefined)abandoned=error;throw error}}};
+  const results=await Promise.allSettled(due.map(lane=>mobileComposerQueryPrepare(client,expected,lane,runtime.query[lane].key,guarded,clock)));
+  if(abandoned!==undefined)throw abandoned;
+  for(const answer of results)if(answer.status==='rejected')throw answer.reason;
+  requireCurrent(client,runtime);return {revision:mobileComposerQuerySnapshot(client,expected,clock()).revision};
+}
+
+/** Public root-effect claim rechecks actual target/catalog in addition to the leaf receipt. */
+export function mobileEditorClaimEffect(client:T3Client,admission:string,id:string):EditorRootEffect|null {
+  const runtime=runtimes.get(client);return runtime&&current(client,runtime)?claimOwnerEffect(client,admission,id):null;
+}
