@@ -1,0 +1,39 @@
+== before: browser-surface.ts at e075de6e6 (the merge), the new test
+examples/t3-code/browser-surface.test.ts:
+281 |       { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
+282 |     ], serverEpoch: 'epoch-1', revision: 1 });
+283 |     const tab1 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), tab2 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2');
+284 |     await syncNativeSessions(client, module);
+285 |     // browserSync makes each page at its CSS size × the default zoom, then browserSet gives it the default appearance.
+286 |     expect(native.map(call => call.payload)).toEqual([
+                                                   ^
+error: expect(received).toEqual(expected)
+
+@@ -12,3 +12,3 @@
+          "width": 390,
+-         "zoom": 1.25,
++         "zoom": 1,
+        },
+@@ -21,3 +21,3 @@
+          "width": 1280,
+-         "zoom": 1.25,
++         "zoom": 1,
+        },
+
+- Expected  - 2
++ Received  + 2
+
+(fail) a page made at its fixed size (#352: its first layout is the tab’s viewport) > part 4: a page the module has not reported yet is made at the default zoom, so its first layout is at it; unread settings make it at 100% [0.98ms]
+
+ 0 pass
+ 23 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [424.00ms]
+
+== after: browser-surface.ts with the default zoom in liveSessions' zoom field
+ 1 pass
+ 23 filtered out
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [129.00ms]
