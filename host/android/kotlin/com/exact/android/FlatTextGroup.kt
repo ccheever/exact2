@@ -25,13 +25,11 @@ import kotlin.math.floor
  * text leaves. Eligibility, logical parent ownership, fallback and invalidation
  * belong to Presenter; this helper owns neither layout nor application state.
  *
- * Cold groups draw public Paragraph.paint directly. Repeated dirty recordings
- * retain each Source's paragraph commands while backgrounds stay ordered here.
+ * The group retains one platform display list with text and backgrounds in order.
  */
 internal class FlatTextGroup(
     private val host: View,
     private val drawText: TextDrawer,
-    private val drawCachedText: TextDrawer,
     // True only when this host already clips the complete group to its bounds.
     private val clipsToHostBounds: () -> Boolean = { false },
     // Presenter supplies its Box.clipContents path, in Box content coordinates.
@@ -74,7 +72,6 @@ internal class FlatTextGroup(
     private var recordedHeight = -1
     private var recordedLeaves = 0
     private var recordings = 0L
-    private var recordedWithCache = false
     private var focused = NONE
     private var hovered = NONE
     private val accessibility = host.context.getSystemService(AccessibilityManager::class.java)
@@ -83,7 +80,6 @@ internal class FlatTextGroup(
     val recordedLeafCount: Int get() = recordedLeaves
     val recordingCount: Long get() = recordings
     val usingHardwareNode: Boolean get() = displayList != null
-    val cachingText: Boolean get() = recordedWithCache
 
     /** Copy order, retain the node-owned mutable descriptors. Call after a batch. */
     fun setLeaves(leaves: List<Leaf>) {
@@ -141,22 +137,18 @@ internal class FlatTextGroup(
             node.discardDisplayList()
             node.setPosition(0, 0, width, height)
             val recording = node.beginRecording(width, height)
-            // Record the cold scene directly. Only a repeatedly changed group
-            // pays for retained paragraph commands; there is no workload key.
-            val cacheText = recordings >= 2
             val completedLeaves: Int
-            try { completedLeaves = drawLeaves(recording, cacheText) }
+            try { completedLeaves = drawLeaves(recording) }
             finally { node.endRecording() }
             recordedWidth = width; recordedHeight = height
             recordedLeaves = completedLeaves
-            recordedWithCache = cacheText
             recordings++
             dirtyPaint = false
         }
         canvas.drawRenderNode(node)
     }
 
-    private fun drawLeaves(canvas: Canvas, cacheText: Boolean = false): Int {
+    private fun drawLeaves(canvas: Canvas): Int {
         // Deliberately record the complete eager group. Viewport culling here
         // would leave missing rows when ScrollView reuses this display list.
         var completedLeaves = 0
@@ -184,8 +176,7 @@ internal class FlatTextGroup(
                     }
                 }
                 canvas.translate(leaf.paddingLeft, leaf.paddingTop)
-                if (cacheText) drawCachedText.draw(leaf.id, canvas, leaf.textWidth, leaf.textColor, leaf.ellipsis)
-                else drawText.draw(leaf.id, canvas, leaf.textWidth, leaf.textColor, leaf.ellipsis)
+                drawText.draw(leaf.id, canvas, leaf.textWidth, leaf.textColor, leaf.ellipsis)
                 completedLeaves++
             } finally { canvas.restoreToCount(saved) }
         }

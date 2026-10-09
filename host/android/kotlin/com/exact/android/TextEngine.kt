@@ -2,7 +2,6 @@ package com.exact.android
 
 import android.content.Context
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.RenderNode
 import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
@@ -154,17 +153,6 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         var drawnWidth = -1
         var drawnEllipsis = false
         var richPaint: RichParagraph? = null
-        // Cache the Compose paragraph's drawing commands, never a bitmap or a
-        // second text layout. Background-only changes keep this display list.
-        var paintNode: RenderNode? = null
-        var recordedParagraph: Paragraph? = null
-        var recordedColor = 0
-        var recordedConfiguration = -1L
-        fun discardPaint() {
-            paintNode?.discardDisplayList()
-            paintNode = null
-            recordedParagraph = null
-        }
     }
     private data class Key(val source: Source, val width: Int, val ellipsis: Boolean)
     private class RichParagraph(
@@ -217,11 +205,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         source.paragraphKeys = null
     }
     private fun clearSources() {
-        for (index in 0 until sources.size()) {
-            val source = sources.valueAt(index)
-            source.discardPaint()
-            clearParagraphs(source)
-        }
+        for (index in 0 until sources.size()) clearParagraphs(sources.valueAt(index))
         sources.clear()
     }
     fun close() {
@@ -231,10 +215,10 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     fun configurationChanged() {
         configurationVersion++
         sharedTexts.clear()
-        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null; it.discardPaint() }
+        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null }
     }
     fun remove(view: Int) {
-        sources[view]?.let { source -> source.discardPaint(); clearParagraphs(source) }
+        sources[view]?.let { source -> clearParagraphs(source) }
         sources.remove(view)
         inlinePaint.remove(view); decorations.remove(view)
     }
@@ -245,7 +229,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
      */
     fun renew(view: Int) {
         decorations.remove(view)
-        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+        sources[view]?.let { it.richPaint = null }
     }
 
     /** Paint-only paragraph updates do not evict the kernel's metric answers. */
@@ -253,7 +237,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val model = InlineTextPaint.read(view, runs).takeIf { it.pieces.isNotEmpty() }
         if (inlinePaint[view] == model) return
         if (model == null) inlinePaint.remove(view) else inlinePaint.put(view, model)
-        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+        sources[view]?.let { it.richPaint = null }
     }
     /** Accessibility reads the same collapsed string as platform measurement. */
     fun paragraphText(view: Int): String? = sources[view]?.runs?.joinToString("") { it.text }
@@ -261,19 +245,19 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     fun clearParagraphPaint(view: Int) {
         if (inlinePaint[view] == null) return
         inlinePaint.remove(view)
-        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+        sources[view]?.let { it.richPaint = null }
     }
     fun setTextDecoration(view: Int, value: String) {
         val decoration = InlinePaintModel.decoration(value)
         if ((decorations[view] ?: 0) == decoration) return
         if (decoration == 0) decorations.remove(view) else decorations.put(view, decoration)
-        sources[view]?.let { it.richPaint = null; it.discardPaint() }
+        sources[view]?.let { it.richPaint = null }
     }
     /** The presenter invalidates text boxes/groups when the owner scheme changes. */
     fun setPaintDark(dark: Boolean) {
         if (paintDark == dark) return
         paintDark = dark
-        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null; it.discardPaint() }
+        for (index in 0 until sources.size()) sources.valueAt(index).let { it.richPaint = null }
     }
 
     private fun ByteBuffer.utf8(): String {
@@ -381,7 +365,6 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         if (cached != null && !cached.hasStaleResolvedFonts) return cached
         if (cached != null) {
             source.richPaint = null
-            source.discardPaint()
             source.drawn = null
             clearParagraphs(source)
         }
@@ -531,7 +514,6 @@ internal class TextEngine(private val context: Context, private val onWake: () -
                 // Old revisions cannot satisfy a future offer. Do not keep their
                 // shaped strings alive until unrelated layout offers evict them.
                 if (previous != null) {
-                    previous.discardPaint()
                     clearParagraphs(previous)
                 }
             }
@@ -563,53 +545,16 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         return metrics
     }
 
-    // Compose paint mutates its intrinsic TextPaint. Metric leases stay shared;
-    // rich paint leases belong to one source and never enter the metric index.
-    // Every main-owned draw passes the owner's current default color explicitly.
-    private fun paint(source: Source, paragraph: Paragraph, canvas: AndroidCanvas, color: Int, cachePaint: Boolean = true) {
-        if (!canvas.isHardwareAccelerated || !cachePaint) {
-            canvasHolder.drawInto(canvas) { paragraph.paint(this, Color(color)) }
-            return
-        }
-        val node = source.paintNode ?: RenderNode("Exact paragraph").apply {
-            // CSS clipping belongs to the retained box; glyph ink can overflow
-            // the paragraph's nominal bounds, just as on the direct draw path.
-            setClipToBounds(false)
-        }.also { source.paintNode = it }
-        if (source.recordedParagraph !== paragraph || source.recordedColor != color ||
-            source.recordedConfiguration != configurationVersion || !node.hasDisplayList()) {
-            node.discardDisplayList()
-            source.recordedParagraph = null
-            val width = ceil(paragraph.width.toDouble()).toInt().coerceAtLeast(1)
-            val height = ceil(paragraph.height.toDouble()).toInt().coerceAtLeast(1)
-            node.setPosition(0, 0, width, height)
-            val recording = node.beginRecording(width, height)
-            try {
-                canvasHolder.drawInto(recording) { paragraph.paint(this, Color(color)) }
-            } finally { node.endRecording() }
-            source.recordedParagraph = paragraph
-            source.recordedColor = color
-            source.recordedConfiguration = configurationVersion
-        }
-        canvas.drawRenderNode(node)
-    }
-
-    /** Promotion/demotion changes command ownership, not paragraph metrics. */
-    fun discardRecordedPaint(view: Int) { sources[view]?.discardPaint() }
-
-    /** Existing native View path retains each paragraph's drawing commands. */
+    // The native View or flattened group owns the drawing commands. Keep
+    // one platform display list rather than another RenderNode per paragraph.
     fun draw(view: Int, canvas: AndroidCanvas, width: Int, color: Int, ellipsis: Boolean = false) =
-        drawImpl(view, canvas, width, color, ellipsis, cachePaint = true)
+        drawImpl(view, canvas, width, color, ellipsis)
 
-    /** A group display list retains these commands; do not add one per source. */
-    fun drawDirect(view: Int, canvas: AndroidCanvas, width: Int, color: Int, ellipsis: Boolean = false) =
-        drawImpl(view, canvas, width, color, ellipsis, cachePaint = false)
-
-    private fun drawImpl(view: Int, canvas: AndroidCanvas, width: Int, color: Int, ellipsis: Boolean, cachePaint: Boolean) {
+    private fun drawImpl(view: Int, canvas: AndroidCanvas, width: Int, color: Int, ellipsis: Boolean) {
         val source = sources[view] ?: return
         if (ellipsis && !source.wraps()) {
             val laidOut = paintedParagraph(source, width.coerceIn(0, 32767), true)
-            paint(source, laidOut, canvas, color, cachePaint)
+            canvasHolder.drawInto(canvas) { laidOut.paint(this, Color(color)) }
             return
         }
         val used = if (source.wraps()) width else ceil(intrinsics(source).maxIntrinsicWidth.toDouble()).toInt()
@@ -621,7 +566,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val checkpoint = canvas.save()
         canvas.translate(offset, 0f)
         val laidOut = paintedParagraph(source, used.coerceIn(0, 32767))
-        paint(source, laidOut, canvas, color, cachePaint)
+        canvasHolder.drawInto(canvas) { laidOut.paint(this, Color(color)) }
         canvas.restoreToCount(checkpoint)
     }
 }

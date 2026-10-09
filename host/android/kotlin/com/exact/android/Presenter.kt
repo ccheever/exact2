@@ -256,9 +256,9 @@ internal class Presenter(
     fun textGeometries(prefix: String): List<Geometry> = (0 until nodes.size()).map { nodes.valueAt(it) }
         .filter { it.kind == "text" && it.props.optString("testId").startsWith(prefix) }
         .map { Geometry(it.key, it.kind, Rect(it.frame), it.logicalParent != null || it.rootAttached, it.flatParent != null, it.materialized) }
-    data class GroupInfo(val ids: List<Int>, val hasDisplayList: Boolean, val recordedLeafCount: Int, val recordingCount: Long, val usingHardwareNode: Boolean, val cachingText: Boolean)
+    data class GroupInfo(val ids: List<Int>, val hasDisplayList: Boolean, val recordedLeafCount: Int, val recordingCount: Long, val usingHardwareNode: Boolean)
     fun groupInfo(): List<GroupInfo> = flatParents.mapNotNull { parent -> parent.flatText?.let {
-        GroupInfo(parent.logicalChildren.toList(), it.hasDisplayList, it.recordedLeafCount, it.recordingCount, it.usingHardwareNode, it.cachingText)
+        GroupInfo(parent.logicalChildren.toList(), it.hasDisplayList, it.recordedLeafCount, it.recordingCount, it.usingHardwareNode)
     } }
     fun accessibility(testId: String): Pair<AccessibilityNodeProvider, Int>? {
         for (index in 0 until nodes.size()) {
@@ -1222,8 +1222,7 @@ internal class Presenter(
         val parent = owner?.childrenBox ?: root
         val plan = flatPlan(owner)
         if (plan == null) { materialize(owner, complete); return }
-        val group = parent.flatText ?: FlatTextGroup(parent, FlatTextGroup.TextDrawer(text::drawDirect),
-            FlatTextGroup.TextDrawer(text::draw),
+        val group = parent.flatText ?: FlatTextGroup(parent, FlatTextGroup.TextDrawer(text::draw),
             clipsToHostBounds = { parent.clipContents },
             contentClip = { view -> (view as? Box)?.accessibilityContentClip() }).also {
             parent.removeAllViews(); parent.flatText = it; flatParents.add(parent)
@@ -1231,7 +1230,6 @@ internal class Presenter(
         val retained = plan.members.toHashSet()
         for (old in groupMembers[parent].orEmpty()) if (old !in retained && old.flatParent === parent) old.detachFlat()
         for (n in plan.members) {
-            if (n.flatParent !== parent) text.discardRecordedPaint(n.key)
             n.flatParent = parent
         }
         groupMembers[parent] = plan.members
