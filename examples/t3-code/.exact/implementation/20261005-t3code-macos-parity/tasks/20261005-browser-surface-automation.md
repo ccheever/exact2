@@ -1,13 +1,13 @@
 ---
 name: 20261005-browser-surface-automation
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: partial
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-browser-surface-automation
+pr_url: https://github.com/ccheever/exact2/pull/346
 verified_commit: null
 ---
 
@@ -80,12 +80,54 @@ Standard gates as the parent's.
 
 2026-10-09: written at part 1's `prepare` (planned split). Planned; starts after part 1 merges.
 
+2026-10-09 (`prepare` and implementation, draft PR [#346](https://github.com/ccheever/exact2/pull/346)):
+
+- **Stream seam.** The previewAutomation streams ride the Swift transport's `subscribe` op: `preview-automation` and
+  `preview-events` keys, drained by `client.ts` and by the fleet drain for background environments. #126 replaces this
+  later, as the issues README plans.
+- **Vendored Playwright.** The injected script is playwright-core 1.60.0's `source3`, Apache-2.0, recorded in
+  `VENDOR.json`.
+- **WebKit mute.** There is no public page mute (`_setPageMuted:` is SPI), so the clone mutes media elements; declared.
+- **Built.**
+  - The host (`browser-automation*.ts`, `T3BrowserAutomation*.swift`): all 14 tools, per environment as
+    `PreviewAutomationHosts`, the budget carried in the plan because the data module reads no clock.
+  - Links (`browser-links.ts`): chat, PR and check, terminal, script, the setting row.
+  - Mute and the audible indicator.
+  - EXACT2-GAPS "Part 5" declared differences.
+- **Checks** after merging `d564a5c02`: the five checks pass (cargo test 3,521 passed); Bun 7,184 pass; AppKit
+  `browser-automation` 17/17.
+- **Live.** The two agent-mode sessions failed before the tool run (lane setup, then Enter not sending). The app's host
+  registration was seen in the server trace. One more session is needed (Next action).
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
+| Unit and AppKit | `45b857d3c`, then `ac610d7f2` (with `d564a5c02` merged) | Bun 7,184 pass / 0 fail (part-5 files 120); AppKit `browser-automation` 17/17 (evaluate, snapshot, native and DOM click, type, press, scroll, wait_for, status, navigate readiness, open create/reuse, host errors, colour scheme, mute/audible); part 1's `browser` 23 with one title race in the first run, 3/3 reruns clean | [AppKit](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/appkit-browser-automation.txt), [Bun names](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/bun-part5-tests.txt), [snapshot PNG](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/appkit-automation-snapshot.png) | — |
+| Five checks | `ac610d7f2` | build, test (3,521 passed, 0 failed, 34 ignored), clippy, fmt, caps, boot: all exit 0; `cargo test -p t3-code-macos --lib` 13; contract build OK (5,736 slots); strict tsc clean | [checks](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/checks.txt) | — |
+| Live session 1 (agent mode) | `7fa518900` | Failed at lane setup: no default model selection and no ACP Registry cache ("No valid cached ACP Registry index"); screenshots without `window` were blank; stopped at op 28/42 (no Browser tab to open the menu on) | [record](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-sessions.txt) | lane fixed: registry cache and default model seeded |
+| Live session 2 (agent mode, the retry) | same build | `type composer … key Enter` did not send the prompt; stopped at op 14/43. The server trace shows the app's host: `subscribePreviewEvents`, `previewAutomation.connect`, `PreviewAutomationBroker.connect`/`acquireConnection` at +1.49 s, `focusHost` at +1.55 s, `preview.list`, disconnect at quit | [record](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-sessions.txt), [trace](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-session-2-server-trace.txt), [screenshot](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/session-2-unsent.png) | one more session (coordinator go-ahead); the script now taps `send-message` |
+
+## Real-input batch steps
+
+Run these after the live session below, with the same lane (`target/bsa-lane` in the part-5 worktree: the seeded
+home, fixture server on 16751, "Lane browser agent"). Build: `target/bsa-build.sh`.
+1. **Focus give-back.** Send `e2e http://127.0.0.1:16751/form`. While the agent clicks and types in the page, click
+   the composer and type `abc`. Read back: `abc` is in the composer and not in the page's `#name` field.
+2. **Real link clicks.** In Settings › Integrations, set "Open links in" to T3 Code. On the agent's reply, click "Lane
+   page B": a Browser tab opens at `/b`. ⌘-click it: the system browser opens it (`T3_REMOTE_OPEN_LOG` has the URL),
+   and no new tab opens.
+3. **Agent cursor.** During the run, watch the page: the cursor glides to each click target and pings on the click.
 
 ## Next action
 
-After part 1 merges: `prepare` (the stream seam on the Swift transport, the vendored Playwright script, WebKit muting),
-then implement.
+One more agent-mode session, with the coordinator's go-ahead (the brief's one drive and its retry are used).
+`target/bsa-lane/drive.sh` ([copy](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-drive.sh.txt)) runs:
+- the fake agent's 21 `preview_*` calls through the lane server's MCP endpoint;
+- screenshots: the agent-opened tab, the tab menu's Mute, Settings › Integrations "Open links in", a chat link
+  opening in the app;
+- a ⌘-click to the system browser.
+
+In the same pass, take the before images from the evidence-base worktree at `d564a5c02` (the inert "Open links in"
+row, the tab menu without Mute), and check whether the getConfig/getSettings/device.list loop that session 1 saw
+after opening Settings › Integrations (about 27 per second) also happens on the base. Then add the pairs to #346.
