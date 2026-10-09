@@ -21,7 +21,7 @@ import {
   reportAutomationFocus,
 } from './browser-automation';
 import { fleet, type FleetEntry } from './settings-b-fleet';
-import { browserHost } from './browser-surface';
+import { browserHost, liveSessions, listPreviewSessions } from './browser-surface';
 import { EMPTY_THREAD_PREVIEW_STATE, PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot, type ThreadPreviewState } from './browser-state';
 import { surfaceStore } from './r4-surfaces-panel';
 import type { T3Client } from './client';
@@ -476,6 +476,15 @@ describe('a background environment’s host (PreviewAutomationHosts mounts one p
         runtimeId: previewRuntimeTabId({ environmentId: 'env-2', threadId: 'thread-b' }, 'epoch-2', 'tab-5'), clientId: 'preview-fffffffe000000000000000000000001' });
       expect(fleetCalls.some(op => op.op === 'request' && op.method === 'preview.list' && op.fleet === key)).toBe(true);
     } finally { fleet.entries.delete(key); }
+  });
+});
+
+describe('"Open and tabs": an agent-opened tab after a relaunch', () => {
+  it('comes back from the server’s list, with a page for its session', async () => {
+    const { client } = fakeClient({ list: () => ({ sessions: [{ ...loaded('tab-9'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16751/form', title: 'Lane form' } }], serverEpoch: 'epoch-1', revision: 5 }) });
+    await listPreviewSessions(client, module, ref);
+    expect(Object.keys(browserHost(client).store.read(ref).sessions)).toEqual(['tab-9']);
+    expect(liveSessions(client)).toEqual([{ id: previewRuntimeTabId(ref, 'epoch-1', 'tab-9'), url: 'http://127.0.0.1:16751/form', profile: 'default', environment: 'env-1' }]);
   });
 });
 
