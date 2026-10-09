@@ -36,7 +36,7 @@ planned to start after this one merges:
   Details, history and discovery, zoom, appearance, the device toolbar and the preview keys;
 - [part 3, capture](../20261005-browser-surface-capture.md): Annotate, screenshots, recording, downloads, the separate
   window and the floating player;
-- [part 4, profiles](../20261005-browser-surface-profiles.md): Incognito and named profiles, cookie import, Clear cookies
+- [part 4, profiles](20261005-browser-surface-profiles.md): Incognito and named profiles, cookie import, Clear cookies
   and Clear cache;
 - [part 5, automation](20261005-browser-surface-automation.md): the `previewAutomation.*` host, preview events, links
   from chat and terminal, and Mute.
@@ -91,7 +91,7 @@ feed, WSL.
 **Planned split (done at `prepare`, 2026-10-09).** This ticket was a whole product; it is split into five PRs from the
 updated integration branch (no stacks), this name for the first: (1) engine view, tabs and chrome; (2)
 [navigation](20261005-browser-surface-navigation.md); (3) [capture](../20261005-browser-surface-capture.md); (4)
-[profiles](../20261005-browser-surface-profiles.md); (5) [automation](20261005-browser-surface-automation.md). Each later
+[profiles](20261005-browser-surface-profiles.md); (5) [automation](20261005-browser-surface-automation.md). Each later
 part starts after this one merges into `feat(example)/t3-code`.
 
 ## Context and guidance

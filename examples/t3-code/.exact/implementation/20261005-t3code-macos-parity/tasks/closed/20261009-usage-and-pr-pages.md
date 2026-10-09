@@ -3,12 +3,12 @@ name: 20261009-usage-and-pr-pages
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-usage-and-pr-pages
 pr_url: https://github.com/ccheever/exact2/pull/375
-verified_commit: null
+verified_commit: 7c3708cf72c34da11a249badee86e01372fd46f5
 ---
 
 # Usage and Pull Requests pages: rounding, hover popover, tooltips, the environment menu, author search and Escape
@@ -233,3 +233,7 @@ closes only the submenu and gives the focus back to its row (the clone's closes 
 submenu, since fix-keyboard-focus); the reference draws no check on the Author submenu's Anyone while no author is
 chosen (the clone ticks it). `pages-usage*.contract` and `pages-prs.contract` are shared with other tasks; the second
 to merge keeps both sides.
+
+## Delivery
+
+Merged on 2026-10-10 as `7c3708cf7` (#375, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

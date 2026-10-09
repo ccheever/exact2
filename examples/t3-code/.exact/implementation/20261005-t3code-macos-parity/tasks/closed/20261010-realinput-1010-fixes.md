@@ -3,12 +3,12 @@ name: 20261010-realinput-1010-fixes
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010-fixes
 pr_url: https://github.com/ccheever/exact2/pull/373
-verified_commit: null
+verified_commit: ba0af7967ba8ee4ce0b30a4d7397aa27cbcbd3fc
 ---
 
 # Two bugs the 2026-10-10 real-input batch found in merged audit fixes
@@ -141,3 +141,7 @@ An independent review found four should-fix items; all are addressed on this bra
 ## Next action
 
 Run real-input batch steps 1 and 2; then the coordinator reviews and merges.
+
+## Delivery
+
+Merged on 2026-10-10 as `ba0af7967` (#373, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

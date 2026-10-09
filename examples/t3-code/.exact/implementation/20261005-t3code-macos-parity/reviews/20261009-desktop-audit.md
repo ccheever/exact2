@@ -114,23 +114,23 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | TH-6 | Subagent card icon and elapsed format | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-7 | Expanded Mermaid preview on a black box | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) (one root cause with PG-1, PA-11) |
 | TH-8 | Custom snooze date is a stepper, not a calendar button | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
-| TH-9 | Relative `:line` links render as extra, dead chips | [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md) (decision needed) |
+| TH-9 | Relative `:line` links render as extra, dead chips | [markdown-links-and-files-preview](../tasks/closed/20261009-markdown-links-and-files-preview.md) (decision needed) |
 | TH-10 | Tool image icons not muted | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
-| CO-1 | Model rows have no ⌘1–⌘9 badge | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
-| CO-2 | Unavailable rail button: "Not ready." and no tooltip | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
-| CO-3 | Search does not highlight the first match; Enter does nothing | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
-| CO-4 | ⇧⌘↓ moves to an unavailable provider | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
+| CO-1 | Model rows have no ⌘1–⌘9 badge | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
+| CO-2 | Unavailable rail button: "Not ready." and no tooltip | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
+| CO-3 | Search does not highlight the first match; Enter does nothing | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
+| CO-4 | ⇧⌘↓ moves to an unavailable provider | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
 | CO-5 | "Add project script" opens Settings, not the dialog | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | CO-6 | Missing catalog model shows the stored slug | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
-| CO-7 | Shift+click closes the picker | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
+| CO-7 | Shift+click closes the picker | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
 | CO-8 | Details card keeps "work" under multi-model | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | CO-9 | Placeholder stays "Ask for changes…" with no provider | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | CO-10 | Thread with a failing provider loses its picker | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
-| CO-11 | Picker name and Plan pressed state differ | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
+| CO-11 | Picker name and Plan pressed state differ | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
 | CO-12 | Focus ring on the composer and search fields | existing: [X61](../issues/20261008-x61-field-focus-ring-opt-out.md) (#302) |
 | PA-1 | Device disabled on a draft | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-2 | Launcher has no arrow keys or Enter | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
-| PA-3 | Files rendered Markdown uses a reduced renderer | [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md) |
+| PA-3 | Files rendered Markdown uses a reduced renderer | [markdown-links-and-files-preview](../tasks/closed/20261009-markdown-links-and-files-preview.md) |
 | PA-4 | No "Open file in preview browser" | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-5 | Image preview shows a word-wrap toggle | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-6 | No base-ref label or comparison picker | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) |
@@ -140,8 +140,8 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | PA-10 | Terminal tab has no icon | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-11 | Terminal dark while the app is light | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |
 | PA-12 | ⌘Enter does not save a diff comment | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) (regression) |
-| PA-13 | Launcher Browser row has no profile chevron | existing: [browser-surface-profiles](../tasks/20261005-browser-surface-profiles.md) (#354) |
-| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/closed/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
+| PA-13 | Launcher Browser row has no profile chevron | existing: [browser-surface-profiles](../tasks/closed/20261005-browser-surface-profiles.md) (#354) |
+| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/closed/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/closed/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
 | S1-1 | Escape in a field's popup closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (one root cause with S1-2, S2-1) |
 | S1-2 | Escape in the custom model field closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (regression) |
 | S1-3 | Escape while recording closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
@@ -161,7 +161,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | S2-1 | Escape in a Settings dialog also leaves Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
 | S2-2 | Diagnostics stays empty (request forgotten) | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) (high; regression) |
 | S2-3 | Checkout-path toast title and description | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
-| S2-4 | New task and writer model use a flat list | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
+| S2-4 | New task and writer model use a flat list | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
 | S2-5 | Settings sidebar has no resize rail | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
 | S2-6 | Base branch says "From origin/main" for an unknown ref | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-7 | Git details row title and missing info button | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
@@ -170,12 +170,12 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | S2-10 | Accessible names and roles differ | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-11 | Diagnostics switches the scope to one environment | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) |
 | PG-1 | Usage colours follow macOS, not the app | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |
-| PG-2 | USD half cents round down | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
-| PG-3 | Unpriced popover does not open on hover | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
-| PG-4 | Toggles have no shortcut tooltips | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
-| PG-5 | Environment name truncated in its menu | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
-| PG-6 | Author submenu has no search field | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
-| PG-7 | Escape does not leave Pull Requests | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
+| PG-2 | USD half cents round down | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
+| PG-3 | Unpriced popover does not open on hover | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
+| PG-4 | Toggles have no shortcut tooltips | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
+| PG-5 | Environment name truncated in its menu | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
+| PG-6 | Author submenu has no search field | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
+| PG-7 | Escape does not leave Pull Requests | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) |
 | PG-8 | Project page opens scoped to one environment | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) |
 | PG-9 | No permission helper beside System Settings | [snapshot-permission-helper](../tasks/closed/20261009-snapshot-permission-helper.md) |
 | PG-10 | Notifications watch only the focused environment | [notifications-all-environments](../tasks/closed/20261009-notifications-all-environments.md) |
@@ -225,7 +225,7 @@ Seen before but never tracked:
 
 - TH-9 (relative `name:line` links): settled by the user's rule of 2026-10-09 (match the reference at the pin, even where
   it looks broken): build the live reference's output. Details:
-  [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md).
+  [markdown-links-and-files-preview](../tasks/closed/20261009-markdown-links-and-files-preview.md).
 - SH-6, S1-13 (the reference's no-feed update controls): the user's call. The coordinator builds option (a) as a draft
   PR; merging it builds them, closing it keeps them out under the X40 scope decision. Details:
   [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md).

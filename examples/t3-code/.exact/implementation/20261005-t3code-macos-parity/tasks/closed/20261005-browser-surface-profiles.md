@@ -3,12 +3,12 @@ name: 20261005-browser-surface-profiles
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-profiles
 pr_url: https://github.com/ccheever/exact2/pull/354
-verified_commit: null
+verified_commit: a6e31eed74678d6cbdfef59892f369f034cf6b76
 ---
 
 # Browser surface part 4: profiles, cookie import and clearing
@@ -252,3 +252,7 @@ CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME). A lane app copy needs its own name and
 
 1. The real-input batch (steps 1–5 above). Step 2's launcher chevron is also `browser-launcher-chevron.test.contract` in
    agent mode; the real keys stay a batch row.
+
+## Delivery
+
+Merged on 2026-10-10 as `a6e31eed7` (#354, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

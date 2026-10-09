@@ -3,12 +3,12 @@ name: 20261010-audit-wave-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-audit-wave-followups
 pr_url: https://github.com/ccheever/exact2/pull/372
-verified_commit: null
+verified_commit: 1a3e52f1d80b60df3cb09936941abbea765d0b86
 ---
 
 # Differences the audit fix agents found outside their tasks
@@ -183,3 +183,7 @@ FU-3 and FU-5 with real keys, in one session (screen unlocked; lane `audit-wave-
 ## Next action
 
 The coordinator runs the real-input batch steps, then reviews and merges the PR.
+
+## Delivery
+
+Merged on 2026-10-10 as `1a3e52f1d` (#372, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
