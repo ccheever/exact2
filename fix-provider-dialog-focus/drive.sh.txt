@@ -1,0 +1,24 @@
+#!/bin/zsh
+# fix-provider-dialog-focus: the agent-mode drive (lane env, screen may be locked). Not committed.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-provider-dialog-focus; L=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-provider-dialog-focus/target/fpdf/lane
+OUT=$L/runs/${1:-drive}; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16650 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME; mkdir -p $CODEX_HOME $CLAUDE_CONFIG_DIR $XDG_CONFIG_HOME $XDG_DATA_HOME $XDG_STATE_HOME $XDG_CACHE_HOME
+cd $W
+$BUN scripts/agent.mjs macos --json --size 1280x840 \
+  "clock +15000 real" \
+  "tap connection-settings" "clock +2000 real" "tap Providers" "clock +2500 real" \
+  "tap add-provider" "clock +2500 real" \
+  "tap acp-add-gemini" "clock +4000 real" "screenshot $OUT/01-identity.png" tree \
+  "tap create-provider" "clock +6000 real" "screenshot $OUT/02-sign-in-step.png" tree \
+  "type acp-sign-in key Tab" "clock +800 real" tree \
+  "type acp-sign-in key Tab" "clock +800 real" tree \
+  > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "agent exit $?" >> $OUT/pids.txt
+echo DRIVE-DONE
