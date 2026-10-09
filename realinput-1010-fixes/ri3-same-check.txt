@@ -1,0 +1,31 @@
+realinput-1010-fixes RI-3: do the helper's grant poll and the setup row read the same check? Yes, on both sides.
+
+Reference (T3 Code 1e2ecbd975, apps/desktop/src):
+  helper poll   permissions/MacPermissionHelper.ts:13-19 permissionGranted: screen-recording ->
+                Electron.systemPreferences.getMediaAccessStatus("screen") === "granted"; accessibility ->
+                Electron.systemPreferences.isTrustedAccessibilityClient(false); :84 isGranted defaults to it, :186 polls
+                it every second (setInterval(check, 1_000)).
+  setup row     snapShot/DesktopSnapShot.ts:334-339 currentMacPermissions: screenRecording:
+                getMediaAccessStatus("screen") === "granted", accessibility: isTrustedAccessibilityClient(false).
+  So in the reference the row and the poll make the same two calls; a grant one sees, the other sees.
+
+Clone before (feature-branch tip, modules/apple/T3SnapShot.swift):
+  helper poll   :13-14 T3SnapshotPermissionSystem screenRecording = CGPreflightScreenCaptureAccess(),
+                accessibility = AXIsProcessTrusted(); :21 granted(_:); :186 dockHelper polls system.granted(permission)
+                (T3PermissionHelper.swift:127,130: every second).
+  setup row     :278 snapshotState "screenRecording": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted().
+  The same two system calls as the poll: no behavior differs from the reference, so nothing changes in behavior.
+
+This branch: snapshotState (:280) and configure's permission message (:207) read permissions.screenRecording() and
+permissions.accessibility(), the very values the helper polls (their defaults are the same two calls). That changes no
+behavior; it lets the snapshot AppKit test hold the row and the poll together with fake grants:
+  macos/tests/snapshot/permission-requests.swift: Screen Recording missing -> poll false and row false; granted -> both
+  true; the same for Accessibility -> "20 snapshot permission request checks passed (fake grants, no TCC prompt)", exit 0.
+
+What the attended run saw (realinput-1010 r5 read-back): the Screen Recording switch on in System Settings, the running
+app's row still "Allow" (macOS reports a Screen Recording grant to a running process only after a relaunch; the row and
+the poll both read that report), and at 02:23:58 the helper was "Set up Accessibility" with Settings on Accessibility.
+Only an Accessibility Allow (setup row) docks that helper while Screen Recording reads missing (snapshotSetup
+allow-accessibility; snapshotRequestPermissions would dock Screen Recording again), and show() first closes the open
+helper (T3PermissionHelper.swift close() in show()), so the Screen Recording helper most likely closed when step 4 began
+in T3 Code (which also brings T3 Code front), not on a grant the row missed.
