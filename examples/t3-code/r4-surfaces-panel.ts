@@ -36,7 +36,7 @@ import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
 // browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
-import { browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source
+import { browserMiniView, emptyBrowserMini, floatingTabOf, playerThreadKey, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source
 import { browserMiniPlayerSource } from './previewMiniPlayerStore';
 import { miniStoreOf } from './r6-media-device';
 
@@ -228,7 +228,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
     if (target && client.threadId) floatMiniDevice(client, client.threadId, target);
     // Part 3: a live Browser tab floats too (closePreviewPanel's browser half).
-    if (active?.kind === 'browser' && active.browser && client.threadId && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(client.threadId, browserMiniPlayerSource(active.browser.tabId));
+    if (active?.kind === 'browser' && active.browser && playerThreadKey(client) && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(playerThreadKey(client), browserMiniPlayerSource(active.browser.tabId));
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {

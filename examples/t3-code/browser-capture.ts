@@ -18,7 +18,8 @@ import { letGo } from './let-go';
 import { pushToast, toasts, updateToast, type ToastAction } from './toast';
 import { markActionCopied } from './shell';
 import { composerNow } from './composer-controls';
-import { parseScopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
+import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
+import { activeRef } from './terminal-drawer-view';
 import { previewRuntimeTabId } from './browser-state';
 import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
@@ -176,9 +177,12 @@ export type BrowserCaptureView = {
 export const emptyCaptureView = (): BrowserCaptureView => ({ pickActive: false, pickDisabled: true, pickTip: 'Annotate elements, regions, and drawings', captureDisabled: true,
   recording: false, floating: false, floatDisabled: true, separateWindow: false, sendSerial: 0 });
 const report = (client: T3Client, runtimeId: string): Obj => obj(obj(client.presentation.browserTabs)[runtimeId]);
+/** The open thread's key in the floating player's store: a new thread's draft has its id once it opened a tab
+ *  (addBrowserSurface allocates it), while `client.threadId` stays empty until the draft is sent. */
+export function playerThreadKey(client: T3Client): string { return client.threadId || activeRef(client)?.threadId || ''; }
 /** selectThreadPreviewMiniPlayerTabId for the open thread: the floating browser tab, if one floats. */
 export function floatingTabOf(client: T3Client): string | null {
-  const source = client.threadId ? miniStoreOf(client).get(client.threadId)?.source : undefined;
+  const key = playerThreadKey(client), source = key ? miniStoreOf(client).get(key)?.source : undefined;
   return source?.kind === 'browser' ? source.tabId : null;
 }
 
@@ -294,10 +298,11 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
 
 /** handlePictureInPicture: the floating player takes the tab and the panel closes; again closes the player. */
 function toggleFloat(client: T3Client, state: PanelState, target: CaptureTarget): void {
-  if (!client.threadId) return;
+  const key = playerThreadKey(client);
+  if (!key) return;
   const store = miniStoreOf(client);
-  if (floatingTabOf(client) === target.tabId) { store.close(client.threadId); return; }
-  store.open(client.threadId, browserMiniPlayerSource(target.tabId));
+  if (floatingTabOf(client) === target.tabId) { store.close(key); return; }
+  store.open(key, browserMiniPlayerSource(target.tabId));
   state.visible = false;
   client.diffOpen = false;
 }
@@ -319,16 +324,19 @@ export async function applyCaptureResults(client: T3Client, native: Native, live
     if (pick.ready !== true || serial <= (host.applied.get(runtimeId) ?? 0)) continue;
     const reply = await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'take', serial });
     const result = obj(reply.result);
-    if (!reply.result || result.cancelled === true) { host.applied.set(runtimeId, serial); continue; }
-    await applyAnnotation(client, native, host, threadKey, result);
+    const outcome = !reply.result || result.cancelled === true ? 'cancelled' : await applyAnnotation(client, native, host, threadKey, result);
     host.applied.set(runtimeId, serial);
+    // The module's log says what became of each pick (`t3.browser: annotate applied <serial> <outcome>`).
+    await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'applied', serial, outcome }).catch(error => { if (letGo(error)) throw error; });
   }
 }
 
-async function applyAnnotation(client: T3Client, native: Native, host: Host, threadKey: string, result: Obj): Promise<void> {
+async function applyAnnotation(client: T3Client, native: Native, host: Host, threadKey: string, result: Obj): Promise<string> {
   const annotation = result.annotation;
-  if (!isPreviewAnnotationPayload(annotation)) return; // PickedElementPayload's validator: a malformed pick is dropped silently
-  const ref = parseScopedThreadKey(threadKey), draftKey = ref ? `${ref.environmentId}:${ref.threadId}` : client.draftKey;
+  if (!isPreviewAnnotationPayload(annotation)) return 'invalid'; // PickedElementPayload's validator: a malformed pick is dropped silently
+  // The open thread's composer (a new thread's draft included, whose tab names its allocated id), else that thread's draft.
+  const ref = parseScopedThreadKey(threadKey), open = activeRef(client);
+  const draftKey = !ref || (open && scopedThreadKey(open) === threadKey) ? client.draftKey : `${ref.environmentId}:${ref.threadId}`;
   const screenshot = obj(result.screenshot), imageId = str(screenshot.id);
   // The crop goes on the shelf as a draft image the send uploads; a full shelf drops it, as a failed crop does.
   const room = draftKey !== client.draftKey || reservedAttachments(client) < MAX_ATTACHMENTS;
@@ -336,24 +344,26 @@ async function applyAnnotation(client: T3Client, native: Native, host: Host, thr
   const cropDropped = result.screenshotFailed === true || (!!imageId && !image);
   savePreviewAnnotation(client, annotation, image?.id ?? '');
   if (image) client.local.snapshotDrafts[draftKey] = [...(client.local.snapshotDrafts[draftKey] ?? []).filter(entry => str(entry.id) !== image.id), image];
-  await insertAnnotationChip(client, native, draftKey, annotation);
+  const placed = await insertAnnotationChip(client, native, draftKey, annotation);
   if (cropDropped) pushToast(client, { kind: 'error', title: 'Could not capture the picked element', description: 'The annotation was kept without the screenshot.', stacked: true });
   if (result.submission === 'send' && draftKey === client.draftKey) host.sendSerial += 1;
+  return `${placed}${image ? '+image' : ''}${cropDropped ? ' crop-dropped' : ''}${result.submission === 'send' ? ' send' : ''}`;
 }
 
 /** addPreviewAnnotation: the chip at the composer's caret (once), else at the end of the stored draft. */
-async function insertAnnotationChip(client: T3Client, native: Native, draftKey: string, annotation: PreviewAnnotationPayload): Promise<void> {
+async function insertAnnotationChip(client: T3Client, native: Native, draftKey: string, annotation: PreviewAnnotationPayload): Promise<string> {
   const link = previewAnnotationLink(annotation), id = link.slice(link.lastIndexOf('/') + 1, -1);
   const present = (text: string) => contextReferences(text).some(reference => reference.kind === 'preview-annotation' && reference.id === id);
   if (draftKey === client.draftKey) {
     const state = await bridgeReply(native, { op: 'editorState' }).catch(() => null);
-    if (state?.ok && present(str(obj(state.value).text))) return;
+    if (state?.ok && present(str(obj(state.value).text))) return 'chip';
     const inserted = await bridgeReply(native, { op: 'editorInsert', text: link }).catch(() => null);
-    if (inserted?.ok && obj(inserted.value).applied === true) { await bridgeReply(native, { op: 'editorFocus' }).catch(() => null); return; }
+    if (inserted?.ok && obj(inserted.value).applied === true) { await bridgeReply(native, { op: 'editorFocus' }).catch(() => null); return 'chip'; }
   }
   const prompt = client.local.drafts[draftKey] ?? '';
-  if (present(prompt)) return;
+  if (present(prompt)) return 'draft';
   client.local.drafts[draftKey] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${link} `;
+  return 'draft';
 }
 
 // ── The floating player's browser source (ThreadPreviewMiniPlayer BrowserMiniPlayer) ─────────────
@@ -373,7 +383,7 @@ export function browserMiniSourceSize(client: T3Client, runtimeId: string): { wi
 /** The tab the floating player shows, unless the panel shows it (shouldRenderPreviewMiniPlayer). */
 export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRef) => { serverEpoch: string | null; tabs: Record<string, { url: string; profileId: string }> },
   shownTabId: string | null): BrowserMiniView {
-  const tabId = floatingTabOf(client), ref = client.threadId ? { environmentId: client.environmentId, threadId: client.threadId } : null;
+  const tabId = floatingTabOf(client), ref = activeRef(client);
   if (!tabId || !ref || shownTabId === tabId) return emptyBrowserMini();
   const state = sessions(ref), session = state.tabs[tabId];
   if (!session) return emptyBrowserMini();
@@ -386,12 +396,12 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close. */
 export async function browserMiniLocal(client: T3Client, native: Native, op: string, runtimeId: string, reopen: (tabId: string) => void): Promise<string> {
-  const tabId = floatingTabOf(client);
-  if (!tabId || !client.threadId) return '';
+  const tabId = floatingTabOf(client), key = playerThreadKey(client);
+  if (!tabId || !key) return '';
   const host = captureHost(client);
   host.native = native;
-  if (op === 'close') miniStoreOf(client).close(client.threadId);
-  else if (op === 'restore') { miniStoreOf(client).close(client.threadId); reopen(tabId); }
+  if (op === 'close') miniStoreOf(client).close(key);
+  else if (op === 'restore') { miniStoreOf(client).close(key); reopen(tabId); }
   else if (op === 'window' && runtimeId) await toggleSeparateWindow(client, host, { runtimeId });
   return '';
 }

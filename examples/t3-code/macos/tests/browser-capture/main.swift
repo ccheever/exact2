@@ -3,8 +3,10 @@ import XCTest
 
 // browser-surface part 3 (capture): Annotate's overlay (annotate.swift), the recording overlay, encoder and decorations
 // (recording.swift), and screenshots, artifacts, held pages, the separate window and the capture ops (capture.swift),
-// against CaptureFixture (fixture.swift). Run with EXACT_ASSETS naming examples/t3-code (the page scripts load from its
-// assets/) and, optionally, T3_BROWSER_TEST_DIR for the images and recordings the tests leave.
+// against CaptureFixture (fixture.swift). EXACT_ASSETS (else the recipe's T3_APP_DIR) names examples/t3-code, whose
+// assets/ hold the page scripts; T3_BROWSER_TEST_DIR, when set, receives the images and recordings the tests leave.
+// The README recipe exports T3_APP_DIR (the app directory): the page scripts load from its assets/ as EXACT_ASSETS.
+if ProcessInfo.processInfo.environment["EXACT_ASSETS"] == nil, let app = ProcessInfo.processInfo.environment["T3_APP_DIR"] { setenv("EXACT_ASSETS", app, 0) }
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
 let suite = XCTestSuite(name: "browser-capture")

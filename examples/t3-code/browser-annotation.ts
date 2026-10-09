@@ -159,7 +159,7 @@ export function previewAnnotationContextRecord(annotation: PreviewAnnotationPayl
 /** The compact copy kept beside the drafts: the payload without a data URL, and the crop's draft image id. */
 export type SavedAnnotation = { annotation: PreviewAnnotationPayload; imageId: string };
 type Local = { previewAnnotations?: Record<string, SavedAnnotation> };
-const saved = (client: T3Client): Record<string, SavedAnnotation> => (client.local as unknown as Local).previewAnnotations ?? {};
+const saved = (client: T3Client): Record<string, SavedAnnotation> => (obj(client.local) as Local).previewAnnotations ?? {};
 
 /** Keeps the annotation (and its crop's image id) by context id; its chip names it from the prompt. */
 export function savePreviewAnnotation(client: T3Client, annotation: PreviewAnnotationPayload, imageId: string): string {

@@ -96,7 +96,22 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     expect(toasts(client)).toEqual([]);
     await applyCaptureResults(client, module.native, [{ runtimeId, threadKey }]);
     expect(module.ops().filter(op => op === 'browserAnnotate:take')).toHaveLength(1);
+    expect(module.calls.find(call => call.action === 'applied')).toMatchObject({ serial: 1, outcome: 'chip+image' });
     expect(captureHost(client).sendSerial).toBe(0);
+  });
+
+  it('goes to a new thread\'s draft composer, whose tab names the id the draft was given', async () => {
+    const draft = fakeClient({ kind: 'Success', pick: { active: false, serial: 1, ready: true } });
+    Object.assign(draft, { threadId: '', draftKey: 'local:new:p1' });
+    (draft.local as Obj).composerControls = { draftThreads: { 'local:new:p1': 'thread-1' } };
+    const inserted: string[] = [];
+    const module = fakeModule({ 'browserAnnotate:take': () => ({ result: { annotation, submission: 'attach' }, serial: 1 }), editorInsert: request => { inserted.push(String(request.text)); return { applied: true }; } });
+    await applyCaptureResults(draft, module.native, [{ runtimeId, threadKey }]);
+    expect(inserted).toHaveLength(1);
+    expect(module.calls.at(-1)).toMatchObject({ op: 'browserAnnotate', action: 'applied', serial: 1, outcome: 'chip' });
+    // Float preview keys the player by the same thread.
+    await captureLocal(draft, module.native, browserPanel(), 'float', target, '');
+    expect(floatingTabOf(draft)).toBe('tab-1');
   });
 
   it('warns when main dropped the crop before handing over the pick, and keeps the annotation', async () => {
@@ -120,7 +135,7 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     const cancelled = fakeClient({ kind: 'Success', pick: { active: false, serial: 2, ready: true } });
     const quiet = fakeModule({ 'browserAnnotate:take': () => ({ result: { cancelled: true }, serial: 2 }) });
     await applyCaptureResults(cancelled, quiet.native, [{ runtimeId, threadKey }]);
-    expect(quiet.ops()).toEqual(['browserAnnotate:take']);
+    expect(quiet.ops()).toEqual(['browserAnnotate:take', 'browserAnnotate:applied']);
     expect(cancelled.draft).toBe('');
   });
 });

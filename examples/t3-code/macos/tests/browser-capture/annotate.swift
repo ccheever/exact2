@@ -153,7 +153,12 @@ final class BrowserAnnotateTests: XCTestCase {
     }
     private func settled() -> [String: Any]? {
         CaptureSpin.until({ self.annotation.report["ready"] as? Bool == true })
-        return annotation.take(serial: annotation.serial)
+        let result = annotation.take(serial: annotation.serial)
+        // The data module's validator (browser-annotation.test.ts reads these) sees what the module hands it.
+        if let result, let directory = ProcessInfo.processInfo.environment["T3_BROWSER_TEST_DIR"], let json = try? JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]) {
+            try? json.write(to: URL(fileURLWithPath: directory).appendingPathComponent("pick-\(name.replacingOccurrences(of: " ", with: "_").filter { $0.isLetter || $0.isNumber || $0 == "_" }).json"))
+        }
+        return result
     }
 
     // MARK: Tests

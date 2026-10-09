@@ -308,10 +308,10 @@ component T3Window
   provide
     rem = data.look.fontSize
     still = viewport.prefersReducedMotion
-    scheme = viewport.prefersColorScheme // browser-surface part 3: the annotation overlay's theme (browser-capture.contract)
     hoverTipAt
     hoverTip
     hoverShown
+    scheme = viewport.prefersColorScheme // browser-surface part 3: the annotation overlay's theme (browser-capture.contract)
   // fix-hover-cards: the hover layer's tooltip or card (hover-layer.contract). It shows once its trigger has had the
   // pointer for its open delay (Base UI's delay, hoverOpenDelay; nothing is drawn before it, so a card still waiting
   // takes no press) while the trigger or the card has it (hoverOn), then a card for its closeDelay (hoverDelay), so the

@@ -9,7 +9,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
-| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) built, parts 2–5 planned |
+| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) and part 3 (Annotate, screenshots, recording, downloads, the separate window, the floating player) built, parts 2, 4 and 5 planned |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`: done on main, round 7 adopts it and removes nothing) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
@@ -453,13 +453,55 @@ table, built here. Parts 2–5 add their own rows when they build them.
   (three reloads 250, 500 and 1,000 ms apart within 30 s) at the last URL, then the page stays down until Refresh.
 - **Hidden tabs.** A tab the panel does not show keeps running, throttled (`inactiveSchedulingPolicy = .throttle`), as a
   background Chromium guest is throttled.
-- **Non-web links and downloads (until part 3).** The main frame refuses schemes other than http(s), `about:`, `data:`
-  and `blob:` (a `mailto:` link does nothing); a response the page cannot show is not loaded until part 3 sends
-  downloads to the artifact directory.
+- **Non-web links.** The main frame refuses schemes other than http(s), `about:`, `data:` and `blob:` (a `mailto:` link
+  does nothing).
 - **The "+" menu's profile list (X66, [#319](https://github.com/ccheever/exact2/issues/319)).** The reference opens
   it on hover of the Browser row (`MenuSubTrigger`); here its chevron opens it, until a popover can open from an action.
 - **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
   environment and the profile), apart from the app's other web views; agent runs keep it in memory.
+
+### Part 3 (capture): Annotate, screenshots, recording, downloads, the separate window and the floating player
+
+Task `20261005-browser-surface-capture` (`browser-capture.ts`, `browser-annotation.ts`, `browser-recording.ts`,
+`browser-capture.contract`, `assets/browser-annotate.js`, `assets/browser-recording.js`, `T3BrowserAnnotate.swift`,
+`T3BrowserRecorder.swift`, `T3BrowserCapture.swift`). Decisions of 2026-10-09: frames come from `WKWebView.takeSnapshot`
+polling (no Screen Recording prompt; ScreenCaptureKit would ask for it), and the overlays run in the module's own content
+world.
+- **Frame source.** Recordings and the separate window are made from `takeSnapshot` (pipelined, at most two in flight;
+  measured about 60 frames a second on an animating page), not Chromium's display-media capture: frames hold the page's
+  own pixels only, never another window or the native cursor, and need no system permission. A frame is timestamped when
+  its snapshot returns, so the file has a variable frame rate at or under the setting (30 or 60). A page no view shows is
+  held in an offscreen, transparent host window while a recording or the separate window needs it (WebKit throttles a
+  page in no window to about one frame a second), as the reference keeps a hidden surface painting.
+- **Encoder.** Recordings are H.264 MP4 (AVAssetWriter, `browser-recording-<id>.mp4`); WebM is never produced. The
+  decorations (key badges, press rings) are drawn into each encoded frame natively (CoreGraphics), not on a detached
+  canvas; a theme colour must be hex or `rgb()`.
+- **Cursor and keys in recordings.** The drawn cursor and the key/mouse input come from a script in the module's content
+  world (`assets/browser-recording.js`, the reference's RecordingCursor and RecordingInput); it is installed again after
+  each navigation. Snapshots never contain the native cursor, so the drawn one is the only cursor, as in the reference.
+- **Annotate.** The overlay (`assets/browser-annotate.js`, PickPreload's annotation UI) runs in the module's own content
+  world in a closed shadow root: the page cannot see or call it. react-grab is not used: an element's component name,
+  source and owner stack come from one read of React's fiber (`__reactFiber$…`, `_debugSource`, `_debugOwner`) in the
+  page's world on submit; React 19 has no `_debugSource`, so there the first stack frame stands in. `selector` is a unique
+  `#id` or `nth-of-type` path and `styles` a bounded summary of computed styles. The crop is `takeSnapshot` of the targets'
+  union (plus 20 px), written as a draft image (`preview-annotation-<id>.png`, its own UUID rather than the annotation's
+  id) and linked from the record by `screenshotContextId`. Number-field spinners in the style panel show (the page-level
+  rule that hides them in the reference cannot reach the closed shadow root). ⌘Return sends through the window's Send.
+- **Screenshots.** At most 1,280 pixels wide (the record's rule; the reference applies MAX_SCREENSHOT_WIDTH to the
+  automation snapshot and saves capturePage's own size).
+- **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
+  (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
+  the person's clipboard.
+- **Separate preview window.** A floating, non-activating panel on every space (480×320, at least 240×160, about 12 frames
+  a second, its content following the page's aspect ratio); the snapshots are drawn directly rather than sent as JPEG
+  (quality 80) to a second renderer.
+- **Downloads.** A response the page cannot show, a `Content-Disposition: attachment` and an `<a download>` download
+  (WKDownload). The reference saves an agent-driven page's downloads into the artifact directory and lets a person's ask
+  with the save dialog; pages become agent-driven with part 5, so until then a person's download asks with a save panel
+  and an agent run (which shows nothing modal) saves into the artifact directory as `browser-download-<id>-<name>`.
+- **Settings.** Browser recording frame rate, Show key presses, Show mouse presses and Auto-show floating preview are
+  live client settings; the group's "Only available in the desktop app." notice stays until parts 2, 4 and 5 make the
+  remaining rows live. Auto-show is read by part 5 (an agent opening a preview).
 
 ## Not exact2 asks (stay in the app module)
 

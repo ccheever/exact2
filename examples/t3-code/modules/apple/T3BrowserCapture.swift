@@ -342,6 +342,9 @@ extension T3BrowserSessions {
         case "cancel":
             annotation.cancel()
             answer(annotation.report)
+        case "applied":
+            note("annotate applied \(request["serial"] as? Int ?? 0) \(String((request["outcome"] as? String ?? "").prefix(60)))")
+            answer([:])
         default:
             answer(["result": annotation.take(serial: request["serial"] as? Int ?? -1) ?? NSNull(), "serial": annotation.serial])
         }
