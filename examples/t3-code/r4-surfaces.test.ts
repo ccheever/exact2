@@ -299,4 +299,17 @@ describe('the surface launcher keyboard', () => {
     // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
+
+  // browser-surface part 4: the Browser row's profile chevron sits inside the launcher. Its Enter is the chevron's own
+  // press, and a key in its list is the list's (Base UI's menu prevents the default, which `handleKeyDown` returns on):
+  // neither opens nor moves the launcher's highlighted row.
+  test("the Browser row's profile chevron keeps its Enter, and its list keeps its keys, from the launcher", async () => {
+    const lines = (await Bun.file(new URL('./browser-surface.contract', import.meta.url)).text()).split('\n');
+    const start = lines.indexOf('component BrowserLauncherProfiles'), end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    const chevron = lines.slice(start, end).join('\n');
+    expect(chevron).toContain('action chevronKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
+    expect(chevron).toContain('action listKey(k: string)\n    if k == "Enter" or k == "ArrowDown" or k == "ArrowUp" or k == "ArrowLeft" or k == "ArrowRight"\n      stopPropagation()');
+    expect(chevron).toContain('button popovertarget="launcher-browser-profiles" hover=hover key=chevronKey');
+    expect(chevron).toContain('column id="launcher-browser-profiles" popover="auto" key=listKey');
+  });
 });
