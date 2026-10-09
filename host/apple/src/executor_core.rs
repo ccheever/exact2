@@ -97,6 +97,17 @@ struct Shared {
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
 }
 
+impl Shared {
+    /// The app's directories for `request`: opened by the first request,
+    /// worker's or stream's, whose body is an app file; `None` for any other
+    /// request, which leaves them unopened, or when the host named none.
+    pub(super) fn roots_for(&self, request: &Request) -> body::Roots<'_> {
+        request.body_from.as_ref()?;
+        let paths = self.root_paths.get()?;
+        Some(self.roots.get_or_init(|| body::open(paths)))
+    }
+}
+
 /// Count/byte reservations last until the UI takes the result, not merely
 /// until transport finishes. Rejections return directly to the host: there
 /// is no unbounded queue of overload failures. Byte reservations cover owned
@@ -783,14 +794,8 @@ fn worker(
             shared.abort.signal().register(move || abort.abort())
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // A request whose body is an app file opens the app's directories,
-            // once; any other leaves them unopened.
-            let roots = request.body_from.as_ref().and_then(|_| {
-                let paths = shared.root_paths.get()?;
-                Some(shared.roots.get_or_init(|| body::open(paths)))
-            });
             let files = Files {
-                roots,
+                roots: shared.roots_for(&request),
                 grants: &grants,
             };
             match scoped_bindings(&grants, request.grants.as_deref(), &host) {

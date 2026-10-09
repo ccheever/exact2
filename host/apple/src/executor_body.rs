@@ -21,17 +21,24 @@ use exact_runner::{FailureKind, Outcome, Request, MAX_BODY_FROM_BYTES};
 use ibex2::stdlib::app_fs::AppDirectories;
 use std::path::PathBuf;
 
-/// The app's `app:/data`, `app:/cache` and `app:/tmp` handles, opened once
-/// when the host names them (or why they would not open); `None` on a host
-/// or drive that has no app files.
+/// The app's `app:/data`, `app:/cache` and `app:/tmp` handles, opened once,
+/// at the first request whose body is an app file (or why they would not
+/// open); `None` on a host or drive that has no app files.
 pub(super) type Roots<'a> = Option<&'a Result<AppDirectories, String>>;
 
 /// Open the app's directories, made as storage makes them, so their handles
 /// pin the roots from now on: a root renamed or replaced later (by a
 /// symlink to another app's tree, say) is not followed, as `readFile`'s
-/// handles do not follow it.
+/// handles do not follow it. A root that is a symbolic link when first
+/// opened is refused for the same reason.
 pub(super) fn open(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
     for root in roots {
+        if std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(format!(
+                "app storage: {} is a symbolic link",
+                root.display()
+            ));
+        }
         std::fs::create_dir_all(root).map_err(|e| format!("app storage: {e}"))?;
     }
     AppDirectories::new(&roots[0], &roots[1], &roots[2]).map_err(|e| e.to_string())
