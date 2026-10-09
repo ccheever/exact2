@@ -190,7 +190,9 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16922 T3_LOCAL_RUNTIME_DIR=$A/runti
 - `decodeCustomThemes` drops a theme's `collection` when the preferences load, so an Open VSX collection card splits
   into single cards after a relaunch.
 - The palette's Escape over Settings leaves Settings too in the clone (agent drive, [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) steps 46-49, before and
-  after this change); the reference closes only the palette and stays in Settings. Not checked with real keys.
+  after this change, on the base before #361); the reference closes only the palette and stays in Settings. Not checked
+  with real keys. #361's `escapeOwned` (app-settings.contract, Settings' Back hears Escape unless it is owned) has no
+  palette term, so it likely remains.
 
 ## Attempts and evidence
 
