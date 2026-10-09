@@ -66,6 +66,22 @@ struct Completed {
     /// A stream's last outcome: draining it frees a stream slot.
     stream: bool,
 }
+/// A place behind the ordered barrier.
+enum Fenced {
+    /// A request to admit when the barrier lifts, and its request buffers.
+    Held(Box<RequestOut>, Option<OwnedWork>, usize),
+    /// A request refused while the barrier was up: refused when its turn
+    /// comes, after the held requests before it are admitted.
+    Refused(u64, &'static str),
+}
+impl Fenced {
+    fn ticket(&self) -> u64 {
+        match self {
+            Fenced::Held(r, ..) => r.ticket,
+            Fenced::Refused(ticket, _) => *ticket,
+        }
+    }
+}
 #[derive(Default)]
 struct State {
     jobs: [VecDeque<Job>; 2],
@@ -79,13 +95,17 @@ struct State {
     ordered: VecDeque<u64>,
     retired: bool,
     ordered_barrier: bool,
-    /// Ordered requests behind the barrier, in order, with the request
-    /// buffers each is charged: held rather than refused with the refusal
-    /// before them, and admitted when the host lifts it (`resume_ordered`).
-    /// Each is a current runner ticket; count and bytes are capped as the
-    /// ordered queue's waiting buffers are.
-    fenced: VecDeque<(RequestOut, Option<OwnedWork>, usize)>,
+    /// Ordered requests behind the barrier, in order: held rather than
+    /// refused with the refusal before them, and admitted when the host
+    /// lifts it (`resume_ordered`). Each is a current runner ticket. Held
+    /// requests are capped at 128 and 64 MiB of request buffers; one refused
+    /// meanwhile (invalid, or past those caps) keeps its place as a refusal,
+    /// so that it settles after the held work before it.
+    fenced: VecDeque<Fenced>,
     fenced_bytes: usize,
+    /// Work let go on the host thread (a held request forgotten or refused
+    /// when the fence lifts), for a worker to destroy, as queued jobs are.
+    discard: Vec<OwnedWork>,
     notified: bool,
     wake: Option<Wake>,
 }
@@ -242,35 +262,67 @@ impl Core {
         r: RequestOut,
         work: Option<OwnedWork>,
     ) -> Result<(), &'static str> {
+        self.admit(r, work).map_err(|(reason, _work)| reason)
+    }
+
+    /// Admit `r`, hold it behind the ordered barrier, or refuse it, handing
+    /// back its work for the caller to destroy.
+    fn admit(
+        &self,
+        r: RequestOut,
+        work: Option<OwnedWork>,
+    ) -> Result<(), (&'static str, Option<OwnedWork>)> {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
-        let admitted = (|| {
-            // A deadline on work that cannot take one (a stream, a
-            // continuation, native work) is refused here, before any path.
-            if let Some(why) = r.request.timeout_refusal() {
-                return Err(why);
-            }
-            if let Some(why) = r.request.body_from_refusal() {
-                return Err(why);
-            }
-            let (lane, charge, limit) = reservation(&r.request)?;
-            if self.disabled {
-                return Err("native executor worker limit reached");
-            }
-            if state.retired {
-                return Err("native executor retired");
-            }
-            if ordered && state.ordered_barrier {
-                // Behind an earlier ordered refusal: held until it settles,
-                // so that later work neither bypasses its settlement nor is
-                // refused with it (one refusal must not poison the lane).
-                let full = state.fenced.len() >= ORDERED_READS
-                    || charge > ORDERED_WAITING_BYTES.saturating_sub(state.fenced_bytes);
-                if full {
-                    return Err("earlier ordered admission refusal must settle first");
+        // A deadline on work that cannot take one (a stream, a continuation,
+        // native work) is refused here, before any path.
+        let checked = r
+            .request
+            .timeout_refusal()
+            .or(r.request.body_from_refusal())
+            .map_or_else(|| reservation(&r.request), Err);
+        if self.disabled {
+            return Err(("native executor worker limit reached", work));
+        }
+        if state.retired {
+            return Err(("native executor retired", work));
+        }
+        if ordered && state.ordered_barrier {
+            // Behind an earlier ordered refusal: held until it settles, so
+            // that later work neither bypasses its settlement nor is refused
+            // with it (one refusal must not poison the lane). One refused
+            // now keeps its place, to settle after what is held before it.
+            let held = state
+                .fenced
+                .iter()
+                .filter(|f| matches!(f, Fenced::Held(..)))
+                .count();
+            let place = match checked {
+                Err(why) => Err(why),
+                Ok((_, charge, _))
+                    if held >= ORDERED_READS
+                        || charge > ORDERED_WAITING_BYTES.saturating_sub(state.fenced_bytes) =>
+                {
+                    Err("earlier ordered admission refusal must settle first")
                 }
-                return Ok(None);
+                Ok((_, charge, _)) => Ok(charge),
+            };
+            match place {
+                Ok(charge) => {
+                    state.fenced_bytes += charge;
+                    state
+                        .fenced
+                        .push_back(Fenced::Held(Box::new(r), work, charge));
+                }
+                Err(why) => {
+                    state.fenced.push_back(Fenced::Refused(r.ticket, why));
+                    discard(&self.shared, &mut state, work);
+                }
             }
+            return Ok(());
+        }
+        let admitted = (|| {
+            let (lane, charge, limit) = checked?;
             // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
                 (state.streams >= STREAMS, limit)
@@ -303,16 +355,10 @@ impl Core {
                     return Err("native ordered queue byte limit reached");
                 }
             }
-            Ok(Some((lane, charge, limit)))
+            Ok((lane, charge, limit))
         })();
         let (lane, charge, limit) = match admitted {
-            Ok(Some(value)) => value,
-            Ok(None) => {
-                let charge = reservation(&r.request).map_or(0, |(_, charge, _)| charge);
-                state.fenced_bytes += charge;
-                state.fenced.push_back((r, work, charge));
-                return Ok(());
-            }
+            Ok(value) => value,
             Err(reason) => {
                 // Failure parsing can mutate Store too. Refusals live on
                 // runner tickets, but fence later ordered work here until
@@ -320,7 +366,7 @@ impl Core {
                 if ordered {
                     state.ordered_barrier = true;
                 }
-                return Err(reason);
+                return Err((reason, work));
             }
         };
         if ordered {
@@ -423,10 +469,10 @@ impl Core {
     /// its count and bytes when it ends.
     pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
         let mut aborts = Vec::new();
-        let let_go: VecDeque<_>;
         {
             let mut guard = self.shared.state.lock().unwrap();
             let state = &mut *guard;
+            let busy = state.counts[0] > 0;
             for lane in 0..2 {
                 let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
                 let streams = &mut state.streams;
@@ -465,19 +511,23 @@ impl Core {
             }
             state.ordered.retain(|ticket| held(*ticket));
             // A held request has not begun: one let go is dropped unsent,
-            // as a refused one would have been (outside the lock).
-            let (kept, gone) = std::mem::take(&mut state.fenced)
+            // its work destroyed by a worker.
+            let (kept, gone): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut state.fenced)
                 .into_iter()
-                .partition(|(r, _, _)| held(r.ticket));
+                .partition(|f| held(f.ticket()));
             state.fenced = kept;
-            state.fenced_bytes = state.fenced.iter().map(|f| f.2).sum();
-            let_go = gone;
+            state.fenced_bytes = fenced_bytes(&state.fenced);
+            for f in gone {
+                if let Fenced::Held(_, work, _) = f {
+                    discard(&self.shared, state, work);
+                }
+            }
             self.shared.ready.notify_all();
-            if has_ready(state) {
+            // As in `complete`: emptying the lane can let a refusal settle.
+            if has_ready(state) || (busy && state.counts[0] == 0) {
                 wake(state);
             }
         }
-        drop(let_go);
         // Transport callbacks run outside the lock, as retirement's do.
         for abort in aborts {
             abort.abort();
@@ -500,10 +550,26 @@ impl Core {
             std::mem::take(&mut state.fenced)
         };
         let mut refused = Vec::new();
-        for (r, work, _) in fenced {
-            let ticket = r.ticket;
-            if let Err(reason) = self.run_owned(r, work) {
-                refused.push((ticket, reason));
+        for place in fenced {
+            match place {
+                Fenced::Held(r, work, _) => {
+                    let ticket = r.ticket;
+                    // Behind a refusal made just now, it is held again.
+                    if let Err((reason, work)) = self.admit(*r, work) {
+                        refused.push((ticket, reason));
+                        let mut state = self.shared.state.lock().unwrap();
+                        discard(&self.shared, &mut state, work);
+                    }
+                }
+                Fenced::Refused(ticket, reason) => {
+                    let mut state = self.shared.state.lock().unwrap();
+                    if state.ordered_barrier {
+                        state.fenced.push_back(Fenced::Refused(ticket, reason));
+                    } else {
+                        state.ordered_barrier = true;
+                        refused.push((ticket, reason));
+                    }
+                }
             }
         }
         refused
@@ -560,6 +626,25 @@ impl Drop for WorkerSlot {
         LIVE_WORKERS.fetch_sub(1, Ordering::AcqRel);
     }
 }
+/// Work for a worker to destroy (none, on a core with no workers: it goes
+/// with the state).
+fn discard(shared: &Shared, state: &mut State, work: Option<OwnedWork>) {
+    if let Some(work) = work {
+        state.discard.push(work);
+        shared.ready.notify_all();
+    }
+}
+
+fn fenced_bytes(fenced: &VecDeque<Fenced>) -> usize {
+    fenced
+        .iter()
+        .map(|f| match f {
+            Fenced::Held(.., charge) => *charge,
+            Fenced::Refused(..) => 0,
+        })
+        .sum()
+}
+
 fn has_ready(state: &State) -> bool {
     !state.completed[1].is_empty()
         || state
@@ -616,6 +701,11 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
         state.counts[lane] -= 1;
         state.streams -= usize::from(run.stream);
         state.bytes[lane] -= run.charge;
+        // The lane going idle can let a retained ordered refusal settle,
+        // and the work held behind it go: the host needs a pump for that.
+        if lane == 0 && state.counts[0] == 0 {
+            wake(&mut state);
+        }
         return;
     }
     let bytes = if lane == 0 {
@@ -807,9 +897,18 @@ fn worker(
             loop {
                 if state.retired {
                     let abandoned = std::mem::take(&mut state.jobs[lane]);
+                    let fenced = std::mem::take(&mut state.fenced);
+                    let discarded = std::mem::take(&mut state.discard);
                     drop(state);
-                    drop(abandoned);
+                    drop((abandoned, fenced, discarded));
                     return;
+                }
+                if !state.discard.is_empty() {
+                    let discarded = std::mem::take(&mut state.discard);
+                    drop(state);
+                    drop(discarded);
+                    state = shared.state.lock().unwrap();
+                    continue;
                 }
                 if let Some(next) = next_job(&mut state, lane) {
                     break next;

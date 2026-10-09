@@ -301,10 +301,13 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
         // A ceiling the 32 MiB lane can never hold (twice the body, plus).
         Request::get("https://example.test/read").independent_http(16 << 20),
     ] {
+        // Each is refused on its own, not held behind the one before it.
+        assert_eq!(core.resume_ordered(), []);
         assert!(core.run(job(3, request), None).is_err());
     }
     let mut large = Request::get("https://example.test/read");
     large.body = Vec::with_capacity(MAX_REQUEST + 1);
+    assert_eq!(core.resume_ordered(), []);
     assert!(core.run(job(4, large), None).is_err());
     fixture.release();
 }
@@ -625,7 +628,12 @@ fn a_refused_redirect_names_where_it_led() {
 
 fn settled(core: &Core) -> bool {
     let state = core.shared.state.lock().unwrap();
-    state.counts == [0, 0] && state.bytes == [0, 0] && state.running.is_empty()
+    state.counts == [0, 0]
+        && state.bytes == [0, 0]
+        && state.running.is_empty()
+        && state.fenced.is_empty()
+        && state.fenced_bytes == 0
+        && state.discard.is_empty()
 }
 
 fn until_settled(core: &Core) {
@@ -873,7 +881,6 @@ fn ordered_requests_after_a_capacity_refusal_wait_for_it_to_settle() {
     core.run(job(0, Request::get("https://example.test/hold")), None)
         .unwrap();
     fixture.wait_held(1);
-    let write = |n: u64| Request::post_json(&format!("https://example.test/write/{n}"), "{}");
     for ticket in 1..16 {
         core.run(job(ticket, write(ticket)), None).unwrap();
     }
@@ -932,7 +939,6 @@ fn held_ordered_requests_past_the_limit_refuse_one_and_wait_again() {
     core.run(job(0, Request::get("https://example.test/hold")), None)
         .unwrap();
     fixture.wait_held(1);
-    let write = |n: u64| Request::post_json(&format!("https://example.test/write/{n}"), "{}");
     for ticket in 1..16 {
         core.run(job(ticket, write(ticket)), None).unwrap();
     }
@@ -965,6 +971,196 @@ fn held_ordered_requests_past_the_limit_refuse_one_and_wait_again() {
         .iter()
         .any(|url| url.ends_with("/write/20") || url.ends_with("/write/34")));
     assert!(settled(&core));
+}
+
+/// Sixteen in flight from a hold and fifteen writes, the next write refused
+/// at the limit: the fence is up over whatever comes next.
+fn fenced_core() -> (Core, Arc<Fixture>, Receiver<()>) {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    for ticket in 1..16 {
+        core.run(job(ticket, write(ticket)), None).unwrap();
+    }
+    assert_eq!(
+        core.run(job(16, write(16)), None),
+        Err("native executor admission limit reached")
+    );
+    (core, fixture, woke)
+}
+
+fn write(n: u64) -> Request {
+    Request::post_json(&format!("https://example.test/write/{n}"), "{}")
+}
+
+fn tickets(outcomes: Vec<(u64, Outcome)>) -> Vec<u64> {
+    outcomes.into_iter().map(|v| v.0).collect()
+}
+
+/// A request refused while work is held (here invalid: request buffers over
+/// 4 MiB) keeps its place: refused only when the held work before it has
+/// been admitted, so that its refusal settles after that work (Astra and
+/// Grok, round 1: it had settled first, A, B, D, C).
+#[test]
+fn a_refusal_behind_held_work_settles_after_it() {
+    let (core, fixture, woke) = fenced_core();
+    core.run(job(17, write(17)), None).unwrap();
+    let mut invalid = write(18);
+    invalid.body = Vec::with_capacity(5 << 20);
+    core.run(job(18, invalid), None).unwrap();
+    core.run(job(19, write(19)), None).unwrap();
+    fixture.release();
+    assert_eq!(
+        tickets(collect(&core, &woke, 16)),
+        (0..16).collect::<Vec<_>>()
+    );
+    // 17 is admitted before 18 is refused; 19 waits behind 18.
+    let refused = core.resume_ordered();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].0, 18);
+    assert_eq!(tickets(collect(&core, &woke, 1)), [17]);
+    assert!(core.ordered_idle());
+    assert_eq!(core.resume_ordered(), []);
+    assert_eq!(tickets(collect(&core, &woke, 1)), [19]);
+    assert!(settled(&core));
+}
+
+/// The 129th request behind the fence is refused, in its place: after the
+/// 128 held before it.
+#[test]
+fn the_request_past_the_held_count_is_refused_after_the_held_ones() {
+    let (core, fixture, woke) = fenced_core();
+    for ticket in 17..=146 {
+        let request = Request::get(&format!("https://example.test/read/{ticket}"));
+        core.run(job(ticket, request), None).unwrap();
+    }
+    assert!(core.shared.state.lock().unwrap().fenced_bytes > 0);
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 16).len(), 16);
+    let fence = "earlier ordered admission refusal must settle first";
+    assert_eq!(core.resume_ordered(), [(145, fence)]);
+    assert_eq!(
+        tickets(collect(&core, &woke, 128)),
+        (17..=144).collect::<Vec<_>>()
+    );
+    assert_eq!(core.resume_ordered(), [(146, fence)]);
+    assert_eq!(core.resume_ordered(), []);
+    assert!(settled(&core));
+}
+
+/// Held request buffers are capped at 64 MiB: the one over is refused in its
+/// place, and a small one after it is still held.
+#[test]
+fn the_request_past_the_held_bytes_is_refused_in_its_place() {
+    let (core, fixture, woke) = fenced_core();
+    let read = |ticket: u64, bytes: usize| {
+        let mut request = Request::get(&format!("https://example.test/read/{ticket}"));
+        request.body = Vec::with_capacity(bytes);
+        job(ticket, request)
+    };
+    for ticket in 17..=38 {
+        core.run(read(ticket, 3 << 20), None).unwrap();
+    }
+    core.run(read(39, 0), None).unwrap();
+    {
+        let state = core.shared.state.lock().unwrap();
+        assert!(state.fenced_bytes <= ORDERED_WAITING_BYTES);
+        assert!(matches!(state.fenced[21], Fenced::Refused(38, _)));
+        assert!(matches!(state.fenced[22], Fenced::Held(..)));
+    }
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 16).len(), 16);
+    assert_eq!(
+        core.resume_ordered(),
+        [(38, "earlier ordered admission refusal must settle first")]
+    );
+    assert_eq!(
+        tickets(collect(&core, &woke, 21)),
+        (17..=37).collect::<Vec<_>>()
+    );
+    assert_eq!(core.resume_ordered(), []);
+    assert_eq!(tickets(collect(&core, &woke, 1)), [39]);
+    assert!(settled(&core));
+}
+
+/// The last forgotten ordered job ending wakes the host: the lane is idle,
+/// so a retained refusal can settle and the work held behind it go (Astra,
+/// round 1: it released its count without a wake).
+#[test]
+fn the_last_forgotten_ordered_job_ending_wakes_the_host() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    while woke.try_recv().is_ok() {}
+    core.begin_pump();
+    core.forget(|_| false);
+    woke.recv_timeout(Duration::from_secs(5))
+        .expect("no wake when the lane went idle");
+    until_settled(&core);
+    assert!(core.ordered_idle());
+}
+
+/// Records the thread its drop runs on.
+struct DropsOn(Arc<Mutex<Option<std::thread::ThreadId>>>);
+impl Drop for DropsOn {
+    fn drop(&mut self) {
+        *self.0.lock().unwrap() = Some(std::thread::current().id());
+    }
+}
+
+fn held_work(core: &Core, ticket: u64) -> Arc<Mutex<Option<std::thread::ThreadId>>> {
+    let dropped = Arc::new(Mutex::new(None));
+    let guard = DropsOn(dropped.clone());
+    core.run(
+        job(ticket, Request::continuation(ticket)),
+        Some(Box::new(move || {
+            let _guard = &guard;
+            Outcome::Storage(vec![])
+        })),
+    )
+    .unwrap();
+    dropped
+}
+
+fn dropped_off_this_thread(dropped: &Mutex<Option<std::thread::ThreadId>>) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(on) = *dropped.lock().unwrap() {
+            assert_ne!(
+                on,
+                std::thread::current().id(),
+                "destroyed on the host thread"
+            );
+            return;
+        }
+        assert!(Instant::now() < deadline, "held work never destroyed");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Held work the runner lets go is destroyed by a worker, unrun, as a
+/// queued job's is, not on the host thread that forgets it.
+#[test]
+fn forgotten_held_work_is_destroyed_by_a_worker_unrun() {
+    let (core, fixture, woke) = fenced_core();
+    let dropped = held_work(&core, 17);
+    core.forget(|ticket| ticket != 17);
+    dropped_off_this_thread(&dropped);
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 16).len(), 16);
+    assert_eq!(core.resume_ordered(), []);
+    assert!(settled(&core));
+}
+
+/// Retiring the executor destroys held work on a retiring worker.
+#[test]
+fn retirement_destroys_held_work_on_a_worker() {
+    let (core, _fixture, _woke) = fenced_core();
+    let dropped = held_work(&core, 17);
+    drop(core);
+    dropped_off_this_thread(&dropped);
 }
 
 #[test]

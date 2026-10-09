@@ -83,6 +83,11 @@ impl Executor {
         self.core.resume_ordered()
     }
 
+    /// No admitted ordered work is in flight or undrained.
+    pub fn ordered_idle(&self) -> bool {
+        self.core.ordered_idle()
+    }
+
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);

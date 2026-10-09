@@ -808,12 +808,8 @@ struct Held {
 }
 
 fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
-    // The runner holds no refusals in a render, so the fence lifts at each
-    // hand-out: what it held is admitted, or the render is busy.
     executor.forget(|ticket| runner.holds(ticket));
-    for (ticket, _) in executor.resume_ordered() {
-        held.busy.insert(ticket);
-    }
+    lift(executor, held);
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
@@ -830,6 +826,24 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
     for (token, dispatch) in runner.release_work() {
         if let Some(r) = held.parked.remove(&token) {
             run(executor, held, r, dispatch);
+        }
+    }
+    // Again for what this batch put behind a refusal: with nothing earlier
+    // in flight, no completion would come to lift it.
+    lift(executor, held);
+}
+
+/// The runner holds no refusals in a render, so the ordered fence lifts at
+/// each hand-out: what it held is admitted, or the render is busy. A refusal
+/// with nothing in flight lifts again, until something runs or none is held.
+fn lift(executor: &Executor, held: &mut Held) {
+    loop {
+        let refused = executor.resume_ordered();
+        let again = !refused.is_empty() && executor.ordered_idle();
+        held.busy
+            .extend(refused.into_iter().map(|(ticket, _)| ticket));
+        if !again {
+            return;
         }
     }
 }
@@ -1222,5 +1236,68 @@ mod realm_tests {
         assert!(MADE.with(|m| m.borrow().is_none()));
         retire_renders();
         assert!(RETIRED.with(|r| r.borrow().is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataError, Outcome, Request, Store};
+    use std::sync::atomic::AtomicUsize;
+
+    static GOOD: AtomicUsize = AtomicUsize::new(0);
+
+    /// `bad` asks for a continuation with an independent-HTTP opt-in, which
+    /// the executor refuses; `good` for one it runs.
+    struct Fenced;
+    impl DataSource for Fenced {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(match source {
+                "bad" => Request::continuation(1).independent_http(4096),
+                _ => Request::continuation(2),
+            }))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            GOOD.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// A refusal with nothing in flight before it fences the next request:
+    /// the hand-out lifts the fence again, so the next one runs at once
+    /// rather than at the deadline (review of the held ordered lane).
+    #[test]
+    fn a_request_fenced_with_nothing_in_flight_runs_without_waiting_for_the_deadline() {
+        let plan = contract::compile(
+            "component App\n  resource bad = bad() as shape number\n  resource good = good() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let site = Site {
+            name: "Fenced",
+            origin: None,
+        };
+        let started = Instant::now();
+        let rendered = render(&plan, || Fenced, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert!(started.elapsed() < DEADLINE / 2, "{:?}", started.elapsed());
+        assert_eq!(GOOD.load(Ordering::SeqCst), 1, "good was answered");
+        assert_eq!(rendered.settled, Settled::Busy);
     }
 }

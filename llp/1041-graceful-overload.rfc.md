@@ -443,8 +443,9 @@ Independent admission counts queued, running and undrained outcomes against
 128 requests / 32 MiB. The ordered lane has one worker and a 512 MiB budget.
 As built 2026-10-08 (issue #286), a plain HTTP `GET`/`HEAD` without opaque work
 may be admitted up to 128 total ordered tickets; other work retains the
-16-ticket total-lane admission bound. All waiting ordered request buffers
-together are capped at 64 MiB, leaving room to start the head. Reads stay in
+16-ticket total-lane admission bound. The request buffers of all admitted
+ordered calls still waiting are capped at 64 MiB, leaving room to start the head
+(requests held behind a refusal, below, have their own 64 MiB). Reads stay in
 the same FIFO as writes and continuations. A waiting call is charged its
 request buffers, the running call its
 64 MiB response ceiling (twice, for growth), and a completed one what it retains
@@ -459,7 +460,10 @@ Ordered refusals wait for prior admitted work and prevent later ordered effects
 from bypassing their settlement. As built 2026-10-08, later ordered requests are
 held behind the refusal, not refused with it (on current tickets, capped at 128
 and 64 MiB of request buffers), and admitted in order once it settles; one over
-a limit then is refused alone and the rest wait again. (The Bluesky clone: a
+a limit then is refused alone and the rest wait again. A request refused while
+others are held (invalid, or past those caps) keeps its place among them, so its
+refusal settles after the held work before it; held work let go or retired is
+destroyed by a worker, as queued work is. (The Bluesky clone: a
 seventeenth answer at boot was refused and so was every later ordered request,
 and the app stayed on skeletons.) The request over the limit is still refused,
 not queued: D2 leaves durable queues to the application. Refusals occupy existing current runner tickets,
