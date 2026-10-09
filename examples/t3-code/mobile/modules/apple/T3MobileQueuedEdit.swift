@@ -1053,11 +1053,13 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try locked {
             var value = try store()
             let owner = T3MobileIncomingShareTransfer(root: root)
-            let answer = try owner.request(request, records: value["incomingShares"], preferences: readJSON(preferences)) { records in
+            let answer = try owner.request(request, records: value["incomingShares"], preferences: readJSON(preferences), save: { records in
                 value["incomingShares"] = records
                 try self.save(value)
-            }
-            if request["action"] as? String == "release", let id = request["adoptionId"] as? String,
+            }, writePreferences: { next in
+                try self.writePreferencesLocked(next, incomingCancellation: true)
+            })
+            if ["release", "cancel"].contains(request["action"] as? String ?? ""), let id = request["adoptionId"] as? String,
                let record = (value["incomingShares"] as? [String: [String: Any]])?[id],
                let entry = record["entry"] as? [String: Any], let selected = record["attachmentIds"] as? [String] {
                 enqueueReleases((entry["attachments"] as? [[String: Any]] ?? []).filter { selected.contains($0["id"] as? String ?? "") }, in: &value)
@@ -1068,23 +1070,35 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     func writePreferences(_ text: String) throws {
         try locked {
-            guard let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-                  (value["pending"] == nil || value["pending"] is [String: Any]) else { throw refusal("Saved preferences are invalid.", kind: "Persistence") }
-            let pending = value["pending"] as? [String: Any] ?? [:]
-            for entry in inlineSendPreparations.values {
-                let operation = entry["operation"] as! [String: Any]
-                if pending[operation["environmentId"] as! String] != nil { throw refusal("Finish inline expansion before saving another pending operation.", kind: "Busy") }
-            }
-            for entry in inlinePreparations.values {
-                let prepared = entry["prepared"] as! [String: Any]
-                if pending[prepared["environmentId"] as! String] != nil { throw refusal("Finish inline image preparation before saving another pending operation.", kind: "Busy") }
-            }
-            for operation in operations(try store()).values where unresolved(operation) {
-                if pending[operation["environmentId"] as? String ?? ""] != nil { throw refusal("Resolve the queued update before saving another pending operation.", kind: "Busy") }
-            }
-            try T3MobileIncomingShareTransfer.validatePreferences(previous: readJSON(preferences), next: value, records: store()["incomingShares"])
-            try replace(Self.encoded(value), preferences)
+            guard let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { throw refusal("Saved preferences are invalid.", kind: "Persistence") }
+            try writePreferencesLocked(value)
         }
+    }
+    /// Cancellation invokes this only after its exact draft CAS and durable intent;
+    /// all existing pending-operation admission still runs under the same mutex.
+    private func writePreferencesLocked(_ value: [String: Any], incomingCancellation: Bool = false) throws {
+        guard value["pending"] == nil || value["pending"] is [String: Any] else { throw refusal("Saved preferences are invalid.", kind: "Persistence") }
+        let pending = value["pending"] as? [String: Any] ?? [:]
+        for entry in inlineSendPreparations.values {
+            let operation = entry["operation"] as! [String: Any]
+            if pending[operation["environmentId"] as! String] != nil { throw refusal("Finish inline expansion before saving another pending operation.", kind: "Busy") }
+        }
+        for entry in inlinePreparations.values {
+            let prepared = entry["prepared"] as! [String: Any]
+            if pending[prepared["environmentId"] as! String] != nil { throw refusal("Finish inline image preparation before saving another pending operation.", kind: "Busy") }
+        }
+        for operation in operations(try store()).values where unresolved(operation) {
+            if pending[operation["environmentId"] as? String ?? ""] != nil { throw refusal("Resolve the queued update before saving another pending operation.", kind: "Busy") }
+        }
+        if !incomingCancellation {
+            var journal = try store()
+            try T3MobileIncomingShareTransfer.validatePreferences(previous: readJSON(preferences), next: value, records: journal["incomingShares"])
+            let captured = try T3MobileIncomingShareTransfer.captureAdoptions(value, previous: readJSON(preferences), records: journal["incomingShares"])
+            if !T3MobileOutbox.jsonEqual(captured, journal["incomingShares"] ?? [String: Any]()) {
+                journal["incomingShares"] = captured; try save(journal)
+            }
+        }
+        try replace(Self.encoded(value), preferences)
     }
     func retire(_ request: [String: Any]) throws -> [String: Any] {
         try locked {

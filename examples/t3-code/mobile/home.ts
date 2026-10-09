@@ -18,6 +18,7 @@ import { groupLabel, logicalKey } from './shared/r6-polish-groups';
 import { serverMatches, searchMatch } from './shared/sidebar-presentation';
 import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
 import { faviconSrc } from './shared/r3-sidebar-glyph';
+import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCompletion,
   sidebarStatus, sidebarVisible, snoozeWakeLabel, sortActive, sortByReturn, sortPinned,
   sortSettled, sortSnoozed, sortWorkingThreadsBySend, settledTimestamp, type SidebarSection } from './shared/sidebar-model';
@@ -74,6 +75,13 @@ export function mobileHomeSources(client: T3Client = mobileClient, background: E
     if (entry.environmentId === client.environmentId || entry.phase !== 'connected' || entry.synchronized !== entry.generation) continue;
     sources.push({ environmentId: entry.environmentId, label: str(obj(entry.config.environment).label), machine: machineKind(entry.config),
       config: entry.config, shell: entry.shell, focused: false, origin: entry.origin, connected: true });
+  }
+  for (const cached of mobileCacheFleetDisplays(background, client)) {
+    if (!cached.enabled) continue;
+    const saved = background.saved.find(row => row.environmentId === cached.environmentId);
+    sources.push({ environmentId: cached.environmentId, label: str(saved?.mobileLabel) || str(obj(cached.config.environment).label),
+      machine: machineKind(cached.config), config: cached.config, shell: cached.shell,
+      focused: false, origin: cached.origin, connected: false });
   }
   return sources;
 }

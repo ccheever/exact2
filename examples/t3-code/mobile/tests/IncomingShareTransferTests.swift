@@ -17,12 +17,12 @@ import Foundation
         func call(_ action: String, share: String = "", id: String? = nil, selected: [String]? = nil, target: Object? = nil) throws -> Object {
             var request: Object = ["action": action, "shareId": share, "destination": target ?? destination]
             if let id { request["adoptionId"] = id }; if let selected { request["attachmentIds"] = selected }
-            return try owner.request(request, records: journal, preferences: preferences) { next in
+            return try owner.request(request, records: journal, preferences: preferences, save: { next in
                 saveCalls += 1
                 if failSave || saveCalls == failAtSave { throw CocoaError(.fileWriteOutOfSpace) }
                 journal = next
                 if publishThenFail { throw CocoaError(.fileWriteUnknown) }
-            }
+            })
         }
         func ingest(_ text: String, attachments: Int = 0) throws -> T3MobileIncomingShares.Entry {
             var payloads = [T3MobileIncomingShares.Payload(shareType: "text", mimeType: nil, value: text, originalName: nil)]
@@ -37,14 +37,16 @@ import Foundation
             let images = entry.attachments.filter { selected.contains($0.id) && $0.kind == "image" }.map { ["id": $0.id, "sizeBytes": $0.sizeBytes] as Object }
             let files = entry.attachments.filter { selected.contains($0.id) && $0.kind == "file" }.map { ["id": $0.id, "sizeBytes": $0.sizeBytes, "draftKey": "new-task:one"] as Object }
             return ["drafts": ["new-task:one": "existing\n" + entry.text], "snapshotDrafts": ["new-task:one": images], "composerFiles": files,
-                    "mobileAttachmentOrder": ["new-task:one": selected], "mobileNewTaskDrafts": ["records": ["new-task:one": destination.merging(["key": "new-task:one"]) { _, new in new }]],
+                    "mobileAttachmentOrder": ["new-task:one": selected], "mobileNewTaskDrafts": ["records": ["new-task:one": destination.merging(["key": "new-task:one", "revision": 0]) { _, new in new }]],
                     "mobileIncomingShareImports": ["new-task:one": [id: ["version": 1, "shareId": entry.id, "adoptionId": id, "instanceId": entry.instanceId, "createdAt": entry.createdAt, "destination": destination, "attachmentIds": selected]]]]
         }
         func savePreferences(_ document: Object) throws {
             try T3MobileIncomingShareTransfer.validatePreferences(previous: preferences, next: document, records: journal)
+            journal = try T3MobileIncomingShareTransfer.captureAdoptions(document, previous: preferences, records: journal)
             try T3MobileIncomingShares.durableWrite(JSONSerialization.data(withJSONObject: document), to: root.appendingPathComponent("t3-code.json"))
             preferences = document
         }
+        try savePreferences(["drafts": ["new-task:one": ""], "mobileNewTaskDrafts": ["records": ["new-task:one": destination.merging(["key": "new-task:one", "revision": 0]) { _, new in new }]]])
         let entry = try ingest("first", attachments: 2)
         failSave = true
         refuse("failed reservation retains inbox") { _ = try call("reserve", share: entry.id) }; failSave = false
@@ -103,10 +105,10 @@ import Foundation
         onlyCurrent["mobileIncomingShareImports"] = ["new-task:one": [duplicateId: duplicateReceipts["new-task:one"]![duplicateId]!]]
         let duplicateRequest: Object = ["action": "consume", "shareId": again.id, "adoptionId": duplicateId, "destination": destination]
         refuse("unconsumed prior reservation cannot prove a duplicate no-op") {
-            _ = try owner.request(duplicateRequest, records: unconsumed, preferences: duplicateDocument) { _ in }
+            _ = try owner.request(duplicateRequest, records: unconsumed, preferences: duplicateDocument, save: { _ in })
         }
         refuse("consumed journal without its saved preference receipt cannot prove a duplicate no-op") {
-            _ = try owner.request(duplicateRequest, records: journal, preferences: onlyCurrent) { _ in }
+            _ = try owner.request(duplicateRequest, records: journal, preferences: onlyCurrent, save: { _ in })
         }
         var wrongDraft = journal, otherDestination = destination; otherDestination["draftKey"] = "new-task:other"
         wrongDraft[first]!["destination"] = otherDestination
@@ -115,13 +117,13 @@ import Foundation
         var misplaced = onlyCurrent
         misplaced["mobileIncomingShareImports"] = ["new-task:one": [duplicateId: duplicateReceipts["new-task:one"]![duplicateId]!], "new-task:other": [first: misplacedReceipt]]
         refuse("another draft's consumed receipt cannot prove a duplicate no-op") {
-            _ = try owner.request(duplicateRequest, records: wrongDraft, preferences: misplaced) { _ in }
+            _ = try owner.request(duplicateRequest, records: wrongDraft, preferences: misplaced, save: { _ in })
         }
         var forged = duplicateDocument, forgedReceipts = duplicateReceipts
         forgedReceipts["new-task:one"]![first]!["instanceId"] = UUID().uuidString.lowercased()
         forged["mobileIncomingShareImports"] = forgedReceipts
         refuse("forged earlier receipt cannot prove a duplicate no-op") {
-            _ = try owner.request(duplicateRequest, records: journal, preferences: forged) { _ in }
+            _ = try owner.request(duplicateRequest, records: journal, preferences: forged, save: { _ in })
         }
         try savePreferences(duplicateDocument)
         _ = try call("consume", share: again.id, id: duplicateId)

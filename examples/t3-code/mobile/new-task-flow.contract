@@ -6,6 +6,9 @@ shape NewTaskFlowSnapshot
   requestRoute: string
   status: string
   title: string
+  subtitle: string
+  reservedProject: string
+  shareAttempt: number
   message: string
   draftOwner: string
   ready: bool

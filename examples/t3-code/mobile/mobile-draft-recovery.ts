@@ -12,6 +12,11 @@ import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletions
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
+import { fleet } from './shared/settings-b-fleet';
+import { letGoAware } from './shared/let-go';
+import { mobileCacheBeforeStatus, mobileCacheSync } from './mobile-client-cache-sync';
+import { mobileCacheObserveAdoption } from './mobile-client-cache-lifecycle';
+import { mobileCacheFleetSync } from './mobile-client-cache-fleet';
 import { mobileNewTaskDefaultModel } from './new-task-model';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';
@@ -201,12 +206,24 @@ function pruneRetiredMarkers(client: T3Client) {
 /** Mobile default policy and recovery over one shared client. A new send's
  * context is extended before super.write; retry payloads stay immutable. */
 export class MobileDraftClient extends T3Client {
+  private cacheRefresh = 0;
+  constructor() { super(); mobileCacheObserveAdoption(this); }
+  override adoptStatus(value: Obj, generation: number): void {
+    mobileCacheBeforeStatus(this, value, generation);
+    super.adoptStatus(value, generation);
+  }
   /** Plain, invocation-scoped cleanup projection. Concurrent preference writes
    * must serialize the same removal until live cleanup finishes. No handles. */
   pendingTaskCleanup: { marker: MobilePendingTaskMarker; fingerprint: string } | null = null;
 
   override async refresh(...args: Parameters<T3Client['refresh']>): Promise<void> {
-    await super.refresh(...args); mobileOutboxRecoveryDraftApplyChoices(this);
+    const serial = ++this.cacheRefresh;
+    const native = args[0]?.available ? letGoAware(args[0]) : args[0];
+    await super.refresh(native, args[1]); mobileOutboxRecoveryDraftApplyChoices(this);
+    if (serial !== this.cacheRefresh) return;
+    await mobileCacheSync(this, native, () => fleet.saved);
+    if (serial !== this.cacheRefresh) return;
+    await mobileCacheFleetSync(fleet, native, this);
   }
   override async openThread(...args: Parameters<T3Client['openThread']>): Promise<void> {
     await super.openThread(...args); mobileOutboxRecoveryDraftApplyChoices(this);

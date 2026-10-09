@@ -34,3 +34,11 @@ export function mobileIncomingShareImportRemember(client: T3Client, input: Incom
   saved[key] = { ...saved[key], [receipt.adoptionId]: receipt };
   Object.assign(client.local, { [field]: saved }); client.revision++;
 }
+/** Called only after native confirmed durable cancellation and local CAS restore. */
+export function mobileIncomingShareImportForget(client: T3Client, key: string, adoptionId: string): void {
+  const saved = mobileIncomingShareImports(client);
+  if (!saved[key]?.[adoptionId]) return;
+  delete saved[key][adoptionId];
+  if (!Object.keys(saved[key]).length) delete saved[key];
+  Object.assign(client.local, { [field]: saved }); client.revision++;
+}

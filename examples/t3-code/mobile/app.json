@@ -21,6 +21,7 @@
       "link": [
         "-lc++",
         "-lz",
+        "-lsqlite3",
         "-framework",
         "IOSurface",
         "-framework",
