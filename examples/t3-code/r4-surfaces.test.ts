@@ -160,20 +160,26 @@ describe('Files surface', () => {
     expect((await subheader('docs/guide.pdf'))[2]).toBe(false);
   });
   test('"Open file in preview browser" signs the workspace file for the thread and opens it in a Browser tab (openFileInPreview)', async () => {
-    const rpcs: { method: string; payload: Record<string, unknown> }[] = [];
-    const { client } = fakeClient({ available: true, origin: 'http://127.0.0.1:9', generation: 1, presentation: {},
-      rpc: async (_native: unknown, method: string, payload: Record<string, unknown>) => {
-        rpcs.push({ method, payload });
-        if (method === 'assets.createUrl') return { relativeUrl: '/api/assets/token/page.html' };
-        if (method === 'preview.list') return { sessions: [], serverEpoch: 'epoch-1', revision: 1 };
-        if (method === 'preview.open') return { threadId: 't1', tabId: 'tab-1', navStatus: { _tag: 'Loading', url: String(payload.url), title: '' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' };
-        return {};
-      } });
     const live = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
-    await surfaceLocal(client, live, 'files-open-browser', 'docs/page.html', '');
-    expect(rpcs.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: '/repo/docs/page.html' } });
-    expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't1', url: 'http://127.0.0.1:9/api/assets/token/page.html' });
-    expect(panelState(client)).toMatchObject({ active: 'browser:tab-1', visible: true });
+    // A page and a PDF take the same path: the signed `workspace-file` URL opens in a new Browser tab.
+    for (const [path, tab] of [['docs/page.html', 'tab-1'], ['docs/guide.pdf', 'tab-2']] as const) {
+      const rpcs: { method: string; payload: Record<string, unknown> }[] = [], raws: Record<string, unknown>[] = [];
+      const { client } = fakeClient({ available: true, origin: 'http://127.0.0.1:9', generation: 1, presentation: {},
+        raw: async (_native: unknown, request: Record<string, unknown>) => { raws.push(request); return { ok: true, value: {} }; },
+        rpc: async (_native: unknown, method: string, payload: Record<string, unknown>) => {
+          rpcs.push({ method, payload });
+          if (method === 'assets.createUrl') return { relativeUrl: `/api/assets/token/${path.split('/').pop()}` };
+          if (method === 'preview.list') return { sessions: [], serverEpoch: 'epoch-1', revision: 1 };
+          if (method === 'preview.open') return { threadId: 't1', tabId: tab, navStatus: { _tag: 'Loading', url: String(payload.url), title: '' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' };
+          return {};
+        } });
+      await surfaceLocal(client, live, 'files-open-browser', path, '');
+      expect(rpcs.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: `/repo/${path}` } });
+      expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't1', url: `http://127.0.0.1:9/api/assets/token/${path.split('/').pop()}` });
+      expect(panelState(client)).toMatchObject({ active: `browser:${tab}`, visible: true });
+      expect(raws.filter(request => request.op === 'browserSync').at(-1)?.tabs).toHaveLength(1);
+      expect(toasts(client)).toEqual([]);
+    }
     // A refused signature is the reference's stacked toast, and no tab opens.
     const refused = fakeClient({ available: true, origin: 'http://127.0.0.1:9', rpc: async () => { throw new Error('Workspace context not found.'); } }).client;
     await surfaceLocal(refused, live, 'files-open-browser', 'docs/guide.pdf', '');
