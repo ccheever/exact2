@@ -83,12 +83,32 @@ export async function filesMediaView(client: T3Client, native: Native | null | u
 
 // Chat Markdown: an image line (`![alt](src)` alone, the only image block markdown.rs draws).
 const IMAGE_LINE = /^!\[([^\]\n]*)\]\((.*)\)$/;
-/** markdown.rs's link resolver for an image's src: a web URL as written, a file link as `t3-file:`, else nothing. */
+// markdown_links.rs's link resolver (ChatMarkdown's markdownUrlTransform over react-markdown's
+// defaultUrlTransform, T3 Code 1e2ecbd975, MIT): the same rule on both sides of the chip match.
+/** The anchor of a destination the transform emptied (`[parser](fixture.txt:3)`): link text, no target. */
+export const NO_HREF = 't3-anchor:';
+const SAFE_SCHEMES = /^(?:https?|ircs?|mailto|xmpp)$/i;
+/** The scheme defaultUrlTransform reads: the text before a colon that precedes any `/`, `?` or `#`. */
+export function urlScheme(href: string): string | null {
+  const colon = href.indexOf(':');
+  if (colon < 0) return null;
+  for (const mark of ['/', '?', '#']) { const at = href.indexOf(mark); if (at >= 0 && at < colon) return null; }
+  return href.slice(0, colon);
+}
+const windowsDrive = (href: string) => /^[A-Za-z](?::|%3a)(?:[\\/]|%2f|%5c)/i.test(href);
+/** markdown_links.rs link_href: a reference as written, an emptied anchor, a file link as `t3-file:`, a kept URL, or nothing. */
+export function markdownLinkHref(href: string): string {
+  const lower = href.toLowerCase();
+  if (lower.startsWith('t3-context://') || lower.startsWith('t3-citation://')) return href;
+  const scheme = urlScheme(href);
+  if (!lower.startsWith('file:') && !windowsDrive(href) && scheme !== null && !SAFE_SCHEMES.test(scheme)) return NO_HREF;
+  if (lower.startsWith('file:') || windowsDrive(href) || (!!href && !href.startsWith('#') && !href.startsWith('//') && scheme === null)) return `t3-file:${href}`;
+  return !href || href.startsWith('#') ? '' : href;
+}
+/** markdown.rs's resolver for an image's src: as a link, but an emptied source loads nothing. */
 export function markdownImageHref(src: string): string {
-  const lower = src.toLowerCase();
-  if (['https://', 'http://', 'mailto:', 'tel:', 't3-context://', 't3-citation://'].some(scheme => lower.startsWith(scheme))) return src;
-  const fileLink = lower.startsWith('file://') || (!!src && !src.startsWith('#') && !lower.includes('://') && !['data:', 'javascript:', 'mailto:', 'tel:'].some(scheme => lower.startsWith(scheme)));
-  return fileLink ? `t3-file:${src}` : '';
+  const href = markdownLinkHref(src);
+  return href === NO_HREF ? '' : href;
 }
 /** The image lines of a message, as markdown.rs reads them (src trimmed and cut at a title's quote). */
 export function markdownImages(text: string): { alt: string; src: string; href: string }[] {
@@ -136,12 +156,12 @@ export function markdownMediaChips(text: string, root: string): { href: string; 
 }
 
 /** Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused). */
-export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number): Promise<{ id: string; url: string }[]> {
+export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[]): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
   if (!client.threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
-  for (const row of arr(client.projection.visibleTurnItems)) {
-    const text = str(obj(row.item).text);
+  // markdown-links-and-files-preview: a rendered Markdown file passes its own text (FileMarkdownPreview's images).
+  for (const text of texts ?? arr(client.projection.visibleTurnItems).map(row => str(obj(row.item).text))) {
     for (const image of markdownImages(text)) {
       const media = markdownMedia(image.alt, image.src, image.href, root);
       if (media.access === 'environment' && media.source?.asset) wanted.set(media.key, media);
