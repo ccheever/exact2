@@ -1,0 +1,145 @@
+# browser-surface part 4, the review fixes: one image per scenario, columns before | after | reference, one row per step.
+# A cell is a screenshot path, or ("text", "…") for a step a column cannot show (said why), or None (blank). Not committed.
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+L = "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-profiles/target/lane"
+B, A, R, P = f"{L}/runs/before3", f"{L}/runs/after3", f"{L}/refrun", f"{L}/runs/after-289861"
+BO, AO = f"{L}/runs/before3-offline", f"{L}/runs/after3-offline"
+OUT = f"{L}/evidence3"
+W, H = 896, 588
+BEFORE, AFTER, REF = "Before: base 950e8e2e5 (the feature-branch tip)", "After: eb8daccda (this branch)", "Reference: T3 Code 1e2ecbd975 (Electron)"
+
+
+def font(size, bold=False):
+    for f in (["/System/Library/Fonts/SFNS.ttf"] if not bold else []) + ["/System/Library/Fonts/Helvetica.ttc"]:
+        try:
+            return ImageFont.truetype(f, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def wrap(draw, text, fnt, width):
+    lines = []
+    for para in text.split("\n"):
+        line = ""
+        for word in para.split(" "):
+            trial = (line + " " + word).strip()
+            if draw.textlength(trial, font=fnt) <= width:
+                line = trial
+            else:
+                lines.append(line)
+                line = word
+        lines.append(line)
+    return lines
+
+
+def cell(spec):
+    canvas = Image.new("RGB", (W, H), (252, 252, 253))
+    d = ImageDraw.Draw(canvas)
+    if spec is None:
+        d.text((24, H // 2 - 12), "(no such step here)", fill=(150, 150, 158), font=font(20))
+        return canvas
+    if isinstance(spec, tuple):
+        fnt = font(19)
+        y = 22
+        for line in wrap(d, spec[1], fnt, W - 48):
+            d.text((24, y), line, fill=(40, 40, 46), font=fnt)
+            y += 27
+        return canvas
+    im = Image.open(spec).convert("RGB")
+    return im.resize((W, int(im.height * W / im.width)))
+
+
+def compose(name, caption, rows, heads=(BEFORE, AFTER, REF)):
+    pad, head, cap, rowcap = 20, 44, 52, 30
+    width = 3 * W + 4 * pad
+    height = cap + head + sum(rowcap + H + pad for _ in rows) + pad
+    canvas = Image.new("RGB", (width, height), (244, 244, 246))
+    d = ImageDraw.Draw(canvas)
+    d.text((pad, 14), caption, fill=(24, 24, 28), font=font(24))
+    for c, label in enumerate(heads):
+        d.text((pad + c * (W + pad), cap + 8), label, fill=(60, 60, 72), font=font(21))
+    y = cap + head
+    for label, cells in rows:
+        d.text((pad, y + 4), label, fill=(90, 90, 100), font=font(18))
+        y += rowcap
+        for c, spec in enumerate(cells):
+            x = pad + c * (W + pad)
+            canvas.paste(cell(spec), (x, y))
+            d.rectangle([x - 1, y - 1, x + W, y + H], outline=(205, 205, 210))
+        y += H + pad
+    os.makedirs(OUT, exist_ok=True)
+    canvas.save(f"{OUT}/{name}", optimize=True)
+    print(name, canvas.size)
+
+
+NOT_BASE = ("text", "The base has no part 4: Settings › Integrations › Browser shows no Browser profiles row (see the first row's before).")
+KEYCHAIN = "Not run in the reference: its import reads {0}'s key from the login Keychain in-process (ChromiumKeys.ts readKeychainSecret, @napi-rs/keyring), and the lane reads no real Keychain item. The clone reads the fixture home's stand-in (T3_BROWSER_IMPORT_HOME)."
+
+compose("r-integrations.png", "Settings › Integrations › Browser: Browser profiles and the defaults group, beside part 5's \"Open links in\"", [
+    ("The page", [f"{B}/10-integrations.png", f"{A}/10-integrations.png", f"{R}/r10-integrations.png"]),
+    ("The group's rows", [f"{B}/40-browser-rows.png", f"{A}/62-restored.png", f"{R}/r42-defaults-reset.png"]),
+])
+compose("r-add-profile.png", "Add profile: its menu (Blank profile, Import from the installed browsers), a blank profile, renamed to Work QA", [
+    ("Add profile's menu", [f"{B}/10-integrations.png", f"{A}/11-add-menu.png", f"{R}/r11-add-menu.png"]),
+    ("Blank profile", [None, f"{A}/12-blank.png", f"{R}/r12-blank.png"]),
+    ("Renamed", [None, f"{A}/13-renamed.png", f"{R}/r13-renamed.png"]),
+])
+compose("r-row-menu-remove.png", "A profile's menu (Set as default, Clear cookies and cache, Remove profile and data), the remove dialog, removed", [
+    ("The row's menu", [NOT_BASE, f"{A}/14-row-menu.png", f"{R}/r14-row-menu.png"]),
+    ("Remove dialog", [None, f"{A}/15-remove-dialog.png", f"{R}/r15-remove-dialog.png"]),
+    ("Removed", [None, f"{A}/16-removed.png", f"{R}/r16-removed.png"]),
+])
+compose("r-import-chrome.png", "Import from Chrome into a new profile: the configure step, then 3 imported and 2 skipped (fixture stores)", [
+    ("Configure", [NOT_BASE, f"{A}/20-chrome-configure.png", f"{R}/r20-chrome-configure.png"]),
+    ("Done", [None, f"{A}/21-chrome-done.png", ("text", KEYCHAIN.format("Chrome"))]),
+])
+compose("r-import-brave.png", "Brave running: \"Quit Brave to import\"; with the browser gone, \"I've quit it\" opens the configure step", [
+    ("Quit step", [NOT_BASE, f"{A}/23-brave-quit.png", f"{R}/r23-brave-quit.png"]),
+    ("After \"I've quit it\"", [None, f"{A}/24-brave-after-quit.png", f"{R}/r24-brave-after-quit.png"]),
+])
+compose("r-import-safari-fda.png", "Safari: \"Let T3 Code read Safari's cookies\" (Full Disk Access), its grant read again every 1.5 s", [
+    ("Full Disk Access step", [NOT_BASE, f"{A}/25-safari-fda.png", ("text", "Not shown in the reference lane: the step needs TCC's EPERM on Safari's jar (SafariCookies.ts isPermissionDenied), which only the real ~/Library/Containers/com.apple.Safari gives, and the lane never reads the real jar. With the fixture's readable jar the reference goes straight to configure. Its copy (BrowserImportWizard.tsx): \"Let T3 Code read Safari’s cookies\" / \"To import cookies from Safari, T3 Code needs Full Disk Access. Turn it on in System Settings, then come back to finish the import — you can revoke it again once the import is done.\"")]),
+    ("The 1.5 s read (agent state)", [("text", "Before (PR head 24d5ad2e7): no task; the grant was read only when the page was drawn (app.contract had no fdaPolling)."), ("text", "After: app.contract's fdaPolling asks the page again every 1.5 s while the step shows (fdaFocused when the window takes the focus). Agent state on the step: fdaPoll = 2 at clock 72500, fdaPoll = 4 at clock 75700 (3.2 s later); wizard.step = fullDiskAccess."), ("text", "Reference: usePermissionStatus checks at mount, every 1500 ms (window.setInterval) and on focus and visibilitychange, skipped while the document is hidden (components/permissions/usePermissionStatus.ts:11-38).")]),
+])
+compose("r-import-arc.png", "Arc: the Keychain refused, \"Couldn't import from Arc\" with Try again", [
+    ("Configure", [NOT_BASE, f"{A}/27-arc-blocked.png", f"{R}/r27-arc-configure.png"]),
+], heads=(BEFORE, AFTER + ": blocked", REF + ": configure only"))
+compose("r-import-firefox.png", "Import from Firefox into the existing Default profile (the container cookie is not imported)", [
+    ("Into Default", [NOT_BASE, f"{A}/28-firefox-into-default.png", f"{R}/r28-firefox-into-default.png"]),
+    ("Done", [None, f"{A}/29-firefox-done.png", f"{R}/r29-firefox-done.png"]),
+])
+compose("r-viewport-menu.png", "Default browser viewport's menu: Fill panel, Responsive, then \"Standard\" over the presets, each size right-aligned", [
+    ("The menu", [f"{P}/40-viewport-menu.png", f"{A}/40-viewport-menu.png", f"{R}/r40-viewport-menu.png"]),
+], heads=("Before: PR head 289861020 (the base has no menu)", AFTER, REF))
+compose("r-defaults.png", "The defaults rows: viewport, zoom, appearance, frame rate, key presses and Auto-show set, then frame rate and Auto-show reset", [
+    ("Set", [f"{B}/40-browser-rows.png", f"{A}/41-defaults-set.png", f"{R}/r41-defaults-set.png"]),
+    ("Two reset", [None, f"{A}/42-defaults-reset.png", f"{R}/r42-defaults-reset.png"]),
+])
+compose("r-restore-defaults.png", "Settings › General's Restore defaults with only frame rate 60, zoom 125% and iPhone 12 Pro changed", [
+    ("Restore device defaults (General)", [f"{B}/60-general-restore.png", f"{A}/60-general-restore.png", f"{R}/r60-general-restore.png"]),
+    ("Its confirmation", [("text", "Before (PR head 24d5ad2e7, the review's run): restoreLabels returned [], so restoreCount was 0 and Restore stayed disabled; a Restore run for another row reset the recording and Auto-show values but left the viewport, zoom and appearance (restore-defaults.txt). The base has no Browser defaults."), f"{A}/61-restore-dialog.png", f"{R}/r61-restore-dialog.png"]),
+    ("After Confirm (Integrations)", [None, f"{A}/62-restored.png", f"{R}/r62-restored-integrations.png"]),
+])
+compose("r-launcher.png", "The launcher's Browser row and its profile chevron (Default, Incognito and the imported profile)", [
+    ("Launcher", [f"{B}/30-launcher.png", f"{A}/30-launcher.png", f"{R}/r30-launcher.png"]),
+    ("The chevron's list", [None, f"{A}/31-launcher-profiles.png", f"{R}/r31-launcher-profiles.png"]),
+])
+compose("r-profile-tab.png", "A tab in the imported profile: its badge, its cookies (the probe names them), the configured viewport, zoom and appearance", [
+    ("The tab", [f"{B}/32-browser-tab.png", f"{A}/32-chrome-tab.png", f"{R}/r32-firefox-tab.png"]),
+    ("The cookie probe", [f"{B}/33-cookies.png", f"{A}/33-chrome-cookies.png", f"{R}/r33-firefox-cookies.png"]),
+], heads=(BEFORE + ": Default only", AFTER + ": Chrome profile", REF + ": Firefox profile (no Keychain read)"))
+compose("r-more-menu.png", "More menu: \"Profile: <name>\" with Clear cookies and Clear cache; Clear cookies empties that profile only", [
+    ("More menu", [f"{B}/34-more-profile.png", f"{A}/34-more-profile.png", f"{R}/r34-more-profile.png"]),
+    ("Clear cookies, reload", [None, f"{A}/35-cleared.png", f"{R}/r35-cleared.png"]),
+])
+compose("r-plus-browser.png", "\"+\" › Browser › the profile list, an Incognito tab's own cookie, a Default tab with Firefox's cookie only", [
+    ("\"+\" › Browser", [f"{B}/36-plus-menu.png", f"{A}/36-plus-profiles.png", f"{R}/r36-plus-profiles.png"]),
+    ("Incognito: /set, reload", [None, f"{A}/37-incognito.png", f"{R}/r37-incognito.png"]),
+    ("Default tab", [None, f"{A}/38-default-tab.png", f"{R}/r38-default-tab.png"]),
+])
+compose("r-integrations-offline.png", "Settings › Integrations with no connected environment (the embedded server cannot start): the Browser section still shows", [
+    ("No environment", [f"{BO}/70-integrations-offline.png", f"{AO}/70-integrations-offline.png", ("text", "Reference (source; its desktop shell always runs its own backend, so the lane cannot disconnect it): IntegrationsSettingsPanel renders <SettingsSection id=\"browser\"> with BrowserProfilesSetting, the viewport, zoom, appearance, recording, \"Open links in\" and Auto-show rows unconditionally in the desktop app: \"the preview defaults below are device-local and ignore it\" (apps/web/src/components/settings/IntegrationsSettings.tsx:1436-1468). Only ProjectDefaultsSettings and DeviceIntegrationSettings follow the environment.")]),
+])
