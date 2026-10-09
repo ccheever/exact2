@@ -1,0 +1,32 @@
+realinput-1010-fixes RI-2: the helper's "T3 Code" row click (reveal in Finder).
+
+Reference (T3 Code 1e2ecbd975, apps/desktop/src/permissions/MacPermissionHelper.ts:145,148): the row's "finder" message
+runs Electron.shell.showItemInFolder(bundle); Finder shows the bundle selected and comes to the front, and the helper
+hides on its next poll because System Settings is no longer frontmost (syncPosition, :155-176).
+
+Before (feature-branch tip, modules/apple/T3PermissionHelper.swift:87):
+    var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+  realinput-1010 row 4 read-back: "click the 'T3 Code' row (twice): Finder window 'apps' opens with 'T3 Code (RI1010 d)'
+  selected (AX: '1 of 1 selected'), BUT the front app stays System Settings and the helper stays on screen".
+  The helper is a non-activating panel (T3 Code never becomes the active app while the person works in System Settings),
+  and the reveal alone did not bring Finder over the active app.
+
+After (this branch, T3PermissionHelper.swift:72-87, 104):
+    struct T3FinderReveal {
+        static let finder = "com.apple.finder"
+        var yield: (String) -> Void = { NSApp.yieldActivation(toApplicationWithBundleIdentifier: $0) }
+        var select: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+        var activate: (String) -> Void = { _ = NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.activate(options: []) }
+        func reveal(_ url: URL) { yield(Self.finder); select(url); activate(Self.finder) }
+    }
+    var reveal: (URL) -> Void = { T3FinderReveal().reveal($0) }
+  The helper's existing tracking then hides it: Settings not frontmost and the panel not key (sync(), unchanged).
+
+AppKit test (macos/tests/snapshot/permission-helper.swift), after:
+  expect(steps == ["yield com.apple.finder", "select /Applications/T3 Code (Exact).app", "activate com.apple.finder"],
+         "a reveal yields to Finder, selects the bundle, then brings Finder front")
+  -> "54 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)", exit 0
+  (before this branch: 53 checks; the reveal was only the NSWorkspace call).
+
+Not verifiable here: whether macOS brings Finder to the front is the window server's decision; the screen is locked
+and agent mode has no System Settings. Real-input batch step RI-2 (task record) checks the front app after a real click.
