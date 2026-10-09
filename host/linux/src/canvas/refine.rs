@@ -168,7 +168,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
     fn batches(&self, led: bool, stepped: bool) -> bool {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
-        if !*ON || !self.lead || self.leftover {
+        // (After a turn from a led travel no pass waits: see `refine_pending`.)
+        if !*ON || !self.lead || self.leftover || self.travel.turned() {
             return false;
         }
         let viewport = self
