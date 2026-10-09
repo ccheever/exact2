@@ -1,0 +1,54 @@
+# restore-defaults-agent-browser-access: one image per scenario, columns before | after | reference, one row per step. Not committed.
+import os, sys
+from PIL import Image, ImageDraw, ImageFont
+
+S = "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/restore-defaults-agent-browser-access"
+B, A, R = f"{S}/runs/before", f"{S}/runs/after", f"{S}/runs/ref"
+OUT = f"{S}/evidence"
+AFTER_SHA = sys.argv[1] if len(sys.argv) > 1 else "after"
+W, H = 896, 588
+HEADS = ("Before: base 950e8e2e5 (the evidence base)", f"After: {AFTER_SHA} (this branch)", "Reference: T3 Code 1e2ecbd975 (Electron)")
+
+
+def font(size):
+    for f in ("/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"):
+        try:
+            return ImageFont.truetype(f, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def cell(path):
+    im = Image.open(path).convert("RGB")
+    return im.resize((W, int(im.height * W / im.width)))
+
+
+def compose(name, caption, rows):
+    pad, head, cap, rowcap = 20, 44, 52, 30
+    width = 3 * W + 4 * pad
+    height = cap + head + sum(rowcap + H + pad for _ in rows) + pad
+    canvas = Image.new("RGB", (width, height), (244, 244, 246))
+    d = ImageDraw.Draw(canvas)
+    d.text((pad, 14), caption, fill=(24, 24, 28), font=font(24))
+    for c, label in enumerate(HEADS):
+        d.text((pad + c * (W + pad), cap + 8), label, fill=(60, 60, 72), font=font(21))
+    y = cap + head
+    for label, cells in rows:
+        d.text((pad, y + 4), label, fill=(90, 90, 100), font=font(18))
+        y += rowcap
+        for c, spec in enumerate(cells):
+            x = pad + c * (W + pad)
+            canvas.paste(cell(spec), (x, y))
+            d.rectangle([x - 1, y - 1, x + W, y + H], outline=(205, 205, 210))
+        y += H + pad
+    os.makedirs(OUT, exist_ok=True)
+    canvas.save(f"{OUT}/{name}", optimize=True)
+    print(name, canvas.size)
+
+
+compose("rd-1-restore-defaults.png",
+        "RD-1: Agent browser access off and Snooze limited threads on; Settings › Restore device defaults; Confirm; Settings › Integrations",
+        [("Settings › Integrations: Agent browser access switched off", [f"{B}/02-access-off.png", f"{A}/02-access-off.png", f"{R}/r02-access-off.png"]),
+         ("Restore device defaults: the confirmation", [f"{B}/04-restore-dialog.png", f"{A}/04-restore-dialog.png", f"{R}/r04-restore-dialog.png"]),
+         ("After Confirm: Settings › Integrations", [f"{B}/06-integrations-restored.png", f"{A}/06-integrations-restored.png", f"{R}/r06-integrations-restored.png"])])
