@@ -91,7 +91,7 @@ No Contract change; no framework limit involved.
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| Each of the six pages opens with no `server.getConfig`/`server.getSettings` request and answers again with none | pass: per page, opening sends only the page's own query (Source control: discovery; Archive: the archived snapshot; Diagnostics: its four reads), and a wake, a second wake, the minute tick send nothing; a reopen runs the page's own queries again. **Fails on the base** for Source control, Storage, Archive, Diagnostics (the minute tick) and Keybindings | `settings-pages-reads.test.ts` "each settings page reads the subscribed config…"; [base vs branch output](https://raw.githubusercontent.com/ccheever/exact2/e3a599c8f6cc342adf354ea8ebdaf969dd581b81/settings-pages-subscribed-config/test-base-vs-branch.txt) |
+| Each of the six pages opens with no `server.getConfig`/`server.getSettings` request and answers again with none | pass: per page, opening sends only the page's own query (Source control: discovery; Archive: the archived snapshot; Diagnostics: its four reads), and a wake, a second wake, the minute tick send nothing; a reopen runs the page's own queries again. **Fails on the base** for Source control, Storage, Archive, Diagnostics (the minute tick) and Keybindings | `settings-pages-reads.test.ts` "each settings page reads the subscribed config…"; [base vs branch output](https://raw.githubusercontent.com/ccheever/exact2/0668d7502508d820dafc55b59f774b786046c8ad/settings-pages-subscribed-config/test-base-vs-branch.txt) |
 | A settings change still updates each page | pass: `settingsUpdated` reaches Source control (Automatically pull) and Storage (log retention), `keybindingsUpdated` Keybindings (2 bindings), the scheduled-tasks stream and `settingsUpdated` the Scheduled tasks list and editor (new default model), all with no read; Unarchive (settingsRefresh) reads Archive once and Refresh reads Diagnostics once | same file, "a change still reaches each page, without a read" |
 | Live: 30 s on each page reads nothing per wake | pass: with the project renamed every 7 s (4-5 wakes per page), after = 0 server reads on every page and in the New task editor; before = Source control 4 getConfig + 4 getSettings, Storage 5 + 5, Archive 6 snapshots, Keybindings 4 getConfig, the editor 13 `vcs.listRefs`; the reference = 0 on every page | [live-reads.txt](https://raw.githubusercontent.com/ccheever/exact2/e3a599c8f6cc342adf354ea8ebdaf969dd581b81/settings-pages-subscribed-config/live-reads.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/e3a599c8f6cc342adf354ea8ebdaf969dd581b81/settings-pages-subscribed-config/drive.sh.txt), [counter](https://raw.githubusercontent.com/ccheever/exact2/e3a599c8f6cc342adf354ea8ebdaf969dd581b81/settings-pages-subscribed-config/count.mjs.txt), [renamer](https://raw.githubusercontent.com/ccheever/exact2/e3a599c8f6cc342adf354ea8ebdaf969dd581b81/settings-pages-subscribed-config/renamer.sh.txt); one image per page below |
 
@@ -111,7 +111,11 @@ and after.
 
 ## Tests
 
-- Added `settings-pages-reads.test.ts` (10 tests through the app's `answer()`; 8 fail on the base, all pass here).
+- Added `settings-pages-reads.test.ts` (10 tests through the app's `answer()`; 8 fail without the fix, all pass with it).
+  It imports its own instance of `app.ts` (`./app.ts?settings-pages-reads`): the app's client adopts only a newer
+  connection generation, the runner visits files in directory order (this file ran before providers-scope,
+  settings-diagnostics-scope and settings-integrations-reads, whose fixed generations then went unadopted: 9 failures in
+  the first full run), so this file never touches the shared client.
 - Updated `settings-a-telemetry.test.ts`: the history is read once per visit and window, a minute later included.
 
 ## Attempts and evidence

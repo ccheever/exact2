@@ -9,13 +9,17 @@
 // revalidates on mount only; no refreshIntervalMs on these). These tests go through the app's own answer(), as the
 // Contract asks it, with the page asked again whenever one of its arguments changes.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { answer } from './app';
 import { Backend, storage, thread } from './client-fixture';
 import { arr, obj, str, type Obj } from './domain';
 import { SCHEDULED_TASKS_KEY } from './live-streams';
 import { resetPrimary } from './local-primary-fixture';
 import { resetHighlightSlicing } from './r12-render-highlight';
 import { TELEMETRY_KEY } from './settings-a-telemetry';
+
+// The app's own answer(), from an instance of app.ts that only this file uses: its client adopts only a newer
+// connection generation (client.ts adoptStatus), and the other files that drive answer() pick theirs for the order
+// the runner happens to visit the files in. A query-string import is a module instance of its own in Bun.
+const { answer } = (await import('./app.ts?settings-pages-reads')) as typeof import('./app');
 
 const NOW = Date.parse('2026-10-10T08:00:00.000Z');
 const task = (id: string, title: string): Obj => ({ id, title, prompt: 'Check the build', enabled: true, projectId: 'p1', threadId: null,
@@ -59,9 +63,7 @@ const PAGES: Record<string, Page> = {
   Keybindings: { source: 'keybindingSettings', args: (c, open) => ['env1', '', open, '', '', '', '', c.refresh, c.revision], opens: [] },
 };
 
-// The app's client adopts only a newer generation (client.ts adoptStatus); the app tests share it in file order, and
-// this file runs after settings-integrations-reads.test.ts (60, 61).
-let generation = 79;
+let generation = 0; // each test connects a new server: this file's client adopts it (a newer generation)
 async function launched(setup: (server: PageServer) => void = () => {}) {
   const server = new PageServer(), files = storage().files;
   server.generation = ++generation; server.serial = generation * 1000;
