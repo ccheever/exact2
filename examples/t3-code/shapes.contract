@@ -395,6 +395,7 @@ shape Snapshot
   interactionMode: string
   hasMore: bool
   historyLoading: bool
+  threadLoading: bool // audit-wave-followups FU-1: a server thread's detail is not in yet (ChatView threadDetailLoading)
   diffOpen: bool
   diffLoading: bool
   diffError: string

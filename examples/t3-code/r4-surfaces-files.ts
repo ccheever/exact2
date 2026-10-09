@@ -12,7 +12,7 @@ import { pushToast } from './toast';
 import { fileIconToken } from './timeline-files';
 import { lineTokens } from './timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
-import { workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
+import { workspaceOf, panelKey, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
 import { tableRows } from './r4-surfaces-render';
 import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips'; // markdown-links-and-files-preview: the chat renderer's chips and settings
 import { messageCodeBlocks } from './timeline-highlight';
@@ -28,12 +28,12 @@ import { activeRef } from './terminal-drawer-view';
 import { ensureDraftThreadId } from './r7-handoff-thread';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
-import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
+import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
 import { letGo } from './let-go';
 import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
-import { mediaMimeTypeFromExtension } from './media-source';
+import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath, mediaMimeTypeFromExtension } from './media-source';
 import { openMarkdownMediaPreview } from './timeline-attachments';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
@@ -244,7 +244,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     return '';
   }
   if (op === 'search') { await search(client, native, value); return ''; }
-  if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? ''); // diff-file-comments.ts
+  if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? '', panelKey(client)); // diff-file-comments.ts
   if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
@@ -467,6 +467,27 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
     code: messageCodeBlocks(text), mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
+}
+/** How many lines filesView numbers for `path` while its preview is the source text (`preview == "code"`), else 0. */
+function codePreviewLines(client: T3Client, path: string): number {
+  const state = states.get(client), { cwd } = workspaceOf(client);
+  if (!state || state.key !== `${client.environmentId}|${cwd}` || !path || state.editing === path) return 0;
+  const read = state.reads.get(path), preferences = prefsOf(client), local = !isAbsolute(path);
+  if (!read || read.error || (read.notFile && local) || isWorkspaceVideoPreviewPath(path) || isWorkspaceImagePreviewPath(path) || (local && isPdfPath(path))) return 0;
+  if ((isMarkdownPath(path) && preferences.renderMarkdown) || (isTablePath(path) && preferences.renderTable) || (local && isHtmlPath(path) && preferences.renderBrowserFile !== false)) return 0;
+  return read.contents.split(/\r\n|\r|\n/).length;
+}
+/**
+ * audit-wave-followups FU-3: a Files preview comment draft on show with the focus holds ⌘↩, as the Diff's does (diff.ts
+ * draftHoldsCommandEnter; composer-presentation.ts gives the Send button no chords then). The host sends no blur when a
+ * focused view leaves the tree (LLP 1008), so it holds only on the panel it was taken on, while that panel shows the
+ * draft's file as source with the draft's last line (fileCommentLines draws the card there).
+ */
+export function fileDraftHoldsCommandEnter(client: T3Client): boolean {
+  const draft = focusedFileDraft(client);
+  if (!draft || draft.key !== panelKey(client)) return false;
+  const panel = panelState(client), active = panel.surfaces.find(entry => entry.id === panel.active);
+  return panel.visible && active?.kind === 'file' && active.path === draft.path && draft.endLine <= codePreviewLines(client, draft.path);
 }
 
 export const emptyFiles = (): FilesView => ({
