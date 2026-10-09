@@ -274,7 +274,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     await providerUpdates(client, storage);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
-    await threadNotifications(client, native, state.status);
+    await threadNotifications(client, native, state.status); // every connected environment: the focus and the fleet (shell-notify.ts)
     if (tracking(client)) await settleLiveTraces(client, native);
   }
   slowRequests(client, now);

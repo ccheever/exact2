@@ -12,6 +12,7 @@ import { providerAvailable, type Native } from './protocol';
 import { providerBadge } from './presentation';
 import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { liveEnvironments, watchLive, type LiveEnvironment } from './live-streams';
+import { letGo } from './let-go';
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
 export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
@@ -44,7 +45,9 @@ export function branchRef(ref: Obj, projectCwd: string): BranchRef {
 export function taskScope(client: T3Client, environments: { environmentId: string }[], machine: string, projectKey: string, checkout: string, projectId = ''): TaskScope {
   const member = (project: Obj) => ({ environmentId: client.environmentId, id: str(project.id), physicalProjectKey: str(project.id) });
   const groups = client.projectGroups().map(group => ({ projectKey: group.key, memberProjects: group.members.map(member) }));
-  // A bare project id (the Projects route's legacy target) is that project's checkout.
+  // A bare project id (Project settings' target) is its project on every environment (settingsScopeOf); one in no group is that project's checkout.
+  const group = !projectKey && projectId ? groups.find(entry => entry.memberProjects.some(project => project.id === projectId)) : undefined;
+  if (group) return resolveTaskScope({ machine, project: group.projectKey, checkout: '' }, groups, environments);
   if (!projectKey && projectId) groups.push({ projectKey: `project:${projectId}`, memberProjects: client.shell.projects.filter(project => project.id === projectId).map(member) });
   return resolveTaskScope({ machine, project: projectKey || (projectId ? `project:${projectId}` : ''), checkout: checkout || (!projectKey && projectId ? projectId : '') }, groups, environments);
 }
@@ -73,11 +76,17 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
-export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '') {
+// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs): read when the editor opens and kept while it stays
+// open, as the picker's query atom is, never again on a wake or the minute tick; Refresh and a new connection read again.
+type Refs = { projectId: string; error: string; refs: BranchRef[] };
+const editorRefs = new WeakMap<T3Client, { key: string; branches: Refs[] }>();
+
+export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', refresh = 0) {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[],
     editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
     branches: [] as { projectId: string; error: string; refs: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+  if (!active || editor !== 'task') editorRefs.delete(client);
   if (!active) return empty;
   try {
     if (!native?.available) throw new Error('Open this app on macOS to connect to T3 Code.');
@@ -110,14 +119,22 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       return { value: `${provider.instanceId}:${model.slug}`, name: str(model.name, str(model.slug)), driver: str(provider.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
     }));
     if (draft.modelKey && !models.some(model => model.value === draft.modelKey)) models.unshift({ value: draft.modelKey, label: draft.modelKey.slice(draft.modelKey.indexOf(':') + 1), selected: false });
-    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs).
-    const branches = await Promise.all(projects.map(async project => {
-      try {
-        // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches).
-        const refs = arr((await editing.request('vcs.listRefs', { cwd: str(project.workspaceRoot), limit: 100 })).refs);
-        return { projectId: str(project.id), error: '', refs: refs.map(ref => branchRef(ref, str(project.workspaceRoot))) };
-      } catch (error) { return { projectId: str(project.id), error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[] }; }
-    }));
+    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), once per editor visit.
+    const refsKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh, ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`)].join('|');
+    let kept = editorRefs.get(client);
+    if (!kept || kept.key !== refsKey) {
+      // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
+      // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
+      const listRefs = (payload: Obj) => editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload);
+      const branches = await Promise.all(projects.map(async project => {
+        try {
+          const refs = arr((await listRefs({ cwd: str(project.workspaceRoot), limit: 100 })).refs);
+          return { projectId: str(project.id), error: '', refs: refs.map(ref => branchRef(ref, str(project.workspaceRoot))) };
+        } catch (error) { if (letGo(error)) throw error; return { projectId: str(project.id), error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[] }; }
+      }));
+      editorRefs.set(client, kept = { key: refsKey, branches });
+    }
+    const branches = kept.branches;
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,

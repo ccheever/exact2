@@ -455,7 +455,8 @@ names an ssh test double, and agent runs of the app read hosts only from `T3_SSH
 `macos/tests/ssh/fake-ssh.sh` is that double (its header lists the variables): the password
 prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
 `FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
-`T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances.
+`T3_MENUS_EVIDENCE` set to a directory also renders the quit pill in both appearances, and
+`T3_PERMISSION_HELPER_EVIDENCE` the snapshot test's permission helper panel.
 **Check for Updates...** (under About and in Help) reads the bundle's receipt: a build
 without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
 updates are not available right now." box; a build with one omits both items.

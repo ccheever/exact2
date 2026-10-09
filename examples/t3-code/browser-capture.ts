@@ -24,7 +24,7 @@ import { previewRuntimeTabId } from './browser-state';
 import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
 import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
 import { browserMiniPlayerSource, previewMiniPlayerSourceKey } from './previewMiniPlayerStore';
-import { miniStoreOf } from './r6-media-device'; // the thread's floating player (previewMiniPlayerStore)
+import { deviceThreadId, miniStoreOf } from './r6-media-device'; // the thread's floating player (previewMiniPlayerStore)
 import { contextReferences } from './composer-editor-menu';
 import { MAX_ATTACHMENTS } from './composer-editor-files';
 import { reservedAttachments } from './composer-editor-attach';
@@ -183,9 +183,10 @@ export type BrowserCaptureView = {
 export const emptyCaptureView = (): BrowserCaptureView => ({ pickActive: false, pickDisabled: true, pickTip: 'Annotate elements, regions, and drawings', captureDisabled: true,
   recording: false, floating: false, floatDisabled: true, separateWindow: false, sendSerial: 0 });
 const report = (client: T3Client, runtimeId: string): Obj => obj(obj(client.presentation.browserTabs)[runtimeId]);
-/** The open thread's key in the floating player's store: a new thread's draft has its id once it opened a tab
- *  (addBrowserSurface allocates it), while `client.threadId` stays empty until the draft is sent. */
-export function playerThreadKey(client: T3Client): string { return client.threadId || activeRef(client)?.threadId || ''; }
+/** The open thread's key in the floating player's store, the device player's own (`deviceThreadId`, activeThreadRef): a
+ *  new thread's draft has its id once it opened a tab (addBrowserSurface allocates it), while `client.threadId` stays
+ *  empty until the draft is sent. */
+function playerThreadKey(client: T3Client): string { return deviceThreadId(client); } // a call, not an alias: the modules import each other
 /** selectThreadPreviewMiniPlayerTabId for the open thread: the floating browser tab, if one floats. */
 export function floatingTabOf(client: T3Client): string | null {
   const key = playerThreadKey(client), source = key ? miniStoreOf(client).get(key)?.source : undefined;

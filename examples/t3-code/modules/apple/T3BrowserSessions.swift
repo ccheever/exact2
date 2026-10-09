@@ -73,9 +73,11 @@ final class T3BrowserSessions {
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    /// The tab's page, made on first use (at its URL, if it has one).
+    /// The tab's page, made on first use (at its URL, if it has one). A page made for a known size (a fixed viewport's,
+    /// at its zoom, from `browserSync`; or the stage's laid-out box, from `T3BrowserView`) is made at it before its
+    /// first load, so its first layout is that size (part 2, #352).
     @discardableResult
-    func ensure(id: String, url: String, profile: String, environment: String) -> T3BrowserSession {
+    func ensure(id: String, url: String, profile: String, environment: String, size: NSSize? = nil, zoom: Double? = nil) -> T3BrowserSession {
         if let existing = sessions[id] { return existing }
         let session = T3BrowserSession(id: id, profile: profile.isEmpty ? "default" : profile, environment: environment,
                                        store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent, imageDirectory: imageDirectory)
@@ -84,19 +86,32 @@ final class T3BrowserSessions {
         session.dialogs = !agent
         sessions[id] = session
         created?(session)
+        if let zoom { session.setZoom(zoom) }
+        if let size, size.width > 0, size.height > 0 { session.web.setFrameSize(size) }
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
         note("open \(id)")
         publish()
         return session
     }
 
-    /// `browserSync`: a page for each live session, and no other.
-    func sync(_ live: [[String: Any]]) {
+    /// The agent tabs' `opened` notes the data module has adopted (`connectionId\0requestId`), as its last `browserSync`
+    /// listed them: the automation host answers an open once its note is among them.
+    private(set) var adopted: Set<String> = []
+
+    /// `browserSync`: a page for each live session, and no other. A page made here before the data module adopts it (an
+    /// agent tab the host made) is closed by a sync that does not list it yet, and made again by the one that does.
+    func sync(_ live: [[String: Any]], adopted notes: [String] = []) {
+        adopted = Set(notes)
         var keep = Set<String>()
         for entry in live {
             guard let id = entry["id"] as? String, !id.isEmpty else { continue }
             keep.insert(id)
-            ensure(id: id, url: entry["url"] as? String ?? "", profile: entry["profile"] as? String ?? "default", environment: entry["environment"] as? String ?? "")
+            // A tab at a fixed viewport: its CSS size at its zoom, in points (as the stage and T3BrowserViewport size it).
+            let width = (entry["width"] as? NSNumber)?.doubleValue ?? 0, height = (entry["height"] as? NSNumber)?.doubleValue ?? 0
+            let zoom = (entry["zoom"] as? NSNumber).map { T3BrowserSession.normalizedZoom($0.doubleValue) } ?? 1
+            let size = width > 0 && height > 0 ? NSSize(width: width * zoom, height: height * zoom) : nil
+            ensure(id: id, url: entry["url"] as? String ?? "", profile: entry["profile"] as? String ?? "default", environment: entry["environment"] as? String ?? "",
+                   size: size, zoom: size == nil ? nil : zoom)
         }
         for id in sessions.keys where !keep.contains(id) { close(id) }
     }
@@ -141,7 +156,7 @@ final class T3BrowserSessions {
         let answer = { (value: [String: Any]) -> [String: Any] in ["ok": true, "generation": generation, "value": value] }
         switch request["op"] as? String {
         case "browserSync":
-            sync(request["tabs"] as? [[String: Any]] ?? [])
+            sync(request["tabs"] as? [[String: Any]] ?? [], adopted: request["adopted"] as? [String] ?? [])
             return answer(["tabs": sessions.count])
         case "browserNavigate":
             let started = navigate(id: request["tab"] as? String ?? "", url: request["url"] as? String ?? "", profile: request["profile"] as? String ?? "default", environment: request["environment"] as? String ?? "")

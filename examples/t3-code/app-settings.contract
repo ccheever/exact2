@@ -49,18 +49,23 @@ use ProjectsPanel from "./settings-projects.contract"
 use CoreRowView from "./settings-rows.contract"
 use ProjectsPage from "./settings-projects.contract"
 use ProjectActionDialog from "./settings-b-actions.contract"
+use ProjectActionEditor from "./settings-b-actions.contract"
 use ProjectIconDialog from "./settings-b-icons.contract"
 use ProjectFaviconDialog from "./settings-b-icons.contract"
 use SbPicker from "./settings-b-icons.contract"
 use SbSshHosts from "./connections.contract"
 use Snapshot from "./shapes.contract"
 use Viewport from "./shapes.contract"
+use SidebarWindowRail from "./r5-shell.contract"
+use TipCard from "./shell-tip.contract"
 
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
 // resources and actions: each component takes the root names it reads as props of the same names.
 
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.
 component SettingsWindow
+  inject
+    rem: number
   props
     settingsOpen: bool
     settingsCore: SettingsCore
@@ -155,6 +160,11 @@ component SettingsWindow
     settingsThemeSubject: string
     coreThemeChange: action
     settingsCommand: action
+    // settings-escape-and-nav: the app sidebar's width and its rail's drag (AppSidebarLayout: Settings renders inside
+    // the app Sidebar, whose SidebarRail resizes the one width both navs share).
+    resizeSidebar: action
+    finishResize: action
+    resetSidebarWidth: action
   // The root rewrite (20261008-app-contract-root-rewrite): Settings' view-only state lives here, not in app.contract:
   // the search's held Escape, the legacy rows, the restore dialog and the keybinding and licence searches. A
   // wrapper sets it, then calls the root's half (`…Root`), which keeps what a resource reads.
@@ -163,6 +173,23 @@ component SettingsWindow
   state settingsRestoreOpen = false
   state keybindingSearch = false
   state licenseSearchOpen = false
+  // settings-escape-and-nav: the "Models" block whose "Add custom model" field is open (ProviderModelsSection
+  // isAdding, by the block's key: a successful add gives the block a new one), the field whose onKeyDown would take
+  // Escape and that has the focus ("keybindings-filter", "license-search", "custom-model-slug"), and whether the
+  // pointer is over the sidebar rail ("Drag to resize sidebar"). T3Window mounts this view only while Settings is
+  // open, so all of it starts over each time, as the reference's settings route remounts.
+  state modelAdding = ""
+  state escapeFocus = ""
+  state railHover = false
+  derive modelAddingShown = modelAdding != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAdding))) > 0
+  // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
+  // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
+  // takes it, which hears it only while it has the focus. While one owns it, Back gives up its Escape shortcut; with
+  // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
+  // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
+  derive escapeOwned = settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
+  // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
+  derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""
   action editSettingsQuery(value: string)
     settingsEscapeHeld = false
     editSettingsQueryRoot(value)
@@ -174,11 +201,33 @@ component SettingsWindow
     coreSearchKeyRoot(k)
   action coreNavigate(route: string)
     settingsEscapeHeld = false
+    modelAdding = ""
     coreNavigateRoot(route)
   action corePick(route: string, target: string, scope: string, id: string)
     if startsWith(id, "search-result-legacy-")
       settingsLegacyOpen = true
+    modelAdding = ""
     corePickRoot(route, target, scope, id)
+  // The Providers page's `ui`: "model-adding" opens (the block's key) or closes ("") an "Add custom model" field;
+  // "slug-focus" is its slug field taking ("true") or losing ("") the focus. A provider chosen in the list unmounts
+  // the open field, as the reference's section does. The rest is the root's.
+  action providerUiWindow(what: string, value: string)
+    if what == "model-adding"
+      modelAdding = value
+      escapeFocusSet("custom-model-slug", false)
+    else
+      if what == "slug-focus"
+        escapeFocusSet("custom-model-slug", value == "true")
+      else
+        if what == "select"
+          modelAdding = ""
+        providerUi(what, value)
+  // A field that takes Escape gains or loses the focus. A field that closes on its own Escape is gone before its
+  // blur could say so, so its Escape clears it here too.
+  action escapeFocusSet(field: string, focused: bool)
+    escapeFocus = focused ? field : (escapeFocus == field ? "" : escapeFocus)
+  action hoverRail(id: string, over: bool)
+    railHover = over
   action coreLegacy
     settingsLegacyOpen = not settingsLegacyOpen
   action coreRestoreOpen
@@ -193,24 +242,31 @@ component SettingsWindow
   action searchKeybindings(open: bool)
     if open or keybindingQuery == ""
       keybindingSearch = open
+    if not open
+      escapeFocusSet("keybindings-filter", false)
   action keybindingSearchKey(name: string)
     if name == "Escape"
+      preventDefault()
       keybindingSearch = false
+      escapeFocusSet("keybindings-filter", false)
       editKeybindingQuery("")
   action openLicenseSearch
     licenseSearchOpen = true
   action closeLicenseSearch
     if licenseQuery == ""
       licenseSearchOpen = false
+    escapeFocusSet("license-search", false)
   action licenseSearchKey(name: string)
     if name == "Escape"
+      preventDefault()
       licenseSearchOpen = false
+      escapeFocusSet("license-search", false)
       editLicenseQuery("")
   view
     when settingsOpen
-      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
+      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
-          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "providers" and providerPage.escapeOwned)), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
+          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
           SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
           scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
@@ -226,7 +282,7 @@ component SettingsWindow
               when settingsRoute == "snap-shot"
                 SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
               when settingsRoute == "keybindings"
-                KeybindingsPanel(data=bindings, query=keybindingQuery, searchOpen=keybindingSearch, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchToggle=searchKeybindings, searchKey=keybindingSearchKey, add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, rest=rest, openFile=rest("keybinding-open", ""))
+                KeybindingsPanel(data=bindings, query=keybindingQuery, searchOpen=keybindingSearch, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchToggle=searchKeybindings, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, rest=rest, openFile=rest("keybinding-open", ""))
               when settingsRoute == "scheduled-tasks"
                 ScheduledPanel(data=scheduled, busy=commandPending, error=(restEditor == "" ? modalError : ""), open=restOpen, rest=rest)
               when settingsRoute == "storage"
@@ -234,19 +290,25 @@ component SettingsWindow
               when settingsRoute == "archived"
                 ArchivedPanel(data=archives, busy=commandPending, error=(restEditor == "" ? modalError : ""), menu=restMenu, raw=restRaw, open=restOpen, showMenu=restMenuOpen, close=restClose)
               when settingsRoute == "open-source-licenses"
-                NoticesPanel(data=licenses, query=licenseQuery, searchOpen=licenseSearchOpen, edit=editLicenseQuery, openSearch=openLicenseSearch, closeSearch=closeLicenseSearch, searchKey=licenseSearchKey, toggle=toggleLicense, retry=retryLicenses)
+                NoticesPanel(data=licenses, query=licenseQuery, searchOpen=licenseSearchOpen, edit=editLicenseQuery, openSearch=openLicenseSearch, closeSearch=closeLicenseSearch, searchKey=licenseSearchKey, focusSearch=escapeFocusSet("license-search", true), toggle=toggleLicense, retry=retryLicenses)
               when settingsRoute == "diagnostics"
                 DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
               when settingsRoute == "connections"
-                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
+                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
+                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                   each row in settingsCore.projectModel key=row.id
                     CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
               when modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
                 text modalError font-size="0.75rem" color="light-dark(#b91c1c, #fca5a5)" role="alert" testId="settings-error"
+        // settings-escape-and-nav: the app Sidebar's SidebarRail over the settings nav's edge (r5-shell.contract), and
+        // its "Drag to resize sidebar" (side right, as SidebarEdgeTips draws the thread sidebar's).
+        when data.sidebarOpen
+          SidebarWindowRail(width=sidebarWidth, hovered=railHover, line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=hoverRail)
+          row position="absolute" left=(sidebarWidth + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
+            TipCard(label="Drag to resize sidebar", shown=railHover)
     when settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     when settingsOpen and settingsRestoreOpen
@@ -276,6 +338,10 @@ component ProjectDialogs
     SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
+    // The thread details card's Add project script (ProjectScriptsControl openAddDialog): a new action for `restSubject`, the thread's project.
+    when restEditor == "card-action"
+      each blank in projectsSettings.blankActions key=blank.id
+        ProjectActionEditor(item=blank, scope=restSubject, editing=false, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     when restEditor == "project-icon"
       ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
     when restEditor == "project-favicon"

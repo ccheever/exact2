@@ -19,7 +19,10 @@ import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
 import { anchorFrame } from './r6-polish-measure';
 import { crumbsMask, crumbsShift } from './r7-polish-crumbs'; // lane r7-polish: the trail scrolled to its end
 import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './r9-device-crumbs'; // lane r9-device: where the trail settles
-import { contentRevision, htmlPage, htmlToggleLabel, isHtmlPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
+import { contentRevision, htmlPage, htmlToggleLabel, isBrowserPreviewFile, isHtmlPath, isPdfPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
+import { openFileInPreview } from './browser-links'; // right-panel-launcher-and-files: "Open file in preview browser"
+import { activeRef } from './terminal-drawer-view';
+import { ensureDraftThreadId } from './r7-handoff-thread';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
@@ -41,7 +44,7 @@ export type FilesView = {
   cwd: string; project: string; ready: boolean; loading: boolean; error: string; query: string; truncated: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
   path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
-  gutter: number; wrap: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
+  gutter: number; wrap: boolean; rawText: boolean; openInBrowser: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   markdown: Document; code: never[]; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
@@ -247,6 +250,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     else preferences.renderTable = !preferences.renderTable;
     return '';
   }
+  if (op === 'open-browser') { await openInPreviewBrowser(client, native, id); return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
   if (op === 'edit') { await editFile(client, native, id, value); return ''; }
   if (op === 'editors') { state.editorsOpen = !state.editorsOpen; return ''; }
@@ -407,9 +411,26 @@ export function codeLines(path: string, contents: string): CodeLine[] {
     runs: (tokens[index]?.length ? tokens[index]! : line ? [{ text: line, cls: '' as const }] : []).map((token, at) => ({ id: String(at), text: token.text, syntax: token.cls })) }));
 }
 
+/** FilePreviewPanel handleOpenInBrowser: the file in a new Browser tab; a failure is a stacked toast. */
+async function openInPreviewBrowser(client: T3Client, native: Native, path: string): Promise<void> {
+  const { cwd } = workspaceOf(client);
+  if (!path || !cwd) return;
+  const absolute = isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`;
+  try {
+    // The reference's draft has its thread id from the start; here it is allocated now (as the Browser surface does).
+    if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+    const ref = activeRef(client);
+    if (!ref) return;
+    await openFileInPreview(client, native, ref, absolute, cwd);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true });
+  }
+}
+
 export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
-  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true,
+  explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
   markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
@@ -428,28 +449,33 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const previewPath = folder ? '' : path;
   const markdown = isMarkdownPath(previewPath), table = isTablePath(previewPath), html = !isAbsolute(previewPath) && isHtmlPath(previewPath);
   const rendered = (markdown && preferences.renderMarkdown) || (table && preferences.renderTable) || (html && preferences.renderBrowserFile !== false);
+  // FilePreviewPanel renderBrowserFile: a PDF always shows as its document (BrowserDocumentFrame; here the module's PDFView, X29), a page when rendered.
+  const pdf = !isAbsolute(previewPath) && isPdfPath(previewPath), frame = (html && rendered) || pdf;
   const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : '';
   // lane r10-device: a rendered page waits for its signed URL, not for the read.
-  const page = html && rendered ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  const page = frame ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
   // media-actions: an image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
   const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
-  const editable = !!previewPath && !media.kind && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
+  const editable = !!previewPath && !media.kind && !pdf && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
   const rows = state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path);
   const reachable = new Set(['', ...[...state.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
   const error = [...state.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? state.search?.error ?? '';
   const editors = await editorFor(client, native);
   const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
   const showExplorer = !isAbsolute(path) && (preferences.explorer || !previewPath);
+  const preview = !previewPath ? '' : media.kind ? 'media' : frame ? (page.error ? 'error' : page.url ? (pdf ? 'pdf' : 'html') : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code';
   return {
     cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer,
-    path, preview: !previewPath ? '' : media.kind ? 'media' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
-    previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
+    path, preview,
+    previewError: frame ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
-    truncatedNote: previewPath && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
+    // FilePreviewPanel: word wrap reaches only the text bodies (`showsRawText`); a page or a PDF opens in the Browser (`canOpenInBrowser`).
+    rawText: preview === 'code', openInBrowser: !!previewPath && client.available === true && media.kind !== 'video' && isBrowserPreviewFile(previewPath),
+    truncatedNote: previewPath && !frame && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
       : parsedTable?.truncated ? 'Table limited to the first 100 rows and 30 columns. Switch to source for the rest.' : '',
     canRender: markdown || table || html, rendered, renderLabel: markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
@@ -457,7 +483,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     markdown: previewPath && markdown && rendered && read && !read.error ? markdownDocument(previewPath, text) : { id: '', blocks: [] }, code: [], table: parsedTable?.rows ?? [],
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
-    crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
-    url: html && rendered ? page.url : '', media,
+    crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
+    url: frame ? page.url : '', media,
   };
 }

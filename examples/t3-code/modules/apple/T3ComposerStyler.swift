@@ -30,6 +30,8 @@ final class T3ComposerStyler {
     var imageDirectory: URL?
     /// The chips' hover details (T3ComposerChipTips.swift, lane r4-timeline).
     private(set) lazy var tips = T3ComposerChipTips(styler: self)
+    /// A skill chip's press and its details popover (T3ComposerChipPress.swift).
+    private(set) lazy var press = T3ComposerChipPress(styler: self)
 
     /// Chips carried through the edits since the last restyle, with their
     /// source: a chip stays one while edits leave it whole (Tiptap keeps a
@@ -79,6 +81,7 @@ final class T3ComposerStyler {
         recognizer.delaysPrimaryMouseButtonEvents = false
         view.addGestureRecognizer(recognizer)
         click = recognizer
+        press.attach()
         baseFont = view.font; baseInk = view.textColor
         authored = [
             view.observe(\.textColor, options: [.new]) { [weak self] _, change in
@@ -97,6 +100,7 @@ final class T3ComposerStyler {
     }
 
     func detach() {
+        press.detach()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         underlay?.removeFromSuperview(); underlay = nil
@@ -111,6 +115,7 @@ final class T3ComposerStyler {
         if underlay.frame != scroller.frame { underlay.frame = scroller.frame }
         underlay.needsDisplay = true
         tips.refresh()
+        press.remeasure()
     }
 
     // MARK: Styling
@@ -201,6 +206,8 @@ final class T3ComposerStyler {
         styled = string
         underlay?.needsDisplay = true
         tips.refresh()
+        press.validate()
+        press.refreshAccessibility()
     }
 
     /// An edit the text view is about to make (the delegate's change hook).
@@ -257,6 +264,18 @@ final class T3ComposerStyler {
         let suffix = chipSuffix(chip)
         let extra = suffix.isEmpty ? 0 : size * 0.33 + ceil((suffix as NSString).size(withAttributes: [.font: suffixFont(font)]).width * 10) / 10
         return 2 + size * 0.5 * 2 + size * 1.17 + size * 0.33 + ceil(label * 10) / 10 + extra
+    }
+    /// The chip's pill as the underlay draws it (ContextChip's inline-flex box, `h-[1.41em]`, middle
+    /// aligned), in the text view's coordinates.
+    func chipRect(_ chip: T3ComposerChip) -> NSRect? {
+        guard let view, chip.end <= (view.string as NSString).length, let first = segments(NSRange(location: chip.start, length: 1)).first else { return nil }
+        let font = baseFont ?? NSFont.systemFont(ofSize: 14)
+        let height = (font.pointSize * 0.86 * 1.41 * 100).rounded() / 100
+        return NSRect(x: first.minX, y: middleAligned(height: height, at: chip.start, fallback: first), width: chipWidth(chip, font: font), height: height)
+    }
+    /// The skill chip under `point` (text view coordinates): ContextChipPopover's trigger.
+    func skillChip(at point: NSPoint) -> T3ComposerChip? {
+        chips.first { $0.kind == "skill" && chipRect($0)?.contains(point) == true }
     }
     /// A file chip's size ("40 KB", text-[10px] of a 14px prompt).
     func suffixFont(_ font: NSFont) -> NSFont { NSFont.systemFont(ofSize: font.pointSize * 10 / 14, weight: .medium) }
@@ -618,12 +637,8 @@ final class T3ComposerUnderlay: NSView {
             T3ComposerUnderlay.drawCheckbox(toSelf(box), checked: task.checked, dark: dark)
         }
         for chip in styler.chips {
-            guard let first = styler.segments(NSRange(location: chip.start, length: 1)).first else { continue }
-            let size = font.pointSize * 0.86
-            let height = (size * 1.41 * 100).rounded() / 100
-            let width = styler.chipWidth(chip, font: font)
-            let rect = toSelf(NSRect(x: first.minX, y: styler.middleAligned(height: height, at: chip.start, fallback: first), width: width, height: height))
-            drawChip(chip, in: rect, size: size, dark: dark, styler: styler, font: font)
+            guard let rect = styler.chipRect(chip) else { continue }
+            drawChip(chip, in: toSelf(rect), size: font.pointSize * 0.86, dark: dark, styler: styler, font: font)
         }
     }
 

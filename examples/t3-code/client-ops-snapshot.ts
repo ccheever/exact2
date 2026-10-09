@@ -63,14 +63,18 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       if (preview.played !== true) throw new ClientError('The snapshot sound did not play.');
       resultMessage = value === 'soft-pop' ? 'Played Whoosh' : 'Played Click';
     } else if (op === 'setting-snapshot') {
-      // Setup wizard (reference setupSnapShot): Allow opens System Settings;
-      // continue runs a discarded test capture, then turns capture on.
+      // Setup wizard (reference setupSnapShot): Allow opens System Settings and
+      // docks the permission helper; continue runs a discarded test capture, asks
+      // for what is still missing (enableForSetup), then turns capture on.
       const setup = id === 'setup' && ['allow-screen-recording', 'allow-accessibility', 'continue'].includes(value);
       if (setup) await this.call(native, { op: 'snapshotSetup', action: value === 'continue' ? 'test-mac-capture' : value });
+      if (setup && value === 'continue') await this.call(native, { op: 'snapshotRequestPermissions', includeAccessibility: this.local.deviceSettings.snapShotIncludeAccessibility });
       if (setup && value !== 'continue') resultMessage = '';
       else {
       if (setup) { id = 'snapShotEnabled'; value = 'true'; }
       if ((!['snapShotEnabled', 'snapShotIncludeAccessibility', 'snapShotPlaySound', 'snapShotFlash', 'snapShotAnimations'].includes(id) || !['true', 'false'].includes(value)) && !(id === 'snapShotSound' && ['soft-pop', 'camera-shutter'].includes(value))) throw new ClientError('Unsupported snapshot setting.');
+      // Reference saveIncludeAccessibility: app text turned on while capture is on asks for Accessibility first.
+      if (id === 'snapShotIncludeAccessibility' && value === 'true' && this.local.deviceSettings.snapShotEnabled) await this.call(native, { op: 'snapshotRequestPermissions', includeAccessibility: true });
       const settings = { ...this.local.deviceSettings, [id]: id === 'snapShotSound' ? value : value === 'true', ...(id === 'snapShotSound' ? { snapShotPlaySound: true } : {}) };
       try { await this.call(native, { op: 'snapshotConfigure', owner: this.snapshotOwner, shortcut: settings.snapShotShortcut, enabled: settings.snapShotEnabled, includeAccessibility: settings.snapShotIncludeAccessibility, playSound: settings.snapShotPlaySound, sound: settings.snapShotSound, flash: settings.snapShotFlash, animations: settings.snapShotAnimations }); }
       catch (error) {

@@ -282,15 +282,35 @@ final class T3BrowserAutomation: NSObject {
             adopted = snapshot
             if let size = plan["defaultViewport"] as? [String: Any], ((snapshot["viewport"] as? [String: Any])?["_tag"] as? String ?? "fill") == "fill" {
                 let resized = await call("preview.resize", ["threadId": context.threadId, "tabId": created, "viewport": size], context)
-                if resized["ok"] as? Bool == true, let value = resized["value"] as? [String: Any] { adopted = value; applied = size }
+                if resized["ok"] as? Bool == true, let value = resized["value"] as? [String: Any] {
+                    adopted = value; applied = size
+                    // The page at the default before its first load (the reference's webview mounts at it): made here, or,
+                    // if the server's `opened` event already had the data module make it at Fill, sized now.
+                    if let points = T3BrowserViewport.size(size), let runtimeId, let sessions {
+                        let nav = value["navStatus"] as? [String: Any], loading = (nav?["_tag"] as? String ?? "Idle") != "Idle"
+                        let page = sessions.ensure(id: runtimeId, url: loading ? nav?["url"] as? String ?? "" : "", profile: value["profileId"] as? String ?? "default",
+                                                   environment: context.environmentId, size: NSSize(width: points.width, height: points.height))
+                        T3BrowserViewport.hold(size, page)
+                    }
+                }
                 else { failure = HostError.operation("preview.resize failed: \((resized["error"] as? [String: Any])?["message"] ?? "")") }
             }
             opened.append(["requestId": context.requestId, "connectionId": context.connectionId, "environmentId": context.environmentId, "threadId": context.threadId, "fleet": context.fleet ?? "",
-                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": adopted ?? snapshot, "present": plan["present"] as? Bool ?? false])
+                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": adopted ?? snapshot, "present": plan["present"] as? Bool ?? false,
+                           "suppress": plan["suppress"] as? Bool ?? false]) // `open: false` keeps the tab out of view (adoptAutomationTabs)
             if opened.count > 16 { opened.removeFirst(opened.count - 16) }
             note("opened \(created) for \(context.requestId)")
             changed()
             if let failure { throw failure }
+            // The answer waits until the data module has adopted the tab: its browserSync lists this note as adopted
+            // (adoptedAutomationNotes). The agent's next request is then planned against its store and the suppression
+            // `open: false` records; the page's existence no longer implies that, as the host makes the page itself.
+            // A tab with a page to load fails as the overlay wait did; an Idle one answers after at most 3 s.
+            let key = "\(context.connectionId)\u{0}\(context.requestId)"
+            let budget = max(0, Int((context.deadline.timeIntervalSinceNow * 1000).rounded()))
+            let adoption = needsOverlay ? context.deadline : min(context.deadline, Date().addingTimeInterval(3))
+            let listed = await Self.waitForHostReadiness(deadline: adoption) { [weak self] in self?.sessions?.adopted.contains(key) ?? false }
+            if !listed, needsOverlay { throw HostError.overlayTimeout(budget) }
         }
         if needsOverlay {
             let session = try await requireReady(context, tabId: tabId, runtimeId: runtimeId)
@@ -300,6 +320,17 @@ final class T3BrowserAutomation: NSObject {
             // waitForPreviewPresentation: settle briefly so an active-thread open reports visible=true.
             let settle = Date().addingTimeInterval(0.5)
             _ = await Self.waitForHostReadiness(deadline: settle) { [weak self] in self?.sessions?.sessions[runtimeId].map(Self.visible) ?? false }
+            // A stage that already shows another tab gets the new tab's fit scale with its props, before the layout gives
+            // its box the new frame, so a shown page can take its fixed size (the default, or a reused tab's own) a
+            // moment after it shows; the answer reads the size the page renders (the reference's page mounts at it).
+            let fixed = applied ?? (reused ? context.plan["viewportSetting"] as? [String: Any] : nil)
+            if let fixed, T3BrowserViewport.size(fixed) != nil, let session = sessions?.sessions[runtimeId] {
+                let rendered = min(context.deadline, Date().addingTimeInterval(2))
+                while Date() < rendered, Self.visible(session), !session.closed {
+                    if let viewport = await measure(session), T3BrowserViewport.matches(fixed, viewport) { break }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
         }
         if reused, let url = (plan["url"] as? String).flatMap(URL.init(string:)), let runtimeId {
             let session = try await requireReady(context, tabId: tabId, runtimeId: runtimeId)

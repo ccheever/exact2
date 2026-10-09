@@ -32,7 +32,7 @@ import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureV
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
 import { environmentHostname } from './browser-targets';
-import { adoptAutomationTabs, automationOverlay, automationPrepare } from './browser-automation';
+import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
 
 // ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
 export const DEFAULT_BROWSER_PROFILE_ID = 'default';
@@ -216,25 +216,28 @@ export function buildReportInput(threadId: string, tabId: string, tab: NativeTab
   return { input: { ...base, navStatus }, report: { kind: tab.kind, url: tab.url, failures: tab.failures } };
 }
 
-type Live = { id: string; url: string; profile: string; environment: string };
-/** ElectronBrowserHost: a web view for every live session of every thread, at its last URL; the rest close. */
+type Live = { id: string; url: string; profile: string; environment: string; width?: number; height?: number; zoom?: number };
+/** ElectronBrowserHost: a web view for every live session of every thread, at its last URL; the rest close. A tab at a
+ *  fixed viewport also carries its size and zoom, so the module makes its page at that size before its first load
+ *  (the reference's webview is laid out at it before its guest loads; part 2). */
 export function liveSessions(client: T3Client): Live[] {
-  const host = browserHost(client), live: Live[] = [];
+  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client);
   for (const [key, state] of host.store.active()) {
     const ref = parseScopedThreadKey(key);
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
-      live.push({ id: previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url,
-        profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId });
+      const id = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), viewport = snapshot.viewport;
+      live.push({ id, url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url, profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId,
+        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? 1 } : {}) });
     }
   }
   return live;
 }
 export async function syncNativeSessions(client: T3Client, native: Native): Promise<void> {
-  const host = browserHost(client), live = liveSessions(client);
-  const signature = JSON.stringify(live.map(entry => entry.id).sort());
+  const host = browserHost(client), live = liveSessions(client), adopted = adoptedAutomationNotes(client); // part 5's opens
+  const signature = JSON.stringify([live.map(entry => entry.id).sort(), adopted]);
   if (signature === host.synced) return;
-  const reply = await client.raw(native, { op: 'browserSync', tabs: live });
+  const reply = await client.raw(native, { op: 'browserSync', tabs: live, adopted });
   if (reply.ok) host.synced = signature;
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {

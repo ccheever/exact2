@@ -130,6 +130,19 @@ final class BrowserAutomationTests: XCTestCase {
         spin(until: { session.navigation.kind == "Success" })
         return session
     }
+    /// The data module adopts a tab the host opened for a request: its `browserSync` lists the page (and makes it if the
+    /// host has not) and the request's note as adopted.
+    @discardableResult
+    private func adopt(_ id: String, _ path: String, request: [String: Any]? = nil, visible: Bool = false) -> T3BrowserSession {
+        let notes = request.map { ["\($0["connectionId"] as! String)\u{0}\($0["requestId"] as! String)"] } ?? []
+        sessions.sync([["id": id, "url": "\(fixture.base)\(path)", "profile": "default", "environment": "env-1"]], adopted: notes)
+        let session = sessions.sessions[id]!
+        if visible {
+            session.web.frame = window.contentView!.bounds
+            window.contentView!.addSubview(session.web)
+        }
+        return session
+    }
     private func plan(_ operation: String, _ input: [String: Any] = [:], extra: [String: Any] = [:], timeoutMs: Int = 15_000, runtimeId: String? = runtime, tabId: String? = "tab-1") -> [String: Any] {
         serial += 1
         var plan: [String: Any] = ["requestId": "preview-\(serial)", "connectionId": "connection-1", "clientId": "preview-client", "operation": operation, "input": input,
@@ -357,8 +370,9 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual((opened?["snapshot"] as? [String: Any])?["tabId"] as? String, "tab-7", "the data module adopts the new tab from the status")
         XCTAssertEqual(opened?["present"] as? Bool, true)
         XCTAssertEqual(calls.first { $0.0 == "preview.open" }?.1["url"] as? String, "\(fixture.base)/b")
-        // The data module syncs the page (browserSync); the host waits for it.
-        let session = page("/b", visible: true, id: runtime7)
+        // The data module adopts the tab and syncs its page (browserSync); the host waits for it.
+        let session = adopt(runtime7, "/b", request: request, visible: true)
+        spin(until: { session.navigation.kind == "Success" })
         spin(until: { self.responses[request["requestId"] as! String] != nil })
         let status = result(responses[request["requestId"] as! String] ?? [:])
         XCTAssertEqual(status["tabId"] as? String, "tab-7")
@@ -404,12 +418,12 @@ final class BrowserAutomationTests: XCTestCase {
 
     private static let freeform800: [String: Any] = ["_tag": "freeform", "width": 800, "height": 600]
     private func resizes() -> [Int] { calls.filter { $0.0 == "preview.resize" }.compactMap { ($0.1["viewport"] as? [String: Any])?["width"] as? Int } }
-    /// A stage (T3BrowserView.Host) holding the page at 500 × 400, as the panel would.
+    /// A stage (T3BrowserView.Host) holding the page at 500 × 400, as the panel would once laid out.
     private func stage(_ session: T3BrowserSession) -> T3BrowserView.Host {
         let host = T3BrowserView.Host(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         window.contentView!.addSubview(host)
         host.addSubview(session.web)
-        host.applyScale()
+        host.setFrameSize(NSSize(width: 500, height: 400)) // the layout
         return host
     }
 
@@ -455,12 +469,113 @@ final class BrowserAutomationTests: XCTestCase {
         let opened = ((automation.status["browserAutomation"] as? [String: Any])?["opened"] as? [[String: Any]])?.last
         XCTAssertEqual(((opened?["snapshot"] as? [String: Any])?["viewport"] as? [String: Any])?["width"] as? Int, 1280, "the data module adopts the tab at the default size")
         XCTAssertEqual(calls.first { $0.0 == "preview.resize" }?.1["tabId"] as? String, "tab-7")
-        let session = page("/b", visible: false, id: runtime7)
+        let session = adopt(runtime7, "/b", request: request)
         spin(until: { self.responses[request["requestId"] as! String] != nil })
         let status = result(responses[request["requestId"] as! String] ?? [:])
         XCTAssertEqual((status["viewportSetting"] as? [String: Any])?["height"] as? Int, 800)
         XCTAssertEqual(session.web.frame.size, NSSize(width: 1280, height: 800), "a page no stage holds takes it")
         XCTAssertEqual(js(session.web, "innerWidth") as? Int, 1280)
+    }
+
+    /// The live drive on #352 (2026-10-09): `preview_open` answered 1,578 × 1,183 for a 1280 × 800 tab (three runs of
+    /// four). A stage that already shows a tab gets the new tab's fit scale with its props, and only the next layout
+    /// gives its box the new frame, so for a moment the page lays out at the old frame over the new scale; the answer
+    /// waits for the size the page renders.
+    func testAnOpenedTabAnswersTheDefaultSizeItsStageRenders() {
+        openSnapshot = ["threadId": "thread-1", "tabId": "tab-7", "navStatus": ["_tag": "Loading", "url": "\(fixture.base)/b", "title": ""], "viewport": ["_tag": "fill"], "canGoBack": false, "canGoForward": false, "updatedAt": "2026-10-09T00:00:00.000Z"]
+        let runtime7 = T3BrowserAutomation.runtimeId(environment: "env-1", thread: "thread-1", epoch: "epoch-1", tab: "tab-7")
+        let open: [String: Any] = ["create": ["threadId": "thread-1", "url": "\(fixture.base)/b", "viewport": ["_tag": "fill"], "profileId": "default"], "epoch": "epoch-1", "present": true,
+                                   "defaultViewport": ["_tag": "freeform", "width": 1280, "height": 800]]
+        let request = plan("open", ["url": "\(fixture.base)/b"], extra: ["open": open], runtimeId: nil, tabId: nil)
+        XCTAssertEqual(automation.perform(request)["accepted"] as? Bool, true)
+        spin(until: { (self.automation.status["browserAutomation"] as? [String: Any]).flatMap { $0["opened"] as? [[String: Any]] }?.isEmpty == false })
+        let session = adopt(runtime7, "/b", request: request)
+        let host = T3BrowserView.Host(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        window.contentView!.addSubview(host)
+        host.setFrameSize(NSSize(width: 640, height: 480)) // laid out, showing another tab at Fill
+        host.addSubview(session.web)
+        host.fitScale = 0.4 // the new tab's props first: 1,600 × 1,200 until the layout
+        defer { session.web.removeFromSuperview(); host.removeFromSuperview() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { host.setFrameSize(NSSize(width: 512, height: 320)) } // 1280 × 800 at 0.4
+        spin(until: { self.responses[request["requestId"] as! String] != nil })
+        let status = result(responses[request["requestId"] as! String] ?? [:])
+        XCTAssertEqual(status["visible"] as? Bool, true)
+        XCTAssertEqual(status["viewport"] as? [String: Int], ["width": 1280, "height": 800], "the size the page renders once its stage is laid out")
+    }
+
+    /// The same for a reused tab with a fixed size that a stage showing another tab presents: the answer reads the
+    /// tab's own size once the stage is laid out (review of #352's fix).
+    func testAReusedTabAnswersItsFixedSizeOnceItsStageRenders() {
+        let session = page(visible: false)
+        let host = T3BrowserView.Host(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        window.contentView!.addSubview(host)
+        host.setFrameSize(NSSize(width: 640, height: 480)) // laid out, showing another tab at Fill
+        host.addSubview(session.web)
+        host.fitScale = 0.5 // the props first: 1,280 × 960 until the layout
+        defer { session.web.removeFromSuperview(); host.removeFromSuperview() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { host.setFrameSize(NSSize(width: 450, height: 300)) } // 900 × 600 at 0.5
+        let setting: [String: Any] = ["_tag": "freeform", "width": 900, "height": 600]
+        let status = result(run(plan("open", [:], extra: ["open": ["tabId": "tab-1", "runtimeId": Self.runtime, "present": true, "needsOverlay": true], "viewportSetting": setting])))
+        XCTAssertEqual(status["viewport"] as? [String: Int], ["width": 900, "height": 600], "the tab's own fixed size, as its stage renders it")
+        XCTAssertFalse(calls.contains { $0.0 == "preview.resize" }, "a reused tab keeps its size")
+    }
+
+    /// A new agent tab's page is made at the default before its first load, here rather than when the data module adopts
+    /// the tab: the server's `opened` event (at Fill) can reach the data module first (review of #352's first-layout fix).
+    func testTheHostMakesANewTabsPageAtTheDefaultBeforeItsFirstLoad() {
+        fixture.page("/first", "<!doctype html><title>First</title><script>window.first = innerWidth + 'x' + innerHeight</script>")
+        openSnapshot = ["threadId": "thread-1", "tabId": "tab-9", "navStatus": ["_tag": "Loading", "url": "\(fixture.base)/first", "title": ""], "viewport": ["_tag": "fill"], "canGoBack": false, "canGoForward": false, "updatedAt": "2026-10-09T00:00:00.000Z"]
+        let runtime9 = T3BrowserAutomation.runtimeId(environment: "env-1", thread: "thread-1", epoch: "epoch-1", tab: "tab-9")
+        let open: [String: Any] = ["create": ["threadId": "thread-1", "url": "\(fixture.base)/first", "viewport": ["_tag": "fill"], "profileId": "default"], "epoch": "epoch-1", "present": false,
+                                   "defaultViewport": ["_tag": "freeform", "width": 1280, "height": 800]]
+        let request = plan("open", ["url": "\(fixture.base)/first"], extra: ["open": open], runtimeId: nil, tabId: nil)
+        XCTAssertEqual(automation.perform(request)["accepted"] as? Bool, true)
+        spin(until: { (self.automation.status["browserAutomation"] as? [String: Any]).flatMap { $0["opened"] as? [[String: Any]] }?.isEmpty == false })
+        guard let session = sessions.sessions[runtime9] else { return XCTFail("the host makes the page with the tab") }
+        XCTAssertEqual(session.web.frame.size, NSSize(width: 1280, height: 800))
+        spin(until: { session.navigation.kind == "Success" })
+        XCTAssertEqual(js(session.web, "window.first") as? String, "1280x800", "its first layout is the default")
+        XCTAssertTrue(adopt(runtime9, "/first", request: request) === session, "the data module's sync keeps the host's page")
+        spin(until: { self.responses[request["requestId"] as! String] != nil })
+        XCTAssertEqual((result(responses[request["requestId"] as! String] ?? [:])["viewportSetting"] as? [String: Any])?["width"] as? Int, 1280)
+    }
+
+    /// The open answers once the data module has adopted the new tab (its `browserSync` lists it), so the agent's next
+    /// request is planned with the tab in its store and its suppression recorded. With the host making the page itself,
+    /// a tab opened with `open: false` was shown by the next request (#352's drive on f38d20cf6).
+    func testAnOpenAnswersOnceTheDataModuleHasAdoptedTheTab() {
+        openSnapshot = ["threadId": "thread-1", "tabId": "tab-6", "navStatus": ["_tag": "Loading", "url": "\(fixture.base)/b", "title": ""], "viewport": ["_tag": "fill"], "canGoBack": false, "canGoForward": false, "updatedAt": "2026-10-09T00:00:00.000Z"]
+        let runtime6 = T3BrowserAutomation.runtimeId(environment: "env-1", thread: "thread-1", epoch: "epoch-1", tab: "tab-6")
+        let open: [String: Any] = ["create": ["threadId": "thread-1", "url": "\(fixture.base)/b", "viewport": ["_tag": "fill"], "profileId": "default"], "epoch": "epoch-1", "present": false, "suppress": true,
+                                   "defaultViewport": ["_tag": "freeform", "width": 1280, "height": 800]]
+        let request = plan("open", ["url": "\(fixture.base)/b", "open": false], extra: ["open": open], runtimeId: nil, tabId: nil)
+        XCTAssertEqual(automation.perform(request)["accepted"] as? Bool, true)
+        spin(until: { (self.automation.status["browserAutomation"] as? [String: Any]).flatMap { $0["opened"] as? [[String: Any]] }?.isEmpty == false })
+        spin(until: { false }, timeout: 0.6)
+        XCTAssertNil(responses[request["requestId"] as! String], "no answer before the data module has adopted the tab")
+        adopt(runtime6, "/b") // listed (the server's `opened` event brought it), not yet adopted
+        spin(until: { false }, timeout: 0.4)
+        XCTAssertNil(responses[request["requestId"] as! String], "a sync that lists the tab without its note is not the adoption")
+        adopt(runtime6, "/b", request: request)
+        spin(until: { self.responses[request["requestId"] as! String] != nil })
+        XCTAssertEqual(result(responses[request["requestId"] as! String] ?? [:])["tabId"] as? String, "tab-6")
+    }
+
+    /// The live drive on #352: a tab opened with `open: false` was shown by the agent's next operation on it, because
+    /// the note the data module adopts the tab from left out the suppression (browser-automation.ts adoptAutomationTabs).
+    func testATabOpenedWithoutPresentationStaysSuppressed() {
+        openSnapshot = ["threadId": "thread-1", "tabId": "tab-8", "navStatus": ["_tag": "Idle"], "viewport": ["_tag": "fill"], "canGoBack": false, "canGoForward": false, "updatedAt": "2026-10-09T00:00:00.000Z"]
+        let open: [String: Any] = ["create": ["threadId": "thread-1", "viewport": ["_tag": "fill"], "profileId": "default"], "epoch": "epoch-1", "present": false, "suppress": true]
+        let request = plan("open", ["open": false, "reuseExistingTab": false], extra: ["open": open], runtimeId: nil, tabId: nil)
+        XCTAssertEqual(automation.perform(request)["accepted"] as? Bool, true)
+        spin(until: { (self.automation.status["browserAutomation"] as? [String: Any]).flatMap { $0["opened"] as? [[String: Any]] }?.isEmpty == false })
+        adopt(T3BrowserAutomation.runtimeId(environment: "env-1", thread: "thread-1", epoch: "epoch-1", tab: "tab-8"), "", request: request)
+        spin(until: { self.responses[request["requestId"] as! String] != nil })
+        _ = result(responses[request["requestId"] as! String] ?? [:])
+        let opened = ((automation.status["browserAutomation"] as? [String: Any])?["opened"] as? [[String: Any]])?.last
+        XCTAssertEqual((opened?["snapshot"] as? [String: Any])?["tabId"] as? String, "tab-8")
+        XCTAssertEqual(opened?["present"] as? Bool, false)
+        XCTAssertEqual(opened?["suppress"] as? Bool, true, "the data module records the suppression from the note")
     }
 
     // MARK: Appearance and Mute

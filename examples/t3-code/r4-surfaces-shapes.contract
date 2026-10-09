@@ -102,6 +102,9 @@ shape R4Files
   textKey: string
   gutter: number
   wrap: bool
+  // FilePreviewPanel showsRawText (the word-wrap toggle) and canOpenInBrowser (a page or a PDF).
+  rawText: bool
+  openInBrowser: bool
   truncatedNote: string
   canRender: bool
   rendered: bool

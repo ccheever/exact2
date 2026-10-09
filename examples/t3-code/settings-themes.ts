@@ -6,7 +6,9 @@ import { obj, str, type Obj } from './domain';
 
 export type CustomTheme = { id: string; label: string; appearance: 'light' | 'dark'; light: Record<string, string> | null; dark: Record<string, string> | null;
   /** The Open VSX extension a multi-theme install came from (settings-a-collections.ts). */
-  collection?: { id: string; label: string } };
+  collection?: { id: string; label: string };
+  /** ThemeDefinition.managed: generated from the guided editor's canvas and accent; anything else opens the editor in Advanced. */
+  managed?: boolean };
 const RESERVED = new Set(['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', 'system', 'light', 'dark', 'default']);
 const ID = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
 
@@ -66,6 +68,7 @@ export function parseThemeFile(text: string, taken: string[]): CustomTheme {
     if (variant === appearance) throw new ClientError(`Theme variants must not repeat the base appearance "${appearance}".`);
     theme[variant] = colors(variantColors, `${name} ${variant}`);
   }
+  if (file.managed === true) theme.managed = true;
   return theme;
 }
 function uniqueId(id: string, taken: string[]) {
@@ -94,6 +97,7 @@ export function decodeCustomThemes(value: unknown): CustomTheme[] {
     const ok = ID.test(str(theme.id)) && !RESERVED.has(str(theme.id)) && str(theme.label).length > 0 && (theme.appearance === 'light' || theme.appearance === 'dark');
     if (!ok) return [];
     const variant = (v: unknown) => v && typeof v === 'object' ? Object.fromEntries(Object.entries(obj(v)).filter(([, c]) => toHex(c)).map(([r, c]) => [r, toHex(c)!])) : null;
-    return [{ id: str(theme.id), label: str(theme.label).slice(0, 48), appearance: theme.appearance as 'light' | 'dark', light: variant(theme.light), dark: variant(theme.dark) }];
+    return [{ id: str(theme.id), label: str(theme.label).slice(0, 48), appearance: theme.appearance as 'light' | 'dark', light: variant(theme.light), dark: variant(theme.dark),
+      ...(theme.managed === true ? { managed: true } : {}) }];
   }).slice(0, 100);
 }

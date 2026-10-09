@@ -67,6 +67,8 @@ export class T3Client {
   /** The embedded server's status (local-backend.ts); "This machine" reads it. */
   localBackend: LocalBackendStatus = unknownLocalBackend();
   revision = 0;
+  /** Resource telemetry samples drained (settings-diagnostics-and-scope): only Diagnostics is keyed on it, as only ResourceTelemetryDiagnostics re-renders on a sample. */
+  telemetryRevision = 0;
   generation = -1;
   environmentId = '';
   origin = DEFAULT_ORIGIN;
@@ -477,6 +479,10 @@ export class T3Client {
       if (batch.reset === true && this.lastEvent > 0) settleLostReplies(this); // composer-replies.ts: an overflowed inbox may have dropped a reply
       let through = this.lastEvent;
       let awaitingRegistration = false;
+      // A batch of resource telemetry samples alone redraws Diagnostics only (`data.telemetry`), not every
+      // `data.revision` reader: a sample a second replaced the Diagnostics answer before its reads came back.
+      const samplesOnly = batch.reset !== true && arr(batch.events).length > 0 && arr(batch.events).every(entry => str(entry.key) === TELEMETRY_KEY);
+      let samples = 0;
       for (const entry of arr(batch.events)) {
         const seq = num(entry.seq);
         if (seq <= this.lastEvent) continue;
@@ -490,7 +496,7 @@ export class T3Client {
           break;
         }
         through = Math.max(through, seq);
-        if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); continue; } // settings-a-telemetry.ts
+        if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); samples++; continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
         if (key === PR_REFRESH_KEY) { prRefreshEvent(this, entry); continue; } // pages-pr-refresh.ts: pullRequests.subscribeRefreshes
@@ -547,7 +553,8 @@ export class T3Client {
       if (batch.reset === true && arr(batch.events).length === 0) through = Math.max(through, num(batch.latest));
       this.lastEvent = through;
       const ack = through > 0 ? await this.call(native, { op: 'ack', through }, generation) : {};
-      this.changed();
+      if (samples) this.telemetryRevision++;
+      if (!samplesOnly) this.changed();
       if (awaitingRegistration) break;
       if (through >= Math.max(num(batch.latest), num(ack.latest))) break;
       if (arr(batch.events).length === 0 && num(ack.latest) <= through) break;
@@ -563,7 +570,10 @@ export class T3Client {
     if (!pending) return false;
     const payload = pending.payload;
     let completed = false;
-    if (pending.method === 'orchestration.launchThread') {
+    if (pending.method === 'orchestration.launchThread' && payload.reuseExistingThread === true) {
+      // An unstarted server thread's first message in a new worktree: done once that message is on the thread.
+      completed = pending.threadId === this.threadId && this.threadLive && arr(this.projection.messages).some(value => value.id === obj(payload.initialMessage).messageId);
+    } else if (pending.method === 'orchestration.launchThread') {
       completed = this.shell.threads.some(thread => thread.id === payload.threadId);
     } else if (payload.type === 'thread.fork') {
       completed = this.shell.threads.some(thread => thread.id === payload.targetThreadId);
@@ -584,12 +594,11 @@ export class T3Client {
   private finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
-    if (pending.text) {
-      const key = pending.method === 'orchestration.launchThread'
-        ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
-      if (this.local.drafts[key] === pending.text) delete this.local.drafts[key];
-    }
-    const key = pending.method === 'orchestration.launchThread' ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
+    // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message (PA-9:
+    // launchThread with reuseExistingThread) owns that thread's composer, its text and its images alike.
+    const key = pending.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true
+      ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
+    if (pending.text && this.local.drafts[key] === pending.text) delete this.local.drafts[key];
     const sent = arr(pending.method === 'orchestration.launchThread' ? obj(pending.payload.initialMessage).attachments : pending.payload.attachments);
     if (sent.length) this.local.snapshotDrafts[key] = (this.local.snapshotDrafts[key] || []).filter(image => {
       if (!sent.some(attachment => attachment.id === image.uploadId)) return true;
