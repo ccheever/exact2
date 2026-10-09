@@ -4,7 +4,7 @@ import Foundation
 
 extension T3Module: T3BrowserSessionOwner {
     func browserOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        guard let answer = browserSessions.perform(request) else { return next() }
+        guard let answer = browserSessions.perform(request) ?? browserSessions.performNavigation(request) else { return next() } // part 2: browserSet
         reply.send(answer)
     }
 }

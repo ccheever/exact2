@@ -62,6 +62,8 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=closeDiff)
         when item.kind == "close-surface"
           ShortcutButton(item=item, press=panel("tab-close", item.target))
+        when item.kind == "panel-close" // browser-surface part 2: ⇧⌘J closes a shown Browser panel
+          ShortcutButton(item=item, press=panel("close", ""))
         when item.kind == "pr-close"
           ShortcutButton(item=item, press=prClose)
         when item.kind == "stop"
