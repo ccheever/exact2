@@ -191,7 +191,8 @@ final class MediaPreviewTests: XCTestCase {
         let pdf = try XCTUnwrap(document.dataRepresentation())
         assets.bodies["/api/assets/report"] = ("application/pdf", pdf)
         media.mount(host: host, kind: "pdf", raw: "http://127.0.0.1:\(assets.port)/api/assets/report", name: "report.pdf")
-        let view = try XCTUnwrap(host.subviews.first as? PDFView)
+        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        let view = body.pdf
         spin(until: { view.document != nil })
         XCTAssertEqual(view.document?.pageCount, 2)
         XCTAssertTrue(view.autoScales)
@@ -200,9 +201,49 @@ final class MediaPreviewTests: XCTestCase {
         let width = (view.document?.page(at: 0)?.bounds(for: .mediaBox).width ?? 0) * view.scaleFactor
         XCTAssertGreaterThan(width, host.bounds.width * 0.85)
         XCTAssertEqual(view.accessibilityLabel(), "report.pdf")
+        // Taller than the panel: the view fills it and opens on the first page's top.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(view.frame, body.bounds)
+        XCTAssertLessThan(try firstPage(in: body).top, 12)
         save(view, "r6-media-pdf.png")
         media.unmount(host: host)
         XCTAssertTrue(host.subviews.isEmpty)
+    }
+
+    /// Where the first page sits in the body's box (flipped): its top gap and the surface below it.
+    private func firstPage(in body: R6PDFBody) throws -> (top: CGFloat, below: CGFloat, height: CGFloat) {
+        let page = try XCTUnwrap(body.pdf.document?.page(at: 0))
+        let rect = body.convert(body.pdf.convert(page.bounds(for: .mediaBox), from: page), from: body.pdf)
+        return (rect.minY, body.bounds.maxY - rect.maxY, rect.height)
+    }
+
+    func testShortPdfStartsAtTheTop() throws {
+        // One US-letter page in a panel taller than the page at its fitted width: as Chromium's viewer,
+        // the page sits at the top and the viewer surface fills the rest below it (PDFView alone centers it).
+        host.frame = NSRect(x: 0, y: 0, width: 300, height: 700)
+        let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        assets.bodies["/api/assets/guide"] = ("application/pdf", sheet.dataWithPDF(inside: sheet.bounds))
+        media.mount(host: host, kind: "pdf", raw: "http://127.0.0.1:\(assets.port)/api/assets/guide", name: "guide.pdf")
+        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        spin(until: { body.pdf.document != nil })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        var page = try firstPage(in: body)
+        XCTAssertLessThan(page.height, body.bounds.height * 0.75, "the page is shorter than the panel")
+        XCTAssertLessThan(page.top, 12, "the page starts at the top of the panel (top gap \(page.top))")
+        XCTAssertGreaterThan(page.below, 250, "the viewer surface is below the page (\(page.below))")
+        XCTAssertEqual(body.layer?.backgroundColor, R6MediaPreview.viewerSurface.cgColor)
+        save(body, "r6-media-pdf-short.png")
+        // The same after the panel grows (the host lays out again after the bytes arrive).
+        host.frame = NSRect(x: 0, y: 0, width: 300, height: 840)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        page = try firstPage(in: body)
+        XCTAssertLessThan(page.top, 12, "still at the top after a resize (top gap \(page.top))")
+        XCTAssertGreaterThan(page.below, 390)
+        // Narrowed until the page is taller than the panel: the PDFView fills the box and scrolls.
+        host.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(body.pdf.frame, body.bounds)
+        XCTAssertLessThan(try firstPage(in: body).top, 12, "the first page's top shows first")
     }
 
     func testRefusesAnythingButASignedAssetRoute() {

@@ -21,7 +21,7 @@ import {
   resolvePreviewMiniPlayerPillInset, RESIZE_DIRECTIONS, type BrowserViewportResizeDirection, type DevicePlatform, type PreviewMiniPlayerFrame, type PreviewMiniPlayerSize,
 } from './previewMiniPlayerLayout';
 import { previewMiniPlayerSourceKey, type PreviewMiniPlayerState } from './previewMiniPlayerStore';
-import { deviceKey, miniStoreOf } from './r6-media-device';
+import { deviceKey, deviceThreadId, miniStoreOf } from './r6-media-device';
 import { shownDevice } from './r4-surfaces-panel';
 import { inlineOpen } from './shell-prefs';
 import { detailsKey } from './shell-details';
@@ -78,8 +78,9 @@ function screenOf(streams: Obj, hostId: string, deviceId: string): { width: numb
 
 /** The floating player this thread renders (shouldRenderPreviewMiniPlayer): none while the panel shows the same device. */
 function visiblePlayer(client: T3Client): PreviewMiniPlayerState | null {
-  if (!client.threadId) return null;
-  const player = miniStoreOf(client).get(client.threadId);
+  const thread = deviceThreadId(client); // activeThreadRef: a draft's own id too
+  if (!thread) return null;
+  const player = miniStoreOf(client).get(thread);
   if (!player) return null;
   const shown = shownDevice(client);
   return shown && shown.hostId === player.source.hostId && shown.deviceId === player.source.deviceId ? null : player;
@@ -121,7 +122,7 @@ async function livePresentation(client: T3Client, native: Native | null | undefi
 /** The `chatCanvas` source. */
 export async function chatCanvasView(client: T3Client, native: Native | null | undefined, args: ChatCanvasArgs): Promise<ChatCanvasView> {
   const state = stateOf(client), gesture = parseGesture(args.gesture);
-  const player = visiblePlayer(client), threadKey = client.threadId;
+  const player = visiblePlayer(client), threadKey = deviceThreadId(client);
   if (player) applyGesture(client, state, gesture, threadKey, miniStoreOf(client).get(threadKey) ?? player);
   else state.gesture = null;
   const current = player ? miniStoreOf(client).get(threadKey) ?? player : null;

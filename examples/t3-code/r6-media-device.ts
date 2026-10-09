@@ -16,6 +16,10 @@ import { ClientError, type Native } from './protocol';
 import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './r9-device-duo'; // lane r9-device
 import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
 import { letGo } from './let-go';
+import { activeRef } from './terminal-drawer-view';
+
+/** The thread a device opens for: ChatView's activeThreadRef, a draft's own id included (allocated when Device opens). */
+export const deviceThreadId = (client: T3Client): string => activeRef(client)?.threadId ?? client.threadId;
 
 export type DeviceTarget = { hostId: string; deviceId: string; platform: string; name: string };
 export type R6DeviceRail = {
@@ -104,7 +108,7 @@ export const emptyMini = (): R6DeviceMini => ({ show: false, key: '', sourceKey:
 
 /** DevicePanel's body after onboarding, for the thread `panelKey` names. */
 export async function r6DeviceView(client: T3Client, native: Native | null, state: Obj, loaded: boolean, panelKey: string): Promise<R6DeviceView> {
-  const store = storeOf(client), threadId = client.threadId;
+  const store = storeOf(client), threadId = deviceThreadId(client);
   const device = activeDevice(state, threadId, store.targets.get(panelKey));
   const statuses = Object.values(obj(state.hostStatuses)).map(status => str(obj(status).status));
   const hostReady = statuses.includes('ready');
@@ -145,8 +149,8 @@ export async function r6DeviceView(client: T3Client, native: Native | null, stat
 
 /** The floating player for this thread, if one was floated (previewMiniPlayerStore). */
 export function r6DeviceMini(client: T3Client, state: Obj | null): R6DeviceMini {
-  const target = miniDeviceOf(client, client.threadId);
-  if (!target || !client.threadId) return emptyMini();
+  const thread = deviceThreadId(client), target = miniDeviceOf(client, thread);
+  if (!target || !thread) return emptyMini();
   const device = state ? arr(state.devices).find(entry => str(entry.hostId) === target.hostId && str(entry.id) === target.deviceId) : undefined;
   const key = deviceKey(target), platform = platformOf(target.platform);
   return { show: true, key, sourceKey: previewMiniPlayerSourceKey(target), name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
@@ -190,12 +194,13 @@ export async function openDevice(client: T3Client, native: Native, state: Obj, k
   if (store.pending) return;
   const device = arr(state.devices).find(candidate => deviceKey({ hostId: str(candidate.hostId), id: str(candidate.id) }) === key);
   if (!device) throw new ClientError('That device is no longer available.');
-  if (!client.threadId) throw new ClientError('Open a thread to use a device.');
+  const threadId = deviceThreadId(client);
+  if (!threadId) throw new ClientError('Open a thread to use a device.');
   const platform = platformOf(str(device.platform));
   store.operationError = '';
   store.pending = { hostId: str(device.hostId), deviceId: str(device.id), platform, name: str(device.name), booted: device.booted === true, version: str(device.version) };
   try {
-    const result = obj(await client.restAccess(native).request('device.open', { threadId: client.threadId, hostId: str(device.hostId), deviceId: str(device.id), platform }, true));
+    const result = obj(await client.restAccess(native).request('device.open', { threadId, hostId: str(device.hostId), deviceId: str(device.id), platform }, true));
     store.targets.set(panelKey, { hostId: str(result.hostId, str(device.hostId)), deviceId: str(result.deviceId, str(device.id)), platform, name: str(device.name) });
     store.detailKey = ''; store.menu = '';
   } catch (error) { if (!letGo(error)) store.operationError = message(error, 'Could not open the device.'); }
@@ -204,12 +209,12 @@ export async function openDevice(client: T3Client, native: Native, state: Obj, k
 
 /** closeActive(true): `device.close` with `shutdown`, then the surface closes. Returns whether it closed. */
 export async function powerOff(client: T3Client, native: Native, state: Obj, panelKey: string): Promise<boolean> {
-  const store = storeOf(client), device = activeDevice(state, client.threadId, store.targets.get(panelKey));
+  const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
   store.menu = '';
   if (!device) return false;
   store.operationError = '';
   try {
-    await client.restAccess(native).request('device.close', { threadId: client.threadId, hostId: str(device.hostId), deviceId: str(device.id), shutdown: true }, true);
+    await client.restAccess(native).request('device.close', { threadId: deviceThreadId(client), hostId: str(device.hostId), deviceId: str(device.id), shutdown: true }, true);
     store.targets.delete(panelKey);
     return true;
   } catch (error) { if (letGo(error)) throw error; store.operationError = message(error, 'Could not power off the device.'); return false; }
@@ -225,7 +230,7 @@ export async function deviceAction(client: T3Client, native: Native, state: Obj,
 
 /** One serialized `device.action` with any body (the rail, the Tools drawer); false when it did not run. */
 export async function actDevice(client: T3Client, native: Native, state: Obj, panelKey: string, body: Obj): Promise<boolean> {
-  const store = storeOf(client), device = activeDevice(state, client.threadId, store.targets.get(panelKey));
+  const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
   store.menu = '';
   if (!device || store.acting || !store.detail) return false;
   store.acting = true; store.detailError = '';
@@ -250,7 +255,7 @@ export async function r6DeviceCommand(client: T3Client, native: Native, state: O
   if (op === 'screenshot') { await saveScreenshot(client, native, current, panelKey); return false; }
   if (op === 'appearance' || op === 'text-size') { await deviceAction(client, native, current, panelKey, op, value); return false; }
   if (op.startsWith('tools-')) {
-    const store = storeOf(client), device = activeDevice(current, client.threadId, store.targets.get(panelKey));
+    const store = storeOf(client), device = activeDevice(current, deviceThreadId(client), store.targets.get(panelKey));
     const key = device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '';
     await r7DeviceCommand(client, op.slice(6), id, value, key, store.detail, body => actDevice(client, native, current, panelKey, body));
     return false;
@@ -260,7 +265,7 @@ export async function r6DeviceCommand(client: T3Client, native: Native, state: O
 
 /** DeviceWorkspace saveScreenshot through the module (the hub's POST /api/screenshot). */
 export async function saveScreenshot(client: T3Client, native: Native, state: Obj, panelKey: string): Promise<void> {
-  const store = storeOf(client), device = activeDevice(state, client.threadId, store.targets.get(panelKey));
+  const store = storeOf(client), device = activeDevice(state, deviceThreadId(client), store.targets.get(panelKey));
   store.menu = '';
   if (!device || store.screenshotPending) return;
   store.screenshotPending = true; store.screenshotError = '';
@@ -279,21 +284,21 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
   if (op === 'close-panel') { store.menu = ''; return 'close'; }
   if (op === 'float') {
     store.menu = '';
-    const device = state ? activeDevice(state, client.threadId, store.targets.get(panelKey)) : null;
+    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
     if (!device) return '';
-    floatMiniDevice(client, client.threadId, { hostId: str(device.hostId), deviceId: str(device.id), platform: platformOf(str(device.platform)), name: str(device.name) });
+    floatMiniDevice(client, deviceThreadId(client), { hostId: str(device.hostId), deviceId: str(device.id), platform: platformOf(str(device.platform)), name: str(device.name) });
     return 'hide'; // floatActive: the panel closes
   }
-  if (op === 'mini-close') { closeMiniDevice(client, client.threadId); return ''; }
+  if (op === 'mini-close') { closeMiniDevice(client, deviceThreadId(client)); return ''; }
   if (op === 'mini-restore') {
-    const target = miniDeviceOf(client, client.threadId);
-    closeMiniDevice(client, client.threadId);
+    const thread = deviceThreadId(client), target = miniDeviceOf(client, thread);
+    closeMiniDevice(client, thread);
     if (!target) return '';
     store.targets.set(panelKey, target);
     return 'reopen';
   }
   if (op === 'duo' || op === 'fold') { // lane r9-device: a stand or fold button
-    const device = state ? activeDevice(state, client.threadId, store.targets.get(panelKey)) : null, next = r9FoldingValue(op, value);
+    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null, next = r9FoldingValue(op, value);
     if (device && next) await client.restAccess(native).call({ op: 'r6DeviceInput', action: op, key: deviceKey({ hostId: str(device.hostId), id: str(device.id) }), value: next });
     return '';
   }
@@ -302,7 +307,7 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
     return '';
   }
   if (op.startsWith('tools-')) {
-    const device = state ? activeDevice(state, client.threadId, store.targets.get(panelKey)) : null;
+    const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null;
     store.menu = '';
     await r7DeviceLocal(client, op.slice(6), value, device ? deviceKey({ hostId: str(device.hostId), id: str(device.id) }) : '', {
       input: (action, key, extra) => client.restAccess(native).call({ op: 'r6DeviceInput', action, key, value: extra }).then(() => undefined),

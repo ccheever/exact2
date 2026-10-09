@@ -20,7 +20,7 @@ import type { T3Client } from './client';
 import { arr, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { deviceStateOf, watchDevice } from './r4-surfaces-device';
-import { closeMiniDevice, emptyMini, floatMiniDevice, miniDeviceOf, type DeviceTarget, type R6DeviceMini } from './r6-media-device';
+import { closeMiniDevice, deviceThreadId, emptyMini, floatMiniDevice, miniDeviceOf, type DeviceTarget, type R6DeviceMini } from './r6-media-device';
 
 type Track = { previous: Map<string, Set<string>>; tried: number };
 let tracks = new WeakMap<T3Client, Track>();
@@ -41,7 +41,7 @@ export function autoShowDevices(client: T3Client, latest: Obj | null, sheet: boo
   const kept = received.get(client);
   if (latest) received.set(client, { environmentId: client.environmentId, state: latest });
   const state = latest ?? (kept && kept.environmentId === client.environmentId ? kept.state : EMPTY_DEVICE_STATE);
-  const threadId = client.threadId;
+  const threadId = deviceThreadId(client); // activeThreadRef: a draft's own id too
   if (!threadId || !client.environmentId) return;
   let track = tracks.get(client);
   if (!track) { track = { previous: new Map(), tried: -1 }; tracks.set(client, track); }

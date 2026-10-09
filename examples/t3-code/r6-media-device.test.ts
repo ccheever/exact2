@@ -42,6 +42,15 @@ describe('the Device surface after onboarding (lane r6-media)', () => {
     expect((await r6DeviceView(c, native, deviceState(), false, 'p')).openingMessage).toBe('Finding devices…');
   });
 
+  test('on a draft a row opens its device for the draft\'s own thread id (ChatView activeThreadRef, PA-1)', async () => {
+    const calls: Call[] = [];
+    const c = Object.assign(client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' } }), { threadId: '', environmentId: 'env', draftKey: 'env:new:p1', local: { composerControls: { draftThreads: { 'env:new:p1': 'draft-7' } } } });
+    await r6DeviceCommand(c, native, deviceState(), 'p', 'open', KEY, '');
+    expect(calls[0]).toEqual({ method: 'device.open', payload: { threadId: 'draft-7', hostId: 'local', deviceId: 'SIM-1', platform: 'ios' }, write: true });
+    const view = await r6DeviceView(c, native, deviceState({ sessions: [{ threadId: 'draft-7', hostId: 'local', deviceId: 'SIM-1', platform: 'ios', openedAt: '' }] }), true, 'p');
+    expect(view.mode).toBe('workspace');
+  });
+
   test('a row opens its device with device.open for this thread, then the workspace shows it with its settings', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': settings });
     let state = deviceState();

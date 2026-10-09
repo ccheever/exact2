@@ -9,8 +9,9 @@ import WebKit
 /// URL the surface minted) and `data-media-name`.
 ///
 /// - PDF: the reference asks Chromium's viewer for the page alone, fitted to the panel width
-///   (`#toolbar=0&view=FitH`); here a PDFView scales the continuous pages to the width, and
-///   scrolling, zoom gestures, selection and find work inside it.
+///   (`#toolbar=0&view=FitH`), from the top; here a PDFView scales the continuous pages to the width,
+///   top-aligned on the viewer surface (R6PDFBody), and scrolling, zoom gestures, selection and find
+///   work inside it.
 /// - HTML: the reference runs the page in `<iframe sandbox="allow-scripts allow-forms
 ///   allow-popups allow-modals">` at its signed asset URL, an opaque origin that cannot reach
 ///   the app's session or storage. Lane r12-render: here the same element does it. The web
@@ -93,7 +94,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         if entries[key]?.identity == identity { return }
         detach(key)
         guard let url = T3AttachmentFiles.assetURL(raw), kind == "pdf" || kind == "html" else { return }
-        let view: NSView = kind == "pdf" ? Self.pdfView(name: name) : webView(name: name)
+        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : webView(name: name)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
@@ -134,21 +135,25 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: PDF
 
+    /// Chromium's PDF viewer surface (#282828, measured on the reference) around, between and below the pages.
+    static let viewerSurface = NSColor(srgbRed: 0x28 / 255, green: 0x28 / 255, blue: 0x28 / 255, alpha: 1)
+
     static func pdfView(name: String) -> PDFView {
         let view = PDFView()
         view.displayMode = .singlePageContinuous
         view.displaysPageBreaks = true
         view.autoScales = true
-        // Chromium's PDF viewer surface (#282828, measured on the reference) around and between the pages.
-        view.backgroundColor = NSColor(srgbRed: 0x28 / 255, green: 0x28 / 255, blue: 0x28 / 255, alpha: 1)
+        view.backgroundColor = viewerSurface
         view.setAccessibilityLabel(name)
         return view
     }
 
     private func showPDF(_ entry: Entry, _ bytes: Data, name: String) {
-        guard let pdf = entry.view as? PDFView, let document = PDFDocument(data: bytes) else { return fail(entry, "Could not load this file.") }
-        pdf.document = document
-        pdf.autoScales = true
+        guard let body = entry.view as? R6PDFBody, let document = PDFDocument(data: bytes) else { return fail(entry, "Could not load this file.") }
+        body.pdf.document = document
+        body.pdf.autoScales = true
+        body.fit()
+        if let first = document.page(at: 0) { body.pdf.go(to: first) }
         loaded[name] = "pdf:\(document.pageCount)"
     }
 
@@ -262,6 +267,40 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         entry.view.addSubview(label)
         NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: entry.view.centerXAnchor), label.centerYAnchor.constraint(equalTo: entry.view.centerYAnchor)])
         refused.append("load-failed")
+    }
+}
+
+/// The PDF body's box. Chromium's viewer (`#toolbar=0&view=FitH`) starts the document at the top of the
+/// panel, its surface filling the rest below a short document; PDFView's clip view centers a document
+/// shorter than the view. So the box holds the PDFView at the document's fitted height, top-aligned on
+/// the viewer surface, and at the box's full height (scrolling inside) once the document is taller.
+final class R6PDFBody: NSView {
+    let pdf: PDFView
+
+    init(name: String) {
+        pdf = R6MediaPreview.pdfView(name: name)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = R6MediaPreview.viewerSurface.cgColor
+        pdf.autoresizingMask = []
+        addSubview(pdf)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    override func resizeSubviews(withOldSize oldSize: NSSize) { fit() }
+    override func layout() { super.layout(); fit() }
+
+    /// The document's height at the box's width: the pages fit the width (autoScales in a continuous
+    /// layout), so the document view's own size scales by `width / its width`.
+    func fit() {
+        var frame = bounds
+        if pdf.document != nil, let document = pdf.documentView, document.frame.width > 0 {
+            let height = (document.frame.height * frame.width / document.frame.width).rounded(.up)
+            if height < frame.height { frame.size.height = height }
+        }
+        if pdf.frame != frame { pdf.frame = frame }
     }
 }
 #endif

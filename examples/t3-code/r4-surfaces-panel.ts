@@ -31,7 +31,8 @@ import { crumbsHidden } from './r10-device-crumbs'; // lane r10-device: the File
 import { restoreRightPanel } from './r10-device-panels'; // lane r10-device: the panel as the last launch left it
 import { restoredEffects } from './r11-device-panels'; // lane r11-device: with its Diff and device
 import { requestDiff } from './r11-device-diff';
-import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
+import { deviceTargetOf, deviceThreadId, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
+import { ensureDraftThreadId } from './r7-handoff-thread';
 import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
 // browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
@@ -114,7 +115,8 @@ export function availability(client: T3Client) {
   return {
     terminal: terminalAvailable(client),
     files: !!project && !!workspaceOf(client).cwd,
-    device: !!client.threadId,
+    // ChatView `deviceAvailable={activeThreadRef !== null}`: a draft has its thread ref too (its id is allocated on open).
+    device: !!client.environmentId && (!!client.threadId || !!client.projectId),
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
     pullRequest: !!threadPrTarget(client), // r5-panels: supportsPullRequests && threadPullRequestPanelTarget
     diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
@@ -147,6 +149,8 @@ export async function openSurface(client: T3Client, native: Native, value: strin
   if (kind === 'files') { if (!can.files) return ''; client.diffOpen = false; upsert(state, singleton('files')); await ensureTree(client, native); return ''; }
   if (kind === 'pull-requests') { if (!can.pullRequests) return ''; client.diffOpen = false; upsert(state, singleton('pull-requests')); return ''; }
   if (!can.device) return '';
+  // addDeviceSurface on a draft: the reference's draft has its thread id from the start; here it is allocated now (as Browser does).
+  if (!client.threadId && !activeRef(client)) await ensureDraftThreadId(client, native);
   await watchDevice(client, native);
   // addDeviceSurface: before onboarding (or with the hub off) the setup wizard opens instead of a tab.
   if (!deviceReady(client)) { surfaceStore(client).deviceSetup = panelKey(client); return ''; }
@@ -223,7 +227,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'hide') {
     // closePreviewPanel (ChatView.tsx): closing the whole panel on a live device floats it instead of dropping it.
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
-    if (target && client.threadId) floatMiniDevice(client, client.threadId, target);
+    const thread = deviceThreadId(client);
+    if (target && thread) floatMiniDevice(client, thread, target);
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
@@ -277,7 +282,7 @@ function tabOf(client: T3Client, surface: Surface, active: string, pending: Read
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // lane r7-device: the open device's name and mark
   const title = surface.kind === 'terminal' ? panelTerminalLabel(client, surface.terminal?.activeTerminalId ?? '') : surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';
-  const icon = surface.kind === 'terminal' ? 'terminal' : surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
+  const icon = surface.kind === 'terminal' ? 'square-terminal' : surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
   return { id: surface.id, kind: surface.kind, ...rename, title, icon, tone: '', fileToken: surface.kind === 'file' ? fileIconToken(surface.path) : '', active: surface.id === active, pending: pending.has(surface.path), favicon: '', faviconFallback: '' };
 }
 

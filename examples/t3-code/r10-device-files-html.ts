@@ -14,6 +14,12 @@ import type { Native } from './protocol';
 import { assetUrl } from './settings-b-icons';
 import { letGo } from './let-go';
 
+/** browser/openFileInPreview.ts isBrowserPreviewFile: a page or a PDF, which the integrated browser opens. */
+export const isBrowserPreviewFile = (path: string) => /\.(?:html?|pdf)$/i.test(path.split(/[?#]/, 1)[0] ?? '');
+
+/** BrowserDocumentFrame isPdfPreviewFile: a PDF renders as its document, never as text (FilePreviewPanel's `isPdf`). */
+export const isPdfPath = (path: string) => /\.pdf$/i.test(path.split(/[?#]/, 1)[0] ?? '');
+
 /** isBrowserPreviewFile without PDFs (FilePreviewPanel's `isHtml`). */
 export const isHtmlPath = (path: string) => /\.html?$/i.test(path.split(/[?#]/, 1)[0] ?? '');
 
