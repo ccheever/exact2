@@ -1,12 +1,12 @@
 ---
 name: 20261009-timeline-work-rows
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-timeline-work-rows
 pr_url: null
 verified_commit: null
 ---
@@ -95,8 +95,42 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | TH-6 | The card shows the OpenAI mark and "0s"; a live subagent ticks each second; with no child thread the row is not a button. Unit test on `formatElapsedSeconds`. | `th6-subagent-card.png` | agent |
 | TH-10 | The three image icons are muted as in the reference. | `th10-muted-icons.png` | agent |
 
+## Acceptance results
+
+Agent mode on the branch bundle (lane `timeline-work-rows`, base port 16820, 1280x840), the same steps as the before
+build (the feature tip, `t3-code-evidence-base`) and the reference (Electron production build, CDP). Each image is
+before | after | reference.
+
+| Id | Result | Evidence |
+| --- | --- | --- |
+| TH-1 | pass (agent mode): the fixture answer (`runId` null) shows Copy and the time only. A completed answer of a run keeps Fork; a provider session without fork capabilities hides it; an inherited row keeps the fallback (unit tests). | [th1-no-fork.png](https://raw.githubusercontent.com/ccheever/exact2/acc8233a40a44852af64ba657203944d43052bcb/timeline-work-rows/th1-no-fork.png) |
+| TH-2 | pass (agent mode): "Background build finished" (`background_command`) shows the terminal icon; "Subagent finished" (`background_task`, `work: subagent`) is drawn as the Review Docs card (Finished, 6:07 PM, opens its thread). Decoder tests ported by name. | [th2-notification-icon.png](https://raw.githubusercontent.com/ccheever/exact2/9529958296835a9e67fa21557f4e179b0b89fbf7/timeline-work-rows/th2-notification-icon.png) |
+| TH-3 | pass (agent mode): the fixture group shows the themed logo square. Unit test on the order (primary source's icon, last entry's icon, surface, summary glyph). | [th3-group-icon.png](https://raw.githubusercontent.com/ccheever/exact2/2549635dcdf78c23bf195ae1e75582b317094ecb/timeline-work-rows/th3-group-icon.png) |
+| TH-4 | pass (agent mode): with `printf "verified output"` open all 11 rows show; with three rows open (printf, exit 2, Independent dynamic output) the list grows by their details and every row shows without scrolling inside the region, as in the reference. | [th4-one-open.png](https://raw.githubusercontent.com/ccheever/exact2/2c77c66415ca9e78cdbe7da066b52747225bf39d/timeline-work-rows/th4-one-open.png), [th4-three-open.png](https://raw.githubusercontent.com/ccheever/exact2/81334916ef41a63af7edd9f43844dc70cfe0b6a6/timeline-work-rows/th4-three-open.png) |
+| TH-5 | pass (agent mode): file_search "project/fixture.txt:1" over its preview; web_search "Tables" as a link with the external-link mark over "Pipes and dashes."; file_change "project/fixture.txt" with green "+1" and red "-0". | [th5-inspector.png](https://raw.githubusercontent.com/ccheever/exact2/bff96c9ef0dea2ef713fee83c2107747811018aa/timeline-work-rows/th5-inspector.png) |
+| TH-6 | pass (agent mode): the OpenAI mark with the status dot and "0s"; Watch Build (no child thread) is a plain row, not a button. A live agent ticks from its start on the timeline clock (unit tests; the server marks the seeded running subagent stopped when it starts, so the fixture has no live agent; its elapsed is the time since the seed, 1h 14m after vs 37s in the reference lane). | [th6-subagent-card.png](https://raw.githubusercontent.com/ccheever/exact2/6aa3f015dd4d768ed55fbe7936ff5a4f080f0987/timeline-work-rows/th6-subagent-card.png) |
+| TH-10 | pass (agent mode): Icon website, Icon themed and Icon failed-icon (and the group's icon) are muted: opacity 0.7 in Contract, brightness 0.6 in the light appearance in the image hook (`T3ToolActivityIcon.swift`). | [th10-muted-icons.png](https://raw.githubusercontent.com/ccheever/exact2/438b3ee93ae5a751fa8f9ee6a757ed00f4329c9b/timeline-work-rows/th10-muted-icons.png) |
+
+Tests: `timeline-work-rows.test.ts` (new): the reference's "decodes notification sources stored before specific kinds
+existed", "decodes a notification source kind from a newer server as generic background work" and "allows native,
+portable, and capability-unknown exact-run forks", plus the rows above (`canFork`, the group icon order, the inspector
+parts and Open diff, `formatElapsedSeconds`, `deriveSubagentElapsedMs`, the subagent card). `chat.test.ts`: its answer
+rows carry `canFork`. Checks: see the PR.
+
+No new declared difference: TH-4 hears the list's size from the element resize event (`resize=`), no measuring hook;
+TH-10's brightness is drawn by the app's own image hook, which draws the image.
+
+## Progress
+
+2026-10-09: built (one commit) and merged `feat(example)/t3-code` (`6e2040c58`); the first agent stopped at a usage
+limit before the live drive. 2026-10-10: the bundle rebuilt, one live drive plus one retry (the three-open state at the
+top of the timeline), images composed and uploaded, the draft PR opened.
+
+## Real-input batch steps
+
+None: every row is agent mode. (Pressing a web result opens the system browser, as the reference's `target=_blank`
+link does; not pressed in the lane.)
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Seed the extras fixture in the task's lane. Build and unit-test. Then do one
-batched live drive at the end for every row's before/after pair. Close every row in this PR, or record the blocker of a
-row that cannot pass.
+None: review and merge.
