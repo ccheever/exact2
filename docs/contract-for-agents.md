@@ -1442,7 +1442,7 @@ so a shipped binary carries the build machine's host name and the commits too.
 Release notes are `release-notes.md` beside `app.contract`: UTF-8 text, shown as
 written, up to 16 KB; no file, no section. A deploy script that publishes the
 build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
-it. Copy takes all of it as text.
+it. Copy (iOS and macOS) takes all of it as text.
 
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or

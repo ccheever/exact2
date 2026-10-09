@@ -19,6 +19,7 @@ test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => 
   expect(info.ExactAppCommit).toBeUndefined();
   expect(info.ExactAppBranch).toBeUndefined();
   expect(info.ExactBuildHost).toBeTruthy();
+  expect(buildInfo({ dir: root }, { root, now, sdk: 'iphoneos', sdkVersion: '18.0' }).ExactBuildXcode).toMatch(/iphoneos 18\.0$/);
   expect(info.ExactReleaseNotes).toBeUndefined();
   expect(buildInfo({ dir: root }, { root, now, env: { EXACT_DISTRIBUTION_REVISION: '7' } }).ExactDistributionRevision).toBe('7');
   expect(buildInfo({ dir: root }, { root, production: true, now }).ExactBuildKind).toBe('release');
@@ -56,6 +57,8 @@ test('release notes: none or blank is no section, long ones are cut at a charact
   expect(cut.endsWith('\n…')).toBe(true);
   expect(cut).not.toContain('\uFFFD');
   expect(cut.startsWith('a'.repeat(NOTES_MAX - 1))).toBe(true);
-  writeFileSync(resolve(dir, 'release-notes.md'), Buffer.from([0x68, 0xe9, 0x6c, 0x6c, 0x6f]));
-  expect(() => releaseNotes(dir)).toThrow(/not UTF-8/);
+  for (const bytes of [Buffer.from([0x68, 0xe9, 0x6c, 0x6c, 0x6f]), Buffer.alloc(NOTES_MAX + 5, 0x80), Buffer.concat([Buffer.alloc(NOTES_MAX, 0x61), Buffer.from([0x80])])]) {
+    writeFileSync(resolve(dir, 'release-notes.md'), bytes);
+    expect(() => releaseNotes(dir)).toThrow(/not UTF-8/);
+  }
 });

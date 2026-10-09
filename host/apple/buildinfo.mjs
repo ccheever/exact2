@@ -33,11 +33,10 @@ export function releaseNotes(dir) {
   const fd = openSync(file, 'r'), bytes = Buffer.alloc(NOTES_MAX + 1);
   const read = (() => { try { return readSync(fd, bytes, 0, bytes.length, 0); } finally { closeSync(fd); } })();
   const cut = read > NOTES_MAX;
-  // A cut can split a character: back off over its continuation bytes.
-  let end = cut ? NOTES_MAX : read;
-  if (cut) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  // A cut can split a character: streaming withholds an incomplete last one,
+  // and anything that is not UTF-8, the byte past the cut included, fails.
   let text;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, end)); }
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, read), { stream: cut }); }
   catch { throw new Error(`host/apple: ${file} is not UTF-8 text`); }
   return (cut ? text.trimEnd() + '\n…' : text).trim();
 }
@@ -59,19 +58,21 @@ const sdkOf = (sdk) => once(`sdk ${sdk}`, () => tool('xcrun', ['--sdk', sdk, '--
  * repository (they are exact2's). `EXACT_DISTRIBUTION_REVISION` is the
  * revision a deploy script publishes the build as (AppDrop's), when it names
  * one. */
-export function buildInfo(app, { root, archive = false, production = false, sdk = null, now = new Date(), env = process.env }) {
+/** `sdk` is the platform the link targets and `sdkVersion` the version it
+ * records when that is not the selected Xcode's (a design-compatible build). */
+export function buildInfo(app, { root, archive = false, production = false, sdk = null, sdkVersion = null, now = new Date(), env = process.env }) {
   const exact = commitOf(root);
   const top = (dir) => git(dir, ['rev-parse', '--show-toplevel']);
   const own = app.dir && top(app.dir) && top(app.dir) !== top(root) ? commitOf(app.dir) : null;
   const branchOf = (dir) => { const b = dir && git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']); return b && b !== 'HEAD' ? b : null; };
   const branch = branchOf(root), appBranch = own && branchOf(app.dir);
   const notes = releaseNotes(app.dir);
-  const tools = xcode(), sdkVersion = sdk && sdkOf(sdk);
+  const tools = [xcode(), sdk && `${sdk} ${sdkVersion ?? sdkOf(sdk) ?? '?'}`].filter(Boolean).join(' · ');
   return {
     ExactBuildTime: now.toISOString(),
     ExactBuildKind: archive ? 'archive' : production ? 'release' : 'debug',
     ExactBuildHost: hostname(),
-    ...(tools ? { ExactBuildXcode: sdkVersion ? `${tools} · ${sdk} ${sdkVersion}` : tools } : {}),
+    ...(tools ? { ExactBuildXcode: tools } : {}),
     ...(exact ? { ExactCommit: exact.sha, ExactCommitDirty: exact.dirty } : {}),
     ...(exact && branch ? { ExactBranch: branch } : {}),
     ...(own ? { ExactAppCommit: own.sha, ExactAppCommitDirty: own.dirty } : {}),
