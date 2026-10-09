@@ -1,0 +1,80 @@
+## after Enter in the slug field (review-model added)
+  custom-model-slug: absent
+  custom-model-cancel: absent
+  add-custom-model: present
+  provider-model-remove-review-model: present label='Remove review-model'
+  keybinding-recorder: absent
+  keybinding-recording: absent
+  keybinding-conflict: absent
+  command-palette: absent
+  palette-input: absent
+  settings-dialog: present label='Settings'
+  texts: 1 model, review-model
+## after removing review-model
+  custom-model-slug: absent
+  custom-model-cancel: absent
+  add-custom-model: present
+  provider-model-remove-review-model: absent
+  keybinding-recorder: absent
+  keybinding-recording: absent
+  keybinding-conflict: absent
+  command-palette: absent
+  palette-input: absent
+  settings-dialog: present label='Settings'
+  texts: 0 models
+## after Meta+K in the recorder (S1-4)
+  custom-model-slug: absent
+  custom-model-cancel: absent
+  add-custom-model: absent
+  provider-model-remove-review-model: absent
+  keybinding-recorder: absent
+  keybinding-recording: absent
+  keybinding-conflict: present label='Conflicts with Command Palette: Toggle.'
+  command-palette: absent
+  palette-input: absent
+  settings-dialog: present label='Settings'
+  texts: mod+k
+## ops (after build)
+  {"target": "toast-secondary-1", "tapped": 301}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-providers", "tapped": 690}
+  {"target": "add-custom-model", "tapped": 2097}
+  {"target": "custom-model-slug", "value": "review-model", "typed": 2155}
+  {"target": "custom-model-slug", "key": "Enter", "value": "review-model", "typed": 2155}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-providers", "tapped": 2341}
+  {"target": "provider-model-remove-review-model", "tapped": 3777}
+  {"target": "add-custom-model", "tapped": 3845}
+  {"target": "custom-model-slug", "value": "draft", "typed": 3852}
+  {"target": "custom-model-slug", "key": "Tab", "value": "draft", "typed": 3852}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-providers", "tapped": 3992}
+  {"target": "add-custom-model", "tapped": 5399}
+  {"target": "custom-model-slug", "key": "Escape", "value": "", "typed": 5457}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-keybindings", "tapped": 5593}
+  {"target": "open-keybindings-search", "tapped": 6843}
+  {"target": "keybindings-filter", "value": "diff", "typed": 8092}
+  {"target": "keybindings-filter", "key": "Escape", "value": "diff", "typed": 8092}
+  {"target": "open-keybindings-search", "tapped": 8094}
+  {"target": "keybindings-filter", "value": "diff", "typed": 9289}
+  {"target": "Diff: Toggle", "tapped": 7157}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-keybindings", "tapped": 9417}
+  {"target": "add-keybinding", "tapped": 10671}
+  {"target": "new-keybinding-command", "tapped": 10737}
+  {"target": "new-keybinding-command-option-diff.toggle", "tapped": 10782}
+  {"target": "Keybinding for Diff: Toggle", "tapped": 10908}
+  {"target": "keybinding-recorder", "key": "Meta+K", "typed": 10917}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "t3-code", "key": "Escape", "value": "", "typed": 1}
+  {"target": "connection-settings", "tapped": 97}
+  {"target": "settings-general", "tapped": 11048}
+  {"target": "View licenses", "tapped": 12286}
+  {"target": "open-license-search", "tapped": 12308}
+  {"target": "license-search", "value": "mit", "typed": 20406}
+  {"target": "license-search", "key": "Escape", "value": "mit", "typed": 20406}
