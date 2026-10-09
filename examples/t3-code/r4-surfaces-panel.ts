@@ -44,6 +44,9 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
+  /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
+   *  isOpen with no surface: RightPanelEmptyState). The window keys its own open state by `key` (app.contract rightPanelAt). */
+  key: string; launcher: boolean;
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip; browser: BrowserView;
 };
@@ -232,7 +235,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
-    state.visible = state.surfaces.length > 0;
+    // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface (audit-wave-followups FU-2).
+    state.visible = true;
     const active = state.surfaces.find(entry => entry.id === state.active);
     if (state.visible && active?.kind === 'diff') await showDiff(client, native);
     return '';
@@ -313,7 +317,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   return {
     terminalClose: store.terminalClose,
     terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
-    open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
+    key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
     deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
@@ -325,4 +329,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView() });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView() });

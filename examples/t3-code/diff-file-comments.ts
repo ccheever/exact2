@@ -13,11 +13,13 @@ import { addReviewCommentChip, localId, removeReviewCommentChip } from './compos
 
 type Range = { start: number; end: number };
 type Saved = { contextId: string; path: string; startLine: number; endLine: number; text: string };
-type FileComments = { selection: { path: string; range: Range } | null; draft: { path: string; id: string; startLine: number; endLine: number } | null; saved: Saved[]; texts: Map<string, string> };
+/** `focus`: the right panel (its panel key) whose open draft's textarea took the focus, '' when it let go; the composer's
+ * Send then leaves ⌘↩ to the draft (r4-surfaces-files.ts fileDraftHoldsCommandEnter), as diff.ts draftFocus does. */
+type FileComments = { selection: { path: string; range: Range } | null; draft: { path: string; id: string; startLine: number; endLine: number } | null; saved: Saved[]; texts: Map<string, string>; focus: string };
 const states = new WeakMap<T3Client, FileComments>();
 function stateOf(client: T3Client): FileComments {
   let state = states.get(client);
-  if (!state) { state = { selection: null, draft: null, saved: [], texts: new Map() }; states.set(client, state); }
+  if (!state) { state = { selection: null, draft: null, saved: [], texts: new Map(), focus: '' }; states.set(client, state); }
   return state;
 }
 
@@ -73,10 +75,19 @@ export function fileCommentLines(client: T3Client, path: string, text: string, l
 }
 const normalize = (range: Range) => { const { startLine, endLine } = normalizeFileCommentRange(range); return { start: startLine, end: endLine }; };
 export function fileCommentOpen(client: T3Client): boolean { return stateOf(client).draft !== null; }
+/** The open draft whose textarea holds the focus, with the panel it was taken on; null when none does. */
+export function focusedFileDraft(client: T3Client): { key: string; path: string; endLine: number } | null {
+  const state = stateOf(client);
+  return state.focus && state.draft ? { key: state.focus, path: state.draft.path, endLine: state.draft.endLine } : null;
+}
 
-/** `shelllocal:surface-files-comment-*`: `line` / `line-shift` (value = the line), `begin`, `cancel`, `save` (value = the text), `delete` (value = the context id). */
-export async function fileComment(client: T3Client, native: Native, op: string, path: string, value: string, contents: string): Promise<string> {
+/**
+ * `shelllocal:surface-files-comment-*`: `line` / `line-shift` (value = the line), `begin`, `cancel`, `save` (value = the text),
+ * `delete` (value = the context id), and the draft textarea's `focus` / `blur` (audit-wave-followups FU-3, `panel` = its panel key).
+ */
+export async function fileComment(client: T3Client, native: Native, op: string, path: string, value: string, contents: string, panel = ''): Promise<string> {
   const state = stateOf(client), line = Number(value) || 0;
+  if (op === 'focus' || op === 'blur') { state.focus = op === 'focus' && state.draft?.path === path ? panel : ''; return ''; }
   if ((op === 'line' || op === 'line-shift' || op === 'begin') && (state.draft || line < 1)) return '';
   if (op === 'line' || op === 'line-shift') {
     const anchor = op === 'line-shift' && state.selection?.path === path ? state.selection.range.start : line;
@@ -88,9 +99,10 @@ export async function fileComment(client: T3Client, native: Native, op: string, 
     const range = selected && line >= selected.start && line <= selected.end ? selected : { start: line, end: line };
     state.draft = { path, id: `file-comment-${localId()}`, startLine: range.start, endLine: range.end };
     state.selection = { path, range };
+    state.focus = panel; // the draft's textarea mounts with the focus (autofocus)
     return '';
   }
-  if (op === 'cancel') { state.draft = null; state.selection = null; return ''; }
+  if (op === 'cancel') { state.draft = null; state.selection = null; state.focus = ''; return ''; }
   if (op === 'save') {
     const draft = state.draft;
     if (!draft || draft.path !== path || !value.trim()) return '';
@@ -98,7 +110,7 @@ export async function fileComment(client: T3Client, native: Native, op: string, 
     const record = reviewCommentContextRecord(comment);
     await addReviewCommentChip(client, native, record);
     state.saved.push({ contextId: record.contextId, path, startLine: draft.startLine, endLine: draft.endLine, text: comment.text });
-    state.draft = null; state.selection = null;
+    state.draft = null; state.selection = null; state.focus = '';
     return '';
   }
   if (op === 'delete') {
