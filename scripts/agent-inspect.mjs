@@ -158,7 +158,12 @@ export function identifyInspectedNode(reply, target) {
  *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
- *   state   the JSON, indented two spaces
+ *   state   [epoch E · incarnation I · clock C ms], then one line per other section: `{name} {JSON on one line}`;
+ *           an app's state (a reply with `slots`) without its empty sections (`emptySection`), a world's whole
+ *   tap, type  [ERROR {error} · ]tapped|typed #{id} "{target}" [· at X,Y, a contact's phase or a drag] · delivery D · epoch E
+ *           [· incarnation I, when not 1] · clock C ms [· key=JSON for every other field but carrier and mode];
+ *           a contact's phase reads `tap {phase}`, and a reply with an error or `delivery: unsupported` `tap`|`type`,
+ *           never `tapped`|`typed`
  *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
  *           one row per site: component, file:line (or `site N`), then each counter the host has
  *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
@@ -205,16 +210,42 @@ export function render(op, r) {
     }
     case 'logs':
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
-    case 'state':
-      return q(r, null, 2);
+    case 'state': {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return q(r);
+      // One line a section: pretty-printing cost an app's state more than half again its JSON (Caltrain, 2026-10-09).
+      const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
+      const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
+      return [head, ...Object.entries(rest).filter(([, v]) => !(app && emptySection(v))).map(([k, v]) => `${k} ${q(v)}`)].filter(Boolean).join('\n');
+    }
     case 'perf':
       return renderPerf(r);
     case 'type':
-      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
-      return q(r);
+      if (r?.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
+    // falls through: a single input's reply
+    case 'tap': {
+      if (!r || typeof r !== 'object') return q(r);
+      // `carrier` and `mode` are the drive's own (its host, its timing): the JSON keeps them. So does a press's `at`, a
+      // point only a hit-test diagnosis reads; a contact's phase and a drag answer with where the finger is, so theirs shows.
+      const { tapped, typed, target, phase, delivery, epoch, incarnation, clock, at, carrier, mode, error, ...rest } = r, id = tapped ?? typed;
+      // An input that did not happen (a failure, a form the carrier cannot deliver) never reads in the past tense, and a
+      // failure says so first; a phase names itself (`tap down`), held or not.
+      const verb = error != null || phase != null || delivery === 'unsupported' ? `${op}${phase != null ? ` ${phase}` : ''}` : tapped != null ? 'tapped' : typed != null ? 'typed' : op;
+      const head = `${error != null ? `ERROR ${error} · ` : ''}${verb}${id != null ? ` #${id}` : ''}${target != null ? ` ${q(target)}` : ''}`;
+      const where = (phase != null || r.drag != null) && at != null ? (Array.isArray(at) ? `at ${at.join(',')}` : `at=${q(at)}`) : null;
+      return [head, where, delivery != null && `delivery ${delivery}`, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`,
+        ...Object.entries(rest).map(([k, v]) => `${k}=${q(v)}`)].filter(Boolean).join(' · ');
+    }
     default:
       return q(r);
   }
+}
+
+/** A section an app's `state` transcript leaves out (LLP 1012 §7; the JSON keeps every one): null, an empty list or an
+ * empty record — one that holds nothing, so leaving it out hides no value. Nothing else is judged: a host's defaults
+ * (a hidden keyboard, an idle navigation) show, since the renderer cannot know them on every host. A world's or an
+ * entity's reply has no `slots` and is never filtered: its empty `busy` or `entities` is the answer. */
+export function emptySection(v) {
+  return v === null || (typeof v === 'object' && (Array.isArray(v) ? !v.length : !Object.keys(v).length));
 }
 
 /**

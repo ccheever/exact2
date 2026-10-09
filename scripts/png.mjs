@@ -1,7 +1,7 @@
 // PNG, the little the fixtures and the agent's film need and nothing more:
 // decode an 8-bit, non-interlaced RGB or RGBA image to RGBA bytes; encode RGBA
 // bytes as an unfiltered RGBA image, as an animated PNG of equal frames, or as
-// a contact sheet of them. Node's zlib does the compression; this does the
+// a contact sheet of them; shrink one. Node's zlib does the compression; this does the
 // chunks, the filters, and the CRC. No dependency (rules/RULES.md: none).
 import { deflateSync, inflateSync } from 'node:zlib';
 
@@ -108,6 +108,26 @@ export function contactSheet(frames, { columns = 6, maxWidth = 2048 } = {}) {
     }
   });
   return { width, height, data };
+}
+
+/** An image shrunk to w×h, each at most its own, by area: every pixel the mean of the pixels it covers, each
+ * weighted by how much of it is covered — a box average when the factor is whole (a screenshot's `--scale`). */
+export function shrink({ width, height, data }, w, h) {
+  if (!(Number.isInteger(w) && Number.isInteger(h) && w >= 1 && h >= 1 && w <= width && h <= height)) throw new Error(`shrink: ${width}×${height} to ${w}×${h}: whole sizes, at most the image's`);
+  // One axis at a time: for each pixel out, the [source, weight] pairs it covers.
+  const spans = (from, to) => Array.from({ length: to }, (_, i) => {
+    const f = from / to, a = i * f, b = (i + 1) * f, cells = [];
+    for (let s = Math.floor(a); s < Math.min(from, Math.ceil(b)); s++) cells.push([s, (Math.min(b, s + 1) - Math.max(a, s)) / f]);
+    return cells;
+  });
+  const xs = spans(width, w), ys = spans(height, h), mid = new Float64Array(w * height * 4), out = new Uint8Array(w * h * 4);
+  for (let y = 0; y < height; y++) for (let x = 0; x < w; x++) for (const [s, k] of xs[x]) for (let c = 0; c < 4; c++) mid[(y * w + x) * 4 + c] += data[(y * width + s) * 4 + c] * k;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) {
+    let sum = 0;
+    for (const [s, k] of ys[y]) sum += mid[(s * w + x) * 4 + c] * k;
+    out[(y * w + x) * 4 + c] = Math.min(255, Math.round(sum));
+  }
+  return { width: w, height: h, data: out };
 }
 
 /** The RGBA bytes of a rectangle of an image, as an image. */

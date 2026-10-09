@@ -142,6 +142,14 @@ a data module's `secret.keep`: files in the named scratch tree on Apple and Linu
 and the page's `localStorage` on the web. A nameless drive keeps no secrets.
 To show what survives a restart on any host, use an authored test's `reload` step (below).
 
+The driver prints each reply in a short text form. A `tap` or `type` is one line
+(`tapped #15 "add" · delivery platform · epoch 2 · clock 0 ms`); a failed one starts
+with `ERROR`. `state` prints one line a section (`slots {"count":1}`) and leaves out
+the empty ones (null, `[]`, `{}`). `--json` prints every field of every reply.
+`--scale <n>` shrinks each screenshot to n pixels a point: an iPhone's are
+1206×2622 at its own 3, 402×874 with `--scale 1`, one pixel a point as on the
+web, at about a ninth of the pixels. Use `--scale 1` unless you check fine pixels.
+
 Inside the exact2 checkout, for Caltrain:
 
 ```sh

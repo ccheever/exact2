@@ -148,6 +148,8 @@ export function parseFlags(argv) {
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
+    else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
