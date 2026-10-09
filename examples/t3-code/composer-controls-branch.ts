@@ -45,8 +45,11 @@ export function patchDraftContext(client: T3Client, patch: Partial<DraftContext>
 const projectRoot = (client: T3Client) => str(client.shell.projects.find(entry => entry.id === client.projectId)?.workspaceRoot);
 
 // ── An unstarted server thread's workspace (ChatView canOverrideServerThreadEnvMode, pendingServerThreadEnvMode) ──
-type ServerEnv = { threadId: string; envMode: string; branch: string; origin?: boolean };
+type ServerEnv = { threadId: string; envMode: string; branch: string };
 const serverEnvs = new WeakMap<T3Client, ServerEnv>();
+// pendingServerThreadStartFromOriginByThreadId: each thread's own choice, kept while the client lives; neither a
+// workspace switch nor a thread change clears it (ChatView resets only the mode and the branch).
+const serverOrigins = new WeakMap<T3Client, Map<string, boolean>>();
 /** envLocked: a server thread with a message or a runtime (a run or a provider thread) keeps its workspace. */
 export function threadEnvLocked(client: T3Client): boolean {
   if (!client.threadId) return false;
@@ -58,7 +61,7 @@ export function canOverrideServerEnv(client: T3Client): boolean {
   return !!client.threadId && !threadEnvLocked(client) && !str(obj(client.projection.thread).worktreePath)
     && !str(client.shell.threads.find(thread => thread.id === client.threadId)?.worktreePath);
 }
-/** The thread's pending choice; it ends when the thread changes or starts (the reference resets its state then). */
+/** The thread's pending mode and base; they end when the thread changes or starts (the reference resets them then). */
 function serverEnv(client: T3Client): ServerEnv | null {
   const entry = serverEnvs.get(client);
   if (entry && entry.threadId === client.threadId && canOverrideServerEnv(client)) return entry;
@@ -82,12 +85,14 @@ export function pickServerBase(client: T3Client, branch: string): boolean {
 /** Start from origin for the thread's new worktree: its own choice, else the project's setting (pendingServerThreadStartFromOrigin). */
 export function serverOrigin(client: T3Client): boolean {
   if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return false;
-  return serverEnv(client)?.origin ?? originDefault(client);
+  return serverOrigins.get(client)?.get(client.threadId) ?? originDefault(client);
 }
 /** onStartFromOriginChange on an unstarted server thread; false when the thread cannot choose. */
 export function toggleServerOrigin(client: T3Client): boolean {
   if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return false;
-  setServerEnv(client, { origin: !serverOrigin(client) });
+  const origins = serverOrigins.get(client) ?? new Map<string, boolean>();
+  origins.set(client.threadId, !serverOrigin(client));
+  serverOrigins.set(client, origins);
   return true;
 }
 /**
@@ -254,7 +259,7 @@ export function setEnvMode(client: T3Client, mode: string): void {
   if (client.threadId) {
     if (!canOverrideServerEnv(client) || mode === 'previous') throw new ClientError('A started thread keeps its workspace.');
     if (mode !== 'local' && mode !== 'worktree') throw new ClientError('Choose Current checkout or New worktree.');
-    setServerEnv(client, { envMode: mode, origin: undefined }); // each mode change starts from the project setting
+    setServerEnv(client, { envMode: mode }); // onEnvModeChange: setPendingServerThreadEnvMode only
     return;
   }
   const key = client.draftKey, current = draftContext(client, key);

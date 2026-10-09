@@ -4,12 +4,13 @@
 // providerInstances.test.ts resolveSelectableProviderInstance, modelSelection.test.ts);
 // the last drives the composer the audit compared (CO-6, CO-9, CO-10).
 import { describe, expect, test } from 'bun:test';
-import { type Obj } from './domain';
-import { snapshot } from './presentation';
+import { obj, type Obj } from './domain';
+import { modelCatalog, snapshot } from './presentation';
 import { providerEntries, resolveComposerProviderSelection, resolveSelectableProviderInstanceEntry, resolveAppModelSelectionForInstance,
-  composerSelection, DEFAULT_MODEL } from './composer-provider-selection';
+  composerSelection, applyProviderInstanceSettings, DEFAULT_MODEL } from './composer-provider-selection';
 import { provider as fixtureProvider, Fake, storage, opened } from './composer-controls-fixture';
 import { T3Client } from './client';
+import { composerBranches } from './composer-controls-branch';
 
 const wire = (driver: string, instanceId = driver, overrides: Obj = {}): Obj => ({ driver, instanceId, enabled: true, installed: true, status: 'ready',
   auth: { status: 'authenticated' }, version: null, models: [], slashCommands: [], skills: [], ...overrides });
@@ -51,6 +52,38 @@ describe('resolveComposerProviderSelection', () => {
     // A new draft asks for nothing: an errored instance is never invented as its default.
     expect(resolveComposerProviderSelection({ entries, candidateInstanceIds: ['', null, undefined], lockedProvider: null, lockedInstanceId: null }))
       .toMatchObject({ selectedProviderEntry: undefined, unavailableProviderInstanceId: undefined });
+  });
+});
+
+describe('applyProviderInstanceSettings', () => {
+  const applied = (driver: string, instanceId: string, settings: Obj) => applyProviderInstanceSettings([entry(driver, instanceId)], settings)[0]!;
+  test('uses settings when a streamed snapshot still reports a disabled default as enabled', () => {
+    expect(applied('codex', 'codex', { providerInstances: { codex: { driver: 'codex', enabled: false } }, providers: {} }).enabled).toBe(false);
+  });
+  test('treats a removed custom instance snapshot as disabled', () => {
+    expect(applied('claudeAgent', 'claude_work', { providerInstances: {}, providers: {} }).enabled).toBe(false);
+  });
+  test.each(['constructor', 'toString'])('treats a removed custom instance named %s as disabled', instanceId => {
+    expect(applied('claudeAgent', instanceId, { providerInstances: {}, providers: {} }).enabled).toBe(false);
+  });
+  test('uses settings for a configured custom instance named constructor', () => {
+    expect(applied('claudeAgent', 'constructor', { providerInstances: { constructor: { driver: 'claudeAgent', enabled: false } }, providers: {} }).enabled).toBe(false);
+  });
+  test('treats a removed default instance for a fork driver as disabled', () => {
+    const forked = applied('constructor', 'constructor', { providerInstances: {}, providers: {} });
+    expect(forked.isDefault).toBe(true);
+    expect(forked.enabled).toBe(false);
+  });
+  test('uses legacy settings for a built-in default instance', () => {
+    expect(applied('codex', 'codex', { providerInstances: {}, providers: { codex: { enabled: false } } }).enabled).toBe(false);
+  });
+  test('the composer drops an instance the settings just disabled, though its snapshot still says enabled', () => {
+    const providers = [wire('codex'), wire('claudeAgent')];
+    const settings = { providerInstances: { codex: { driver: 'codex', enabled: false }, claudeAgent: { driver: 'claudeAgent' } }, providers: {} };
+    expect(composerSelection({ config: { providers, settings }, providerId: 'codex', modelId: '', local: {} })).toMatchObject({ instanceId: 'claudeAgent' });
+    // An instance missing from providerInstances (just deleted) is disabled too; with nothing left the composer asks for one.
+    const deleted = { config: { providers: [wire('codex', 'codex_work')], settings: { providerInstances: {}, providers: {} } }, providerId: 'codex_work', modelId: '', local: {}, configLive: true };
+    expect(composerSelection(deleted)).toMatchObject({ instanceId: '', noProviderAvailable: true, showProviderUnavailable: true });
   });
 });
 
@@ -134,7 +167,26 @@ describe('the composer the audit compared', () => {
     const view = snapshot(client);
     expect(view.modelLabel).toBe('Model A');
     expect(view.composer.modelTip).toBe('Model A · ⇧⌘M');
+    // ChatComposer passes the resolved model to the picker: its row is the checked one.
+    expect(modelCatalog(client, 'codex', '').models.filter(row => row.selected).map(row => row.key)).toEqual(['codex:model-a']);
     await client.command('send', '', 'Check the default', 0, native, disk);
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', modelSelection: { instanceId: 'codex', model: 'model-a' } });
+  });
+  test('a draft whose default instance is gone: the picker checks, and Shift+click fans out from, the model it shows', async () => {
+    const client = new T3Client(), native = new Fake(), disk = storage();
+    obj(obj(native.config.environment).capabilities).requiredWorktreeBootstrap = true;
+    native.config.settings = { defaultModelSelection: { instanceId: 'missing', model: 'model-b' }, defaultRuntimeMode: 'full-access' };
+    await client.refresh(native, disk);
+    expect([client.threadId, client.providerId, client.modelId]).toEqual(['', '', '']);
+    expect(snapshot(client)).toMatchObject({ modelLabel: 'Model B', providerDriver: 'codex', canSend: true });
+    expect(modelCatalog(client, 'codex', '').models.filter(row => row.selected).map(row => row.key)).toEqual(['codex:model-b']);
+    // onToggleModel seeds the set with selectedModelSelection, the shown model.
+    native.gesture = { modifiers: 'shift', source: 'pointer', ageMs: 12 };
+    await client.command('model', 'model-a', 'claude', 0, native, disk);
+    expect(snapshot(client).composer).toMatchObject({ fanout: true, fanoutKeys: ['codex:model-b', 'claude:model-a'], fanoutLabel: 'Model B, Model A' });
+    await composerBranches(client, native, false, ''); // the strip reads the checkout's branch, the worktrees' base
+    await client.command('send', '', 'Both models', 0, native, disk);
+    expect(native.committed.filter(call => call.method === 'orchestration.launchThread').map(call => obj(call.modelSelection)))
+      .toMatchObject([{ instanceId: 'codex', model: 'model-b' }, { instanceId: 'claude', model: 'model-a' }]);
   });
 });

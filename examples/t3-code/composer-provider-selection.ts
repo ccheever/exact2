@@ -12,10 +12,10 @@
 // One rule for the placeholder, the control row, the model trigger and the send:
 // an instance the thread or draft asked for stays selected while it is enabled and
 // not "unavailable", whatever its probe status (a signed-out Codex keeps its picker);
-// otherwise a ready instance, then one whose probe did not fail. The clone reads
-// `enabled` from the provider snapshot (the server reconciles it with settings), as
-// every other provider list here does.
+// otherwise a ready instance, then one whose probe did not fail. `enabled` comes from
+// the settings over the snapshot (applyProviderInstanceSettings), as ChatView reads it.
 import { arr, obj, str, type Obj } from './domain';
+import { driverMeta } from './providers-meta';
 import { resolveSelectableModel } from './r3-composer-controls-model';
 import { providerLock } from './composer-controls-commands';
 import { applyPickerPrefs } from './settings-b-models';
@@ -45,6 +45,37 @@ export function providerEntries(providers: Obj[]): ProviderEntry[] {
   const byKind = new Map<string, ProviderEntry[]>();
   for (const entry of entries) byKind.set(entry.driverKind, [...byKind.get(entry.driverKind) ?? [], entry]);
   return [...byKind.values()].flatMap(bucket => [...bucket.filter(entry => entry.isDefault), ...bucket.filter(entry => !entry.isDefault)]);
+}
+
+/** resolveProviderInstanceEnabled (contracts settings.ts): an explicit false wins; then the envelope, the config, the driver's default. */
+export function resolveProviderInstanceEnabled(instance: Obj): boolean {
+  const config = instance.config !== null && typeof instance.config === 'object' && !Array.isArray(instance.config) ? instance.config as Obj : null;
+  const configEnabled = typeof config?.enabled === 'boolean' ? config.enabled : undefined;
+  if (instance.enabled === false || configEnabled === false) return false;
+  // defaultEnabledForDriver: the legacy providers.<driver> default; an unknown (fork) driver is enabled.
+  return typeof instance.enabled === 'boolean' ? instance.enabled : configEnabled ?? driverMeta(str(instance.driver))?.enabledByDefault ?? true;
+}
+
+/**
+ * applyProviderInstanceSettings: the settings, not the streamed snapshot, decide `enabled` (a probe can
+ * keep its old value for a moment after a settings write). An instance in providerInstances follows its
+ * envelope; a default instance without one follows its legacy providers.<driver> entry; any other instance
+ * is a stale snapshot (just deleted) and counts as disabled. Settings without a providerInstances map (a
+ * server that predates instances, or a test double) leave the snapshot's value: a current server always
+ * sends the decoded map, so the rule then reads exactly as the reference's.
+ */
+export function applyProviderInstanceSettings(entries: ProviderEntry[], settings: Obj): ProviderEntry[] {
+  const raw = settings.providerInstances;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return entries;
+  const instances = raw as Obj, legacy = obj(settings.providers);
+  return entries.map(entry => {
+    const explicit = Object.hasOwn(instances, entry.instanceId) ? instances[entry.instanceId] : undefined;
+    const legacyProvider = Object.hasOwn(legacy, entry.driverKind) ? legacy[entry.driverKind] : undefined;
+    const legacyEnabled = obj(legacyProvider).enabled;
+    const enabled = explicit && typeof explicit === 'object' ? resolveProviderInstanceEnabled(explicit as Obj)
+      : entry.isDefault && legacyProvider ? (typeof legacyEnabled === 'boolean' ? legacyEnabled : entry.enabled) : false;
+    return enabled === entry.enabled ? entry : { ...entry, enabled };
+  });
 }
 
 /** isProviderInstancePickerReady. */
@@ -182,7 +213,8 @@ function projectDefaultSelection(client: SelectionSource): Obj {
  */
 export function composerSelection(client: SelectionSource, fanout = false) {
   const providers = arr(client.config.providers), settings = obj(client.config.settings), local = client.local ?? {};
-  const entries = providerEntries(providers);
+  // ChatView's providerInstanceEntries: sorted entries with the settings' enabled flags.
+  const entries = applyProviderInstanceSettings(providerEntries(providers), settings);
   const projection = client.threadId ? obj(client.projection) : {};
   const thread = obj(projection.thread), threadSelection = obj(thread.modelSelection);
   // deriveThreadRuntime is null until the thread has a run or a provider thread.
@@ -215,4 +247,15 @@ export function composerSelection(client: SelectionSource, fanout = false) {
   }
   return { entry, provider: entry?.snapshot, instanceId: entry ? instanceId : '', driver, model: entry ? model : '',
     noProviderAvailable, showProviderUnavailable, providerSetupInstanceId };
+}
+
+/**
+ * The composer's selected instance and model (ChatComposer's selectedInstanceId and
+ * selectedModelForPickerWithCustomFallback): what the picker checks and what a Shift+click
+ * seeds the fan-out with (onToggleModel's selectedModelSelection). The raw choice stands
+ * when nothing resolves (the control row is "Open provider settings" then).
+ */
+export function composerPair(client: SelectionSource, fanout = false): { providerId: string; modelId: string } {
+  const chosen = composerSelection(client, fanout);
+  return chosen.entry ? { providerId: chosen.instanceId, modelId: chosen.model } : { providerId: client.providerId, modelId: client.modelId };
 }
