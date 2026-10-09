@@ -1,0 +1,67 @@
+browser-surface-capture: review round of 2026-10-10, drive record (drive 10 and the reference drive)
+
+Drive 10 (clone, agent mode, 1280x840): bundle built from a63794adb (code head), script drive10.sh; lane providers pinned to a
+missing binary (both sides have no provider, as the reference lane). agent exit 0, 86 result lines.
+
+Host lines (t3.browser:), in order of first appearance, with the op index:
+  op 15: t3.browser: navigate http://127.0.0.1:16721/
+  op 15: t3.browser: screenshot browser-screenshot-127-0-0-1-mv1erwis.png
+  op 24: t3.browser: record arm keys=false mouse=false
+  op 24: t3.browser: record capture 30fps 1078x1496
+  op 24: t3.browser: record begin video/mp4;codecs=avc1 1078x1496 2500000bps 30fps
+  op 24: t3.browser: record disarm
+  op 24: t3.browser: record finish frames=72 bytes=50148
+  op 24: t3.browser: record release frames=0 dropped=0
+  op 24: t3.browser: record saved browser-recording-mv1es2kr.mp4
+  op 38: t3.browser: annotate start
+  op 38: t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+  op 38: t3.browser: annotate applied 1 chip+image
+  op 60: t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+  op 60: t3.browser: annotate applied 2 chip+image send
+  op 70: t3.browser: annotate cancel
+  op 70: t3.browser: annotate applied 3 cancelled
+  op 81: t3.browser: screenshot browser-screenshot-127-0-0-1-mv1et2pu.png
+
+Tree and state facts:
+  op 66 (after Annotate (before Float)): ['"right-panel"', 'Cancel annotation', 'browser-url', 'Maximize panel']
+  op 69 (after Float): ['browser-mini-player']
+  op 85 (end (panel restored)): ['"right-panel"', 'Annotate preview', 'browser-url', 'Screenshot saved', 'Maximize panel']
+  op 61 (state after Command-Return): Annotation attached to draft
+  op 61 (state after Command-Return): Sending is unavailable right now. Finish the current action, then send.
+  op 61 (state after Command-Return): "composerText": "[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) [Send this one too](t3-context://v1/preview-annotation/preview-annotation_annotation_4) 
+  op 61 (state after Command-Return): "commandPending": false
+  op 61 (state after Command-Return): "canSend": false
+
+Artifacts (sips):
+  -rw-r--r--@  1 daehyeonmun  staff  50148 Oct 10 05:19 browser-recording-mv1es2kr.mp4
+  -rw-r--r--@  1 daehyeonmun  staff  64901 Oct 10 05:19 browser-screenshot-127-0-0-1-mv1erwis.png
+  -rw-r--r--@  1 daehyeonmun  staff  90694 Oct 10 05:19 browser-screenshot-127-0-0-1-mv1et2pu.png
+  /Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/lane/t3-home-drive10/userdata/browser-artifacts/browser-screenshot-127-0-0-1-mv1erwis.png
+    pixelWidth: 1078
+    pixelHeight: 1496
+  /Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/lane/t3-home-drive10/userdata/browser-artifacts/browser-screenshot-127-0-0-1-mv1et2pu.png
+    pixelWidth: 2046
+    pixelHeight: 1496
+
+Reference drive (T3 Code 0.0.45, 1e2ecbd975, lane browser-surface-capture, backend 16730, CDP 16731; ref-drive.mjs over the
+renderer and the preview webview; window images = renderer at 2x with the webview captured and placed under the app layers):
+  s03-screenshot-toast.png
+  s04-recording.png
+  s05-recording-saved.png
+  s06-annotate-editor.png
+  s07-chip.png
+  s08-player.png
+  s09-player-pill.png
+  s10-sent.png
+  s11-float-annotating.png
+  s11-float-sent.png
+  s12-maximized-capture.png
+  after Command-Return (r10.aria): Preview annotation, Send this one too; Preview annotation, Tighten the button spacing; dialog "Annotation attached to draft"
+  Annotate then Float, a click and Command-Return in the floating page (r11.aria): chips ['Tighten the button spacing', 'Send this one too']; no new chip, no toast: the pick ended with the panel
+  reference artifact browser-recording-mv1e93jj.mp4
+  reference artifact browser-recording-mv1ebw1m.mp4
+  reference artifact browser-screenshot-127-0-0-1-mv1e8yaj.png: 1078 x 1496
+  reference artifact browser-screenshot-127-0-0-1-mv1eak18.png: 1078 x 1496
+  reference artifact browser-screenshot-127-0-0-1-mv1eaxwz.png: 1078 x 1496
+  reference artifact browser-screenshot-127-0-0-1-mv1ebqez.png: 1078 x 1496
+  reference artifact browser-screenshot-127-0-0-1-mv1ei20f.png: 2046 x 1496
