@@ -3,12 +3,12 @@ name: 20261005-browser-surface-automation
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-automation
 pr_url: https://github.com/ccheever/exact2/pull/346
-verified_commit: null
+verified_commit: 5f0ae7dca
 ---
 
 # Browser surface part 5: the previewAutomation host, links from chat and terminal, and Mute
@@ -167,3 +167,7 @@ floating preview). Part 2 (browser-surface-navigation, #348) wired freeform and 
 default into this host after #346 merged (Progress, "part 2's viewport"). The settings request loop is
 pre-existing and recorded in STATUS "Found, not in scope" for the coordinator to schedule. The PR stays a draft until
 the coordinator flips it.
+
+## Delivery
+
+Merged on 2026-10-10 as `5f0ae7dca` (#346, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
