@@ -216,7 +216,7 @@ component BrowserImportWizard
     still: bool
   view
     column class=BpOverlay testId="browser-import-overlay"
-      column class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-${wizard.step}`
+      column class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
         when wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()

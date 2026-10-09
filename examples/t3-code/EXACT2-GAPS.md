@@ -493,8 +493,10 @@ adds these rows:
   reference also polls every 1.5 s, which a data-module page source cannot (it has no clock).
 - **The Browser defaults rows.** The default viewport's menu lists each preset with its size in one label ("iPhone SE
   375 × 667"; the reference right-aligns the size and heads the presets "Standard"), and its width and height are plain
-  fields committed on Return or when left (no stepper arrows). A new tab gets the default zoom and appearance right
-  after its page is made (part 2's `browserSet`), before anything loads, where the reference passes them at creation.
+  fields committed on Return or when left (no stepper arrows). A page the module makes (from the launcher, a link, an
+  agent or a relaunch) gets the default zoom and appearance right after it is made, through part 2's `browserSet`,
+  where the reference passes them at creation. Until part 2 is in the base the module has no `browserSet`, and a new
+  page opens at 100% and the system appearance whatever the rows say.
 - **Where the row shows.** Browser profiles is part of Settings › Integrations, which the clone draws for a connected
   environment; the reference draws its device-local rows without one.
 
