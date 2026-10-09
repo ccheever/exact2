@@ -319,7 +319,7 @@ component T3Window
     hoverTip
     hoverShown
     linkOpen
-    scheme = viewport.prefersColorScheme // browser-surface part 3: the annotation overlay's theme (browser-capture.contract)
+    scheme // browser-surface part 3: the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)
