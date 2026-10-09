@@ -1,0 +1,203 @@
+# browser-surface-navigation-v2: Charlie's checks 1-3 on #352, live drive run3 (agent mode), 2026-10-09 08:02-08:05Z
+
+Head: 878e605b8922c088c15504ff4d2bce4d61d842ce (91b6f9a83, the re-land, plus the two host fixes this drive's earlier runs found).
+Build: EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle, after terminal-host/build.mjs and stage-runtime.mjs (build3.log: 'head 878e605b8...').
+Lane: scripts/agent.mjs macos --json --size 1280x840 (light). The app's embedded T3 server on 127.0.0.1:16700 (T3_LOCAL_PORT), T3_LOCAL_HOME a fresh copy of a home seeded by the runtime's
+`t3 project add` (project work), T3_LOCAL_RUNTIME_DIR = t3 v0.0.46-nightly.20261005.2667 (staged, unpacked), isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_TELEMETRY_ENABLED=false.
+Fixture: 127.0.0.1:16701 (fixture.mjs.txt: pages print innerWidth x innerHeight, dpr, colour scheme). Provider: the ACP Registry instance 'Lane browser agent' running fake-acp.mjs.txt,
+which calls the server's preview_* MCP tools for a prompt 'bsn <scenario>' (part 5's approach). Each tool result below is the MCP answer the agent received.
+
+## Ops (drive.sh.txt)
+ 0 clock +15000 real
+ 1 clock +6000 real
+ 2 screenshot <worktree>/target/bsn2/lane/runs/run3/00-start.png window
+ 3 type composer bsn open http://127.0.0.1:16701/
+ 4 clock +400 real
+ 5 tap send-message
+ 6 clock +12000 real
+ 7 screenshot <worktree>/target/bsn2/lane/runs/run3/01-open-default.png window
+ 8 tree
+ 9 logs
+10 type composer bsn resize
+11 clock +400 real
+12 tap send-message
+13 clock +12000 real
+14 screenshot <worktree>/target/bsn2/lane/runs/run3/02-resized.png window
+15 tree
+16 type composer key Meta+Shift+j
+17 clock +1500 real
+18 screenshot <worktree>/target/bsn2/lane/runs/run3/03-panel-hidden.png window
+19 tree
+20 type composer bsn hidden
+21 clock +400 real
+22 tap send-message
+23 clock +10000 real
+24 screenshot <worktree>/target/bsn2/lane/runs/run3/04-hidden-resized.png window
+25 tree
+26 type composer key Meta+Shift+j
+27 clock +1500 real
+28 tree
+29 type composer bsn suppressed http://127.0.0.1:16701/a
+30 clock +400 real
+31 tap send-message
+32 clock +14000 real
+33 screenshot <worktree>/target/bsn2/lane/runs/run3/05-suppressed-resized.png window
+34 tree
+35 type composer key Meta+Shift+j
+36 clock +2000 real
+37 tree
+38 tap panel-tab-browser:tab_2
+39 clock +2500 real
+40 screenshot <worktree>/target/bsn2/lane/runs/run3/06-tab2-shown.png window
+41 tree
+42 tap panel-tab-browser:tab_1
+43 clock +2500 real
+44 tree
+45 type composer bsn reject
+46 clock +400 real
+47 tap send-message
+48 clock +10000 real
+49 screenshot <worktree>/target/bsn2/lane/runs/run3/07-rejected.png window
+50 tree
+51 logs
+52 type composer bsn timeout
+53 clock +400 real
+54 tap send-message
+55 clock +16000 real
+56 screenshot <worktree>/target/bsn2/lane/runs/run3/08-timeout.png window
+57 tree
+58 logs
+59 type composer bsn measure
+60 clock +400 real
+61 tap send-message
+62 clock +10000 real
+63 screenshot <worktree>/target/bsn2/lane/runs/run3/09-measure.png window
+64 tree
+65 logs
+66 state
+
+## Tool results (results.jsonl)
+08:03:09.148Z open       preview_status   {} -> {"available": false, "visible": false, "tabId": null, "url": null, "title": null, "loading": false}
+08:03:09.521Z open       preview_open     {"url": "http://127.0.0.1:16701/"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 1280, "height": 800}, "viewport": {"width": 1280, "height": 800}}
+08:03:09.610Z open       preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 1280, "height": 800, "href": "http://127.0.0.1:16701/"}}
+08:03:09.645Z open       preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 1280, "height": 800}, "viewport": {"width": 1280, "height": 800}}
+08:03:21.643Z resize     preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 800, "height": 600} -> {"tabId": "tab_1", "setting": {"_tag": "freeform", "width": 800, "height": 600}, "viewport": {"width": 800, "height": 600}}
+08:03:21.738Z resize     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 800, "height": 600, "href": "http://127.0.0.1:16701/"}}
+08:03:21.923Z resize     preview_resize   {"tabId": "tab_1", "mode": "preset", "preset": "iphone-12-pro"} -> {"tabId": "tab_1", "setting": {"_tag": "preset", "width": 390, "height": 844, "presetId": "iphone-12-pro"}, "viewport": {"width": 390, "height": 844}}
+08:03:22.031Z resize     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 390, "height": 844, "href": "http://127.0.0.1:16701/"}}
+08:03:22.214Z resize     preview_resize   {"tabId": "tab_1", "mode": "preset", "preset": "iphone-12-pro", "orientation": "landscape"} -> {"tabId": "tab_1", "setting": {"_tag": "preset", "width": 844, "height": 390, "presetId": "iphone-12-pro"}, "viewport": {"width": 844, "height": 390}}
+08:03:22.309Z resize     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 844, "height": 390, "href": "http://127.0.0.1:16701/"}}
+08:03:22.492Z resize     preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 1024, "height": 768} -> {"tabId": "tab_1", "setting": {"_tag": "freeform", "width": 1024, "height": 768}, "viewport": {"width": 1024, "height": 768}}
+08:03:22.581Z resize     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 1024, "height": 768, "href": "http://127.0.0.1:16701/"}}
+08:03:22.628Z resize     preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 1024, "height": 768}, "viewport": {"width": 1024, "height": 768}}
+08:03:35.772Z hidden     preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": false, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 1024, "height": 768}}
+08:03:36.125Z hidden     preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 900, "height": 650} -> {"tabId": "tab_1", "setting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:03:36.222Z hidden     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 900, "height": 650, "href": "http://127.0.0.1:16701/"}}
+08:03:36.272Z hidden     preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:03:48.020Z suppressed preview_open     {"url": "http://127.0.0.1:16701/a", "open": false, "reuseExistingTab": false} -> {"available": true, "visible": false, "tabId": "tab_2", "url": "http://127.0.0.1:16701/a", "title": null, "loading": true, "viewportSetting": {"_tag": "freeform", "width": 1280, "height": 800}}
+08:03:48.173Z suppressed preview_evaluate {"tabId": "tab_2", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 1280, "height": 800, "href": "http://127.0.0.1:16701/a"}}
+08:03:48.349Z suppressed preview_resize   {"tabId": "tab_2", "mode": "freeform", "width": 1000, "height": 700} -> {"tabId": "tab_2", "setting": {"_tag": "freeform", "width": 1000, "height": 700}, "viewport": {"width": 1000, "height": 700}}
+08:03:48.494Z suppressed preview_evaluate {"tabId": "tab_2", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 1000, "height": 700, "href": "http://127.0.0.1:16701/a"}}
+08:03:48.627Z suppressed preview_resize   {"tabId": "tab_2", "mode": "preset", "preset": "ipad-mini"} -> {"tabId": "tab_2", "setting": {"_tag": "preset", "width": 768, "height": 1024, "presetId": "ipad-mini"}, "viewport": {"width": 768, "height": 1024}}
+08:03:48.753Z suppressed preview_evaluate {"tabId": "tab_2", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 768, "height": 1024, "href": "http://127.0.0.1:16701/a"}}
+08:03:48.815Z suppressed preview_status   {"tabId": "tab_2"} -> {"available": true, "visible": false, "tabId": "tab_2", "url": "http://127.0.0.1:16701/a", "title": "Page A", "loading": false, "viewportSetting": {"_tag": "preset", "width": 768, "height": 1024, "presetId": "ipad-mini"}}
+08:04:09.903Z reject     preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:04:09.905Z reject     preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 3840, "height": 3840} -> ERROR Invalid parameters for tool 'preview_resize': Custom viewport area must not exceed 8294400 pixels.
+08:04:09.905Z reject     preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 120, "height": 600} -> ERROR Invalid parameters for tool 'preview_resize': Expected a value between 240 and 3840
+08:04:09.906Z reject     preview_resize   {"tabId": "tab_1", "mode": "fill", "width": 500, "height": 500} -> ERROR Invalid parameters for tool 'preview_resize': Fill mode does not accept a preset, dimensions, or orientation.
+08:04:10.052Z reject     preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 900, "height": 650, "href": "http://127.0.0.1:16701/"}}
+08:04:10.123Z reject     preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:04:20.441Z timeout    preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:04:20.471Z timeout    preview_resize   {"tabId": "tab_1", "mode": "freeform", "width": 500, "height": 900, "timeoutMs": 25} -> ERROR Preview automation resize timed out after 25ms.
+08:04:24.530Z timeout    preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:04:24.638Z timeout    preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 900, "height": 650, "href": "http://127.0.0.1:16701/"}}
+08:04:37.067Z measure    preview_status   {"tabId": "tab_1"} -> {"available": true, "visible": true, "tabId": "tab_1", "url": "http://127.0.0.1:16701/", "title": "Lane fixture", "loading": false, "viewportSetting": {"_tag": "freeform", "width": 900, "height": 650}, "viewport": {"width": 900, "height": 650}}
+08:04:37.180Z measure    preview_evaluate {"tabId": "tab_1", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 900, "height": 650, "href": "http://127.0.0.1:16701/"}}
+08:04:37.227Z measure    preview_status   {"tabId": "tab_2"} -> {"available": true, "visible": false, "tabId": "tab_2", "url": "http://127.0.0.1:16701/a", "title": "Page A", "loading": false, "viewportSetting": {"_tag": "preset", "width": 768, "height": 1024, "presetId": "ipad-mini"}}
+08:04:37.504Z measure    preview_evaluate {"tabId": "tab_2", "expression": "viewport probe"} -> {"value": {"dpr": 2, "width": 768, "height": 1024, "href": "http://127.0.0.1:16701/a"}}
+
+## The app's tree after each step (right panel, its Browser tabs, the device toolbar's fields)
+op  8 (after 'tap send-message'): right panel shown; browser tabs ['tab_1']; toolbar 1280 x 800
+op 15 (after 'tap send-message'): right panel shown; browser tabs ['tab_1']; toolbar 1024 x 768
+op 19 (after 'type composer key Meta+Shift+j'): right panel hidden; browser tabs []; toolbar - x -
+op 25 (after 'tap send-message'): right panel shown; browser tabs ['tab_1']; toolbar 900 x 650
+op 28 (after 'type composer key Meta+Shift+j'): right panel hidden; browser tabs []; toolbar - x -
+op 34 (after 'tap send-message'): right panel hidden; browser tabs []; toolbar - x -
+op 37 (after 'type composer key Meta+Shift+j'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 768 x 1024
+op 41 (after 'tap panel-tab-browser:tab_2'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 768 x 1024
+op 44 (after 'tap panel-tab-browser:tab_1'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 900 x 650
+op 50 (after 'tap send-message'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 900 x 650
+op 57 (after 'tap send-message'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 900 x 650
+op 64 (after 'tap send-message'): right panel shown; browser tabs ['tab_1', 'tab_2']; toolbar 900 x 650
+
+## Server trace around the timed-out resize (server.trace.ndjson, span start times)
+08:04:20.339Z PreviewAutomationBroker.awaitResponse Success
+08:04:20.339Z PreviewAutomationBroker.invoke Success
+08:04:20.438Z PreviewAutomationBroker.respond Success
+08:04:20.438Z ws.rpc.previewAutomation.respond Success
+08:04:20.440Z PreviewAutomationBroker.awaitResponse Failure
+08:04:20.440Z PreviewAutomationBroker.invoke Failure
+08:04:20.467Z PreviewAutomationBroker.disconnect Success
+08:04:20.468Z PreviewAutomationBroker.closeConnection Success
+08:04:20.468Z PreviewAutomationBroker.disconnect Success
+08:04:20.480Z PreviewManager.resize Success
+08:04:20.480Z PreviewManager.resizeSession Success
+08:04:20.480Z ws.rpc.preview.resize Success
+08:04:20.528Z PreviewAutomationBroker.acquireConnection Success
+08:04:20.528Z PreviewAutomationBroker.connect Success
+08:04:20.528Z ws.rpc.previewAutomation.connect Interrupted
+08:04:20.542Z PreviewManager.resize Success
+08:04:20.542Z PreviewManager.resizeSession Success
+08:04:20.542Z ws.rpc.preview.resize Success
+08:04:20.544Z PreviewAutomationBroker.respond Success
+08:04:20.544Z ws.rpc.previewAutomation.respond Success
+08:04:20.584Z ws.rpc.previewAutomation.focusHost Success
+08:04:20.585Z PreviewAutomationBroker.focusHost Success
+Reading: the broker gave up at its 25 ms (invoke Failure, then disconnect of the host's connection, as the reference's broker does);
+the host had the request and set 500 x 900 (ws.rpc.preview.resize at .480), its own 25 ms render wait ended, and it went back to the tab's
+previous 900 x 650 (the second ws.rpc.preview.resize at .542; host log 'automation resize preview-45 PreviewAutomationTimeoutError').
+The host reconnected at .528 (previewAutomation.connect) and the agent's next calls were served: status 900 x 650, the page 900 x 650.
+
+## Host log (t3.browser: automation, resize lines)
+app: t3.browser: automation open preview-1 tab=-
+app: t3.browser: automation opened tab_1 for preview-1
+app: t3.browser: automation open preview-1 ok
+app: t3.browser: automation resize preview-5 tab=tab_1
+app: t3.browser: automation resize preview-5 ok
+app: t3.browser: automation resize preview-9 tab=tab_1
+app: t3.browser: automation resize preview-9 ok
+app: t3.browser: automation resize preview-13 tab=tab_1
+app: t3.browser: automation resize preview-13 ok
+app: t3.browser: automation resize preview-17 tab=tab_1
+app: t3.browser: automation resize preview-17 ok
+app: t3.browser: automation resize preview-23 tab=tab_1
+app: t3.browser: automation resize preview-23 ok
+app: t3.browser: automation open preview-28 tab=-
+app: t3.browser: automation opened tab_2 for preview-28
+app: t3.browser: automation open preview-28 ok
+app: t3.browser: automation resize preview-31 tab=tab_2
+app: t3.browser: automation resize preview-31 ok
+app: t3.browser: automation resize preview-35 tab=tab_2
+app: t3.browser: automation resize preview-35 ok
+app: t3.browser: automation resize preview-45 tab=tab_1
+app: t3.browser: automation resize preview-45 PreviewAutomationTimeoutError
+
+## Processes (recorded by drive.sh; all exited or stopped by it)
+fixture pid 23781
+agent pid 23782
+t3 app exit 0
+server pid 23971
+agent exit 0
+
+## Earlier runs on 91b6f9a83 (the re-land head before the fixes), same lane
+- run1 (07:12Z): check 1's open and resize passed, but preview_open answered viewport 1578 x 1183 for the new 1280 x 800 tab
+  (the page measured 1280 x 800 on the next call). The drive stopped at op 17: `toggle-right-panel` is not this layout's toggle.
+- run2 (07:25Z): all ops ran. Two findings: (a) tapping the hidden 1 x 1 `shortcut-preview.toggle` button presses nothing in agent
+  mode, so the panel never hid (the hidden-panel scenario ran with the panel shown); (b) tab_2, opened with `open: false`, was
+  shown in the panel by the agent's next operation (the module's `opened` note dropped `suppress`). Its timed-out resize used
+  timeoutMs 1, which ends at the host's readiness budget before any resize, so it did not exercise the rollback (no
+  ws.rpc.preview.resize in the trace).
+- diag1, diag2 (07:31Z, 07:35Z): `panel-toggle-right` hides the panel; a real ⇧⌘J key event (`type composer key Meta+Shift+j`)
+  hides it, shows it again on the same tab and hides it; the hidden shortcut buttons press nothing when tapped.
+- preview_open's measured viewport over the four runs on 91b6f9a83: 1578 x 1183, 1280 x 800, 1578 x 1183, 1578 x 1183.
+Fixed in 878e605b8 with AppKit cases that failed before (see the PR). run3 above is the record on 878e605b8.
