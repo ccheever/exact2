@@ -187,7 +187,7 @@ extension NodeView {
         let inside = pressed && (touches.first.map(pressInside) ?? false)
         // A press under `retainFocus` leaves the editor its focus, as macOS's
         // mouseDown does: every pressable can take the focus now.
-        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { focusedByTouch = becomeFirstResponder() }
+        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { takeTouchFocus() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
         // A pressed node that did not take the focus: the field being edited

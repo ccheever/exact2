@@ -327,6 +327,7 @@ extension Presenter {
             guard let window = node.window, !hasFocus(window) else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
             let target: UIResponder = node.textArea ?? node.field ?? node
+            node.focusedByTouch = false // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
             #endif
         }

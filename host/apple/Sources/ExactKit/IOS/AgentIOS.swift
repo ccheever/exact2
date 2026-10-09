@@ -633,7 +633,7 @@ extension Agent {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
             if cur.canBecomeFirstResponder {
                 // Under `retainFocus` the press takes nothing (`touchesEnded`).
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { if let node = cur as? NodeView { node.takeTouchFocus() } else { _ = cur.becomeFirstResponder() } }; took = true }
                 break
             }
             // A pressed node handles touchesEnded without forwarding it to

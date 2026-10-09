@@ -280,6 +280,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     /// clear it (PresenterIOS); UIKit handing the focus back when the view
     /// moves (into a presented sheet) keeps it.
     package var focusedByTouch = false
+    /// The focus a touch's press takes (PointerIOS, NativeButtonsIOS, the
+    /// agent's tap), marked before `becomeFirstResponder` runs: its `focus`
+    /// handler can mount an autofocus field, whose pass must see the mark.
+    @discardableResult
+    func takeTouchFocus() -> Bool {
+        focusedByTouch = true
+        if becomeFirstResponder() { return true }
+        focusedByTouch = false
+        return false
+    }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.

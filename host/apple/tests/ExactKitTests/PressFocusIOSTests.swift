@@ -154,6 +154,7 @@ final class PressFocusIOSTests: XCTestCase {
 
         tap(other)
         XCTAssertTrue(other.focusedByTouch)
+        button.focusedByTouch = true // Tab's destination, as if a touch had focused it once
         p.moveFocus(backward: false)
         let tabbed = try XCTUnwrap([button, other].first { $0.isFirstResponder })
         XCTAssertFalse(tabbed.focusedByTouch, "Tab makes it the keyboard's focus")
