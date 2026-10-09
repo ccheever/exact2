@@ -15,7 +15,7 @@ verified_commit: null
 
 ## Outcome
 
-The first audit fix wave (2026-10-10) reported four differences from the reference that were outside each agent's task.
+The first audit fix wave (2026-10-10) reported five differences from the reference that were outside each agent's task.
 Each was seen on the base and the branch alike. This task fixes them as the reference does.
 
 ## Findings
@@ -86,6 +86,13 @@ Included: the five rows. Excluded: framework changes; anything already in anothe
   `app-settings.contract` gains `fn providerLinkVisit`. The root's `openProviderSettings` uses it to count the links that
   change the Providers page's target. A link to the page's own target does not count, as the same key does not remount.
   The field counts only on the visit it was opened on (`fn modelAddingOn`, `modelAddingLive`).
+  - Review of #372: the link compared its `target:<id>` with `providerSelected`, which a provider chosen on the page
+    overwrites with its raw row id (`providerUi("select")`). The reference keys the remount only on the route's
+    environment and instance (`ProviderSettingsPanel.tsx:288`); the page's selection is local `useState` (line 630). So
+    link A, pick A on the page, open "Add custom model", link A again closed the field, where the reference keeps it.
+    The root now keeps the route's instance as `providerLinkTarget`: the link sets it, the page's pick leaves it, and
+    every other way onto a Settings route drops it, as the reference navigates there without the instance (the nav, a
+    search result or its Enter, the scope, a toast's or the palette's Settings link). The link compares with it.
 - **FU-5.** #361's `escapeOwned` had no palette term, so Back kept `aria-keyshortcuts="Escape"` beside the palette's own
   Escape. Now `SettingsWindow` takes `paletteOpen`, and an open palette owns Escape (`escapeOwned`), as its Base UI
   Dialog prevents it in the reference.
@@ -111,13 +118,13 @@ Images read before | after | reference.
 | FU-2 | pass | [fresh draft](https://raw.githubusercontent.com/ccheever/exact2/e76b2f01345d288c3e0678bc8021f00488307822/audit-wave-followups/fu2-fresh-draft.png): launcher opened on the thread, then ⇧⌘N. The draft opens with the panel closed. Before, the draft showed the launcher. [Back on the thread](https://raw.githubusercontent.com/ccheever/exact2/d078f6089c7e2b1fe5644b00b98350b8d71a8c3c/audit-wave-followups/fu2-back-on-thread.png): its launcher is still open, as in the reference. The reference's store read `{<thread>: {isOpen: true, surfaces: []}}` with no entry for the draft. |
 | FU-3 (Bun, agent) | pass | Unit tests like PA-12's (below). [Agent ⌘↩](https://raw.githubusercontent.com/ccheever/exact2/9f28d8e229e6ed1b4e66c768c8d020283febb62f/audit-wave-followups/fu3-cmd-enter-saves.png): the inline card "audit note" and the composer's "app.ts L3" chip. Before, the draft stayed open with its text. Tree with the draft focused: `send-message` keys were `Meta+Enter Meta+Alt+Enter` before and `''` after. |
 | FU-3 (real keys) | open | Needs real input. See "Real-input batch steps". |
-| FU-4 | pass (text) | [Bun test before/after](https://raw.githubusercontent.com/ccheever/exact2/a2b05e146fd920ee1620ce3017be6b5550b59279/audit-wave-followups/fu4-tests-before-after.txt). A → B → A closes the field opened on A, and a link to the page's own target keeps it (`providerLinkVisit` and `modelAddingOn`, run from the Contract source). Fails before, passes after. |
+| FU-4 | pass (text) | [Bun test before/after](https://raw.githubusercontent.com/ccheever/exact2/a2b05e146fd920ee1620ce3017be6b5550b59279/audit-wave-followups/fu4-tests-before-after.txt). A → B → A closes the field opened on A, and a link to the page's own target keeps it (`providerLinkVisit` and `modelAddingOn`, run from the Contract source). Fails before, passes after. The review's sequence ([before/after](https://raw.githubusercontent.com/ccheever/exact2/481664c4ddcec79098e14eefe7f91998dac64f91/audit-wave-followups/fu4-review-link-target-before-after.txt)): link A, pick A on the page, Add, link A keeps the field; a link after the nav closes it. It fails on `7c65afe53`'s sources (the field closed) and passes after. |
 | FU-5 (agent) | pass | [Settings, ⌘K, Escape](https://raw.githubusercontent.com/ccheever/exact2/e37177d86499241ddc15d2f5cf97d34e816f8fd2/audit-wave-followups/fu5-palette-escape.png): Settings stays with the palette closed, as in the reference. Before, the window went back to the chat. |
 | FU-5 (real keys) | open | Needs real input. See "Real-input batch steps". |
 
 ## Tests
 
-`audit-wave-followups.test.ts` (10 tests; 9 fail against `eba445c44`'s sources):
+`audit-wave-followups.test.ts` (11 tests; 9 of the first 10 fail against `eba445c44`'s sources, and the 11th fails against `7c65afe53`'s):
 - **FU-1:** the hero and overlay derives, the placeholder and its conditions, and `threadLoading` on a server thread
   versus a draft.
 - **FU-2:** the panel view's `key` and `launcher` across a thread, its draft and another thread (show, a surface, hide,
@@ -125,7 +132,8 @@ Images read before | after | reference.
 - **FU-3:** Send's chords over begin, blur, focus, hide, show and save (the chip "app.ts L3"). A focus report with no
   draft holds nothing. A draft that left the tree without a blur holds nothing: another file, another thread, the
   editor, a cancel. The queued `fileCommentChanged` send.
-- **FU-4:** the two fns, run as JavaScript.
+- **FU-4:** the two fns, run as JavaScript. The review's sequence runs them as the root does, with the state the source's
+  `openProviderSettings` compares with, and checks where the source sets and drops `providerLinkTarget`.
 - **FU-5:** `escapeOwned` has the palette term, and the palette keeps both of its Escape buttons.
 
 `settings-escape.test.ts` now reads the field through `modelAddingLive` and the visit stamp.
