@@ -37,6 +37,81 @@ final class RouteController: UIViewController {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
     }
+    /// The scroller the bar follows (LLP 1075.003 §3.7), given to UIKit at
+    /// once unless the route has never been laid out in a window. A bar
+    /// first laid out in the window over a scroller it already follows rests
+    /// with its large title collapsed (iOS 26): a tab's route not yet shown
+    /// takes it the turn after it is first laid out in, or appears in, the
+    /// window (a view whose size has not changed is not laid out again), the
+    /// bar laid out large and the scroller at rest under it. Not at
+    /// `viewDidAppear`, which a tab's selection animation holds back past an
+    /// authored scroll.
+    private(set) weak var topScroll: UIScrollView?
+    private var trackQueued = false
+    private var laidOut = false
+    func track(_ scroll: UIScrollView?) {
+        topScroll = scroll
+        if scroll == nil || laidOut || navigationController?.view.window != nil { give(scroll) }
+    }
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        queueTrack()
+    }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        queueTrack()
+        if view.window != nil { laidOut = true }
+    }
+    private func queueTrack() {
+        guard !trackQueued, let topScroll, view.window != nil, contentScrollView(for: .top) !== topScroll else { return }
+        trackQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            trackQueued = false
+            if let scroll = self.topScroll, view.window != nil { give(scroll) }
+        }
+    }
+    /// UIKit moves a large title into the scroller its bar follows (iOS 26)
+    /// and leaves it there when the bar stops following that scroller, drawn
+    /// where the bar's would be: clipped by a scroller that no longer starts
+    /// under the bar, gone with one hidden or removed. The bar laid out at
+    /// once takes it back. A bar that takes a scroller no finger has moved
+    /// since sets its height by the scroller's place but not its titles
+    /// (iOS 26): collapsed over one at rest at its top, it shows neither the
+    /// large title, folded away, nor the inline one, not yet faded in; over
+    /// one scrolled past the large title, not the inline one. After the
+    /// batch (a grouped list's insets follow in its own sync), the bar over
+    /// a scroller at its top is sized to its large title, as the web shows a
+    /// header above content at its top in full, and over one scrolled it
+    /// sets its titles again, its large title turned off and on.
+    private func give(_ scroll: UIScrollView?) {
+        let old = contentScrollView(for: .top)
+        guard old !== scroll else { return }
+        setContentScrollView(scroll, for: .top)
+        guard let bar = navigationController?.navigationBar else { return }
+        if old != nil {
+            bar.setNeedsLayout()
+            bar.layoutIfNeeded()
+        }
+        #if !os(tvOS)
+        guard scroll != nil, navigationItem.largeTitleDisplayMode == .always else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let scroll = contentScrollView(for: .top), let nav = navigationController,
+                  nav.topViewController === self, nav.transitionCoordinator == nil, view.window != nil,
+                  !scroll.isTracking, !scroll.isDecelerating else { return }
+            let bar = nav.navigationBar
+            if scroll.contentOffset.y <= 0.5 - scroll.adjustedContentInset.top {
+                bar.sizeToFit()
+            } else {
+                let mode = navigationItem.largeTitleDisplayMode
+                navigationItem.largeTitleDisplayMode = .never
+                bar.layoutIfNeeded()
+                navigationItem.largeTitleDisplayMode = mode
+                bar.layoutIfNeeded()
+            }
+        }
+        #endif
+    }
     override func loadView() {
         view = UIView()
         // The sheet supplies its surface behind transparent authored corners.

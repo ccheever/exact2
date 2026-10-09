@@ -732,7 +732,21 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 }
 
 /// A grouped list's collection view, by type, for the agent's wheel.
-final class GroupedCollectionView: UICollectionView, GroupedScroller {}
+final class GroupedCollectionView: UICollectionView, GroupedScroller {
+    /// A list at rest at its top stays there when the room its window or
+    /// bar gives it changes, as a scroll does: a tab shown again over a list
+    /// that a hidden batch put under its large title (LLP 1084 §6.5) would
+    /// otherwise rest scrolled under the bar. `mount` does the same for the
+    /// room the list itself adds.
+    private var restingTop: CGFloat = 0
+    override func adjustedContentInsetDidChange() {
+        let top = restingTop
+        restingTop = adjustedContentInset.top
+        super.adjustedContentInsetDidChange()
+        guard abs(contentOffset.y + top) < 0.5, !(isTracking || isDragging || isDecelerating) else { return }
+        contentOffset.y = -adjustedContentInset.top
+    }
+}
 
 extension UICollectionViewListCell {
     /// A row's or header's margins are the list layout's, never the safe

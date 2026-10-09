@@ -616,16 +616,42 @@ extension NavigationHost {
         guard c.collapseScroll !== target else { return }
         if let old = c.collapseScroll, let sv = old.scroll {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
+            // A grouped list's collection view, inset as its hidden scroll is,
+            // keeps its own distance from its top.
+            let shown = shownScroll(of: old).flatMap { $0 === sv ? nil : $0 }
+            let shownTop = shown.map { $0.contentOffset.y + $0.adjustedContentInset.top }
             sv.contentInsetAdjustmentBehavior = .never
             old.scrollOrigin = 0
             old.scrollCollapsed = 0
             sv.contentOffset.y = top
+            if let shown, let shownTop {
+                shown.contentInsetAdjustmentBehavior = .never
+                shown.contentOffset.y = shownTop - shown.adjustedContentInset.top
+            }
         }
         c.collapseScroll = target
         if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        c.setContentScrollView(target?.scroll, for: .top)
+        c.track(target.flatMap(shownScroll))
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// The view that scrolls in a node's place: a grouped list's collection
+    /// view over its hidden authored scroll (LLP 1084 D8), else the node's
+    /// own. UIKit puts a large title inside the scroller it tracks (iOS
+    /// 26), so a hidden one would hide the title.
+    private func shownScroll(of node: NodeView) -> UIScrollView? {
+        (node.kind == "list" && node.props["listStyle"] != nil ? presenter.groupedLists?.scroller(for: node.id) : nil) ?? node.scroll
+    }
+
+    /// After a batch's grouped lists are built (`groupedLists.sync`, which
+    /// follows `navigation.sync`): a route whose title collapses with a
+    /// grouped list tracks its collection view once the list has made it.
+    func trackGroupedLists() {
+        for c in controllers.values where presenter.views[c.node.id] === c.node {
+            guard let node = c.collapseScroll, let shown = shownScroll(of: node), c.topScroll !== shown else { continue }
+            c.track(shown)
+        }
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {

@@ -990,7 +990,10 @@ package final class Presenter {
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
-        groupedLists?.sync(changed: changed)
+        if let groupedLists {
+            groupedLists.sync(changed: changed)
+            navigation.trackGroupedLists()
+        }
         positionContexts()
         syncAccessibility(changed: changed)
     }
