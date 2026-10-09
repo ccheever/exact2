@@ -1,0 +1,100 @@
+#!/bin/zsh
+# browser-surface part 4 (profiles): the live drive (agent mode, lane env). Not committed; uploaded as evidence.
+# Usage: drive.sh <run name> [branch|base|final] (final: the Chrome and Firefox imports, the defaults rows and the tabs). Ports (part 4's 16750-16799): the embedded server on 16780, the cookie probe
+# page on 16781. Fixture browser stores only (make-browser-home.mjs, T3_BROWSER_IMPORT_HOME); no real browser data.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-profiles
+L=$W/target/lane
+P=${1:-drive}; MODE=${2:-branch}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+[ $MODE = base ] && APPW=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base || APPW=$W
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$APPW/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16780 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export T3_BROWSER_IMPORT_HOME=$L/browser-home
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+$BUN $L/make-browser-home.mjs $T3_BROWSER_IMPORT_HOME > $OUT/browser-home.log 2>&1
+FIXTURE_PORT=16781 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+# "Brave is running": its SingletonLock names this host and a live pid (a sleep this script kills at the quit screen).
+sleep 900 &
+BRAVE=$!; echo "brave stand-in pid $BRAVE" >> $OUT/pids.txt
+ln -s "$(hostname)-$BRAVE" "$T3_BROWSER_IMPORT_HOME/Library/Application Support/BraveSoftware/Brave-Browser/SingletonLock"
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do kill -0 $AG 2>/dev/null || return 1; sleep 0.2; done; }
+cd $APPW
+S=$OUT
+OPS=("clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window"
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real" "screenshot $S/10-integrations.png window" tree)
+if [ $MODE = debug ]; then OPS+=("tap browser-profiles-add" "clock +6000 real" logs "tap browser-import-source-chrome" "clock +2000 real" "screenshot $S/d-chrome.png window" logs); fi
+if [ $MODE = final ]; then OPS+=(
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-chrome" "clock +2000 real" "screenshot $S/20-chrome-configure.png window"
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/21-chrome-done.png window" "tap browser-import-done" "clock +1500 real"
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-firefox" "clock +2000 real" "tap browser-import-tile-existing:default" "clock +800 real"
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/29-firefox-done.png window" "tap browser-import-done" "clock +1000 real" tree)
+fi
+if [ $MODE = branch ]; then OPS+=(
+  "tap browser-profiles-add" "clock +5000 real" "screenshot $S/11-add-menu.png window" tree
+  "tap browser-profiles-blank" "clock +2000 real" "screenshot $S/12-blank.png window" tree
+  'type "Rename New profile" Work QA' 'type "Rename New profile" key Enter' "clock +2000 real" "screenshot $S/13-renamed.png window" tree
+  'tap "Work QA options"' "clock +1000 real" "screenshot $S/14-row-menu.png window" tree
+  'tap "Remove profile and data"' "clock +1500 real" "screenshot $S/15-remove-dialog.png window"
+  "tap browser-profile-remove-confirm" "clock +2000 real" "screenshot $S/16-removed.png window" tree logs
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-chrome" "clock +2000 real" "screenshot $S/20-chrome-configure.png window" tree
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/21-chrome-done.png window" tree logs
+  "tap browser-import-done" "clock +1500 real" "screenshot $S/22-profiles-after-import.png window" tree
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-brave" "clock +2000 real" "screenshot $S/23-brave-quit.png window" tree
+  "clock +3000 real" "tap browser-import-quit" "clock +3000 real" "screenshot $S/24-brave-after-quit.png window" tree
+  "tap browser-import-cancel" "clock +1000 real"
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-safari" "clock +2000 real" "screenshot $S/25-safari-fda.png window" tree
+  "tap browser-import-fda-allow" "clock +1500 real" "screenshot $S/26-safari-fda-allow.png window" logs
+  "tap browser-import-cancel" "clock +1000 real"
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-arc" "clock +2000 real" "tap browser-import-run" "clock +4000 real" "screenshot $S/27-arc-blocked.png window" tree
+  "tap browser-import-close" "clock +1000 real"
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-firefox" "clock +2000 real" "tap browser-import-tile-existing:default" "clock +800 real" "screenshot $S/28-firefox-into-default.png window"
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/29-firefox-done.png window" tree "tap browser-import-done" "clock +1000 real")
+fi
+if [ $MODE = branch ] || [ $MODE = final ]; then OPS+=(
+  "tap settings-content-scroll wheel 0 500" "clock +1000 real"
+  "tap browser-default-viewport" "clock +1000 real" "screenshot $S/40-viewport-menu.png window" "tap browser-default-viewport-option-iphone-12-pro" "clock +1500 real"
+  "tap browser-default-zoom" "clock +1000 real" "tap browser-default-zoom-option-1.25" "clock +1500 real"
+  "tap browser-default-appearance" "clock +1000 real" "tap browser-default-appearance-option-dark" "clock +1500 real"
+  "tap browser-recording-frame-rate" "clock +1000 real" "tap browser-recording-frame-rate-option-60" "clock +1500 real"
+  "tap browser-recording-key-presses" "clock +1500 real" "tap browser-auto-show-floating-preview" "clock +1500 real"
+  "screenshot $S/41-defaults-set.png window" tree
+  "tap reset-browser-default-frame-rate" "clock +1000 real" "tap reset-browser-default-auto-show" "clock +1000 real" "screenshot $S/42-defaults-reset.png window" tree)
+fi
+[ $MODE = debug ] || OPS+=("tap settings-go-to-threads" "clock +3000 real"
+  "tap toggle-right-panel" "clock +2000 real" "screenshot $S/30-launcher.png window" tree)
+if [ $MODE = debug ]; then :
+elif [ $MODE = branch ] || [ $MODE = final ]; then OPS+=(
+  "tap surface-browser-profiles" "clock +1000 real" "screenshot $S/31-launcher-profiles.png window" tree
+  'tap "Chrome"' "clock +3000 real" "screenshot $S/32-chrome-tab.png window" tree
+  "type browser-url 127.0.0.1:16781/cookies" "type browser-url key Enter" "clock +4000 real" "screenshot $S/33-chrome-cookies.png window" logs
+  "tap browser-more" "clock +1000 real" "screenshot $S/34-more-profile.png window" tree
+  "tap browser-more-clear-cookies" "clock +2000 real" "tap browser-refresh" "clock +3000 real" "screenshot $S/35-cleared.png window" logs
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser-profiles" "clock +1000 real" "screenshot $S/36-plus-profiles.png window" tree
+  "tap browser-profile-incognito" "clock +3000 real"
+  "type browser-url 127.0.0.1:16781/set" "type browser-url key Enter" "clock +3000 real" "tap browser-refresh" "clock +3000 real" "screenshot $S/37-incognito.png window" tree
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser" "clock +3000 real"
+  "type browser-url 127.0.0.1:16781/cookies" "type browser-url key Enter" "clock +4000 real" "screenshot $S/38-default-tab.png window" tree logs state)
+else OPS+=(
+  "tap surface-browser" "clock +3000 real" "type browser-url 127.0.0.1:16781/cookies" "type browser-url key Enter" "clock +4000 real"
+  "tap browser-more" "clock +1000 real" "screenshot $S/34-more-profile.png window" tree "tap browser-more" "clock +500 real"
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser-profiles" "clock +1000 real" "screenshot $S/36-plus-profiles.png window" tree logs state)
+fi
+printf '%s\n' "${OPS[@]}" > $OUT/ops.txt
+QUIT=$(( $(printf '%s\n' "${OPS[@]}" | grep -n '23-brave-quit' | cut -d: -f1) ))
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+if [ $MODE = branch ] && [ $QUIT -gt 0 ]; then waitline $QUIT; kill $BRAVE; echo "brave stand-in quit after op $QUIT" >> $OUT/pids.txt; fi
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX $BRAVE 2>/dev/null
+cp $T3_LOCAL_HOME/userdata/logs/server.trace.ndjson* $OUT/ 2>/dev/null
+echo DRIVE-DONE
