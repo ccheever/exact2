@@ -505,6 +505,15 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
 - **Agent cursor.** Drawn as a layer of the page's view (so the screenshot, which is the page's own paint, leaves it out,
   as the reference's DOM overlay is left out of `capturePage`), with the reference's timings.
 
+## Desktop update controls (no feed): declared differences
+
+Task `20261009-blocked-desktop-update-controls`, option (a), draft PR pending the user's decision (X40 stays closed).
+- **No Tab stop on the disabled "Check for updates" control (new framework gap, not filed).** The reference's
+  `SidebarUpdatePill` is `aria-disabled`, so Tab still reaches it (focus ring, no action). Contract has no
+  `aria-disabled` (`contract vocab`), and a `disabled` button takes no focus, as a disabled `<button>` on the web; the
+  clone's control (`sidebar-icons.contract` `SidebarUpdatePill`) is skipped by Tab. Its label, dimmed state, tooltip and
+  no-op press match.
+
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.
