@@ -53,7 +53,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             sheet.prefersGrabberVisible = detents.count > 1
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            // Several: scrolling at the content's top grows the sheet, as
+            // UIKit's own sheets do (LLP 1115 wave 1).
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
@@ -109,7 +111,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
         #else
-        view.backgroundColor = .secondarySystemGroupedBackground
+        // A sheet's surface where the author painted none: the platform's
+        // (LLP 1115 D2), which UIKit elevates in dark mode.
+        view.backgroundColor = .systemBackground
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false

@@ -244,6 +244,10 @@ extension NodeView {
         f.textContainerInset = .zero
         f.textContainer.lineFragmentPadding = 0
         f.delegate = self
+        #if os(iOS)
+        // Not the screen's scroller: the status bar scrolls that (LLP 1115).
+        f.scrollsToTop = false
+        #endif
         addSubview(f)
         textArea = f
     }

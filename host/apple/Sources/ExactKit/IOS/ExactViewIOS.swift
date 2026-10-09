@@ -53,8 +53,9 @@ public final class ExactView: UIView {
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
-        // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .white
+        // The launch screen's colour (the manifest's `launch`) until the first
+        // frame names the canvas; unset, the platform's (LLP 1115 D2).
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(

@@ -432,6 +432,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
+        // The key does what its label says (LLP 1115 wave 1): Next moves to
+        // the next field (or, at the last, puts the keyboard away); Done,
+        // Go, Search and Send put the keyboard away.
+        switch props["enterKeyHint"] {
+        case "next": if presenter?.moveFocus(backward: false, fields: true) != true { textField.resignFirstResponder() }
+        case "done", "go", "search", "send": textField.resignFirstResponder()
+        default: break
+        }
         return false
     }
 

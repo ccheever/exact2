@@ -54,8 +54,10 @@ final class RouteController: UIViewController {
                 node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .white
             }
         #else
+        // A sheet's surface is the platform's (LLP 1115 D2): the route
+        // paints its own background, if any, over it.
         view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .secondarySystemGroupedBackground
+            ? .systemBackground
             : UIColor { [weak node] traits in
                 node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
             }
@@ -85,6 +87,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private(set) var presentedNavigations: [UINavigationController] = []
     var modalNavigation: UINavigationController? { presentedNavigations.last }
     private var navigation: UINavigationController? { modalNavigation ?? primaryNavigation }
+    /// The route on top of the stack in front: the one the person sees.
+    var activeRoute: RouteController? { navigation?.topViewController as? RouteController }
     private(set) var syncing = false
     private var mounting = false
     private(set) weak var container: NodeView?
@@ -865,6 +869,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // the swipe and left one.
             if restoresEditor { restoresEditor = false; restoreDroppedEditor() } else { droppedEditor = nil }
             recordPop(navigationController)
+            #if os(iOS)
+            presenter.syncScrollsToTop() // the route now on top owns the status-bar tap
+            #endif
             // Settled on a stack's root: once UIKit has finished the
             // transition (its own bar restoration included), a root whose
             // arrival no projection has handled yet reconciles the bar with

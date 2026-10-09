@@ -626,11 +626,12 @@ final class MenuHost {
         let owner = Confirmation(host: self, source: source, popover: pop, actions: presented,
                                  title: heading, message: texts.map(title(of:)).joined(separator: "\n"))
         // A native action's tint is its accent (LLP 1069.011.000 D5); the
-        // alert has one tint, the first action's.
+        // alert has one tint, the first action's. Unsaid, it is UIKit's
+        // (LLP 1115 D4): a `color` the action only inherits is not its own.
         let lead = actions[0]
         owner.alert.view.tintColor = lead.isNativeButton
-            ? lead.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
-            : lead.color("text_color", .systemBlue)
+            ? lead.channels("accent_color").map { TextEngine.color($0) }
+            : lead.ownUIColor("text_color")
         for (index, entry) in presented.enumerated() {
             let action = actions[index]
             let style: UIAlertAction.Style = action.props["destructive"] == "true" ? .destructive : .default
