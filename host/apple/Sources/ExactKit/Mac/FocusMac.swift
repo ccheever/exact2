@@ -14,12 +14,12 @@ extension NodeView {
     /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
     package override var acceptsFirstResponder: Bool {
         if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
-        if field != nil || textArea != nil || isNativeButton { return false }
+        if field != nil || textArea != nil || isNativeButton || nativeValueControl != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
     }
     var tabbable: Bool {
         if let index = explicitTabIndex { return index >= 0 }
-        return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+        return kind == "button" || isNativeButton || isDateOrSelect || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
             || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
     }
     /// Sequential focus follows the web: a button is in the loop even when
@@ -39,7 +39,7 @@ extension NodeView {
     }
     // @ref LLP 1104 D6 — events are relayed from the node's single focus owner.
     func focusEntered() {
-        focusVisible = !isNativeButton && presenter?.focusByPointer != true
+        focusVisible = !isNativeButton && nativeValueControl == nil && presenter?.focusByPointer != true
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
         if handlers.contains("focus") { presenter?.focus(id) }
@@ -50,6 +50,25 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
         if handlers.contains("blur") { presenter?.blur(id) }
+    }
+    /// Dates and selects have the same single native focus owner as a field.
+    /// An appearance:none control falls back to its authored node.
+    var isDateOrSelect: Bool { kind == "control" && (props["type"] == "select" || ControlKinds.dates.contains(props["type"] ?? "")) }
+    var nativeValueControl: NSControl? {
+        guard isDateOrSelect, let control = presenter?.controls.controls[id], control.superview != nil else { return nil }
+        return control
+    }
+    func acceptsNativeValueFocus(_ control: NSControl) -> Bool {
+        control.isEnabled && !formDisabled && !inert && !control.isHiddenOrHasHiddenAncestor && !cssVisibilityHidden
+    }
+    /// Leave native editing keys to AppKit, but traverse Exact's explicit loop.
+    func nativeValueTab(_ event: NSEvent, control: NSControl) -> Bool {
+        guard Self.keyName(event) == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let window = control.window else { return false }
+        presenter?.flushKeyViewLoop()
+        if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(control) }
+        else { window.selectNextKeyView(control) }
+        return true
     }
     var retainsFocus: Bool {
         sequence(first: self as NSView, next: \.superview).contains { ($0 as? NodeView)?.props["retainFocus"] == "true" }

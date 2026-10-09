@@ -33,6 +33,42 @@ final class MarkupEditorTests: XCTestCase {
         return (node, f, window, presenter)
     }
 
+    func testPlainTextAreaRoutesUndoRedoActionsAndChordsToItsOwnHistory() {
+        let (node, field, window, presenter) = editor("", selection: NSRange(location: 0, length: 0))
+        let session = ExactApp.shared.makeSession(label: "plain-undo")
+        presenter.session = session
+        defer { window.close(); session.destroy() }
+        node.props["markup"] = "none"
+        node.applyTextArea()
+        XCTAssertNil(field.markup)
+        var changes: [String] = []
+        presenter.onInput = { _, value in changes.append(value) }
+        let undo = NSMenuItem(title: "Undo", action: #selector(TextArea.undo(_:)), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Redo", action: #selector(TextArea.redo(_:)), keyEquivalent: "z")
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+        field.insertText("hello", replacementRange: NSRange(location: 0, length: 0))
+        field.breakUndoCoalescing()
+        XCTAssertTrue(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+        XCTAssertTrue(field.tryToPerform(undo.action!, with: undo), "Edit menu responder action")
+        XCTAssertEqual(field.string, "")
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertTrue(field.validateMenuItem(redo))
+        XCTAssertTrue(field.tryToPerform(redo.action!, with: redo))
+        XCTAssertEqual(field.string, "hello")
+        for (flags, expected) in [(NSEvent.ModifierFlags.command, ""), ([.command, .shift], "hello")] {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+            XCTAssertTrue(field.performKeyEquivalent(with: event))
+            XCTAssertEqual(field.string, expected)
+        }
+        XCTAssertEqual(changes, ["hello", "", "hello", "", "hello"])
+        node.writeValue("authoritative", into: field)
+        XCTAssertFalse(field.validateMenuItem(undo))
+        XCTAssertFalse(field.validateMenuItem(redo))
+    }
+
     func testFormattingIsOneSourceChangeAndNativeUndoRedo() {
         let (node, f, window, presenter) = editor("hello 🎉", selection: NSRange(location: 0, length: 5))
         defer { window.close() }

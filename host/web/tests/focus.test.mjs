@@ -1,5 +1,5 @@
 import {test,expect} from 'bun:test';
-import {focusController} from '../navigation.js';
+import {focusController, dialogCommand} from '../navigation.js';
 import {createInputHandlers} from '../input-glue.js';
 
 // Production focus transaction, including autofocus during the dispatched commit.
@@ -235,3 +235,48 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
     }
   } finally { await browser.close(); }
 }, 30000);
+
+// #282: the real HTML dialog path, reached through the JS target's commands.
+test('action dialog commands keep modal focus and preserve bare close as window close', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
+    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
+    await page.addScriptTag({content: `${dialogCommand.toString()}\n${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    await page.focus('#opener');
+    await page.evaluate(() => hostCommands.showModal('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').matches(':modal'), document.activeElement.id])).toEqual([true, 'first']);
+    const trace = async () => {
+      const focus = [];
+      for (const key of ['Shift+Tab', 'Tab', 'Tab', 'Tab']) {
+        await page.keyboard.press(key);
+        focus.push(await page.evaluate(() => document.activeElement.id));
+      }
+      return focus;
+    };
+    const actual = await trace();
+    await page.evaluate(() => hostCommands.close('form'));
+    await page.focus('#opener');
+    await page.evaluate(() => document.querySelector('#form').showModal());
+    const reference = await trace();
+    expect(actual).toEqual(reference); // Chrome includes its own browser-focus boundary.
+    expect(actual).not.toContain('outside');
+    expect(actual).toContain('first');
+    expect(actual).toContain('last');
+    await page.evaluate(() => document.querySelector('#first').focus());
+    await page.focus('#outside');
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('first');
+    await page.evaluate(() => hostCommands.close('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id, quit])).toEqual([false, 'opener', 0]);
+    await page.evaluate(() => hostCommands.showModal('form'));
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id])).toEqual([false, 'opener']);
+    await page.evaluate(() => { hostCommands.showModal('box'); hostCommands.showModal('missing'); hostCommands.showModal('other'); hostCommands.showModal(1); hostCommands.close(); });
+    expect(await page.evaluate(() => [journal.length, quit])).toEqual([4, 1]);
+    expect(await page.evaluate(() => journal.every(line => line.includes('refused')))).toBe(true);
+  } finally { await browser.close(); }
+}, 20000);

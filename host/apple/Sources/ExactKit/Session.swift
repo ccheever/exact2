@@ -357,6 +357,8 @@ public final class ExactSession {
     private var updateToken: UInt64 = 0
 
     package let runtime: Runtime
+    /// This session's file roots, captured outside a native module callback.
+    var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -818,7 +820,7 @@ public final class ExactSession {
             if booted { presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
-            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
+            appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
         if batch.error == nil { tellTime(); refuseUnheardLaunch() }
@@ -906,7 +908,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-        AppFiles.learn(runtime)
+        appFileRoots = AppFiles.learn(runtime)
         apply(batch)
         tellTime()
         refuseUnheardLaunch()
@@ -1031,8 +1033,6 @@ public final class ExactSession {
                 apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
-            // Route projection and all structural/style changes are now final.
-            // Ineligible recognizers may never receive another mouse/touch event.
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
             transformInputHold?.cancelIfInputIneligible()
@@ -1044,6 +1044,14 @@ public final class ExactSession {
             let queued = pendingCommands
             pendingCommands = []
             for (name, args, source) in queued {
+                if name == "showModal" || (name == "close" && !args.isEmpty) {
+                    #if os(macOS)
+                    app.deliver { [weak self] in guard let self else { return }; presenter.dialogs.command(name, args: args, say: log) }
+                    #else
+                    log("\(name): refused: dialog action commands are unsupported on this host")
+                    #endif
+                    continue
+                }
                 if name == "copyText" {
                     guard args.count == 1, let text = args.first as? String else {
                         fputs("exact: copyText requires one string\n", stderr)
@@ -1064,7 +1072,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "reload" {
-                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
                     guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
                     app.deliver { DevMenu.reload() }
                     continue
@@ -1083,7 +1090,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    // The inverse of `message=`: text into the named surface, in order.
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     app.deliver { [weak self] in self?.canvases.post(surface, text) }
                     continue
@@ -1096,10 +1102,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.fieldSelections.setSelectionRange(args) }
                     continue
                 }
-                if name == "blur" {
-                    app.deliver { [weak self] in self?.presenter.blurElement(args) }
-                    continue
-                }
+                if name == "blur" { app.deliver { [weak self] in self?.presenter.blurElement(args) }; continue }
                 if name == "scrollIntoView" {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
@@ -1174,7 +1177,7 @@ public final class ExactSession {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
-            AppFiles.learn(runtime) // the roots storage configured
+            appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
             if batch.error == nil {

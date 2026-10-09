@@ -7,6 +7,27 @@ import XCTest
 /// its prominent style a prominent item (D2), and a tab drawn as a segment
 /// from its face (D4), its shortcut kept (D7).
 final class NativeContextsMacTests: XCTestCase {
+    func testModuleRootsUseTheNamedStoresRuntimeRootsAcrossSessions() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let first = ExactApp.shared.makeSession(label: "module-store-first")
+        let second = ExactApp.shared.makeSession(label: "module-store-second")
+        defer { first.destroy(); second.destroy() }
+        let roots = ["data": base.appendingPathComponent("data").path,
+                     "cache": base.appendingPathComponent("cache").path,
+                     "tmp": base.appendingPathComponent("temporary").path]
+        first.appFileRoots = roots; second.appFileRoots = roots
+        let a = NativeViews.roots(session: first, agent: true, namedStore: "module-store")
+        let b = NativeViews.roots(session: second, agent: true, namedStore: "module-store")
+        for (written, read) in [(a.data, b.data), (a.cache, b.cache), (a.temporary, b.temporary)] {
+            try FileManager.default.createDirectory(atPath: written, withIntermediateDirectories: true)
+            try "kept".write(toFile: written + "/probe", atomically: true, encoding: .utf8)
+            XCTAssertEqual(try String(contentsOfFile: read + "/probe", encoding: .utf8), "kept")
+        }
+        let unnamed = NativeViews.roots(session: second, agent: true, namedStore: nil)
+        XCTAssertNotEqual(unnamed.data, roots["data"])
+        XCTAssertTrue(unnamed.data.contains("exact-agent-"), "an unnamed drive stays away from real app files")
+    }
     func testANativeButtonIsAToolbarItemItsProminentStyleProminent() throws {
         _ = NSApplication.shared
         let p = Presenter()
