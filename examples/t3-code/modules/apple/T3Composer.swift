@@ -173,7 +173,7 @@ final class T3Composer {
         // realinput-1010-fixes RI-1: a launcher letter goes on to Exact's key route (never type-to-focus).
         switch launcher?.route(event, typing: window.firstResponder is NSText || window.firstResponder is NSTextField) ?? .none {
         case .pass: return Routed(event: event)
-        case .taken: return Routed(event: nil)
+        case .taken, .dropped: return Routed(event: nil)
         case .none: break
         }
         guard T3Composer.redirectable(window.firstResponder, in: window), T3Composer.interactive(composer) else { return nil }

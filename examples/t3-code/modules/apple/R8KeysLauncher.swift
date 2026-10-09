@@ -75,6 +75,10 @@ final class R8KeysLauncher {
         /// The focus was elsewhere: the launcher took it and the key was posted again at the head
         /// of the queue, so Exact's key route hears it at the launcher; this copy goes no further.
         case taken
+        /// The copy `route` posted came back with the focus no longer on the launcher (it moved, or the
+        /// launcher went): it goes nowhere, as the reference's capture listener lets no launcher letter
+        /// reach type-to-focus or a text field.
+        case dropped
     }
 
     /// The copy `route` posted again (a real key's timestamp is its own); it is never posted a second time.
@@ -86,7 +90,15 @@ final class R8KeysLauncher {
     /// no fixed order (it changes as monitors come and go), so the letter is never consumed here:
     /// it reaches Exact's route with the launcher focused, whichever monitor runs first.
     func route(_ event: NSEvent, typing: Bool) -> Route {
-        guard event.type == .keyDown, !typing, !event.isARepeat, let view = liveView, let window = view.window, event.window === window,
+        guard event.type == .keyDown else { return .none }
+        let copy = (event.timestamp, event.keyCode, event.windowNumber)
+        if let reposted, reposted == copy {
+            // The launcher's letter whatever happened since: Exact's route hears it at the launcher, or nothing does.
+            self.reposted = nil
+            if let view = liveView, view.window?.firstResponder === view { return .pass }
+            return .dropped
+        }
+        guard !typing, !event.isARepeat, let view = liveView, let window = view.window, event.window === window,
               window.attachedSheet == nil,
               event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
               let characters = event.charactersIgnoringModifiers, characters.count == 1,
@@ -94,12 +106,8 @@ final class R8KeysLauncher {
               // Exact's hit test refuses an inert or hidden node: a dialog over the panel blocks it.
               view.hitTest(NSPoint(x: view.frame.midX, y: view.frame.midY)) != nil else { return .none }
         // The mark lasts for one launcher letter: Exact's route may take the copy before it comes back here.
-        let copy = (event.timestamp, event.keyCode, event.windowNumber)
-        var again = false
-        if let reposted { again = reposted == copy }
         reposted = nil
         if window.firstResponder === view { return .pass }
-        if again { return .none }
         window.makeFirstResponder(view)
         guard window.firstResponder === view else { return .none }
         reposted = copy

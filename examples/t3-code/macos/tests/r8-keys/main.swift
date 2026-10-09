@@ -211,10 +211,16 @@ final class R8KeysTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === launcherView)
         let again = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
         XCTAssertEqual(again?.characters, "d", "posted again")
-        // The copy posted again is never posted a second time, even when the focus left meanwhile.
+        // The copy posted again is never posted a second time, and when the focus left meanwhile it goes nowhere
+        // (the reference's capture listener lets no launcher letter reach type-to-focus or a text field).
         window.makeFirstResponder(nil)
-        XCTAssertEqual(launcher.route(again!, typing: false), .none)
+        XCTAssertEqual(launcher.route(again!, typing: false), .dropped)
         XCTAssertNil(NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true))
+        XCTAssertEqual(launcher.route(key("l", 37, [], window: window, at: 50), typing: false), .taken)
+        let copy = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
+        window.makeFirstResponder(editor)
+        XCTAssertEqual(launcher.route(copy!, typing: true), .dropped, "the copy never lands in a text field the focus moved to")
+        XCTAssertEqual(launcher.route(key("l", 37, [], window: window, at: 51), typing: true), .none, "a new key there types on")
         window.makeFirstResponder(launcherView)
         launcherView.isHidden = true
         XCTAssertEqual(launcher.route(d, typing: false), .none, "a hidden launcher answers nothing")
@@ -277,6 +283,16 @@ final class R8KeysTests: XCTestCase {
             XCTAssertEqual(heard, ["d"], "D from the bare window, composer's monitor first: \(composerFirst)")
             XCTAssertTrue(window.firstResponder === launcherView)
         }
+        // A rare race: the copy posted again comes back after the focus left the launcher once more. It goes
+        // nowhere: type-to-focus never types it into the composer, and it is not posted a third time.
+        window.makeFirstResponder(nil)
+        time += 1
+        XCTAssertNil(composer.handle(key("d", 2, [], window: window, at: time)))
+        let copy = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
+        XCTAssertEqual(copy?.characters, "d", "posted again")
+        window.makeFirstResponder(nil)
+        XCTAssertNil(composer.handle(copy!), "the copy is dropped")
+        XCTAssertNil(NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true))
         XCTAssertEqual(text.string, "", "type-to-focus never takes a launcher letter")
         XCTAssertEqual(launcherView.keys, [])
         // A letter the launcher does not list still goes to the composer (ChatView's type-to-focus).

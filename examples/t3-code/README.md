@@ -33,13 +33,13 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
   token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with
   `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
-  too), r8-keys 4, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
+  too), r8-keys 6, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
   feeds and the served model, the foldable), r9-input 10, r10-connect 4 (select-on-open,
   Korean 2-Set chords re-issued by key code and reaching menu equivalents), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
   including a 10-run Closed loop; the physical hand-off's single elected feed), r11-device 3
   (the 3D phone keeps H.264 and 3D through main-thread stalls, ten first opens; the soft-queue
   window), r11-upstream 3 (the draft row's NSMenu), sidebar 5,
-  ssh 4 (1 live test skipped), transport 31 (2 live tests skipped), snapshot 86 checks,
+  ssh 4 (1 live test skipped), transport 31 (2 live tests skipped), snapshot 161 checks,
   mermaid 10 checks against a running HEAD server.
 - The integrated app was built and driven against isolated HEAD-oracle (`f870c41`) backends
   with the deterministic fixture provider: the 34 round-3 states, 13 round-4 states and 9
