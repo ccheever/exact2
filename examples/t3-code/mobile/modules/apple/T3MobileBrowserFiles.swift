@@ -73,6 +73,14 @@ final class T3MobileBrowserFiles: NSObject, UIDocumentPickerDelegate {
               url.path == "/api/preview-stream/\(endpoint)" else { return nil }
         return url
     }
+    private func authorizedURL(_ url: URL, endpoint: String, done: @escaping (URL?) -> Void) {
+        guard let owner else { done(nil); return }
+        owner.access(target) { [weak self] access in
+            guard let self, alive else { done(nil); return }
+            done(access.flatMap { T3MobileBrowserFileAccess.url(url, origin: self.target.origin,
+                endpoint: endpoint, access: $0, operate: endpoint == "upload") })
+        }
+    }
     private func invalidateChooser() {
         chooserVersion += 1; chooser = nil; chooserKey = ""
         if let picker { picker.delegate = nil; picker.dismiss(animated: false) }
@@ -116,10 +124,11 @@ final class T3MobileBrowserFiles: NSObject, UIDocumentPickerDelegate {
                     let multipart = try Self.multipart(files, worker: worker)
                     DispatchQueue.main.async { [weak self] in
                         guard let self, alive, allowed, chooserVersion == version else { try? FileManager.default.removeItem(at: multipart.directory); return }
-                        owner.check(target) { [weak self] valid in
-                            guard let self, alive, valid, allowed, chooserVersion == version else { try? FileManager.default.removeItem(at: multipart.directory); return }
+                        authorizedURL(url, endpoint: "upload") { [weak self] fresh in
+                            guard let self, alive, allowed, chooserVersion == version else { try? FileManager.default.removeItem(at: multipart.directory); return }
+                            guard let fresh else { try? FileManager.default.removeItem(at: multipart.directory); alert("Could not send the files to the page", "Reconnect to this environment and try again."); return }
                             temporary.append(multipart.directory)
-                            var request = URLRequest(url: url); request.httpMethod = "POST"
+                            var request = URLRequest(url: fresh); request.httpMethod = "POST"
                             request.setValue("multipart/form-data; boundary=\(multipart.boundary)", forHTTPHeaderField: "Content-Type")
                             let task = session.uploadTask(with: request, fromFile: multipart.file) { [weak self] _, response, error in
                                 try? FileManager.default.removeItem(at: multipart.directory)
@@ -165,9 +174,10 @@ final class T3MobileBrowserFiles: NSObject, UIDocumentPickerDelegate {
         controller.addAction(UIAlertAction(title: "Save or share", style: .default) { [weak self] _ in self?.save(url, name: name) }); present(controller)
     }
     private func save(_ url: URL, name: String) {
-        owner?.check(target) { [weak self] valid in
-            guard let self, alive, valid else { return }
-            let task = session.downloadTask(with: url) { [weak self] file, response, error in
+        authorizedURL(url, endpoint: "download") { [weak self] fresh in
+            guard let self, alive else { return }
+            guard let fresh else { alert("Could not save the download", "Reconnect to this environment and try again."); return }
+            let task = session.downloadTask(with: fresh) { [weak self] file, response, error in
                 guard let self, let file, error == nil, (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true else {
                     DispatchQueue.main.async { [weak self] in self?.current { [weak self] in self?.alert("Could not save the download", "The download failed.") } }; return
                 }
