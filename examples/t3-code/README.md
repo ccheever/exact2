@@ -28,7 +28,7 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
 - `cargo test -p t3-code-macos --lib`: 7 pass (Markdown/transcript parsing,
   table blocks and their column alignment).
 - All 26 AppKit/XCTest binaries under `macos/tests/` pass with the recipe below:
-  attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
+  attach 3, composer 56, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
   notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
   token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with

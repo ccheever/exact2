@@ -136,7 +136,7 @@ An independent review found four should-fix items; all are addressed on this bra
   runs the reference's order (T3 Code active first, then the reveal), the fallback the batch step named.
 - `T3FinderReveal`'s comment said Finder is activated "once its window is open"; nothing waits, and the comment says so.
 - A re-posted launcher letter returning after the focus left the launcher fell through to type-to-focus; it is dropped.
-- The README's AppKit inventory said "r8-keys 4" (now 6) and "snapshot 86 checks" (now 161).
+- The README's AppKit inventory said "r8-keys 4" (now 6); the counts measured here were corrected beside it: snapshot 86 checks (now 161), composer 45 (now 56).
 
 ## Next action
 
