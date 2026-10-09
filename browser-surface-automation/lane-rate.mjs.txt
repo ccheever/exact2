@@ -1,0 +1,25 @@
+// browser-surface-automation: the server's RPC rate while Settings › Integrations is open (not committed).
+// Usage: bun bsa-rate.mjs <run dir>. The window runs from the 20-integrations screenshot to the 21-integrations-30s
+// screenshot (their files' modification times); each ws.rpc span that starts in it is counted by name, across the
+// server's rotated trace files (server.trace.ndjson.1-3, about 10 MB each).
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+const dir = process.argv[2];
+const from = statSync(join(dir, '20-integrations.png')).mtimeMs, to = statSync(join(dir, '21-integrations-30s.png')).mtimeMs;
+import { existsSync } from 'node:fs';
+const files = ['server.trace.ndjson.3', 'server.trace.ndjson.2', 'server.trace.ndjson.1', 'server.trace.ndjson'].map(name => join(dir, name)).filter(existsSync);
+const spans = files.flatMap(file => readFileSync(file, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)));
+const counts = new Map();
+for (const span of spans) {
+  if (!String(span.name ?? '').startsWith('ws.rpc.')) continue;
+  const at = Number(BigInt(span.startTimeUnixNano) / 1000000n);
+  if (at < from || at > to) continue;
+  counts.set(span.name, (counts.get(span.name) ?? 0) + 1);
+}
+const seconds = (to - from) / 1000;
+console.log(`window ${new Date(from).toISOString()} → ${new Date(to).toISOString()} (${seconds.toFixed(1)} s)`);
+const rows = [...counts].sort((a, b) => b[1] - a[1]);
+for (const [name, count] of rows) console.log(`${String(count).padStart(6)}  ${(count / seconds).toFixed(2).padStart(7)}/s  ${name}`);
+const watched = ['ws.rpc.server.getConfig', 'ws.rpc.server.getSettings', 'ws.rpc.device.list'];
+const total = watched.reduce((sum, name) => sum + (counts.get(name) ?? 0), 0);
+console.log(`getConfig + getSettings + device.list: ${total} (${(total / seconds).toFixed(2)}/s)`);
