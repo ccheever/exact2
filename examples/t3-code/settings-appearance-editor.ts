@@ -9,7 +9,7 @@ import { ClientError } from './protocol';
 import { themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { themeRoles } from './settings-appearance';
 import { builtInThemeColors } from './settings-theme-library';
-import { sessionInputFor, sessionThemes, themeEditorStore } from './theme-editor-session';
+import { sessionInputFor, sessionThemes, sourceAppearance, themeEditorStore } from './theme-editor-session';
 import { themeSavedNotice, type ThemeSaveContext } from './theme-editor-notices';
 import { pushToast } from './toast';
 import { pickerCommit, pickerFields, type PickerFields } from './theme-color-picker';
@@ -137,7 +137,7 @@ export function syncDraft(client: T3Client, kind: string, subject: string, prefs
   const session = store.session!;
   const { editingTheme, seedTheme } = sessionThemes(session, custom);
   const source = editingTheme?.id ?? seedTheme?.id ?? '';
-  const draft: Draft = { kind, subject, sessionId: session.id, editingId: editingTheme?.custom ? editingTheme.id : '', appearance: session.initialAppearance,
+  const draft: Draft = { kind, subject, sessionId: session.id, editingId: editingTheme?.custom ? editingTheme.id : '', appearance: sourceAppearance(editingTheme ?? seedTheme, session.initialAppearance),
     name: editingTheme ? editingTheme.label : session.seedName ?? '', advanced: opensAdvanced(editingTheme ?? seedTheme), filter: '',
     colors: { light: rolesOf(source, 'light', custom), dark: rolesOf(source, 'dark', custom) }, pickerSeq: {} };
   drafts.set(client, draft);

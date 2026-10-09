@@ -70,6 +70,9 @@ final class LocalDesktopSettingsTests: XCTestCase {
         XCTAssertEqual(settings.settings.serverExposureMode, "local-only")
         XCTAssertTrue(try set(settings) { $0.tailscaleServeEnabled = true; $0.tailscaleServePort = 9443 })
         XCTAssertEqual(settings.settings.tailscaleServePort, 9443)
+        XCTAssertTrue(try settings.persist { T3DesktopSettings.settingUpdateChannel($0, "nightly") }.changed)
+        XCTAssertEqual(settings.settings.updateChannel, "nightly")
+        XCTAssertTrue(settings.settings.updateChannelConfiguredByUser)
     }
 
     func testReportsTheFailedDesktopSettingsWriteOperationAndPath() {
@@ -89,6 +92,8 @@ final class LocalDesktopSettingsTests: XCTestCase {
         let (settings, path) = store(scratch("home"))
         XCTAssertFalse(try set(settings) { $0.serverExposureMode = "local-only" })
         XCTAssertFalse(try set(settings) { $0.tailscaleServeEnabled = false })
+        XCTAssertFalse(try settings.persist { T3DesktopSettings.settingUpdateChannel($0, "latest") }.changed)
+        XCTAssertFalse(settings.settings.updateChannelConfiguredByUser)
         XCTAssertFalse(FileManager.default.fileExists(atPath: path.path))
     }
 
@@ -217,7 +222,7 @@ final class LocalDesktopSettingsTests: XCTestCase {
         let status = backend.statusValue()
         XCTAssertEqual(status["enabled"] as? Bool, false, "read before attach returns: no default flash")
         XCTAssertEqual(NSDictionary(dictionary: status["desktopSettings"] as? [String: Any] ?? [:]),
-                       NSDictionary(dictionary: ["localEnvironmentEnabled": false, "serverExposureMode": "local-only", "tailscaleServeEnabled": false, "tailscaleServePort": 8443]))
+                       NSDictionary(dictionary: ["localEnvironmentEnabled": false, "serverExposureMode": "local-only", "tailscaleServeEnabled": false, "tailscaleServePort": 8443, "updateChannel": "nightly"]))
         // desktopSettingsSet: one setter at a time, persisted before it answers.
         let value = try backend.setDesktopSettings(["serverExposureMode": "network-accessible"])
         XCTAssertEqual(value["changed"] as? Bool, true)
@@ -226,6 +231,14 @@ final class LocalDesktopSettingsTests: XCTestCase {
         _ = try backend.setDesktopSettings(["tailscaleServeEnabled": true, "tailscaleServePort": 70_000])
         XCTAssertEqual((backend.statusValue()["desktopSettings"] as? [String: Any])?["tailscaleServePort"] as? Int, 443, "normalizeTailscaleServePort")
         XCTAssertThrowsError(try backend.setDesktopSettings(["serverExposureMode": "everywhere"]))
+        // The Update track (General › About, no feed): the user's choice is saved and published; nothing checks.
+        XCTAssertEqual(try backend.setDesktopSettings(["updateChannel": "nightly"])["changed"] as? Bool, false, "this Nightly's default")
+        let track = try backend.setDesktopSettings(["updateChannel": "latest"])
+        XCTAssertEqual(track["changed"] as? Bool, true)
+        XCTAssertEqual((track["settings"] as? [String: Any])?["updateChannel"] as? String, "latest")
+        XCTAssertEqual((backend.statusValue()["desktopSettings"] as? [String: Any])?["updateChannel"] as? String, "latest")
+        XCTAssertTrue(read(T3DesktopSettings.path(home: home)).contains(#""updateChannel":"latest","updateChannelConfiguredByUser":true"#))
+        XCTAssertThrowsError(try backend.setDesktopSettings(["updateChannel": "beta"]))
         backend.detach(owner)
     }
 

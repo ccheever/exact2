@@ -12,7 +12,8 @@
 // only the values that differ from the defaults (sparse), in the schema's key order, as compact JSON and a
 // newline, through `<target>.<pid>.<uuid>.tmp` and a rename onto the symlink chain's target; a failed write
 // leaves the settings in memory as they were. Keys this app never changes (window bounds, the Linux password
-// store, the update channel, WSL) are carried through as the reference normalizes them.
+// store, WSL) are carried through as the reference normalizes them. The update channel is General › About's
+// Update track: saved as the reference's no-feed select saves it (`setUpdateChannel`), read by no feed.
 //
 // One-time carry-over: before this file, the clone kept the four keys at the top level of its own
 // `t3-code.json`. At the first attach, a key that file still has and the desktop document does not is
@@ -209,10 +210,18 @@ struct T3DesktopSettings: Equatable {
         return out + "\""
     }
 
-    /// What TypeScript reads (`localBackendStatus.desktopSettings`): the four keys this app changes.
+    /// What TypeScript reads (`localBackendStatus.desktopSettings`): the five keys this app changes.
     var statusValue: [String: Any] {
         ["localEnvironmentEnabled": localEnvironmentEnabled, "serverExposureMode": serverExposureMode,
-         "tailscaleServeEnabled": tailscaleServeEnabled, "tailscaleServePort": tailscaleServePort]
+         "tailscaleServeEnabled": tailscaleServeEnabled, "tailscaleServePort": tailscaleServePort, "updateChannel": updateChannel]
+    }
+
+    /// `setUpdateChannel`: a new channel is the user's choice from now on (`updateChannelConfiguredByUser`);
+    /// the same channel changes nothing.
+    static func settingUpdateChannel(_ settings: T3DesktopSettings, _ channel: String) -> T3DesktopSettings {
+        guard settings.updateChannel != channel else { return settings }
+        var next = settings; next.updateChannel = channel; next.updateChannelConfiguredByUser = true
+        return next
     }
 
     /// The carry-over from `t3-code.json`: each old key the desktop document lacks, decoded as the clone

@@ -75,7 +75,7 @@ describe('#262: the base branch hover card is drawn by the window layer and take
 
   test('the layer draws the open pull request\'s card, and a button in it keeps the card (the host hands the hover to the button)', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('PaFreshnessCard(actions=prDetail.actions, scheme=viewport.prefersColorScheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)');
+    expect(window).toContain('PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)');
     const button = await component('pages-pr-actions.contract', 'PaOutlineButton');
     expect(button).toContain('action hover(value: bool)\n    over = value\n    keep(value)');
     const card = await component('pages-pr-actions.contract', 'PaFreshnessCard');
@@ -176,7 +176,7 @@ describe('the layer and its timing', () => {
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold,');
+    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverWait=hoverWait, hoverHold=hoverHold,');
   });
 });
 

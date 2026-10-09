@@ -15,7 +15,7 @@ import { advancedBackgroundValue, baseProfile, profileOption } from './settings-
 import { seedDiffState } from './settings-appearance-look';
 import { themeEditorCommand } from './settings-appearance-editor';
 import { themeImportCommand } from './settings-appearance-import';
-import { aboutRows, updateCommand } from './settings-a-about';
+import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
 import { removeThemes, useCollectionDefaults } from './settings-a-collections';
 import type { DiffState } from './diff';
 import { notificationPermission, notificationPermissionMessage } from './shell-notify';
@@ -619,6 +619,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     return '';
   }
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
+  if (target.row === 'update-track') return updateTrackCommand(client, native, value);
   if (target.row === MOBILE_BETA_ROW) return mobileBetaCommand(client, native, target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.
