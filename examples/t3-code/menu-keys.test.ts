@@ -237,6 +237,18 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)');
   });
 
+  test('the Act on rows of More and of Check out have their own ids, so ↓ reaches the rows of the menu that is open', async () => {
+    // Real keys, 2026-10-09 (realinput-1009): More's ↓ stayed on "Fix findings" for each Act on row, because the key
+    // menu focused the row by id and the hidden Check out menu's row with that id came first.
+    const more = await component('pages-pr-actions.contract', 'PrdActionsMenu');
+    expect(more).toContain('KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label)');
+    expect(more).toContain('PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")');
+    const checkout = await source('pages-pr-handoffs.contract');
+    expect(checkout).toContain('KmItem(id=`pr-act-on-${item.key}`, label=item.label)');
+    expect(checkout).toContain('PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")');
+    expect(await component('pages-pr-links.contract', 'PrdActOnItem')).toContain('button id=`${idPrefix}${item.key}`');
+  });
+
   test('the confirmation takes the focus at Cancel: the asking control lets go of it first, so Cancel\'s autofocus applies; Cancel gives it back', async () => {
     // `autofocus` waits while a control holds the focus (HTML's rule); "…" held it, given back by the closing menu.
     expect(await component('pages-pr-actions.contract', 'PrdHeaderActions')).toContain('action ask(what: string)\n    blur()\n    local("pr-ui-ask", ref, what)');

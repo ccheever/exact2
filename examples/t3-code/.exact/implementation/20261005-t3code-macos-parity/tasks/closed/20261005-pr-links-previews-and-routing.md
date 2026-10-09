@@ -226,6 +226,8 @@ Act on row by default).
 
 ## Next action
 
+2026-10-09 (real-input batch `realinput-1009`, [record](https://raw.githubusercontent.com/ccheever/exact2/d39046d59d5c4e6eaefde8df99936b5e1d8228f0/realinput-1009/realinput-1009-record.txt)): section C passed by real keys in Check out; in More, ↓ skipped the Act on rows because both menus gave them the ids `pr-act-on-<key>` and the key menu focused the hidden Check out row. Fixed after the merge: More's rows are `pr-more-act-on-<key>` (`PrdActOnItems idPrefix`), guarded by `menu-keys.test.ts`, re-checked by real keys ([before and after](https://raw.githubusercontent.com/ccheever/exact2/1719212df0d6a77a505b99f1175317ea8c47c927/realinput-1009/ri-08-act-on-more-fix.png)). Section A passed but for onto the card (#327) and the commit link; section B's path and author tips showed; the rest stays in STATUS.
+
 2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #311 (`96c4c38f2`); the record moved to `tasks/closed/`. Its three real-input rows stay in `STATUS.md` "Next real-input batch".
 
 None for this task: the coordinator checks conflicts and moves the PR to ready. Three rows wait in STATUS "Next real-input
