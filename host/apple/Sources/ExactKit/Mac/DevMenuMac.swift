@@ -270,7 +270,7 @@ public enum DevMenu {
     }
 
     static func info() -> String {
-        var lines = BuildInfo.lines(ExactEnv.appMetadata) + [CommandLine.arguments[0]]
+        var lines = BuildInfo.lines(ExactEnv.appMetadata, device: BuildInfo.device()) + [CommandLine.arguments[0]]
         if let status = ExactApp.shared.connectionStatus { lines.append("url: \(status)") }
         if let path = ExactEnv.environment["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
@@ -289,11 +289,26 @@ public enum DevMenu {
         return lines.joined(separator: "\n")
     }
 
+    /// The release notes, scrollable, under the alert's text.
+    static func notesView(_ notes: String) -> NSView {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 160))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.string = notes
+        text.autoresizingMask = [.width]
+        scroll.documentView = text
+        return scroll
+    }
+
     static func showInfo() {
-        let text = info()
+        let shown = info(), notes = BuildInfo.notes(ExactEnv.appMetadata)
+        let text = BuildInfo.text([shown], notes: notes)
         let alert = NSAlert()
         alert.messageText = "Exact"
-        alert.informativeText = text
+        alert.informativeText = shown
+        if let notes { alert.accessoryView = notesView(notes) }
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Copy")
         if alert.runModal() == .alertSecondButtonReturn {

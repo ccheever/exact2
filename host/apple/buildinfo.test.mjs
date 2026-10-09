@@ -17,6 +17,10 @@ test('an app inside exact2 carries exact2\'s commit alone, and the kind', () => 
   expect(info.ExactCommit).toMatch(/^[0-9a-f]{40}$/);
   expect(typeof info.ExactCommitDirty).toBe('boolean');
   expect(info.ExactAppCommit).toBeUndefined();
+  expect(info.ExactAppBranch).toBeUndefined();
+  expect(info.ExactBuildHost).toBeTruthy();
+  expect(info.ExactReleaseNotes).toBeUndefined();
+  expect(buildInfo({ dir: root }, { root, now, env: { EXACT_DISTRIBUTION_REVISION: '7' } }).ExactDistributionRevision).toBe('7');
   expect(buildInfo({ dir: root }, { root, production: true, now }).ExactBuildKind).toBe('release');
   expect(buildInfo({ dir: root }, { root, archive: true, production: true, now }).ExactBuildKind).toBe('archive');
 });
@@ -31,6 +35,11 @@ test('an app in its own repository carries its commit and whether it was dirty',
   const clean = buildInfo({ dir }, { root, now });
   expect(clean.ExactAppCommit).toBe(commitOf(dir).sha);
   expect(clean.ExactAppCommitDirty).toBe(false);
+  expect(clean.ExactAppBranch).toBe(git('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim());
+  writeFileSync(resolve(dir, 'release-notes.md'), '\n- one\n- two\n\n');
+  git('add', '.');
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'notes');
+  expect(buildInfo({ dir }, { root, now }).ExactReleaseNotes).toBe('- one\n- two');
   git('config', 'status.showUntrackedFiles', 'no');
   writeFileSync(resolve(dir, 'new.contract'), 'component N\n');
   expect(buildInfo({ dir }, { root, now }).ExactAppCommitDirty).toBe(true);
