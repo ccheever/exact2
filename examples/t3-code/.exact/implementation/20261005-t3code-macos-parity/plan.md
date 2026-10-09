@@ -213,16 +213,16 @@ Wave 2:
 10. [shell-sidebar-palette-keys](tasks/closed/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
 11. [settings-rows-and-labels](tasks/closed/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
     S2-10, S2-9's row alignment. After 1 (`settings-core.ts`).
-12. [markdown-links-and-files-preview](tasks/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
+12. [markdown-links-and-files-preview](tasks/closed/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
     (`r4-surfaces-files.contract`). TH-9 matches the live reference (the user's "match the pin" rule).
 13. [notifications-all-environments](tasks/closed/20261009-notifications-all-environments.md): PG-10. Independent; it needs a
     two-server lane.
 
 Wave 3:
-14. [model-picker-parity](tasks/20261009-model-picker-parity.md): CO-1 to CO-4, CO-7, CO-11, S2-4. After 5, 10 and 11
+14. [model-picker-parity](tasks/closed/20261009-model-picker-parity.md): CO-1 to CO-4, CO-7, CO-11, S2-4. After 5, 10 and 11
     (`r3-composer-controls-fanout.ts`, `keyboard-dispatch.ts`, `settings-scheduled.contract`,
     `settings-source-control.contract`).
-15. [usage-and-pr-pages](tasks/20261009-usage-and-pr-pages.md): PG-2 to PG-7. After 9 (`pages-usage*.contract`).
+15. [usage-and-pr-pages](tasks/closed/20261009-usage-and-pr-pages.md): PG-2 to PG-7. After 9 (`pages-usage*.contract`).
 
 Real-input rows: SH-1, PA-12, S1-3, S1-4, S1-12, S2-5, PG-9 and PG-10's system notification. Run them in one batch while
 the screen is unlocked. PG-9's grant row needs the user present.
