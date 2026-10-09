@@ -90,7 +90,11 @@ final class T3MobileModule: ExactModule {
     private let document: T3MobileDocument
     let media: T3MobileMedia
     private let attachments: T3MobileAttachments
+    private var shareForegroundObserver: NSObjectProtocol?
     private let homePreferences: T3MobilePreferences
+    private let clientCache: T3MobileClientCache
+    private var faviconDownload: T3MobileFaviconDownload?
+    private let clientCacheQueue = DispatchQueue(label: "t3.mobile-client-cache-bridge", qos: .utility)
 
     required init(context: ExactModuleContext) {
         let audioSession = T3MobileAudioSession()
@@ -104,6 +108,7 @@ final class T3MobileModule: ExactModule {
         let queuedEdits = T3MobileQueuedEdit.shared(root: directory)
         self.queuedEdits = queuedEdits
         documentRoot = directory
+        clientCache = T3MobileClientCache(directory: directory.appendingPathComponent("mobile-client-cache", isDirectory: true))
         document = T3MobileDocument(dataRoot: directory)
         media = T3MobileMedia(dataRoot: directory, audioSession: audioSession)
         attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
@@ -119,6 +124,9 @@ final class T3MobileModule: ExactModule {
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved,
                         activity: activity, queuedEdits: queuedEdits, changed: context.changed)
         super.init(context: context)
+        shareForegroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.alive else { return }; self.context.changed("t3.incoming-shares")
+        }
     }
 
     override func tabContainer(_ contents: ExactTabContents) -> UIViewController? { workspace.container(contents) }
@@ -160,17 +168,73 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if request["op"] as? String == "forgetEnvironment" {
+            forgetEnvironment(request, reply: reply)
+            return
+        }
+        if request["op"] as? String == "mobileFaviconImage" {
+            guard let requestId = request["requestId"] as? String, !requestId.isEmpty else {
+                reply.fail("Choose a project icon request."); return
+            }
+            let generation = request["generation"] ?? 0
+            if request["action"] as? String == "cancel" {
+                faviconDownload?.cancel(requestId: requestId)
+                reply.send(["ok": true, "generation": generation, "value": [:]])
+            } else if request["action"] as? String == "load",
+                      let text = request["url"] as? String, let url = URL(string: text) {
+                let download = faviconDownload ?? T3MobileFaviconDownload()
+                faviconDownload = download
+                download.load(requestId: requestId, url: url) { result in
+                    switch result {
+                    case .success(let dataUrl):
+                        reply.send(["ok": true, "generation": generation, "value": ["dataUrl": dataUrl]])
+                    case .failure(let error):
+                        let cancelled = error is CancellationError
+                        reply.send(["ok": false, "generation": generation, "error": [
+                            "kind": cancelled ? "Cancelled" : "Favicon",
+                            "message": cancelled ? "Project icon request was cancelled." : error.localizedDescription]])
+                    }
+                }
+            } else {
+                reply.send(["ok": false, "generation": generation,
+                    "error": ["kind": "Favicon", "message": "Project icon request is invalid."]])
+            }
+            return
+        }
+        if request["op"] as? String == "mobileClientCache" {
+            let owner = clientCache
+            clientCacheQueue.async {
+                do {
+                    let value = try owner.request(request)
+                    DispatchQueue.main.async {
+                        reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                    }
+                } catch {
+                    let message = error.localizedDescription
+                    DispatchQueue.main.async {
+                        reply.send(["ok": false, "generation": request["generation"] ?? 0,
+                                    "error": ["kind": "Cache", "message": message]])
+                    }
+                }
+            }
+            return
+        }
         if request["op"] as? String == "mobileIncomingShares" {
             // GAP 006: inbox adoption is local; this build has no Share Extension producer.
             let owner = queuedEdits
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let value = try owner.incomingShares(request)
-                    DispatchQueue.main.async { reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value]) }
+                    DispatchQueue.main.async { [weak self] in
+                        reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                        if request["action"] as? String != "read", let self, self.alive { self.context.changed("t3.incoming-shares") }
+                    }
                 } catch {
                     let message = error.localizedDescription
-                    DispatchQueue.main.async { reply.send(["ok": false, "generation": request["generation"] ?? 0,
-                        "error": ["kind": "IncomingShare", "message": message]]) }
+                    DispatchQueue.main.async { [weak self] in
+                        reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": ["kind": "IncomingShare", "message": message]])
+                        if request["action"] as? String != "read", let self, self.alive { self.context.changed("t3.incoming-shares") }
+                    }
                 }
             }
             return
@@ -352,6 +416,10 @@ final class T3MobileModule: ExactModule {
             let kind = request["kind"] as? String ?? "info"
             let buttons: [(String, String, UIAlertAction.Style)] = kind == "remove"
                 ? [("cancel", "Cancel", .cancel), ("remove", "Remove", .destructive)]
+                : kind == "clear-client-cache"
+                    ? [("cancel", "Cancel", .cancel), ("clear", "Clear Cache", .destructive)]
+                : kind == "clear-client-caches"
+                    ? [("cancel", "Cancel", .cancel), ("clear", "Clear All Caches", .destructive)]
                 : kind == "sign-out"
                     ? [("cancel", "Cancel", .cancel), ("sign-out", "Sign out", .destructive)]
                 : kind == "delete"
@@ -360,6 +428,10 @@ final class T3MobileModule: ExactModule {
                     ? [("cancel", "Cancel", .cancel), ("discard", "Discard", .destructive)]
                 : kind == "update"
                     ? [("cancel", "Cancel", .cancel), ("update", "Update", .default)]
+                : kind == "share-import"
+                    ? [("cancel-import", "Cancel import", .cancel), ("retry", "Retry", .default)]
+                : kind == "share-cancel"
+                    ? [("retry-import", "Retry import", .default), ("retry-cancel", "Retry cancel", .default)]
                 : kind == "camera-settings"
                     ? [("cancel", "Cancel", .cancel), ("settings", "Open Settings", .default)]
                     : [("ok", "OK", .default)]
@@ -408,8 +480,41 @@ final class T3MobileModule: ExactModule {
         }
     }
 
+    // @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+    // Forget must retire durable cache even when Exact abandons the reply.
+    private func forgetEnvironment(_ request: [String: Any], reply: ExactReply) {
+        guard let environmentId = request["environmentId"] as? String,
+              !environmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              environmentId.utf8.count <= 512, !environmentId.contains("\0") else {
+            reply.send(["ok": false, "generation": request["generation"] ?? 0,
+                        "error": ["kind": "Arguments", "message": "Choose an environment to forget."]])
+            return
+        }
+        let owner = clientCache, queue = clientCacheQueue
+        let completed: ([String: Any]) -> Void = { result in
+            guard result["ok"] as? Bool == true else { reply.send(result); return }
+            // Do not gate on module or answer lifetime after the real forget
+            // succeeded. This owner and queue finish the admitted local cleanup.
+            queue.async {
+                let response: [String: Any]
+                do {
+                    _ = try owner.request(["action": "clear", "environmentId": environmentId])
+                    response = result
+                } catch {
+                    response = ["ok": false, "generation": result["generation"] ?? 0,
+                                "error": ["kind": "Cache", "message": "The environment was forgotten, but its offline cache could not be cleared."]]
+                }
+                DispatchQueue.main.async { reply.send(response) }
+            }
+        }
+        if let key = request["fleet"] as? String { fleet.perform(key, request, completion: completed) }
+        else { transport.perform(request, completion: completed) }
+    }
+
     override func destroy() {
         alive = false
+        faviconDownload?.shutdown(); faviconDownload = nil
+        if let shareForegroundObserver { NotificationCenter.default.removeObserver(shareForegroundObserver) }; shareForegroundObserver = nil
         homeSwipes.destroy()
         homeChrome.rowMenus.destroy()
         homeChrome.customSnooze.destroy()

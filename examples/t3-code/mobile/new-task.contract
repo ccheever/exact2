@@ -4,6 +4,7 @@ use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
 component NewTaskProjects
   props
     data: NewTaskSnapshot
+    reservedProject: string
     action: action
     addProject: action
     addEnvironment: action
@@ -12,7 +13,7 @@ component NewTaskProjects
   view
     list flex=1 min-height=0 padding-left=20 padding-right=20 padding-top=8 padding-bottom=36 background-color=colors.sheet
       when data.canStartScratch and data.hasProjects
-        button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect or data.pendingEditor) aria-label="No project" text-align="left" border-radius=24 background-color=colors.groupedCard margin-bottom=12 padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25
+        button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect or data.pendingEditor or reservedProject != "") aria-label="No project" text-align="left" border-radius=24 background-color=colors.groupedCard margin-bottom=12 padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25
           row align-items="center" gap=10.5
             column width=24.5 height=24.5 align-items="center" justify-content="center"
               t3-symbol symbol-name="text.bubble" point-size=18 symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18
@@ -32,11 +33,11 @@ component NewTaskProjects
               button press=addProject testId="new-task-empty-add-project" border-radius=999 background-color=colors.primary padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
                 text "Add new project" font-size=14 line-height="19px" font-weight=700 color=primaryForeground
               when data.canStartScratch
-                button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect or data.pendingEditor) border-radius=999 background-color=colors.subtle padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
+                button press=action("scratch", data.scratchTarget, "") disabled=(not data.canSelect or data.pendingEditor or reservedProject != "") border-radius=999 background-color=colors.subtle padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75
                   text "Start without a project" font-size=14 line-height="19px" font-weight=700 color=colors.foreground
       column border-radius=24 overflow="hidden" background-color=colors.groupedCard
         each project in data.projects key=project.id
-          button press=action("project", project.id, "") disabled=project.disabled text-align="left"
+          button press=action("project", project.id, "") disabled=(project.disabled or (reservedProject != "" and reservedProject != project.id)) text-align="left"
             padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25 background-color=colors.groupedCard
             border-bottom-width=(project.last ? 0 : 1) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
             row align-items="center" gap=10.5

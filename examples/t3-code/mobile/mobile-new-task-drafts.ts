@@ -55,7 +55,7 @@ export function mobileNewTaskDraftHydrate(client: T3Client, saved: Obj): void {
       || !Number.isSafeInteger(record.revision) || Number(record.revision) < 0 || !Number.isFinite(Date.parse(str(record.createdAt)))) continue;
     const choices = obj(record.choices), branchChoice = decodeBranchChoice(record.branchChoice);
     records[key] = { key, environmentId: str(record.environmentId), projectId: str(record.projectId), origin: str(record.origin),
-      createdAt: str(record.createdAt), revision: Number(record.revision), choices: decodeChoices(choices),
+      createdAt: str(record.createdAt), revision: Number(record.revision), choices: record.choices === null ? null : decodeChoices(choices),
       ...(branchChoice ? { branchChoice } : {}),
       ...(Object.hasOwn(record, 'context') ? { context: mobileNewTaskDraftClone(record.context) } : {}) };
   }

@@ -1,6 +1,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#incoming-share-inbox
 // Called exclusively under T3MobileQueuedEdit's preference/attachment mutex.
 import Foundation
+import CoreFoundation
 import CryptoKit
 
 final class T3MobileIncomingShareTransfer {
@@ -42,7 +43,7 @@ final class T3MobileIncomingShareTransfer {
         for (id, record) in records {
             guard UUID(uuidString: id) != nil, record["adoptionId"] as? String == id,
                   let share = record["shareId"] as? String, share.count == 70, share.hasPrefix("share-"),
-                  let phase = record["phase"] as? String, ["reserved", "staging", "staged", "consumed", "released"].contains(phase),
+                  let phase = record["phase"] as? String, ["reserved", "staging", "staged", "consumed", "released", "cancelling", "cancelled"].contains(phase),
                   let entry = record["entry"] as? Object, entry["id"] as? String == share,
                   let attachments = entry["attachments"] as? [Object],
                   let selected = record["attachmentIds"] as? [String], Set(selected).count == selected.count,
@@ -53,7 +54,16 @@ final class T3MobileIncomingShareTransfer {
             let decoded = try JSONDecoder().decode(T3MobileIncomingShares.Entry.self, from: encoded)
             guard decoded.schemaVersion == 1, UUID(uuidString: decoded.instanceId) != nil, ISO8601DateFormatter().date(from: decoded.createdAt) != nil else { throw fail("The saved incoming share entry is invalid.") }
             _ = try destination(record["destination"])
-            if !["consumed", "released"].contains(phase) {
+            for field in ["baselineDraft", "adoptionDraft", "cancelFrom", "cancelDraft"] where record[field] != nil {
+                guard let draft = record[field] as? Object, validProjection(draft) else { throw fail("The incoming share draft snapshot is invalid.") }
+            }
+            if ["cancelling", "cancelled"].contains(phase) {
+                guard record["cancelFrom"] is Object, record["cancelDraft"] is Object,
+                      let flag = record["cancelHadReceipt"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else {
+                    throw fail("The incoming share cancellation is invalid.")
+                }
+            }
+            if !["consumed", "released", "cancelled"].contains(phase) {
                 guard active.insert(share).inserted, selected.allSatisfy({ bytes.insert($0).inserted }) else { throw fail("Incoming share ownership overlaps.") }
             }
             guard selected.allSatisfy({ selectedID in attachments.contains { $0["id"] as? String == selectedID } }) else { throw fail("The saved incoming share attachment is invalid.") }
@@ -61,7 +71,7 @@ final class T3MobileIncomingShareTransfer {
         return records
     }
     static func protects(_ id: String, records raw: Any?) throws -> Bool {
-        try records(raw).values.contains { !["consumed", "released"].contains($0["phase"] as? String ?? "") && ($0["attachmentIds"] as? [String] ?? []).contains(id) }
+        try records(raw).values.contains { !["consumed", "released", "cancelled"].contains($0["phase"] as? String ?? "") && ($0["attachmentIds"] as? [String] ?? []).contains(id) }
     }
     private func descriptors(_ record: Object) -> [Object] {
         let entry = record["entry"] as! Object, all = entry["attachments"] as! [Object]
@@ -70,11 +80,84 @@ final class T3MobileIncomingShareTransfer {
     private func response(_ record: Object) -> Object {
         let consumed = record["phase"] as? String == "consumed"
         return ["adoptionId": record["adoptionId"]!, "entry": consumed ? NSNull() : record["entry"]!,
-                "attachments": descriptors(record), "consumed": consumed]
+                "attachments": descriptors(record), "consumed": consumed,
+                "cancelled": record["phase"] as? String == "cancelled", "restoredDraft": record["cancelDraft"] ?? NSNull()]
     }
     private func path(_ attachment: Object) -> URL {
         root.appendingPathComponent(attachment["kind"] as? String == "image" ? "snapshots/drafts" : "composer-files", isDirectory: true)
             .appendingPathComponent(attachment["id"] as! String)
+    }
+    /// Same canonical draft projection as T3OutboxDraftHandoff; kept Foundation-only
+    /// so this owner can be exercised without the UIKit/native module build.
+    static func projection(_ preferences: Object, key: String) -> Object {
+        let controls = preferences["composerControls"] as? Object ?? [:]
+        let metadata = (preferences["mobileNewTaskDrafts"] as? Object)?["records"] as? [String: Object] ?? [:]
+        let recovered = (preferences["mobileRecoveredDrafts"] as? [String: Object] ?? [:]).filter { $0.value["key"] as? String == key }
+        return ["text": (preferences["drafts"] as? Object)?[key] ?? "",
+            "images": (preferences["snapshotDrafts"] as? Object)?[key] ?? [Object](),
+            "files": (preferences["composerFiles"] as? [Object] ?? []).filter { $0["draftKey"] as? String == key },
+            "metadata": metadata[key].map { $0 as Any } ?? NSNull(),
+            "staged": (controls["staged"] as? Object)?[key] ?? NSNull(),
+            "workspace": (controls["contexts"] as? Object)?[key] ?? NSNull(),
+            "order": (preferences["mobileAttachmentOrder"] as? Object)?[key] ?? [String](), "recovered": recovered]
+    }
+    private static func validProjection(_ value: Object) -> Bool {
+        Set(value.keys) == Set(["text", "images", "files", "metadata", "staged", "workspace", "order", "recovered"])
+            && value["text"] is String && value["images"] is [Object] && value["files"] is [Object]
+            && value["metadata"] is Object && value["order"] is [String] && value["recovered"] is [String: Object]
+            && ["staged", "workspace"].allSatisfy { value[$0] is Object || value[$0] is NSNull }
+    }
+    private static func revision(_ metadata: Object) throws -> Int {
+        guard let number = metadata["revision"] as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue >= 0, number.doubleValue < 9_007_199_254_740_991,
+              number.doubleValue == Double(number.intValue) else { throw fail("The draft revision is invalid.") }
+        return number.intValue
+    }
+    private static func baseline(_ preferences: Object, destination: Object) throws -> Object {
+        let key = destination["draftKey"] as! String, snapshot = projection(preferences, key: key)
+        guard let metadata = snapshot["metadata"] as? Object, metadata["key"] as? String == key,
+              ["environmentId", "projectId", "origin"].allSatisfy({ equal(metadata[$0], destination[$0]) }) else {
+            throw fail("Save the exact project draft before reserving incoming content.")
+        }
+        _ = try revision(metadata)
+        return snapshot
+    }
+    /// The first receipt-bearing write freezes the exact post-import projection
+    /// before replacing preferences, including a write whose reply is later lost.
+    static func captureAdoptions(_ document: Object, previous: Object, records raw: Any?) throws -> [String: Object] {
+        var records = try records(raw)
+        for (key, receipts) in try imports(document) {
+            for id in receipts.keys {
+                guard var record = records[id], record["phase"] as? String == "staged", record["adoptionDraft"] == nil else { continue }
+                guard equal(projection(previous, key: key), record["baselineDraft"]), try imports(previous)[key]?[id] == nil else {
+                    throw fail("The draft changed before this import was saved. Keep the newer draft and inbox.")
+                }
+                record["adoptionDraft"] = projection(document, key: key); records[id] = record
+            }
+        }
+        return records
+    }
+    private static func restoring(_ projection: Object, key: String, id: String, into document: Object) throws -> Object {
+        var next = document
+        func set(_ field: String, _ value: Any) {
+            var values = next[field] as? Object ?? [:]; values[key] = value; next[field] = values
+        }
+        set("drafts", projection["text"]!); set("snapshotDrafts", projection["images"]!); set("mobileAttachmentOrder", projection["order"]!)
+        next["composerFiles"] = (next["composerFiles"] as? [Object] ?? []).filter { $0["draftKey"] as? String != key } + (projection["files"] as! [Object])
+        var store = next["mobileNewTaskDrafts"] as? Object ?? [:], metadata = store["records"] as? Object ?? [:]
+        metadata[key] = projection["metadata"]!; store["records"] = metadata; next["mobileNewTaskDrafts"] = store
+        var controls = next["composerControls"] as? Object ?? [:]
+        for (field, part) in [("staged", "staged"), ("contexts", "workspace")] {
+            var values = controls[field] as? Object ?? [:]
+            if projection[part] is NSNull { values.removeValue(forKey: key) } else { values[key] = projection[part]! }
+            controls[field] = values
+        }
+        next["composerControls"] = controls
+        var recovered = (next["mobileRecoveredDrafts"] as? [String: Object] ?? [:]).filter { $0.value["key"] as? String != key }
+        recovered.merge(projection["recovered"] as! [String: Object]) { _, new in new }; next["mobileRecoveredDrafts"] = recovered
+        var receipts = try imports(next), entries = receipts[key] ?? [:]
+        entries.removeValue(forKey: id); receipts[key] = entries; next["mobileIncomingShareImports"] = receipts
+        return next
     }
     private static func marker(_ record: Object) -> Object {
         ["version": 1, "shareId": record["shareId"]!, "adoptionId": record["adoptionId"]!,
@@ -129,19 +212,26 @@ final class T3MobileIncomingShareTransfer {
         for (key, entries) in prior {
             for (id, marker) in entries where !equal(proposed[key]?[id], marker) { throw fail("Preserve the saved incoming share receipt when saving this draft.") }
         }
+        for record in records.values where record["phase"] as? String == "cancelling" {
+            let key = (record["destination"] as! Object)["draftKey"] as! String, id = record["adoptionId"] as! String
+            guard equal(projection(previous, key: key), projection(next, key: key)), equal(prior[key]?[id], proposed[key]?[id]) else {
+                throw fail("Finish cancelling this incoming share before changing its draft.")
+            }
+        }
         var seen = Set<String>()
         for (key, entries) in proposed {
             for (id, marker) in entries {
                 guard seen.insert(id).inserted, let record = records[id],
                       (record["destination"] as? Object)?["draftKey"] as? String == key,
-                      ["staged", "consumed"].contains(record["phase"] as? String ?? ""), equal(marker, Self.marker(record)) else {
+                      ["staged", "consumed", "cancelling"].contains(record["phase"] as? String ?? ""), equal(marker, Self.marker(record)) else {
                     throw fail("The incoming share receipt does not match its reserved draft.")
                 }
-                if record["phase"] as? String != "consumed" { try evidence(next, record: record, records: records) }
+                if record["phase"] as? String == "staged" { try evidence(next, record: record, records: records) }
             }
         }
     }
-    func request(_ request: Object, records raw: Any?, preferences: Object, save: ([String: Object]) throws -> Void) throws -> Object {
+    func request(_ request: Object, records raw: Any?, preferences: Object, save: ([String: Object]) throws -> Void,
+                 writePreferences: (Object) throws -> Void = { _ in throw T3MobileIncomingShareTransfer.fail("The draft preference writer is unavailable.") }) throws -> Object {
         var records = try Self.records(raw)
         let action = request["action"] as? String ?? "read"
         if action == "read" {
@@ -149,20 +239,25 @@ final class T3MobileIncomingShareTransfer {
             for record in records.values where record["phase"] as? String == "consumed" {
                 try inbox.remove(record["shareId"] as! String, adoptionID: record["adoptionId"] as! String)
             }
-            let active = records.values.filter { !["consumed", "released"].contains($0["phase"] as? String ?? "") }
+            let active = records.values.filter { !["consumed", "released", "cancelled"].contains($0["phase"] as? String ?? "") }
             let reservations = active.map { record -> Object in
                 ["shareId": record["shareId"]!, "adoptionId": record["adoptionId"]!, "destination": record["destination"]!,
-                 "attachmentIds": record["attachmentIds"]!, "phase": record["phase"] as? String == "reserved" ? "reserved" : "staged"]
+                 "attachmentIds": record["attachmentIds"]!, "phase": record["phase"] as? String == "cancelling" ? "cancelling" : record["phase"] as? String == "reserved" ? "reserved" : "staged"]
             }
             return ["available": false, "entries": try inbox.entries().map(Self.object), "reservations": reservations]
         }
         guard let share = request["shareId"] as? String else { throw Self.fail("Choose a saved incoming share.") }
         let destination = try Self.destination(request["destination"])
         if action == "reserve" {
-            if let existing = records.values.first(where: { $0["shareId"] as? String == share && !["consumed", "released"].contains($0["phase"] as? String ?? "") }) {
+            if let existing = records.values.first(where: { $0["shareId"] as? String == share && !["consumed", "released", "cancelled"].contains($0["phase"] as? String ?? "") }) {
                 guard Self.equal(existing["destination"], destination) else { throw Self.fail("This share is reserved for another project draft.") }
                 guard try inbox.read(share)?.instanceId == (existing["entry"] as? Object)?["instanceId"] as? String else {
                     throw Self.fail("The reserved incoming share instance changed.")
+                }
+                let key = destination["draftKey"] as! String, adoption = existing["adoptionId"] as! String
+                guard Self.equal(Self.projection(preferences, key: key), existing["baselineDraft"]),
+                      try Self.imports(preferences)[key]?[adoption] == nil else {
+                    throw Self.fail("The draft changed after this reservation. Finish or cancel its existing import first.")
                 }
                 try inbox.bind(share, adoptionID: existing["adoptionId"] as! String)
                 try save(records) // A previous publish may have lost its durability reply.
@@ -174,13 +269,17 @@ final class T3MobileIncomingShareTransfer {
             }
             guard let entry = try inbox.read(share) else { throw Self.fail("The incoming share is no longer available.") }
             let id = UUID().uuidString.lowercased()
-            let record: Object = ["adoptionId": id, "shareId": share, "destination": destination, "entry": try Self.object(entry), "attachmentIds": [String](), "phase": "reserved"]
+            let record: Object = ["adoptionId": id, "shareId": share, "destination": destination, "entry": try Self.object(entry), "attachmentIds": [String](), "phase": "reserved", "baselineDraft": try Self.baseline(preferences, destination: destination)]
             records[id] = record
             try save(records); try inbox.bind(share, adoptionID: id)
             return response(record)
         }
         guard let id = request["adoptionId"] as? String, var record = records[id], record["shareId"] as? String == share,
               Self.equal(record["destination"], destination) else { throw Self.fail("The incoming share reservation changed.") }
+        if action == "cancel" {
+            return try cancel(record, expectedDraft: request["expectedDraft"], records: &records, preferences: preferences, save: save, writePreferences: writePreferences)
+        }
+        if ["cancelling", "cancelled"].contains(record["phase"] as? String ?? "") { throw Self.fail("This incoming share is being cancelled or was cancelled.") }
         if record["phase"] as? String == "consumed" {
             guard action == "consume" || action == "stage" else { throw Self.fail("This incoming share was already adopted.") }
             try save(records); try inbox.remove(share, adoptionID: id)
@@ -247,4 +346,47 @@ final class T3MobileIncomingShareTransfer {
         }
         throw Self.fail("Unknown incoming share action.")
     }
+    private func cancel(_ saved: Object, expectedDraft: Any?, records: inout [String: Object], preferences: Object,
+                        save: ([String: Object]) throws -> Void, writePreferences: (Object) throws -> Void) throws -> Object {
+        var record = saved
+        let id = record["adoptionId"] as! String, share = record["shareId"] as! String
+        let key = (record["destination"] as! Object)["draftKey"] as! String
+        guard !["consumed", "released"].contains(record["phase"] as? String ?? "") else { throw Self.fail("This share was already adopted or released; its draft was kept.") }
+        guard let expectedDraft = expectedDraft as? Object,
+              ["baselineDraft", "adoptionDraft", "cancelDraft"].contains(where: { Self.equal(expectedDraft, record[$0]) }) else {
+            throw Self.fail("The local draft changed after this import. Its content was kept.")
+        }
+        if record["phase"] as? String == "cancelled" {
+            guard Self.equal(Self.projection(preferences, key: key), record["cancelDraft"]) else {
+                throw Self.fail("This cancellation already finished and the draft has newer edits.")
+            }
+            try save(records); try inbox.unbind(share, adoptionID: id)
+            return response(record) // Never restore twice, even after later edits.
+        }
+        let current = Self.projection(preferences, key: key), imported = try Self.imports(preferences)[key]?[id]
+        if record["phase"] as? String != "cancelling" {
+            guard var baseline = record["baselineDraft"] as? Object, var metadata = baseline["metadata"] as? Object,
+                  let currentMetadata = current["metadata"] as? Object else { throw Self.fail("This import has no saved draft baseline for cancellation.") }
+            let beforeWrite = imported == nil && Self.equal(current, baseline)
+            let afterWrite = Self.equal(imported, Self.marker(record)) && Self.equal(current, record["adoptionDraft"])
+            guard beforeWrite || afterWrite else { throw Self.fail("The draft changed after this import. Cancellation would overwrite newer edits.") }
+            metadata["revision"] = max(try Self.revision(metadata), try Self.revision(currentMetadata)) + 1
+            baseline["metadata"] = metadata
+            record["cancelFrom"] = current; record["cancelHadReceipt"] = imported != nil
+            record["cancelDraft"] = baseline; record["phase"] = "cancelling"; records[id] = record
+            try save(records) // Retains bytes and blocks a late consume before the restore.
+        }
+        guard let restored = record["cancelDraft"] as? Object,
+              (Self.equal(current, record["cancelFrom"]) && ((record["cancelHadReceipt"] as? Bool == true && Self.equal(imported, Self.marker(record)))
+                  || (record["cancelHadReceipt"] as? Bool == false && imported == nil)))
+                || (Self.equal(current, restored) && imported == nil) else {
+            throw Self.fail("The draft changed while cancelling this import. Its content and inbox were kept.")
+        }
+        let next = try Self.restoring(restored, key: key, id: id, into: preferences)
+        try writePreferences(next) // The existing coordinator writer durably replaces this exact document.
+        record["phase"] = "cancelled"; records[id] = record; try save(records)
+        try inbox.unbind(share, adoptionID: id)
+        return response(record)
+    }
+
 }

@@ -77,7 +77,29 @@ routes nav
     environments "/settings/environments"
     environmentDetail "/settings/environments/:environmentKey"
     notfound
+shape IncomingShareInbox
+  ready: bool
+  available: bool
+  error: string
+  revision: number
+shape IncomingSharePresentation
+  inboxRevision: number
+  previousState: string
+  state: string
+  location: string
+  requestRoute: string
 component App
+  state incomingShareState = ""
+  derive incomingShareSheetMounted = length(filter(stack(nav), entry => startsWith(entry.name, "newTask") or startsWith(entry.name, "addProject"))) > 0
+  resource incomingShareInbox = incomingShareInbox() as shape IncomingShareInbox
+  resource incomingShare = incomingSharePresentation(incomingShareState, incomingShareSheetMounted, `${top(nav).id}`, incomingShareInbox.revision) as shape IncomingSharePresentation
+  task presentIncomingShare when incomingShare.state != incomingShareState key=`${incomingShare.requestRoute}:${incomingShare.previousState}:${incomingShare.state}:${incomingShare.inboxRevision}`
+    after(1, presentIncomingShare)
+  action presentIncomingShare
+    if incomingShare.inboxRevision == incomingShareInbox.revision and incomingShare.requestRoute == `${top(nav).id}` and incomingShare.previousState == incomingShareState and (incomingShare.location == "" or not incomingShareSheetMounted)
+      incomingShareState = incomingShare.state
+      if incomingShare.location != ""
+        nav = push(nav, incomingShare.location)
   resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape MobileOutboxDrive
   mutation outboxChanged as shape Change refreshes data, threadData, outbox
   mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
@@ -245,10 +267,10 @@ component App
   mutation detailChanged as shape Change refreshes data, detail
   state informationQuery = ""
   resource informationRoute = informationRoute(top(nav).name) as shape InformationRoute
-  resource informationRead = informationPrepare(top(nav).name, data.ready) as shape InformationRead
-  resource informationData = informationSnapshot(informationQuery, top(nav).params.entryKey, informationRead) as shape InformationData
+  resource informationRead = informationPrepare(top(nav).name, `${top(nav).id}`, data.ready) as shape InformationRead
+  resource informationData = informationSnapshot(informationQuery, top(nav).params.entryKey, informationRead, pending(informationChanged), appearance.scheme, appearance.themeId) as shape InformationData
   resource informationLegal = informationLegal(`${top(nav).id}`, "legal-close", settingsData.root.colors) as shape InformationConfiguration
-  mutation informationChanged as shape InformationChange then didInformationChange
+  mutation informationChanged as shape InformationChange refreshes informationRead, informationData, data then didInformationChange
   action informationCommand(op: string, value: string)
     send informationChanged = informationCommand(op, value, `${top(nav).id}`)
   action didInformationChange
@@ -1084,7 +1106,7 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = startsWith(top(nav).name, "newTask")
   derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now()), incomingShareInbox.revision) as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
@@ -1129,12 +1151,12 @@ component App
     nav = push(nav, path("addProject"))
   derive taskGuardOwner = newTaskActive ? newTaskFlow.owner : ""
   derive taskGuardRoute = newTaskActive ? `${top(nav).id}` : ""
-  task prepareNewTask when newTaskFlow.needsPrepare key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}`
+  task prepareNewTask when newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}:${newTaskFlow.shareAttempt}`
     after(1, prepareNewTask)
   task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
     after(1, redirectNewTask)
   action prepareNewTask
-    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare
+    if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
       send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + now())
   action redirectNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)

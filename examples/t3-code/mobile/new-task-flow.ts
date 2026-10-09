@@ -1,3 +1,6 @@
+import { newTaskShare, newTaskSharePending, newTaskShareReady, newTaskShareRun, type NewTaskShare } from './new-task-share';
+import { incomingShareID } from './incoming-share-model';
+import { mobileIncomingShare, mobileIncomingShareReservation, incomingShareSubtitle } from './incoming-share-inbox';
 import { mobilePendingTaskRecover } from './mobile-pending-task-recovery';
 import { mobilePendingTaskEditorsSnapshot, mobilePendingTaskEditorKey } from './mobile-pending-task-state';
 import { mobileNewTaskRestoredContext, mobileNewTaskRestoredProject } from './new-task-restored-context';
@@ -31,7 +34,7 @@ import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobi
   mobileNewTaskTransferGuardRelease, type NewTaskTransferLease } from './new-task-transfer-guard';
 
 export interface NewTaskFlowSnapshot {
-  owner: string; requestRoute: string; pendingEditor: boolean; status: string; title: string; message: string;
+  owner: string; requestRoute: string; pendingEditor: boolean; status: string; title: string; message: string; subtitle: string; reservedProject: string; shareAttempt: number;
   draftOwner: string; ready: boolean; fileReady: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
   recovery: { visible: boolean; blocked: boolean; message: string; actions: Array<{ key: string; label: string }> };
 }
@@ -43,7 +46,7 @@ interface Selection { environmentId: string; projectId: string; draftKey: string
 interface Flow {
   session: string; owner: string; visit: string; location: string; active: boolean; serial: number;
   draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
-  recovery?: MobileNewTaskTransferRecoveryView;
+  recovery?: MobileNewTaskTransferRecoveryView; share?: NewTaskShare;
   recoveredRoute?: string;
   pendingRoute?: MobileNewTaskPendingRoute; pendingEditor?: MobilePendingTaskEditorResult;
 }
@@ -73,13 +76,13 @@ export function mobileNewTaskRoute(location: string) {
       : /^\/new\/draft\/attachments\/[^/]+$/.test(path) ? 'attachment'
       : /^\/new\/draft\/files\/.+$/.test(path) ? 'file'
         : /^\/new\/draft\/settings\/(?:runtime|providers|options\/[^/]+)$/.test(path) ? 'settings-child' : '');
-  const unsupported = ['incomingShareId'].find(key => !!query.get(key))
-    ?? (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
+  const unsupported = query.has('incomingShareId') && !incomingShareID(query.get('incomingShareId')) ? 'incomingShareId'
+    : (query.get('cloning') && query.get('cloning') !== '1' ? 'cloning' : '');
   const param = (key: string) => { const value = query.get(key); return value?.trim() ? value : ''; };
   const environmentId = param('environmentId'), projectId = param('projectId'), cwd = param('cwd'), pendingTaskId = param('pendingTaskId');
   const pendingConflict = !!pendingTaskId && (context !== 'draft' || !environmentId || !projectId || ['draftId', 'branch', 'worktreePath', 'cloning', 'incomingShareId'].some(key => query.has(key)));
   const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !param('draftId') && !unsupported;
-  return { chooser, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, draftId: param('draftId'),
+  return { chooser, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, incomingShareId: param('incomingShareId'), draftId: param('draftId'),
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported: mobileNewTaskDraftIsPendingKey(param('draftId')) ? 'draftId' : pendingConflict ? 'pendingTaskId' : unsupported };
 }
 
@@ -101,16 +104,38 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
     flow.serial++; flow.error = ''; flow.visit = visit; flow.location = location; flow.active = active;
   }
   const route = mobileNewTaskRoute(location), explicit = !!route.environmentId && !!route.projectId;
+  if (active && !route.unsupported && route.incomingShareId && !flow.share) flow.share = newTaskShare(route.incomingShareId, client);
+  const conflictingShare = !!route.incomingShareId && !!flow.share && flow.share.id !== route.incomingShareId;
+  const incoming = flow.share ? mobileIncomingShare(client, flow.share.id) : null;
+  const reservation = flow.share ? mobileIncomingShareReservation(client, flow.share.id) : null;
   flow.readyVisit = '';
   const selected = !!flow.draftKey && mobileNewTaskDraftCurrent(client)?.key === flow.draftKey && sameSelection(flow.selected, client) && (!!mobileNewTaskPendingContext(client) || !!mobileNewTaskRestoredContext(client) || projectExists(client.environmentId, client.projectId, client, background));
-  const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, pendingEditor: !!route.pendingTaskId || !!flow.pendingRoute, status: 'inactive', title: 'New task', message: flow.error,
+  const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, pendingEditor: !!route.pendingTaskId || !!flow.pendingRoute, status: 'inactive', title: 'New task', message: flow.error, subtitle: incomingShareSubtitle(incoming),
+    shareAttempt: flow.share?.attempt ?? 0, reservedProject: reservation ? JSON.stringify([reservation.destination.environmentId, reservation.destination.projectId]) : '',
     recovery: { ...mobileNewTaskTransferRecoveryPresentation(flow.recovery?.draftKey === flow.draftKey ? flow.recovery : null),
       blocked: !!flow.recovery && flow.recovery.draftKey === flow.draftKey && flow.recovery.blocksSend },
     draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
     ready: false, fileReady: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
   if (!active) { mobileNewTaskDraftUnbind(client, flow.owner); return base; }
   if (route.context === 'add-project') return { ...base, status: 'add-project', title: 'Add project' };
-  if (route.chooser) return { ...base, status: 'choose', title: 'Choose project' };
+  if (route.unsupported) return { ...base, status: 'pick', nextLocation: '/new', message: 'This saved task or shared-content link is unavailable in this build.' };
+  if (conflictingShare) return { ...base, status: 'error', message: 'This shared-content link has conflicting destinations.' };
+  if (route.chooser) {
+    const saved = reservation ? mobileNewTaskDraftLookup(client, reservation.destination.draftKey) : null;
+    const destination = reservation?.destination;
+    const resume = saved && destination && saved.environmentId === destination.environmentId && saved.projectId === destination.projectId
+      && saved.origin === destination.origin && projectExists(saved.environmentId, saved.projectId, client, background);
+    return { ...base, status: 'choose', title: incoming ? 'Start a task' : 'Choose project',
+      nextLocation: resume && catalogReady ? `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}` : '' };
+  }
+  if (reservation && route.context === 'draft') {
+    const destination = reservation.destination, saved = mobileNewTaskDraftLookup(client, destination.draftKey);
+    if (!saved || saved.environmentId !== destination.environmentId || saved.projectId !== destination.projectId || saved.origin !== destination.origin)
+      return { ...base, status: 'retained', message: 'The reserved share draft is unavailable.' };
+    if (route.draftId && route.draftId !== saved.key || route.environmentId && route.environmentId !== saved.environmentId
+      || route.projectId && route.projectId !== saved.projectId || !route.draftId && (flow.draftKey !== saved.key || !sameSelection(flow.selected, client)))
+      return { ...base, status: 'pick', nextLocation: `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}` };
+  }
   if (route.standaloneFile) return { ...base, status: 'file', title: 'Files', draftOwner: '', fileReady: true, busy: false };
   if (!client.preferencesLoaded) return { ...base, status: 'loading' };
   if (!route.context) return { ...base, status: 'pick', nextLocation: '/new' };
@@ -145,6 +170,8 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   if (route.context === 'branch' && mobileNewTask('', client, background).scratch) return { ...base, status: 'pick', nextLocation: '/new/draft' };
   // A settings URL needs the same staged session that an explicit button creates.
   if ((route.context === 'settings' && !flow.applied.has(visit)) || route.context === 'settings-child' && !mobileComposerSettings('', '', false, client).open) return { ...base, status: 'prepare', needsPrepare: true };
+  if (newTaskSharePending(flow.share)) return { ...base, status: 'preparing', needsPrepare: route.context === 'draft' && newTaskShareReady(flow.share!, client),
+    message: flow.share?.phase === 'cancel' ? 'Cancelling import…' : 'Importing shared content…' };
   flow.readyVisit = visit;
   return { ...base, status: 'ready', ready: true, fileReady: route.context === 'file', title: ({ draft: 'New task', environment: 'Environment', branch: 'Branch', settings: 'Model' })[route.context] ?? 'New task' };
 }
@@ -237,6 +264,22 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     await mobileNewTaskTransferGuardRead(client, native, transferLease, current);
     transferChecked = true; assertCurrent();
   };
+  const reservation = flow.share ? mobileIncomingShareReservation(client, flow.share.id) : null;
+  if (reservation && (kind === 'scratch' || kind === 'environment' || kind === 'project' && id !== JSON.stringify([reservation.destination.environmentId, reservation.destination.projectId])))
+    return result('This shared content is reserved for its saved project draft.');
+  if (kind === 'prepare' && reservation && route.context === 'draft') {
+    const destination = reservation.destination, saved = mobileNewTaskDraftLookup(client, destination.draftKey);
+    if (!saved || saved.environmentId !== destination.environmentId || saved.projectId !== destination.projectId || saved.origin !== destination.origin)
+      return result('The reserved share draft is unavailable.');
+    if (route.draftId && route.draftId !== saved.key || route.environmentId && route.environmentId !== saved.environmentId
+      || route.projectId && route.projectId !== saved.projectId || !route.draftId && (flow.draftKey !== saved.key || !sameSelection(flow.selected, client)))
+      return result('', `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}`);
+  }
+  if (kind === 'project' && reservation) {
+    const saved = mobileNewTaskDraftLookup(client, reservation.destination.draftKey);
+    if (!saved || saved.origin !== reservation.destination.origin) return result('The reserved share draft is unavailable.');
+    return result('', `${homeDraftLocation(saved)}&incomingShareId=${encodeURIComponent(flow.share!.id)}`);
+  }
   if (kind === 'scratch' && (!route.chooser || route.unsupported)) return result('Choose a project before starting this task.');
   const hadError = !!flow.error;
   flow.busy = true; flow.error = '';
@@ -396,6 +439,11 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       }
       flow.applied.add(visit);
       await refreshRecovery();
+      if (route.context === 'draft' && newTaskSharePending(flow.share) && !flow.recovery?.blocksSend) {
+        const target = selection(client);
+        await newTaskShareRun(flow.share!, client, base, client === mobileClient ? nativeFiles(base) : storage, () => current() && sameSelection(target, client));
+        assertCurrent();
+      }
       return result();
     }
     if (kind !== 'project' && kind !== 'scratch' && !sameSelection(flow.selected, client)) throw new ClientError('Choose a project before changing this draft.');
@@ -416,7 +464,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     }
     flow.selected = selection(client); flow.applied.add(visit);
     if (kind === 'project' || kind === 'scratch' || kind === 'environment') await refreshRecovery();
-    return result('', kind === 'project' || kind === 'scratch' ? '/new/draft' : '');
+    return result('', kind === 'project' || kind === 'scratch' ? `/new/draft${flow.share ? `?incomingShareId=${encodeURIComponent(flow.share.id)}` : ''}` : '');
   } catch (error) {
     if (letGo(error)) throw error;
     if (current()) flow.error = error instanceof Error ? error.message : 'Could not open this task.';

@@ -3,11 +3,14 @@
 import type { T3Client } from './shared/client';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { obj } from './shared/domain';
+import { mobileOutboxDraftHandoffProjection } from './mobile-outbox-draft-handoff';
+import { mobileOutboxRecoveryDraftCapture as capture } from './mobile-outbox-recovery-draft';
+import { mobileIncomingShareCancelCapture, mobileIncomingShareCancelMerged, mobileIncomingShareCancelForget } from './incoming-share-cancellation';
 import { letGo, letGoAware } from './shared/let-go';
 import { contextId } from './shared/composer-editor-menu';
 import { draftFiles, fileChipLink, setDraftFiles, type DraftFile } from './shared/composer-editor-files';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentRecord } from './draft-attachment-order';
-import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftPresentation, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
+import { mobileNewTaskDraftCurrent, mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskContextGuard, mobileNewTaskContextRead, mobileNewTaskContextWrite } from './mobile-new-task-context';
 import { mobileNewTaskTransferGuardAcquire, mobileNewTaskTransferGuardRead, mobileNewTaskTransferGuardAssert, mobileNewTaskTransferGuardRelease } from './new-task-transfer-guard';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
@@ -39,15 +42,28 @@ export async function mobileIncomingShareAdopt(client: T3Client, nativeInput: Na
   const lease = mobileNewTaskTransferGuardAcquire(client, draft.key);
   if (!lease) return result('retained', 'Wait for this draft’s current operation to finish.');
   const native = letGoAware(nativeInput), stamp = canonical([client.generation, client.threadEpoch, destination]);
-  let expected = canonical(mobileNewTaskDraftPresentation(client, draft.key));
+  let expected = canonical(capture(client, draft.key));
   let checked = false;
   const assertCurrent = () => {
     const current = mobileNewTaskDraftCurrent(client);
     if (!input.current() || !current || current.key !== draft.key || client.threadId
       || stamp !== canonical([client.generation, client.threadEpoch, { draftKey: current.key, environmentId: current.environmentId, projectId: current.projectId, origin: current.origin }])
-      || expected !== canonical(mobileNewTaskDraftPresentation(client, draft.key)))
+      || expected !== canonical(capture(client, draft.key)))
       throw new ClientError('The draft changed during share import. Its inbox copy is retained.', 'superseded');
     if (checked) mobileNewTaskTransferGuardAssert(client, lease);
+  };
+  const persistDraft = async () => {
+    let projection = {};
+    // Ordinary persistence omits stamp-only drafts. This selected share owner
+    // needs its metadata even if every attachment is skipped and text is empty.
+    await client.persist({ fs: { ...storage.fs, async atomicWriteFile(path, bytes) {
+      assertCurrent();
+      const document = obj(JSON.parse(new TextDecoder().decode(bytes))), saved = obj(document.mobileNewTaskDrafts);
+      document.mobileNewTaskDrafts = { ...saved, records: { ...obj(saved.records), [draft.key]: obj(mobileNewTaskDraftCurrent(client)) } };
+      projection = mobileOutboxDraftHandoffProjection(document, draft.key);
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(document)));
+    } } }); assertCurrent();
+    return projection;
   };
   try {
     const entry = incomingShareEntry(input.entry);
@@ -75,17 +91,21 @@ export async function mobileIncomingShareAdopt(client: T3Client, nativeInput: Na
         assertCurrent();
         // A failed first write may leave only a local receipt. Native verifies
         // its complete draft projection before admitting this retry write.
-        await client.persist(storage); assertCurrent();
+        await persistDraft(); assertCurrent();
         consumed = await invoke(native, 'consume', request);
       }
       assertCurrent();
       if (!consumed.consumed || consumed.adoptionId !== previous.adoptionId) throw new ClientError('The saved share import needs inbox cleanup.');
+      mobileIncomingShareCancelForget(client, previous.adoptionId);
       return result('imported', '', selection.status === 'ready' ? selection.warnings : entry.warnings);
     }
     if (selection.status !== 'ready') return result('pending', 'Waiting for this server’s file attachment support.');
+    // Native captures the durable pre-import projection before staging any bytes.
+    const baseline = await persistDraft();
     const reserved = await invoke(native, 'reserve', { shareId: entry.id, destination }); assertCurrent();
     if (reserved.consumed || canonical(reserved.entry) !== canonical(entry)) throw new ClientError('The shared content changed. Reopen the inbox item.');
     const request = { shareId: entry.id, adoptionId: reserved.adoptionId, destination };
+    mobileIncomingShareCancelCapture(client, entry, reserved.adoptionId, baseline);
     {
       const alreadyImported = Object.values(receipts).some(receipt => receipt.shareId === entry.id);
       const selected = alreadyImported ? [] : selection.attachments;
@@ -110,11 +130,13 @@ export async function mobileIncomingShareAdopt(client: T3Client, nativeInput: Na
       const receipt: IncomingShareImport = { version: 1, shareId: entry.id, instanceId: entry.instanceId, adoptionId: reserved.adoptionId,
         createdAt: entry.createdAt, destination, attachmentIds: selected.map(file => file.id) };
       mobileIncomingShareImportRemember(client, receipt);
-      expected = canonical(mobileNewTaskDraftPresentation(client, draft.key));
-      await client.persist(storage); assertCurrent();
+      expected = canonical(capture(client, draft.key));
+      mobileIncomingShareCancelMerged(client, reserved.adoptionId);
+      await persistDraft(); assertCurrent();
     }
     const consumed = await invoke(native, 'consume', request); assertCurrent();
     if (!consumed.consumed || consumed.adoptionId !== reserved.adoptionId) throw new ClientError('The share import is saved. Retry inbox cleanup.');
+    mobileIncomingShareCancelForget(client, reserved.adoptionId);
     return result('imported', '', selection.warnings);
   } catch (error) {
     if (letGo(error)) throw error;

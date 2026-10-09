@@ -1,3 +1,4 @@
+import { mobileIncomingShareRead, mobileIncomingSharePresentation } from './incoming-share-inbox';
 import { mobileOutboxThread } from './mobile-outbox-presentation';
 import { mobileOutboxRootSnapshot, mobileOutboxRootAction, mobileOutboxRootEdit } from './mobile-outbox-root';
 import { noteNow } from './shared/composer-controls';
@@ -52,6 +53,9 @@ import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairin
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import { arr, obj, str } from './shared/domain';
 import { fleet } from './shared/settings-b-fleet';
+import { machineKind } from './shared/connections';
+import { mobileClearClientCaches } from './mobile-cache-controls';
+import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
 import { mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
@@ -68,8 +72,22 @@ import { bridgeReply, ClientError, nativeFiles, type Files, type Native } from '
 export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera\ndevice.microphone purpose.microphone';
 
+function storageEnvironments() {
+  const cached = mobileCacheFleetDisplays(fleet, mobileClient);
+  return fleet.saved.map(row => {
+    const environmentId = str(row.environmentId);
+    const config = environmentId === mobileClient.environmentId ? mobileClient.config
+      : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.config
+        ?? cached.find(entry => entry.environmentId === environmentId)?.config ?? {};
+    return { environmentId, label: str(row.mobileLabel) || str(obj(config.environment).label) || str(row.label) || environmentId,
+      machine: machineKind(config) };
+  });
+}
+
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  incomingShareInbox: (_args, _store, _storage, native) => mobileIncomingShareRead(mobileClient, native),
+  incomingSharePresentation: args => mobileIncomingSharePresentation(mobileClient, str(args[0]), args[1] === true, str(args[2])),
   outboxView: args => {
     const { initialized, complete, busy, count, next, delay } = mobileOutboxRootSnapshot(mobileClient, Number(args[1]));
     return { initialized, complete, busy, count, next, delay };
@@ -237,15 +255,16 @@ const sources: Sources = {
   },
   informationPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationPrepare', args, nativeInput);
-    return mobileInformationPrepare(String(args[0]), native);
+    return mobileInformationPrepare(String(args[0]), native, str(args[1]));
   },
   informationSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationSnapshot', args, nativeInput);
-    return mobileInformationSnapshot(String(args[0] ?? ''), String(args[1] ?? ''));
+    return mobileInformationSnapshot(str(args[0]), str(args[1]), storageEnvironments(), args[3] === true, mobileTheme(str(args[4]), str(args[5])).colors.dangerForeground);
   },
   informationCommand: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationCommand', args, nativeInput);
-    return mobileInformationCommand(String(args[0]), String(args[1]), native).then(result => ({ ...result, requestRoute: String(args[2]) }));
+    return mobileInformationCommand(String(args[0]), String(args[1]), native, { routeKey: str(args[2]), environments: storageEnvironments(),
+      clearCache: (handle, environmentId) => mobileClearClientCaches(mobileClient, handle, environmentId) }).then(result => ({ ...result, requestRoute: String(args[2]) }));
   },
   informationLegal: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationLegal', args, nativeInput);
