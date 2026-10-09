@@ -32,9 +32,11 @@ enum AppFiles {
     }
     /// The roots the library has now (`appRoots`), before the first frame's
     /// images load and again once storage is configured.
-    static func learn(_ runtime: Runtime) {
+    @discardableResult static func learn(_ runtime: Runtime) -> [String: String] {
         let reply = try? JSONSerialization.jsonObject(with: Data(runtime.agent("{\"op\":\"appRoots\"}").utf8))
-        learn(reply as? [String: Any] ?? [:])
+        let object = reply as? [String: Any] ?? [:]
+        learn(object)
+        return object["roots"] as? [String: String] ?? [:]
     }
     /// The file an `app:/data|cache|tmp/…` path names; nil for `..` or a root.
     static func url(_ path: String) -> URL? {

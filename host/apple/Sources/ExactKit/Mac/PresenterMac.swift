@@ -122,6 +122,7 @@ package final class Presenter {
             return !self.applying && !self.resetting
         }
         viewport.pressedGround = { [weak self] in self?.selection.clear() }
+        viewport.pointerTracking = { [weak self] event in self?.trackPointer(event) }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -597,6 +598,7 @@ package final class Presenter {
         views.removeAll()
         inlineOwners.removeAll()
         hoveredInline = nil
+        hoveredNodes = []; hovered = nil
         chrome = ChromeIndex()
         scrollers.removeAll()
         pendingScrolls.removeAll()
@@ -774,10 +776,13 @@ package final class Presenter {
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
-    /// The node the pointer is over, of those with a hover handler: it hears
-    /// the leave when the pointer moves onto another (the agent's `hover`).
+    /// The innermost hovered listener, with its listening ancestors below.
     weak var hovered: NodeView?
+    var hoveredNodes: [NodeView] = [] // innermost first, the hit's ancestor path
+    weak var trackedPointerEvent: NSEvent?
+    private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
+    var inlineHoverTransition: UInt64 = 0
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
@@ -845,20 +850,56 @@ package final class Presenter {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
-    /// One enter and one leave per hover, as the web's `mouseenter` and
-    /// `mouseleave`: a tracking area's every move, and its exit after the
-    /// resting pointer's hit-test already moved the hover (`followPointer`),
-    /// send nothing more.
+    /// Pointerenter/leave cover a node's subtree, including visible overflow.
+    /// Only the hit's ancestors enter; overlapping tracking rectangles do not
+    /// give their occluded owners a separate hover.
+    func setHoverPath(_ nodes: [NodeView], inline: UInt32? = nil) {
+        if applying { afterBatch { [weak self] in self?.setHoverPath(nodes, inline: inline) }; return }
+        hoverTransition &+= 1
+        inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
+        let generation = hoverTransition
+        func eligible(_ node: NodeView) -> Bool {
+            views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
+        }
+        let next = nodes.filter(eligible)
+        if hoveredInline != inline {
+            hoverInline(nil)
+            guard hoverTransition == generation else { return }
+        }
+        for node in hoveredNodes where !next.contains(where: { $0 === node }) {
+            hoveredNodes.removeAll { $0 === node }; hovered = hoveredNodes.first
+            send(node.id) { [self] in
+                guard hoverTransition == generation else { return }
+                onHover?(node.id, false)
+            }
+            guard hoverTransition == generation else { return }
+        }
+        for node in next.reversed() where !hoveredNodes.contains(where: { $0 === node }) {
+            guard eligible(node) else { continue }
+            hoveredNodes.insert(node, at: 0); hovered = hoveredNodes.first
+            send(node.id) { [self] in
+                guard hoverTransition == generation, eligible(node) else { return }
+                onHover?(node.id, true)
+            }
+            guard hoverTransition == generation else { return }
+        }
+        hoveredNodes.removeAll { !eligible($0) }; hovered = hoveredNodes.first
+        guard hoverTransition == generation else { return }
+        if let inline, inlineEnabled(inline) { hoverInline(inline) }
+    }
+    /// Native-module hover dispatch uses the same ancestor coverage.
     func hover(_ view: NodeView, _ over: Bool) {
-        if over { hoverInline(nil) }
-        guard views[view.id] === view, (hovered === view) != over else { return }
+        guard views[view.id] === view else { return }
         if over {
-            if let h = hovered { send(h.id) { [self] in onHover?(h.id, false) } }
-            hovered = view
-            send(view.id) { [self] in onHover?(view.id, true) }
+            var path: [NodeView] = []
+            var current: NSView? = view
+            while let node = current {
+                if let node = node as? NodeView { path.append(node) }
+                current = node.superview
+            }
+            setHoverPath(path)
         } else {
-            hovered = nil
-            send(view.id) { [self] in onHover?(view.id, false) }
+            setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
         }
     }
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
@@ -1203,7 +1244,7 @@ package final class Presenter {
     func keyView(of v: NodeView) -> NSView {
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
         if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
-        return v.textArea ?? v.field ?? v
+        return v.textArea ?? v.field ?? v.nativeValueControl ?? v
     }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
@@ -1258,9 +1299,9 @@ package final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
     /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.cssVisibilityHidden { return false }
+        if v.formDisabled || v.inert || v.isHiddenOrHasHiddenAncestor || v.cssVisibilityHidden { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        if v.field != nil || v.textArea != nil { return true }
+        if v.field != nil || v.textArea != nil || v.isDateOrSelect { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.isButton || v.kind == "toggle" || v.pressable { return true }
         return v.canBecomeKeyView

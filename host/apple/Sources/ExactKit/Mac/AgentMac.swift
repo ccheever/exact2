@@ -549,35 +549,14 @@ extension Agent {
             // The pointer rests here until the next hover: a layout that moves
             // other content under it is hit-tested again (`followPointer`).
             presenter.agentPointer = p
-            if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
-               let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
-                node.mouseMoved(with: event)
+            if let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                presenter.trackPointer(event)
                 presenter.flushHoverMove()
+            }
+            if (win.contentView?.hitTest(p) as? NodeView)?.canvasInput != nil {
                 return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
-            }
-            // The pointer moved onto the target: the node with a hover
-            // handler at the hit point enters (and whatever was hovered
-            // leaves), as a tracking area would report for a real move, and
-            // the nearest `pointermove` node hears the move (LLP 1056 §3).
-            var mover: NSView? = win.contentView?.hitTest(p) ?? v
-            while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
-            if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
-                node.pointerHovered(event)
-                presenter.flushHoverMove()
-            }
-            var n: NSView? = win.contentView?.hitTest(p)
-            var inline: UInt32?
-            while let cur = n {
-                if let node = cur as? NodeView {
-                    inline = node.inlineTarget(at: node.local(p), handler: "hover")?.id
-                    if inline != nil || node.handlers.contains("hover") { break }
-                }
-                n = cur.superview
-            }
-            presenter.hoverInline(inline)
-            if inline == nil {
-                if let node = n as? NodeView { presenter.hover(node, true) }
-                else if let h = presenter.hovered { presenter.hover(h, false) }
             }
             return ["tapped": req["id"] as? Int ?? Int(v.id), "hover": true, "at": at]
         }

@@ -460,7 +460,9 @@ kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+web profile. Apple native modules receive the same named data, cache and temporary
+roots across launches. A fresh drive clears them; the picker's temporary documents
+alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,

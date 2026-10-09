@@ -177,5 +177,115 @@ final class NativeButtonFocusMacTests: XCTestCase {
         p.focusElement(["first"])
         XCTAssertFalse(window.firstResponder === button)
     }
+
+    private func valueFixture() throws -> Presenter {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "Alpha", disabled: false),
+                                                     .init(value: "b", label: "Beta", disabled: false)], chosen: 0) }
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.autorecalculatesKeyViewLoop = false
+        window.contentView = p.viewport
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 500, "h": 400],
+            ["op": "create", "id": 2, "kind": "button", "props": ["id": "before"]],
+            ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 160, "h": 30]]
+        for (index, kind) in ["date", "time", "datetime-local", "select"].enumerated() {
+            let id = index + 3
+            let value = kind == "date" ? "2026-10-08" : kind == "time" ? "09:30" : kind == "select" ? "a" : "2026-10-08T09:30"
+            ops.append(["op": "create", "id": id, "kind": "control", "props": ["id": kind, "type": kind, "value": value],
+                        "handlers": ["focus", "blur", "key", "keyup"]])
+            ops.append(["op": "frame", "id": id, "x": 0, "y": (index + 1) * 50, "w": 240, "h": 30])
+        }
+        ops += [["op": "create", "id": 7, "kind": "button", "props": ["id": "after"]],
+                ["op": "frame", "id": 7, "x": 0, "y": 250, "w": 160, "h": 30],
+                ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7]], ["op": "roots", "ids": [1]]]
+        p.apply(wireBatch(ops)); p.flushKeyViewLoop()
+        return p
+    }
+
+    func testDatesAndSelectTabThroughTheirNativeOwnersWithKeyboardNavigationOnAndOff() throws {
+        let method = try XCTUnwrap(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.isFullKeyboardAccessEnabled)))
+        let original = method_getImplementation(method)
+        defer { method_setImplementation(method, original) }
+        for enabled in [false, true] {
+            let query: @convention(block) (AnyObject) -> Bool = { _ in enabled }
+            let replacement = imp_implementationWithBlock(query)
+            method_setImplementation(method, replacement)
+            defer { method_setImplementation(method, original); imp_removeBlock(replacement) }
+            let p = try valueFixture()
+            var focuses: [UInt32] = [], blurs: [UInt32] = []
+            p.onFocus = { focuses.append($0) }; p.onBlur = { blurs.append($0) }
+            p.focusElement(["before"])
+            for id in [UInt32(3), 4, 5, 6, 7] {
+                deliver(p, try key("\t", 48))
+                let owner = p.keyView(of: try XCTUnwrap(p.views[id]))
+                XCTAssertTrue(window.firstResponder === owner, "Tab reaches native owner \(id), Keyboard navigation=\(enabled)")
+                XCTAssertTrue(p.focusedNode === p.views[id])
+                XCTAssertEqual(p.collections.focusedView(), id)
+                if id < 7 {
+                    XCTAssertFalse(try XCTUnwrap(p.views[id]).acceptsFirstResponder, "wrapper is not another focus owner")
+                    XCTAssertTrue(owner.canBecomeKeyView)
+                }
+            }
+            for id in [UInt32(6), 5, 4, 3, 2] {
+                deliver(p, try key("\t", 48, flags: .shift))
+                XCTAssertTrue(window.firstResponder === p.keyView(of: try XCTUnwrap(p.views[id])))
+            }
+            XCTAssertEqual(focuses, [3, 4, 5, 6, 6, 5, 4, 3])
+            XCTAssertEqual(blurs, [3, 4, 5, 6, 6, 5, 4, 3])
+            window.close(); window = nil
+        }
+    }
+
+    func testNativeValueFocusHonorsNegativeTabIndexAndRestrictions() throws {
+        let p = try valueFixture()
+        for id in [UInt32(3), 4, 5, 6] {
+            let node = try XCTUnwrap(p.views[id]), control = try XCTUnwrap(p.controls.controls[id])
+            p.apply(wireBatch([["op": "props", "id": id, "set": ["tabIndex": "-1"]]]))
+            XCTAssertFalse(Presenter.tabbable(node)); XCTAssertFalse(control.canBecomeKeyView)
+            p.focusElement([node.props["id"]!])
+            XCTAssertTrue(window.firstResponder === control, "negative tabindex allows explicit focus")
+            p.blurElement([node.props["id"]!]); XCTAssertNil(p.focusedNode)
+            for prop in ["disabled", "inert"] {
+                p.apply(wireBatch([["op": "props", "id": id, "set": [prop: "true"]]]))
+                XCTAssertFalse(control.acceptsFirstResponder)
+                p.focusElement([node.props["id"]!]); XCTAssertFalse(window.firstResponder === control)
+                p.apply(wireBatch([["op": "props", "id": id, "set": [prop: "false"]]]))
+            }
+            node.isHidden = true
+            XCTAssertFalse(control.acceptsFirstResponder); XCTAssertFalse(Presenter.tabbable(node))
+            node.isHidden = false
+            p.apply(wireBatch([["op": "style", "id": id, "style": ["visibility": "hidden"]]]))
+            XCTAssertTrue(node.cssVisibilityHidden, "the style op applies visibility to native control \(id)")
+            XCTAssertFalse(control.acceptsFirstResponder); XCTAssertFalse(Presenter.tabbable(node))
+            p.focusElement([node.props["id"]!]); XCTAssertFalse(window.firstResponder === control)
+            p.apply(wireBatch([["op": "style", "id": id, "style": ["visibility": "visible"]]]))
+            XCTAssertFalse(node.cssVisibilityHidden)
+            XCTAssertTrue(control.acceptsFirstResponder, "visibility restoration restores explicit focus")
+        }
+    }
+
+    /// Focused native date/select keys participate in Contract's cancellable
+    /// handlers before AppKit edits; cancellation leaves their current values.
+    func testNativeValueKeysUseTheFocusedNodeAndRespectCancellation() throws {
+        let p = try valueFixture()
+        var heard: [UInt32] = []
+        p.onKey = { id, _ in heard.append(id); p.defaultPrevented = true }
+        for id in [UInt32(3), 4, 5, 6] {
+            let node = try XCTUnwrap(p.views[id])
+            p.focusElement([node.props["id"]!])
+            let control = try XCTUnwrap(p.controls.controls[id])
+            let before = p.controls.valueObservation(control)
+            deliver(p, try key("\u{F700}", 126))
+            deliver(p, try key("\u{F700}", 126, up: true))
+            XCTAssertEqual(heard.suffix(2), [id, id])
+            XCTAssertEqual(p.controls.valueObservation(control)?["value"] as? String, before?["value"] as? String)
+            XCTAssertTrue(window.firstResponder === control)
+        }
+    }
+
 }
 #endif

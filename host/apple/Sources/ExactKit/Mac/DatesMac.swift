@@ -26,6 +26,7 @@ extension ControlHost {
         let bound = owner.props["value"] ?? ""
         let value = DateValue.parse(kind, bound)
         guard let field = picker as? DateField else { return }
+        field.owner = owner
         field.placeholder = DateField.placeholder(kind, picker.locale ?? .current)
         field.kind = kind
         guard field.applied != bound else { return }
@@ -72,6 +73,14 @@ extension ControlHost {
 /// always holds a date, showed its reference date, 1/1/2001 (x2apps kanban
 /// F23). Editing an empty one starts at now, and only a change commits it.
 final class DateField: NSDatePicker {
+    weak var owner: NodeView?
+    override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override func keyDown(with event: NSEvent) {
+        guard acceptsFirstResponder else { return }
+        if owner?.nativeValueTab(event, control: self) == true { return }
+        super.keyDown(with: event)
+    }
     var kind = "date"
     var placeholder = ""
     /// The bound value last written into it (`configureDate`).
@@ -86,7 +95,7 @@ final class DateField: NSDatePicker {
         needsDisplay = true
     }
     override func becomeFirstResponder() -> Bool {
-        guard super.becomeFirstResponder() else { return false }
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
         if empty {
             // Now, as the picker reads its values: the wall clock's fields at UTC.
             let local = DateFormatter()
@@ -94,10 +103,12 @@ final class DateField: NSDatePicker {
             dateValue = DateValue.parse("datetime-local", local.string(from: Date())) ?? dateValue
         }
         refresh()
+        owner?.focusEntered()
         return true
     }
     override func resignFirstResponder() -> Bool {
         guard super.resignFirstResponder() else { return false }
+        owner?.focusLeft()
         DispatchQueue.main.async { [weak self] in self?.refresh() }
         return true
     }

@@ -38,6 +38,23 @@ final class MenuHost: NSObject {
     /// that stops showing what is there is cancelled for good.
     var choosing: [Confirmation] = []
     private var picking: [Pick] = []
+    private var nativeTracking = 0
+    private var afterTracking: [() -> Void] = []
+    /// Main-queue work continues during native tracking; only the chosen
+    /// item's action waits until popUp has unwound, then runs next turn.
+    func afterNativeTracking(_ work: @escaping () -> Void) {
+        if nativeTracking > 0 { afterTracking.append(work) }
+        else { DispatchQueue.main.async(execute: work) }
+    }
+    private func track(_ menu: NSMenu, at point: NSPoint, in source: NodeView) {
+        nativeTracking += 1
+        menu.popUp(positioning: nil, at: point, in: source)
+        nativeTracking -= 1
+        if nativeTracking == 0 {
+            let work = afterTracking; afterTracking.removeAll()
+            for action in work { DispatchQueue.main.async(execute: action) }
+        }
+    }
     /// Each popover's presentation count: a choice made in one presentation
     /// never dispatches once the popover has been presented again.
     private var presentations: [UInt32: Int] = [:]
@@ -171,12 +188,12 @@ final class MenuHost: NSObject {
         entries.append(entry)
         if let menu = entry.menu {
             // Leave native tracking until the click and its app batch finish.
-            DispatchQueue.main.async { [weak self, weak source, weak entry] in
+            RunLoop.main.perform(inModes: [.common]) { [weak self, weak source, weak entry] in
                 guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
                       !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
-                menu.popUp(positioning: nil, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
+                self.track(menu, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
                 // Escape or a click outside chose nothing. A chosen item has
                 // only been recorded: it presses on the next turn, after this
                 // stack and AppKit's tracking of `source` have unwound.
@@ -205,7 +222,7 @@ final class MenuHost: NSObject {
     /// popover opens painted, anchored to the node (D4).
     func context(_ source: NodeView, at point: NSPoint) {
         guard let name = source.props["contextPopover"] else { return }
-        DispatchQueue.main.async { [weak self, weak source] in
+        RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), source.props["contextPopover"] == name,
                   !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
@@ -219,7 +236,7 @@ final class MenuHost: NSObject {
             self.presentations[pop.id, default: 0] += 1
             self.revalidate()
             let menu = self.menu(of: pop)
-            menu.popUp(positioning: nil, at: point, in: source)
+            self.track(menu, at: point, in: source)
         }
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
@@ -500,7 +517,7 @@ final class MenuHost: NSObject {
         guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
         pick.once.taken = true
         picking.append(pick)
-        DispatchQueue.main.async { [weak self, pick] in
+        afterNativeTracking { [weak self, pick] in
             guard let self else { return }
             self.picking.removeAll { $0 === pick }
             guard self.valid(pick), let row = pick.row else { return }
@@ -543,5 +560,16 @@ private final class PopoverLayer: NSView {
         let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
+    // A hit inside a popover may forward through plain views, but never
+    // beyond the top layer to the page's responder chain.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
 }
 #endif

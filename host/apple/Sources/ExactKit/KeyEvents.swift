@@ -193,7 +193,7 @@ extension Presenter {
         return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
     }
     /// The node a responder is the focus of: the node itself, or its field
-    /// (and the field editor editing it), textarea or native button. Any other view a node
+    /// (and the field editor editing it), textarea, native button or date/select control. Any other view a node
     /// holds (a web view, a native module's) keeps its keys, as an iframe's
     /// never reach the page.
     func keyTarget(_ responder: NSResponder?) -> NodeView? {
@@ -201,7 +201,7 @@ extension Presenter {
         var next: NSView? = view
         while let v = next {
             if let node = v as? NodeView {
-                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view)
+                let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view) || node.nativeValueControl.map { view.isDescendant(of: $0) } == true
                 return owns && views[node.id] === node ? node : nil
             }
             next = v.superview

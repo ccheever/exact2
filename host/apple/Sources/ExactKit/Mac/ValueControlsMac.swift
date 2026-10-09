@@ -10,7 +10,7 @@ extension ControlHost {
     func makeValueControl(_ kind: String) -> NSControl {
         if kind == "range" { return makeRange() }
         if ControlKinds.dates.contains(kind) { return makeDate(kind) }
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        let popup = SelectField(frame: .zero, pullsDown: false)
         // Each item's own `disabled`, never AppKit's validation.
         popup.autoenablesItems = false
         return popup
@@ -20,6 +20,7 @@ extension ControlHost {
         if let slider = control as? NSSlider { configureRange(slider, owner); return }
         if let picker = control as? NSDatePicker { configureDate(picker, owner, accent: accent); return }
         guard let popup = control as? NSPopUpButton else { return }
+        (popup as? SelectField)?.owner = owner
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
@@ -115,6 +116,28 @@ extension ControlHost {
         let menu = menus[UInt32(popup.tag)]
         return ["view": "NSPopUpButton", "value": menu?.chosenValue as Any, "title": popup.titleOfSelectedItem as Any,
                 "options": menu?.options.map(\.label) ?? []]
+    }
+}
+/// The pop-up itself receives focus and native editing keys, even with
+/// macOS Keyboard navigation off; its wrapper is never a second stop.
+final class SelectField: NSPopUpButton {
+    weak var owner: NodeView?
+    override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override func becomeFirstResponder() -> Bool {
+        guard acceptsFirstResponder, super.becomeFirstResponder() else { return false }
+        owner?.focusEntered()
+        return true
+    }
+    override func resignFirstResponder() -> Bool {
+        guard super.resignFirstResponder() else { return false }
+        owner?.focusLeft()
+        return true
+    }
+    override func keyDown(with event: NSEvent) {
+        guard acceptsFirstResponder else { return }
+        if owner?.nativeValueTab(event, control: self) == true { return }
+        super.keyDown(with: event)
     }
 }
 #endif

@@ -792,6 +792,55 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(paragraph.rastersText)
     }
 
+    func testShrinkingBelowRasterThresholdRetiresAcceptedInkAndCanGrowAgain() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-shrink")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        func batch(_ ops: [[String: Any]]) {
+            presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        batch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Not authenticated · Sign in with ChatGPT to use Codex."]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0],
+        ])
+        let node = try XCTUnwrap(presenter.views[2])
+        let scale = window.backingScaleFactor
+        let smallHeight = Double(TextRasterizer.minPixels / (400 * scale * scale) - 1)
+        for clamp in [0, 2] { for shadow in [false, true] {
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0]])
+            var style: [String: Any] = ["line_clamp": Double(clamp)]
+            if shadow { style["text_shadow"] = ["o": [2.0, 2.0], "b": 2.0, "c": [0.0, 0.0, 0.0, 255.0]] }
+            batch([["op": "style", "id": 2, "style": style]])
+            XCTAssertTrue(node.rastersText)
+            let pixels = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * scale), .height: Int(80 * scale), .bytesPerElement: 4]))
+            let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size, box: node.contentBox(), scale: scale)
+            node.textRasterKey = key; node.textRasterReady = false
+            node.showTextRaster(pixels, for: key)
+            XCTAssertNotNil(node.textRaster)
+            if shadow { XCTAssertNotNil(node.textRasterOverflowLayer) }
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": smallHeight]])
+            XCTAssertFalse(node.rastersText)
+            XCTAssertNil(node.textRaster, "old ink cannot await a worker for a directly drawn paragraph")
+            XCTAssertNil(node.textRasterOverflowLayer, "old overflow and shadows must disappear")
+            XCTAssertNil(node.layer?.contents)
+            XCTAssertTrue(node.needsDisplay)
+            // A stale worker completion must not revive those pixels.
+            node.showTextRaster(pixels, for: key)
+            XCTAssertNil(node.textRaster)
+            batch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 80.0]])
+            node.updateLayer()
+            XCTAssertTrue(node.textRasterReady, "draw → raster still supplies first pixels")
+        } }
+    }
+
     func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-resize")

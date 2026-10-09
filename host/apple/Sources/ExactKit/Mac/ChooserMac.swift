@@ -155,7 +155,7 @@ extension MenuHost {
         owner.finished = true
         owner.chosen = choice.index
         choosing.append(owner)
-        DispatchQueue.main.async { [weak self, owner] in self?.dispatch(owner) }
+        afterNativeTracking { [weak self, owner] in self?.dispatch(owner) }
     }
     /// The recorded choice, once, if the menu still showed what is there.
     private func dispatch(_ owner: Confirmation) {

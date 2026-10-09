@@ -1408,3 +1408,14 @@ export function onSelection(e, report) {
   });
   selectedTexts.set(e, { report, a: 0, b: 0 });
 }
+
+// Action commands share HTML's dialog path with commandfor invokers.
+export function dialogCommand(name, args, say, root = document.getElementById("exact-root")) {
+  if (args.length !== 1 || typeof args[0] !== "string") return say(`${name}: refused: requires one dialog id string`);
+  const id = args[0], el = document.getElementById(id);
+  if (!el || !root?.contains(el) || el.localName !== "dialog") return say(`${name}: refused: no dialog with id ${JSON.stringify(id)}`);
+  if (name === "showModal" && el.open) return say(`showModal: ignored: dialog ${JSON.stringify(id)} is already open`);
+  if (name === "close" && !el.open) return say(`close: ignored: dialog ${JSON.stringify(id)} is already closed`);
+  try { name === "showModal" ? el.showModal() : el.close(); }
+  catch (error) { say(`${name}: refused: ${error.name}`); }
+}
