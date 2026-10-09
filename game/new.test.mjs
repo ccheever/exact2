@@ -508,12 +508,17 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
   const captured=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','harfrust']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['harfrust','0.5.2','gg'],['rand','0.9.1','hh']]);
   assert.deepEqual(lockDrift(captured,sdk),{added:['fontique','parley'],updated:['harfrust 0.5.2 → 0.12.0']});
   assert.deepEqual(lockDrift(sdk,sdk),{added:[],updated:[]});
+  // Two versions of one name: only the one exact2's crates reach is named (the game's own foo 2 is its choice).
+  const two=lock([['x-logic','0.1.0',null,['exact-game','foo 2.0.0']],['exact-game','0.1.0',null,['foo 1.0.0']],['foo','1.0.0','ii'],['foo','2.0.0','jj']]);
+  assert.deepEqual(lockDrift(two,lock([['exact-game','0.1.0',null,['foo']],['foo','1.1.0','kk']])).updated,['foo 1.0.0 → 1.1.0']);
   const refreshed=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.9.1','hh']]);
   assert.deepEqual(lockChanges(captured,refreshed),['harfrust 0.5.2 → 0.12.0','added parley 0.6.0','added fontique 0.5.0']);
   assert.deepEqual(lockChanges(refreshed,captured),['harfrust 0.12.0 → 0.5.2','removed parley 0.6.0','removed fontique 0.5.0']);
   // A git package that moved revision at the same version is a change too.
   const git=(rev)=>`version = 4\n\n[[package]]\nname = "tool"\nversion = "1.0.0"\nsource = "git+https://example.com/tool#${rev}"\n`;
   assert.deepEqual(lockChanges(git('aaa'),git('bbb')),['tool 1.0.0 (git+https://example.com/tool#aaa) → 1.0.0 (git+https://example.com/tool#bbb)']);
+  // So is a path package becoming crates.io's at the same version.
+  assert.deepEqual(lockChanges(lock([['helper','1.0.0']]),lock([['helper','1.0.0','ll']])),['helper 1.0.0 (path) → 1.0.0']);
 });
 
 test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {
@@ -526,6 +531,9 @@ test('lock seeds the SDK lock\'s versions, a same-series bump included, and keep
   // foo 0.12.0 → the SDK's 0.12.1 (one graph holds one version per series), not crates.io's newest.
   assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,own)).package.map(p=>`${p.name} ${p.version}`),['foo 0.12.1','exact-game 0.1.0','rand 0.9.1','tool 1.0.0','x-logic 0.1.0']);
   assert.equal(lockSeed(sdk,sdk),sdk);
+  // A git fork of an SDK crate, same name and series, is another package: kept at its revision.
+  const fork=lock(block('foo','0.12.0','git+https://example.com/foo?branch=main#aaa'));
+  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,fork)).package.map(p=>`${p.name} ${p.version} ${p.source??''}`),['foo 0.12.1 '+crates,'exact-game 0.1.0 ','foo 0.12.0 git+https://example.com/foo?branch=main#aaa']);
   // Only a lock that needs updating is stale; a crate missing from the cache is not.
   assert.ok(staleLock('error: cannot update the lock file /g/.shells/Cargo.lock because --locked was passed to prevent this'));
   assert.ok(staleLock('error: the lock file /g/.shells/Cargo.lock needs to be updated but --locked was passed to prevent this'));

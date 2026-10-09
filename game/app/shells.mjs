@@ -331,8 +331,11 @@ export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.
  * and the game's lock keeps the rest (its own packages, git and path ones too),
  * so Cargo prefers exactly these versions and fetches only what they lack. */
 export function lockSeed(sdk, own) {
-  const held = new Set(lockBlocks(sdk).map(seriesId));
-  const kept = lockBlocks(own).filter(block => !held.has(seriesId(block)));
+  // The same crate from another source (a git fork, a path) is another package:
+  // the SDK's supersedes only its own source's, whatever the git revision.
+  const key = block => `${seriesId(block)} ${/^source = "([^"#]*)/m.exec(block)?.[1] ?? ''}`;
+  const held = new Set(lockBlocks(sdk).map(key));
+  const kept = lockBlocks(own).filter(block => !held.has(key(block)));
   return kept.length ? `${sdk.trimEnd()}\n\n${kept.join('\n\n')}\n` : sdk;
 }
 const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
@@ -371,26 +374,32 @@ export function lockDrift(captured, sdk) {
     added.add(name);
     for (const version of want.get(name)) queue.push(...(edges.get(`${name} ${version}`) ?? []));
   }
-  // What exact2's crates reach in the captured graph, by name.
-  const out = new Map();
-  for (const pkg of mine) out.set(pkg.name, [...(out.get(pkg.name) ?? []), ...(pkg.dependencies ?? []).map(named)]);
-  const reached = new Set(), stack = mine.filter(pkg => !pkg.source && exact2.has(pkg.name)).map(pkg => pkg.name);
+  // What exact2's crates reach in the captured graph, package by package: a
+  // lock's dependency names a version when the name alone is ambiguous.
+  const id = pkg => `${pkg.name} ${pkg.version}`, byId = new Map(mine.map(pkg => [id(pkg), pkg]));
+  const targets = dep => { const [name, version] = dep.split(' '); return version ? [`${name} ${version}`] : (have.get(name) ?? []).map(v => `${name} ${v}`); };
+  const reached = new Set(), stack = mine.filter(pkg => !pkg.source && exact2.has(pkg.name)).map(id);
   while (stack.length) {
-    const name = stack.pop();
-    if (!reached.has(name)) { reached.add(name); stack.push(...(out.get(name) ?? [])); }
+    const key = stack.pop();
+    if (reached.has(key) || !byId.has(key)) continue;
+    reached.add(key);
+    stack.push(...(byId.get(key).dependencies ?? []).flatMap(targets));
   }
-  const registry = new Set(mine.filter(pkg => pkg.source).map(pkg => pkg.name));
-  const updated = [...reached].filter(name => registry.has(name) && want.has(name) && !have.get(name).some(v => want.get(name).includes(v)))
-    .map(name => `${name} ${have.get(name).join(', ')} → ${want.get(name).join(', ')}`);
+  const moved = new Map();
+  for (const key of reached) {
+    const pkg = byId.get(key);
+    if (pkg.source && want.has(pkg.name) && !want.get(pkg.name).includes(pkg.version)) moved.set(pkg.name, [...(moved.get(pkg.name) ?? []), pkg.version].sort());
+  }
+  const updated = [...moved].map(([name, versions]) => `${name} ${versions.join(', ')} → ${want.get(name).join(', ')}`);
   return {added:[...added].sort(), updated:updated.sort()};
 }
 /** What a lock refresh changed, by package name, for `lock` to print: the
  * versions (or a git or path package's source) that moved, then what was
  * added, then what was removed. */
 export function lockChanges(before, after) {
-  // As an author reads a package: its version, and its source unless crates.io.
-  const read = text => (text ? Bun.TOML.parse(text).package ?? [] : []).reduce((map, pkg) => map.set(pkg.name,
-    [...(map.get(pkg.name) ?? []), `${pkg.version}${pkg.source && !pkg.source.startsWith('registry+') ? ` (${pkg.source})` : ''}`].sort()), new Map());
+  // As an author reads a package: its version, and where it comes from unless crates.io.
+  const shown = pkg => `${pkg.version}${!pkg.source ? ' (path)' : pkg.source === CRATES_IO ? '' : ` (${pkg.source})`}`;
+  const read = text => (text ? Bun.TOML.parse(text).package ?? [] : []).reduce((map, pkg) => map.set(pkg.name, [...(map.get(pkg.name) ?? []), shown(pkg)].sort()), new Map());
   const was = read(before), now = read(after), moved = [], added = [];
   for (const [name, versions] of now) {
     const old = was.get(name);
@@ -399,6 +408,7 @@ export function lockChanges(before, after) {
   }
   return [...moved, ...added, ...[...was].filter(([name]) => !now.has(name)).map(([name, versions]) => `removed ${name} ${versions.join(', ')}`)];
 }
+const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index';
 const listed = (items, most = 6) => items.length > most ? `${items.slice(0, most).join(', ')}, … (${items.length} in all)` : items.join(', ');
 /** Whether Cargo refused a locked graph because the lock no longer matches the
  * manifests, a lock to refresh, rather than for a crate missing from its cache. */
