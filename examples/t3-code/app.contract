@@ -383,6 +383,7 @@ component T3Code
   mutation localChanged as shape Change refreshes data
   mutation prHandoffChanged as shape Change refreshes data // pr-handoffs-and-quick-actions: a checkout hand-off's second half, its own send
   mutation terminalFocusChanged as shape Change refreshes data
+  mutation fileCommentChanged as shape Change queue refreshes data // audit-wave-followups FU-3: the Files preview's line comments (chatLocal)
   mutation terminalChanged as shape Change refreshes data then terminalCompleted
   action terminalCompleted
     match terminalChanged
@@ -1072,7 +1073,13 @@ component T3Code
       foldHold = true
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0)
       rightPanelAt = ""
-    send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
+    // audit-wave-followups FU-3: a Files preview comment's ops have their own queued send. Its save inserts the composer's
+    // chip, whose text change is the composer's `draft` write on localChanged: on one send, that write replaced the
+    // save before it closed the draft. Queued, the draft's focus reports wait behind its save too.
+    if startsWith(op, "surface-files-comment-")
+      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
+    else
+      send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
   state foldHold = false
   action releaseFold
     if foldHold

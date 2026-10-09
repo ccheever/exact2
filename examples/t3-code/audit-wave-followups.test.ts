@@ -161,9 +161,16 @@ describe('FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff)',
     expect(panelState(client).visible).toBe(true);
   });
 
-  test('the Files draft card reports its focus as the Diff\'s does', async () => {
+  test('the Files draft card reports its focus as the Diff\'s does, on a queued send its save shares with nothing else', async () => {
     const preview = await component('r4-surfaces-files.contract', 'R4FilePreview');
     expect(line(preview, 'DiffDraftCard(')).toContain('focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, "")');
+    // The live drive's first try: ⌘↩ saved the chip, but the composer's `draft` write (localChanged) replaced the save
+    // before it closed the draft. The comment ops now have their own queued mutation.
+    const app = await source('app.contract');
+    expect(app).toContain('  mutation fileCommentChanged as shape Change queue refreshes data');
+    expect(app).toContain('    if startsWith(op, "surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else\n      send localChanged = command(`chatlocal:${op}`');
+    expect(line(app, '  action write(value: string)')).toBe('  action write(value: string)');
+    expect(app).toContain('  action write(value: string)\n    draft = value\n    draftOwner = `${composerOwner}${data.requestKey}`\n    send localChanged = command("draft", "", value, 0)');
   });
 });
 
