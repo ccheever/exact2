@@ -134,6 +134,9 @@ as choosing "work" in the scope menu already did; before it showed the checkout'
     two turns late), with one server request per read;
   - a bare project id gives the project scope across all environments, the same as the scope menu's project.
   All three fail on the base sources and pass on the fix ([output](https://raw.githubusercontent.com/ccheever/exact2/a2e70ec46f101411fa3644a106cc79d094aeaa5e/settings-diagnostics-and-scope/test-base-vs-fix.txt)).
+  Its servers use generations 50 to 52: the app tests share the app's client in file order, and the client adopts only
+  a newer generation (`client.ts` `adoptStatus`), so they sit between `providers-scope.test.ts` (41, before) and
+  `settings-integrations-reads.test.ts` (60, after).
 - `settings-core.test.ts`: the bare-project-id expectation is now `project` (was `checkout`), with the reference route.
 - `settings-a-telemetry.test.ts`: its fake client has `read` as well as `request`.
 
@@ -164,6 +167,11 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16802 T3_LOCAL_RUNTIME_DIR=$A/runti
 2026-10-09: reproduced S2-2 live on the base (evidence-base) and in a Bun model of the two resources; checked S2-11 and
 PG-8 on the live reference (clicked links, read the URL); fixed, tested, built the bundle, and drove the branch once in
 agent mode with the same steps as the base. Draft PR [#357](https://github.com/ccheever/exact2/pull/357).
+
+2026-10-10: the first final check run had two failures in the full Bun suite, both in
+`settings-integrations-reads.test.ts` (each file passed alone). This file's servers used generations 72 to 74, above that
+later file's 60 and 61, so the shared app client ignored the later servers and never opened their device stream. The
+test now uses 50 to 52, and the full suite passes. The final checks ran once on the head (results in the PR).
 
 ## Attempts and evidence
 

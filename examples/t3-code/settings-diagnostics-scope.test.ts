@@ -123,7 +123,9 @@ async function run(server: DiagnosticsServer, files: ReturnType<typeof storage>[
   return { ...state, idle: false };
 }
 
-let generation = 71; // above the other app tests' servers (settings-integrations-reads.test.ts: 59): the app's client bootstraps from each new one
+// The app's client adopts only a newer generation (client.ts adoptStatus), and the app tests share it in file order:
+// above providers-scope.test.ts (41), which runs before this file, and below settings-integrations-reads.test.ts (60), after it.
+let generation = 49;
 async function launched(latency = 0) {
   const server = new DiagnosticsServer(), files = storage().files;
   server.generation = ++generation; server.serial = generation * 1000; server.latency = latency;
