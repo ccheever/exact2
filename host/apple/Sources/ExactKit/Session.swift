@@ -1169,8 +1169,7 @@ public final class ExactSession {
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            // The app module is ready before any source can call it: its load
-            // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
+            // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
@@ -1199,9 +1198,7 @@ public final class ExactSession {
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
-        // A timer armed for this same deadline stays: most batches leave the
-        // runner's next deadline where it was, and a new timer each batch
-        // cost more than the batch's other bookkeeping.
+        // Keep a timer already armed for this deadline; most batches leave it unchanged.
         if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
             return
