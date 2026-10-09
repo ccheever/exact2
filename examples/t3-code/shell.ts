@@ -3,6 +3,7 @@
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
 // the toast stack with its timers, the header's panel-control labels, the
 // right panel's surface chooser and the thread title's action menu.
+import { noteAutomationWindow } from './browser-automation';
 import type { T3Client } from './client';
 import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
 import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
@@ -270,6 +271,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     native.watch('t3.notify');
     state.status = await nativeNotifyStatus(native, state.status, page.focused);
     await reportWindowFacts(client, native, page.visible, page.focused); // client-activity-reporting's visible and focused
+    noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     await providerUpdates(client, storage);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status);

@@ -28,6 +28,7 @@ import {
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
 // Part 3 (browser-surface-capture): Annotate, Capture, Float preview, the separate window and the floating player.
 import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
+import { adoptAutomationTabs, automationOverlay, automationPrepare } from './browser-automation';
 
 // ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
 export const DEFAULT_BROWSER_PROFILE_ID = 'default';
@@ -243,7 +244,7 @@ async function mirrorNativeState(client: T3Client, native: Native): Promise<void
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
       const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), tab = tabs[runtimeId];
-      host.store.applyDesktopState(ref, snapshot.tabId, tab ? projectDesktopState(tab) : null);
+      host.store.applyDesktopState(ref, snapshot.tabId, tab ? { ...projectDesktopState(tab), ...automationOverlay(client, runtimeId) } : null); // part 5: audio, appearance, controller
       if (!tab || ref.environmentId !== client.environmentId || client.connection !== 'connected') continue;
       const report = buildReportInput(ref.threadId, snapshot.tabId, tab, host.reported.get(runtimeId) ?? null);
       if (!report) continue;
@@ -329,6 +330,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
   if (!native?.available) return;
   const ref = activeRef(client), host = browserHost(client);
   installBrowserCleanup(client, native);
+  adoptAutomationTabs(client); // part 5: tabs the previewAutomation host opened (browser-automation.ts)
   try {
     if (ref && client.connection === 'connected' && ref.environmentId === client.environmentId) {
       await listPreviewSessions(client, native, ref);
@@ -342,6 +344,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
     adoptCaptureNative(client, native);
     await applyCaptureResults(client, native, liveTabKeys(client));
+    await automationPrepare(client, native); // part 5: the previewAutomation host (browser-automation.ts)
   } catch (error) { if (letGo(error)) throw error; }
 }
 
@@ -366,6 +369,11 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       try { url = normalizePreviewUrl(value); } catch { return ''; }
       await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
       host.store.rememberUrl(ref, url);
+      return '';
+    }
+    case 'toggle-mute': { // part 5: the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)
+      const overlay = snapshot ? host.store.read(ref).desktopByTabId[snapshot.tabId] : undefined;
+      if (overlay) await nativeOp(client, native, { op: 'browserMute', tab: runtimeId, muted: !overlay.audioMuted });
       return '';
     }
     case 'back': case 'forward': case 'refresh': case 'hard-reload':

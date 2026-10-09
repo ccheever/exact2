@@ -35,15 +35,16 @@ import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-med
 import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
 // browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
-import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
 import { browserMiniView, emptyBrowserMini, floatingTabOf, playerThreadKey, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source
 import { browserMiniPlayerSource } from './previewMiniPlayerStore';
 import { miniStoreOf } from './r6-media-device';
+import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
+import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // browser-surface part 5: Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
-export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string };
+export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip; browser: BrowserView;
@@ -189,7 +190,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
-  if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key'); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
+  if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), ''); // browser-surface part 5
+  if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key', surface => browserTabMute(client, surface)); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
   if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
   if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }
   if (op === 'activate') {
@@ -275,10 +277,10 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
   const state = panelState(client), editor = tabRename(state);
-  const rename = { closeTarget: `${panelKey(client)}|${surface.id}`, ...terminalSurfaceCloseCopy(client, surface), renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces) };
+  const rename = { closeTarget: `${panelKey(client)}|${surface.id}`, ...terminalSurfaceCloseCopy(client, surface), renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces, entry => browserTabMute(client, entry)), audio: '' };
   const r5 = r5Tab(client, surface);
   if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
-  if (surface.kind === 'browser') { const tab = browserTab(client, surface); return { id: surface.id, kind: surface.kind, ...rename, title: tab.title, icon: 'earth', tone: '', fileToken: '', active: surface.id === active, pending: false, favicon: tab.favicon, faviconFallback: tab.faviconFallback }; }
+  if (surface.kind === 'browser') { const tab = browserTab(client, surface); return { id: surface.id, kind: surface.kind, ...rename, title: tab.title, icon: 'earth', tone: '', fileToken: '', active: surface.id === active, pending: false, favicon: tab.favicon, faviconFallback: tab.faviconFallback, audio: browserTabAudio(client, surface) }; }
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // lane r7-device: the open device's name and mark
   const title = surface.kind === 'terminal' ? panelTerminalLabel(client, surface.terminal?.activeTerminalId ?? '') : surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';

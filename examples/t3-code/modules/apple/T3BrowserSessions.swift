@@ -34,6 +34,9 @@ final class T3BrowserSessions {
     lazy var artifactDirectory: URL = artifactDirectoryOverride ?? T3BrowserArtifacts.directory(dataRoot: dataRoot)
     var imageDirectory: URL? { dataRoot?.appendingPathComponent("snapshots", isDirectory: true).appendingPathComponent("drafts", isDirectory: true) }
     let parking = T3BrowserParking()
+    /// A page made or closed (browser-surface part 5: the automation host's scripts go in before the first load).
+    var created: ((T3BrowserSession) -> Void)?
+    var ended: ((String) -> Void)?
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
         self.agent = agent
@@ -80,6 +83,7 @@ final class T3BrowserSessions {
         session.downloads.directory = { [weak self] in self?.artifactDirectory ?? FileManager.default.temporaryDirectory }
         session.dialogs = !agent
         sessions[id] = session
+        created?(session)
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
         note("open \(id)")
         publish()
@@ -101,6 +105,7 @@ final class T3BrowserSessions {
         guard let session = sessions.removeValue(forKey: id) else { return }
         parking.forget(session)
         session.close()
+        ended?(id)
         note("close \(id)")
         publish()
     }

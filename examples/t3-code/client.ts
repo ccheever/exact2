@@ -36,6 +36,7 @@ import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
+import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from './browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
@@ -495,6 +496,7 @@ export class T3Client {
         if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
+        if (key === PREVIEW_AUTOMATION_KEY || key === PREVIEW_EVENTS_KEY) { previewStreamEvent(this, entry); continue; } // browser-automation.ts: agent requests, preview events
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;
         // T3Transport resubscribes a failed stream on this session after a backoff (250 ms
         // doubling to 30 s); an authorization failure waits for the next session (c5a929e).

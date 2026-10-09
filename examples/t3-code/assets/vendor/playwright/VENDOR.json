@@ -1,0 +1,27 @@
+{
+  "description": "Playwright's injected script, the source the reference installs into a preview page for locators (apps/desktop/src/preview/PlaywrightInjectedRuntime.ts). browser-surface-automation (part 5) loads it into each Browser page's automation content world (T3BrowserAutomationScripts.swift). Copied from the package byte for byte; nothing rebuilds it.",
+  "package": "playwright-core",
+  "version": "1.60.0",
+  "reference": {
+    "repository": "https://github.com/pingdotgg/t3code",
+    "commit": "1e2ecbd9758830669684b494d4398f626b0576e0",
+    "pin": "apps/desktop/package.json \"playwright-core\": \"1.60.0\""
+  },
+  "tarball": {
+    "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.60.0.tgz",
+    "shasum": "24e0d9cc4730713db5dffcace29b5e4696b1907a",
+    "integrity": "sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA=="
+  },
+  "extraction": "lib/coreBundle.js: the string literal after the first `source3 = ` up to `;\\n  }\\n});` (packages/playwright-core/src/generated/injectedScriptSource.ts), evaluated as a string, as PlaywrightInjectedRuntime.extractPlaywrightInjectedRuntimeSource does",
+  "files": [
+    {
+      "path": "injected-script.js",
+      "bytes": 307101,
+      "sha256": "7000b1119dc91aabdb4a19b0ebf9d3e1f02cdb59153cff8c3cdc690e503e944a",
+      "license": "Apache-2.0",
+      "copyright": "Copyright (c) Microsoft Corporation",
+      "licenseFile": "LICENSE",
+      "noticeFile": "NOTICE"
+    }
+  ]
+}

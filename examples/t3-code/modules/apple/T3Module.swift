@@ -9,7 +9,7 @@ final class T3Module: ExactModule {
     private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
-    private let fleet: T3Fleet // Background environments (T3Fleet.swift).
+    let fleet: T3Fleet // Background environments (T3Fleet.swift); browser-surface part 5 answers their previewAutomation hosts.
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
     /// Settings › Appearance's editable prompt sample: its own editor, never the composer's (T3ComposerEditor.swift).
@@ -34,6 +34,7 @@ final class T3Module: ExactModule {
     let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     let browserSessions: T3BrowserSessions // browser-surface: this session's Browser pages (T3BrowserSessions.swift)
+    let browserAutomation: T3BrowserAutomation // browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift)
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
     // The SSH password dialog's secure field (T3SshAuth.swift).
@@ -72,6 +73,7 @@ final class T3Module: ExactModule {
         let browser = T3BrowserSessions(agent: context.agent, changed: changed)
         browser.dataRoot = T3Storage.dataRoot(agent: context.agent, contextData: context.data) // part 3: artifacts, Annotate's crops
         browserSessions = browser
+        browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
         exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
@@ -79,6 +81,7 @@ final class T3Module: ExactModule {
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
         attachAppControl(context) // `t3 app <dir>`: the control socket follows the embedded server (T3Module+Activation.swift)
+        attachBrowserAutomation() // browser-surface part 5 (T3Module+Browser.swift)
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
         if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
@@ -99,7 +102,7 @@ final class T3Module: ExactModule {
                 DispatchQueue.main.async {
                     var result = response
                     var value = result["value"] as? [String: Any] ?? [:]
-                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }
+                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }
                     var turned: [String: Any] = value["presentation"] as? [String: Any] ?? [:]
                     let turnStatus: [String: Any] = self?.turns.status ?? [:]
                     for (key, entry) in turnStatus { turned[key] = entry }

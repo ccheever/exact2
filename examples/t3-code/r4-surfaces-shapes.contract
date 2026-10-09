@@ -30,6 +30,7 @@ shape R4Tab
   menu: list<R4TabMenuItem>
   favicon: string // browser-surface: a Browser tab's captured favicon, then the public service's
   faviconFallback: string
+  audio: string // browser-surface part 5: "none", "audible" or "muted" (the tab's audio button)
 // right-panel-tab-menu: one row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
 shape R4TabMenuItem
   id: string
