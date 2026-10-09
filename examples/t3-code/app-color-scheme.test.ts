@@ -10,6 +10,8 @@ import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { decodeClientPrefs } from './settings-core';
 import { settingsCore } from './settings-core-view';
+import { editorView, syncDraft } from './settings-appearance-editor';
+import type { CustomTheme } from './settings-themes';
 
 const dir = new URL('./', import.meta.url);
 const source = (file: string) => Bun.file(new URL(file, dir)).text();
@@ -95,5 +97,23 @@ describe('one resolved colour scheme', () => {
       expect(`${kind} dark/dark: ${await opened('dark', 'dark', kind, 't3-chat#1')}`).toBe(`${kind} dark/dark: dark`);
       expect(`${kind} light/light: ${await opened('light', 'light', kind, 't3-chat#1')}`).toBe(`${kind} light/light: light`);
     }
+  });
+
+  // ThemeSettings.tsx hands an edit the same resolved appearance, and ThemeEditorPanel.tsx:379-383 keeps it when the
+  // source theme has colours for it, else takes the theme's own appearance.
+  test('an edit opens on the resolved scheme too; a one-appearance theme opens on its own', () => {
+    const roles = { canvas: '#101820', accent: '#44cc88' };
+    const themes: CustomTheme[] = [{ id: 'both', label: 'Both', appearance: 'light', light: roles, dark: roles },
+      { id: 'night', label: 'Night', appearance: 'dark', light: null, dark: roles }, { id: 'day', label: 'Day', appearance: 'light', light: roles, dark: null }];
+    const client = { local: { deviceSettings: { appearanceMode: 'system' }, clientSettings: decodeClientPrefs({}), customThemes: themes } } as unknown as T3Client;
+    const prefs = { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' };
+    const open = (kind: string, subject: string, scheme: 'light' | 'dark') => editorView(syncDraft(client, kind, subject, prefs, scheme)).appearance;
+    expect(open('edit', 'both#1', 'dark')).toBe('dark'); // was the theme's own (light)
+    expect(open('edit', 'both#2', 'light')).toBe('light');
+    expect(open('edit', 'night#3', 'light')).toBe('dark');
+    expect(open('edit', 'day#4', 'dark')).toBe('light');
+    expect(open('duplicate', 'day#5', 'dark')).toBe('light'); // was dark, with no colours of its own to show
+    expect(open('duplicate', 'both#6', 'dark')).toBe('dark');
+    expect(open('duplicate', 'grove#7', 'dark')).toBe('dark');
   });
 });
