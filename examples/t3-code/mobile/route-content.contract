@@ -1,3 +1,4 @@
+use ArchiveChrome, ArchiveChromeSnapshot from "./archive-chrome.contract"
 use HomeArrangement, HomeArrangementColors from "./home-arrangement.contract"
 use MobileAddProject, AddProjectSnapshot, AddProjectColors from "./add-project.contract"
 use MobileWorkingControl, WorkingControlData from "./working-control.contract"
@@ -151,9 +152,7 @@ component MobileRouteContent
     modelLegacy: bool
     newTaskQuery: string
     branchQuery: string
-    archiveQuery: string
-    archiveEnvironment: string
-    archiveSort: string
+    archiveChrome: ArchiveChromeSnapshot
     host: string
     code: string
     formError: string
@@ -249,9 +248,7 @@ component MobileRouteContent
     chooseNewBranch: action
     openAgents: action
     openAgent: action
-    editArchiveQuery: action
-    editArchiveEnvironment: action
-    toggleArchiveSort: action
+    archiveChromeEvent: action
     refreshArchive: action
     archiveAction: action
     toggleHomeShelf: action
@@ -462,15 +459,8 @@ component MobileRouteContent
     else when routeName == "settingsChoice"
       SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
     else when routeName == "archive"
-      row padding=16 gap=14
-        input value=archiveQuery input=editArchiveQuery placeholder="Search archived threads" flex=1 min-width=0 aria-label="Search archived threads"
-        button press=toggleArchiveSort aria-label="Sort archived threads"
-          text (archiveSort == "newest" ? "Newest" : "Oldest")
-      select value=archiveEnvironment change=editArchiveEnvironment aria-label="Filter archived threads by environment" margin-left=16 margin-right=16
-        option "All environments" value=""
-        each environment in archiveData.environments key=environment.id
-          option environment.label value=environment.id
       Archive(data=archiveData, colors=archiveLook, pending=archivedPending, loading=archiveDataPending, width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
+      ArchiveChrome(data=archiveChrome, routeKey=routeId, focused=focused, event=archiveChromeEvent)
     else when routeName == "threadAgents"
       AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
     else when startsWith(routeName, "addProject")

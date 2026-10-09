@@ -45,6 +45,15 @@ describe('mobile V2 home projection', () => {
     expect(rows(result).find(row => row.threadId === 'outbox')?.queued).toBe(true);
   });
 
+  test('sidebar selection moves between environment-scoped duplicate ids and clears on screen Home', () => {
+    const inputs = [source('one', [thread('same')]), source('two', [thread('same')])];
+    const selectedKeys = (selectedThreadKey: string) => rows(projectMobileHome(inputs, now, { selectedThreadKey }))
+      .filter(row => row.selected).map(row => row.key);
+    expect(selectedKeys('one:same')).toEqual(['one:same']);
+    expect(selectedKeys('two:same')).toEqual(['two:same']);
+    expect(selectedKeys('')).toEqual([]);
+  });
+
   test('collapsed shelves retain selected thread; settled paging adds the selected tail only once', () => {
     const input = source('one', Array.from({ length: 14 }, (_, index) => thread(`s${index}`, { settledOverride: 'settled', settledAt: at(-index) })), capabilities);
     const collapsed = projectMobileHome([input], now);

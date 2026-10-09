@@ -1,3 +1,5 @@
+import { mobileKeyboardSnapshot, mobileKeyboardCopy, mobileKeyboardDismiss } from './mobile-keyboard';
+import { archiveChromeView, archiveChromeEvent } from './archive-chrome';
 import { mobileRootFaviconAdmission, mobileRootFavicons, mobileRootFaviconImages, mobileRootFaviconEvent } from './mobile-favicon-root';
 import { mobileIncomingShareRead, mobileIncomingSharePresentation } from './incoming-share-inbox';
 import { mobileOutboxThread } from './mobile-outbox-presentation';
@@ -87,6 +89,12 @@ function storageEnvironments() {
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  keyboardSnapshot: args => mobileKeyboardSnapshot(mobileClient, str(args[0]), str(args[1])),
+  keyboardCopy: (args, _store, _storage, native) => {
+    mobileKeyboardSnapshot(mobileClient, str(args[1]), str(args[2]));
+    return mobileKeyboardCopy(mobileClient, str(args[0]), native);
+  },
+  keyboardDismiss: args => mobileKeyboardDismiss(mobileClient, Number(args[0])),
   projectFaviconDemand: args => mobileRootFaviconAdmission(args),
   projectFavicons: (args, _store, _storage, native) => mobileRootFavicons(Number(args[0]), Number(args[1]), native),
   projectImages: () => mobileRootFaviconImages(),
@@ -525,6 +533,14 @@ const sources: Sources = {
   homeChrome: (args, _store, storage, nativeInput) => {
     const native = sourceNative('homeChrome', args, nativeInput);
     return homeChromeView(args);
+  },
+  archiveChrome: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('archiveChrome', args, nativeInput);
+    return archiveChromeView(args);
+  },
+  archiveChromeEvent: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('archiveChromeEvent', args, nativeInput);
+    return archiveChromeEvent(String(args[0] ?? ''), String(args[1] ?? ''), args[2]);
   },
   archiveColors: (args, _store, storage, nativeInput) => {
     const native = sourceNative('archiveColors', args, nativeInput);

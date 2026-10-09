@@ -1,0 +1,45 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// Pinned365aa87982 HardwareKeyboardCommandProvider / GitActionProgressOverlay.
+// Fallback surface staged here; source interactive tinted iOS26 glass and
+// enter/exit/layout animations remain a separate visual acceptance gap.
+use ThreadColors from "./thread-shapes.contract"
+shape MobileKeyboardResult
+  revision: number
+shape MobileKeyboardSnapshot
+  routeKey: string
+  version: string
+  configuration: string
+  enabled: bool
+  revision: number
+  feedbackId: number
+  phase: string
+  label: string
+  description: string
+component MobileKeyboard
+  props
+    data: MobileKeyboardSnapshot
+    colors: ThreadColors
+    card: string
+    dangerBorder: string
+    top: number
+    event: action
+    dismiss: action
+  view
+    t3-keyboard-commands configuration=data.configuration change=event
+      position="absolute" width=0 height=0 aria-hidden=true pointer-events="none"
+    when data.phase != ""
+      button press=dismiss(data.feedbackId) position="absolute" z-index=100 left=10.5 right=10.5 top=top
+        text-align="left"
+        padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 box-sizing="border-box"
+        border-radius=26 border-width=1 border-style="solid" border-color=(data.phase == "error" ? dangerBorder : colors.border)
+        background-color=(data.phase == "error" ? colors.danger : card)
+        box-shadow="0px 10px 15px -3px rgba(0,0,0,0.1), 0px 4px 6px -4px rgba(0,0,0,0.1)"
+        aria-label=`${data.label}. ${data.description}` testId="keyboard-copy-feedback"
+        row gap=8.75 align-items="center" font-family="DM Sans"
+          column width=21 height=21 border-radius=999 flex-shrink=0 align-items="center" justify-content="center"
+            background-color=(data.phase == "success" ? "oklch(72.3% 0.219 149.579)" : colors.danger)
+            t3-symbol symbol-name=(data.phase == "success" ? "checkmark" : "exclamationmark.triangle") point-size=12
+              symbol-tint=(data.phase == "success" ? "#ffffff" : colors.dangerForeground) width=12 height=12
+          column flex=1 min-width=0 gap=1.75 align-items="stretch"
+            text data.label font-size=14 line-height="19px" font-weight=700 color=colors.foreground line-clamp=1
+            text data.description font-size=12 line-height="16px" color=colors.muted line-clamp=1

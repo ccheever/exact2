@@ -14,6 +14,12 @@ shape HomeColors
   secondaryForeground: string
   screen: string
   drawer: string
+  drawerForeground: string
+  drawerMuted: string
+  selectedBackground: string
+  selectedForeground: string
+  selectedMuted: string
+  selectedQueued: string
   tertiary: string
   border: string
   borderSubtle: string
@@ -293,6 +299,15 @@ component HomeListItem
   derive swipeOffset = dragToken == item.swipe.token and item.swipe.token != "" ? dragOffset : openToken == item.swipe.token and item.swipe.token != "" ? (item.swipe.secondary == "" ? -58 : -116) : 0
   derive menuId = `home-menu-${surface}-${item.key}`
   derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
+  derive sidebar = surface == "sidebar-list"
+  derive selectedRow = sidebar and item.selected
+  derive rowBackground = sidebar ? (selectedRow ? colors.selectedBackground : colors.drawer) : colors.screen
+  derive idleMuted = sidebar ? colors.drawerMuted : colors.muted
+  derive rowForeground = selectedRow ? colors.selectedForeground : sidebar ? colors.drawerForeground : colors.foreground
+  derive rowMuted = selectedRow ? colors.selectedMuted : idleMuted
+  derive rowTertiary = selectedRow ? colors.selectedMuted : sidebar ? colors.drawerMuted : colors.tertiary
+  derive rowStatusColor = length(item.status) > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
+  derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
   view
     column padding-bottom=(item.last ? bottomClearance : 0)
       when item.kind == "shelf"
@@ -303,7 +318,7 @@ component HomeListItem
           padding=0
           padding-left=17.5
           padding-right=17.5
-          aria-label=`${item.count} ${item.section} threads`
+          aria-label=`${item.count} ${item.section} ${item.count == 1 ? "thread" : "threads"}`
           aria-expanded=item.expanded
           testId=`home-shelf-${item.section}`
           row align-items="center" gap=8.75
@@ -368,10 +383,10 @@ component HomeListItem
           when item.trailingDivider and surface != "sidebar-list"
             view height=1 margin-left=17.5 background-color=colors.borderSubtle
       else
-        box position="relative" overflow="hidden" background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
+        box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           when item.swipe.primary != ""
             HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground)
-          column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen) testId=`home-swipe-content-${item.key}`
+          column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
             button press=selectThread(item.id)
               hatch="mobile-home-row"
               data-mobile-swipe-owner=owner
@@ -389,6 +404,7 @@ component HomeListItem
               padding=0
               text-align="left"
               aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
+              aria-selected=selectedRow
               testId=`home-thread-${item.key}`
               when item.card
                 column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
@@ -396,29 +412,31 @@ component HomeListItem
                     when item.projectPresent
                       HomeProjectIcon(item=item, colors=colors)
                     text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
-                      font-size=14 line-height="19px" font-weight=500 color=colors.muted
+                      font-size=14 line-height="19px" font-weight=500 color=rowMuted
                     when item.queued
-                      t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
+                      t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                     when item.pinned
-                      t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=colors.muted width=11 height=11
-                    text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=statusColor
-                  text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=2 text-overflow="ellipsis"
+                      t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=idleMuted width=11 height=11
+                    text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=rowStatusColor
+                  text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=rowForeground line-clamp=2 text-overflow="ellipsis"
                   when length(item.searchExcerpt) > 0
                     text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
                   row margin-top=3.5 align-items="center" gap=7
                     when length(item.error) > 0
-                      text item.error flex=1 font-size=13 line-height="17px" color=statusColor line-clamp=1 text-overflow="ellipsis"
-                    else
+                      text item.error flex=1 min-width=0 white-space="nowrap" overflow="hidden" font-size=13 line-height="17px" color=(selectedRow ? colors.selectedMuted : statusColor) text-overflow="ellipsis"
+                    else when length(item.branch) > 0 or length(item.environmentLabel) > 0
                       row flex=1 min-width=0 align-items="center" gap=3.5
                         text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
-                          text item.branch font-family="Menlo" color=colors.muted
+                          text item.branch font-family="Menlo" color=rowMuted
                           when length(item.branch) > 0 and length(item.environmentLabel) > 0
-                            text "  ·  " color=colors.muted
-                          text item.environmentLabel color=colors.tertiary
+                            text "  ·  " color=rowMuted
+                          text item.environmentLabel color=rowTertiary
                         when length(item.environmentLabel) > 0
-                          t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=colors.tertiary width=11 height=11 flex-shrink=0
+                          t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=rowTertiary width=11 height=11 flex-shrink=0
+                    else
+                      view flex=1 min-width=0
                     when item.provider.visible
-                      HomeProviderStack(provider=item.provider, surfaceColor=(surface == "sidebar-list" ? colors.drawer : colors.screen), colors=colors)
+                      HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
                 when item.trailingDivider
                   view height=1 margin-left=17.5 background-color=colors.borderSubtle
               else
@@ -434,12 +452,12 @@ component HomeListItem
                     column opacity=0.4
                       HomeProjectIcon(item=item, colors=colors)
                   column flex=1 min-width=0
-                    text item.title font-size=16 line-height="23px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                    text item.title font-size=16 line-height="23px" color=(selectedRow ? colors.selectedForeground : idleMuted) line-clamp=1 text-overflow="ellipsis"
                     when length(item.searchExcerpt) > 0
                       text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
                   when item.queued
-                    t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
-                  text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? colors.muted : colors.tertiary)
+                    t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
+                  text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
 
 
 component HomeProjectIcon
