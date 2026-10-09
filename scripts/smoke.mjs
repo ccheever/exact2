@@ -1397,7 +1397,7 @@ if (existsSync(appTests)) {
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
 if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
   const { nativeSmoke } = await import('./smoke-native.mjs');
-  await nativeSmoke({ host, open, check, webDist: selectedWebDist });
+  await nativeSmoke({ host, open, check, webDist: selectedWebDist, device });
 }
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });

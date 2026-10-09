@@ -22,7 +22,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const EXPECTED_EVENTS = 'press;change:changed;hover:true;focus;blur;key:Enter;submit;message:hello;';
 const NOTE = 'quote " slash \\ tab\t<&>';
 
-export async function nativeSmoke({ host, open, check: record, webDist, shots }) {
+export async function nativeSmoke({ host, open, check: record, webDist, shots, device = false }) {
   let checks = 0, failed = 0;
   const check = (ok, what) => { checks += 1; if (!ok) failed += 1; return record(ok, what); };
   const t0 = Date.now();
@@ -514,8 +514,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   // with UIKit's bars, `--chrome platform`, and the touch runner): each is
   // one Back, and the router's stack and the native one agree after it.
   // The sheet is a modal route the root names, never popped by a bar; the
-  // route over it is (Astra's review of 84009baad).
-  if (host === 'ios') {
+  // route over it is (Astra's review of 84009baad). A simulator only: the
+  // touch runner's drag is refused on a phone.
+  if (host === 'ios' && !device) {
     const d = await open({ host, chrome: 'platform', touch: 'drag' });
     try {
       const stacks = async () => {
@@ -538,7 +539,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
           if (!back) break;
           r = await d.carrier.touches.ask({ op: 'tap', point: [dx + back.x + back.w / 2, dy + back.y + back.h / 2] });
         } else {
-          r = await d.carrier.touches.ask({ op: 'drag', point: [dx + 4, dy + 150], to: [dx + 390, dy + 150], press: 0.1, hold: 0, velocity: 600 }, 10000);
+          const width = (await d.layout()).viewport?.w ?? 390;
+          r = await d.carrier.touches.ask({ op: 'drag', point: [dx + 4, dy + 150], to: [dx + width - 12, dy + 150], press: 0.1, hold: 0, velocity: 600 }, 10000);
         }
         check(r?.done, `${host} native: ${how} in Sheet is a real touch: ${JSON.stringify(r)}`);
         await settle(d); await d.clock('settle');
