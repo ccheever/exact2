@@ -166,28 +166,46 @@ fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_bod
     assert!(sent.lock().unwrap().is_empty(), "a refused body was sent");
 }
 
-/// The app's directories are opened when the host names them and pinned: a
-/// root replaced later by a symlink to another tree is not followed, as
-/// storage's own handles do not follow it.
+/// The app's directories are opened at the first request whose body is one
+/// of the app's files (not at boot: a cold boot opens no app storage) and
+/// pinned from then on: a root replaced later by a symlink to another tree is
+/// not followed, as storage's own handles do not follow it.
 #[cfg(unix)]
 #[test]
-fn a_root_replaced_after_the_host_named_it_is_not_followed() {
+fn a_root_replaced_after_the_first_file_body_is_not_followed() {
     let files = Files::new();
     let other = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
     std::fs::write(other.0.join("tmp/photo.jpg"), b"another's").unwrap();
     let (core, sent, woke) = recording(GRANTS);
     core.set_app_roots(files.roots());
+    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    collect(&core, &woke, 1);
     std::fs::rename(files.0.join("tmp"), files.0.join("tmp-moved")).unwrap();
     std::os::unix::fs::symlink(other.0.join("tmp"), files.0.join("tmp")).unwrap();
-    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+    core.run(job(2, upload("app:/tmp/photo.jpg")), None)
         .unwrap();
     let outcomes = collect(&core, &woke, 1);
     assert!(
         matches!(&outcomes[0].1, Outcome::Response(_)),
         "{outcomes:?}"
     );
-    assert_eq!(sent.lock().unwrap()[0].0, b"the app's");
+    let sent = sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].0, b"the app's", "the replaced root was followed");
+}
+
+/// Naming the app's directories opens nothing: a host whose app never sends
+/// a file body leaves them uncreated (a cold boot opens no app storage).
+#[test]
+fn naming_the_roots_does_not_make_them() {
+    let base = std::env::temp_dir().join(format!("exact-roots-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let roots = ["data", "cache", "tmp"].map(|d| base.join(d));
+    let (core, _sent, _woke) = recording(GRANTS);
+    core.set_app_roots(roots);
+    assert!(!base.exists(), "naming the roots made them");
 }
 
 /// A read that outlasts the request's deadline does not hold it: the worker
