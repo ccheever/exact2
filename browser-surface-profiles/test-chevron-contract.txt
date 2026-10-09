@@ -1,0 +1,100 @@
+# browser-launcher-chevron.test.contract against the app (agent.mjs macos --test, the lane env: drive-test.sh)
+
+== after: eb8daccda (this branch)
+test "Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only": ok
+test "↑ on the chevron opens its list without moving the launcher's lit row; Escape closes it": ok
+test "the list's Incognito row by Enter opens an Incognito tab, badged": ok
+3 passed, 0 failed
+agent pid 97879
+agent exit 0
+
+== the same build with the chevron's key guards taken out (BrowserLauncherProfiles triggerKey's and listKey's stopPropagation removed, rebuilt, then put back and rebuilt): the regression the test catches
+test "Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only": FAIL
+test "↑ on the chevron opens its list without moving the launcher's lit row; Escape closes it": ok
+test "the list's Incognito row by Enter opens an Incognito tab, badged": ok
+2 passed, 1 failed
+  Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only: line 27: expected testId "surface-chooser" present, it was absent
+  Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only: line 28: expected testId "files-surface" absent, it was present
+  Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only: line 31: no view matches launcher-browser-profile-default by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, connection-settings, open-pull-requests, open-usage, chat-header, header-project, toggle-thread-details, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+agent pid 21703
+agent exit 1
+
+Tests 2 and 3 pass either way: ↑ on the chevron does not move the launcher's row, and Enter on a list row opens its own tab, also without the guards; test 1 (Enter on the chevron) is the one that fails.
+
+== reference: the chevron's Enter opens the list and leaves Files lit (measured 2026-10-10, image p4-chevron-enter.png)
+
+---- examples/t3-code/browser-launcher-chevron.test.contract
+// browser-surface part 4: the launcher's Browser row chevron (browser-surface.contract BrowserLauncherProfiles) by keys,
+// through the app's own Contract handlers, beside the launcher's own keys (#355, shell-panels.contract SurfaceLauncher):
+// the chevron is a menu trigger, so its Enter, ↑ and ↓ and its list's Enter never reach the launcher, which opens its lit
+// row on Enter and moves it on the arrows (RightPanelTabs.tsx `handleKeyDown` ignores a key from inside it). Each test
+// relaunches the app on a draft thread (its project "work"), served by the embedded server; Default and Incognito are
+// built in, so the chevron always shows. The task's lane runs it:
+//   target/lane/drive-test.sh <run> examples/t3-code/browser-launcher-chevron.test.contract
+// The `clock +N real` steps let the embedded server start and answer, as a person waits for it.
+
+test "Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only"
+  clock +15000 real
+  clock +6000 real
+  tap "toggle-right-panel"
+  clock +2000 real
+  expect tree has "surface-chooser"
+  expect tree has "surface-browser-profiles"
+  // ↓ three times lights Files (Browser, Terminal, Files).
+  type "surface-chooser" key "ArrowDown"
+  clock +300 real
+  type "surface-chooser" key "ArrowDown"
+  clock +300 real
+  type "surface-chooser" key "ArrowDown"
+  clock +500 real
+  type "surface-browser-profiles" key "Enter"
+  clock +1500 real
+  // The launcher did not open Files: it is still there, and no surface opened.
+  expect tree has "surface-chooser"
+  expect tree missing "files-surface"
+  expect tree missing "browser-url"
+  // Enter on the list's first item (Default, where the list opened) opens a Default tab, and Files stays closed.
+  type "launcher-browser-profile-default" key "Enter"
+  clock +3000 real
+  expect tree has "browser-url"
+  expect tree missing "surface-chooser"
+  expect tree missing "files-surface"
+  expect tree missing "browser-profile"
+
+test "↑ on the chevron opens its list without moving the launcher's lit row; Escape closes it"
+  clock +15000 real
+  clock +6000 real
+  tap "toggle-right-panel"
+  clock +2000 real
+  type "surface-chooser" key "ArrowDown"
+  clock +300 real
+  type "surface-chooser" key "ArrowDown"
+  clock +300 real
+  type "surface-chooser" key "ArrowDown"
+  clock +500 real
+  type "surface-browser-profiles" key "ArrowUp"
+  clock +1500 real
+  expect tree has "surface-chooser"
+  expect tree missing "files-surface"
+  type "launcher-browser-profile-incognito" key "Escape"
+  clock +800 real
+  expect tree has "surface-chooser"
+  expect tree missing "browser-url"
+  // The launcher still lights Files: its Enter opens Files (a moved row would open Terminal or Browser).
+  type "surface-chooser" key "Enter"
+  clock +3000 real
+  expect tree has "files-surface"
+  expect tree missing "browser-url"
+
+test "the list's Incognito row by Enter opens an Incognito tab, badged"
+  clock +15000 real
+  clock +6000 real
+  tap "toggle-right-panel"
+  clock +2000 real
+  type "surface-browser-profiles" key "ArrowUp"
+  clock +1500 real
+  type "launcher-browser-profile-incognito" key "Enter"
+  clock +3000 real
+  expect tree has "browser-url"
+  expect tree missing "files-surface"
+  expect text "browser-profile" == "Incognito"
