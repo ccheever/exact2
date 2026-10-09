@@ -57,7 +57,8 @@ async function editorCall(native: Native, request: Obj): Promise<Obj> {
   return obj(reply.value);
 }
 
-function provider(client: T3Client): Obj { return arr(client.config.providers).find(entry => entry.instanceId === client.providerId) ?? {}; }
+/** The selected provider instance's snapshot: its skills feed the `$` menu, the chip labels and a skill chip's details (composer-chip-popover.ts). */
+export function selectedProvider(client: T3Client): Obj { return arr(client.config.providers).find(entry => entry.instanceId === client.providerId) ?? {}; }
 function project(client: T3Client): Obj { return client.shell.projects.find(entry => entry.id === client.projectId) ?? {}; }
 /** The thread's worktree, else the project root (ChatView gitCwd). */
 export function workspaceCwd(client: T3Client): string {
@@ -65,7 +66,7 @@ export function workspaceCwd(client: T3Client): string {
   return str(thread.worktreePath) || str(project(client).workspaceRoot);
 }
 function planModeUiEnabled(client: T3Client): boolean {
-  const current = provider(client);
+  const current = selectedProvider(client);
   return client.local.deviceSettings.planModeEnabled && !!current.instanceId && current.showInteractionModeToggle !== false;
 }
 function prefs(client: T3Client): Obj { return obj(client.local.clientSettings); }
@@ -203,7 +204,7 @@ function holds(client: T3Client): StackHold {
 /** Root readiness resource; independent from the editor/menu resource. */
 /** `shown`: whether the chat view (and so ChatComposer) is on screen; omitted, the last answer's. */
 export function composerWorkspaceView(client: T3Client, shown?: boolean) {
-  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, provider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown);
+  return cache(client).discovery.state(client.ready ? client.environmentId : '', client.generation, selectedProvider(client), workspaceCwd(client), { prompt: client.draft, config: client.config }, shown);
 }
 /** Root mutation: await the RPC, then Contract starts its retry clock on completion. */
 export async function refreshComposerWorkspace(client: T3Client, native: Native | null | undefined, key: string) {
@@ -225,7 +226,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   try {
     state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
       history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0,
-      skills: skillChipLabels(workspaceValues(provider(client), workspaceCwd(client), 'skills')) });
+      skills: skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills')) });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });
   // Large pastes the editor held back become pasted-text.txt chips (composer-editor-files.ts).
@@ -240,7 +241,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   entry.trigger = trigger;
   entry.owner = client.snapshotOwner;
   if (!trigger || !client.ready) { entry.rows = []; return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
-  const current = provider(client);
+  const current = selectedProvider(client);
   const cwd = workspaceCwd(client);
   const driver = str(current.driver);
   const skills = workspaceValues(current, cwd, 'skills');
