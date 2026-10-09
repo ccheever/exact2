@@ -3,12 +3,12 @@ name: 20261009-timeline-work-rows
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-timeline-work-rows
 pr_url: https://github.com/ccheever/exact2/pull/362
-verified_commit: null
+verified_commit: b34213b656cbe54baaf4335b1f3be047f9c60e13
 ---
 
 # Timeline: fork rule, notification sources, work group icon and height, inspector details, subagent card, muted icons
@@ -148,3 +148,7 @@ opening it.)
 ## Next action
 
 None: review and merge.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `b34213b65` (#362, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

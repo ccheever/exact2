@@ -3,12 +3,12 @@ name: 20261009-right-panel-launcher-and-files
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-right-panel-launcher-and-files
 pr_url: https://github.com/ccheever/exact2/pull/355
-verified_commit: null
+verified_commit: 21019bed3936baedf5b9169324a637b894d2e7a9
 ---
 
 # Right panel: launcher keys and Device on a draft, the Terminal tab icon, and the Files subheader actions
@@ -163,3 +163,7 @@ Checks: see the PR ("Checks").
 ## Next action
 
 Run real-input batch step 1; then the coordinator reviews and merges #355.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `21019bed3` (#355, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

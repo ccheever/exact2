@@ -3,12 +3,12 @@ name: 20261009-composer-provider-state-and-details
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-composer-provider-state-and-details
 pr_url: https://github.com/ccheever/exact2/pull/356
-verified_commit: null
+verified_commit: 3b334f704c53028ed33820be860905ff6073b9b0
 ---
 
 # Composer provider state and the thread details card
@@ -173,3 +173,7 @@ the bottom with "Send a message to start the conversation." (before and after al
 ## Next action
 
 None: review and merge.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `3b334f704` (#356, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

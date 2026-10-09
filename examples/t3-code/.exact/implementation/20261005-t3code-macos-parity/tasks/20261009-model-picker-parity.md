@@ -31,7 +31,7 @@ as an Electron production build. Clone: `c603c22d6`, a development build.
 ## Findings
 
 Evidence paths are under the repository root. They stay local and are not committed. Provider state differs between the
-audit lanes (see [composer-provider-state-and-details](20261009-composer-provider-state-and-details.md), "Lane setup").
+audit lanes (see [composer-provider-state-and-details](closed/20261009-composer-provider-state-and-details.md), "Lane setup").
 
 | Id | Reference | Clone | Steps | Evidence |
 | --- | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ audit lanes (see [composer-provider-state-and-details](20261009-composer-provide
 Included: the seven findings above.
 
 Excluded:
-- The composer's provider state and model resolution: [composer-provider-state-and-details](20261009-composer-provider-state-and-details.md).
+- The composer's provider state and model resolution: [composer-provider-state-and-details](closed/20261009-composer-provider-state-and-details.md).
 - The search field's focus ring (CO-12): X61, waits for main fix of #302.
 - Framework code.
 
@@ -68,7 +68,7 @@ Clone (`examples/t3-code`): `model-picker.contract:59-73, 107-152, 180-182, 190`
 
 Shared files:
 - `keyboard-dispatch.ts` with [shell-sidebar-palette-keys](20261009-shell-sidebar-palette-keys.md).
-- `r3-composer-controls-fanout.ts` with [composer-provider-state-and-details](20261009-composer-provider-state-and-details.md).
+- `r3-composer-controls-fanout.ts` with [composer-provider-state-and-details](closed/20261009-composer-provider-state-and-details.md).
 - `settings-scheduled.contract` and `settings-source-control.contract` with [settings-rows-and-labels](20261009-settings-rows-and-labels.md).
 
 Start after those merge, or rebase.

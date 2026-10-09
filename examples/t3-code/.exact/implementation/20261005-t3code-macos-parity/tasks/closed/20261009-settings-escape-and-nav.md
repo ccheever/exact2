@@ -3,12 +3,12 @@ name: 20261009-settings-escape-and-nav
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-escape-and-nav
 pr_url: https://github.com/ccheever/exact2/pull/361
-verified_commit: null
+verified_commit: 8f8e41c434862ea4f887f249e3791c940592e4c4
 ---
 
 # Settings: Escape goes to its owner, the shortcut recorder owns every key, and the Settings sidebar resizes
@@ -191,3 +191,7 @@ T3_LOCAL_PORT=16902 EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs
 Review the draft PR (the 2026-10-10 review's findings are fixed, above). The three real-input steps above (S1-3 real
 Escape, S1-4 real ⌘K with the menu bar unchanged, S2-5 real drag) go into the next real-input batch; every row passes in
 agent mode.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `8f8e41c43` (#361, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

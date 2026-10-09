@@ -3,12 +3,12 @@ name: 20261009-notifications-all-environments
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: partial
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-notifications-all-environments
 pr_url: https://github.com/ccheever/exact2/pull/365
-verified_commit: null
+verified_commit: c081d6d434cf7700de01b1660083f99b62bc32b9
 ---
 
 # Thread notifications watch every connected environment
@@ -171,3 +171,7 @@ Row "Unfocused window: system notification" (needs Notification Center and a rea
 ## Next action
 
 Coordinator: review the draft PR; run the real-input batch steps above for the system-notification row.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `c081d6d43` (#365, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

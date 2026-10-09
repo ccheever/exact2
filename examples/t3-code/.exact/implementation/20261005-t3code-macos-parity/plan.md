@@ -195,17 +195,17 @@ Suggested order. Tasks in one wave touch different files and can run in parallel
 after the tasks it shares files with have merged.
 
 Wave 1:
-1. [settings-diagnostics-and-scope](tasks/20261009-settings-diagnostics-and-scope.md): S2-2 (high, Diagnostics empty),
+1. [settings-diagnostics-and-scope](tasks/closed/20261009-settings-diagnostics-and-scope.md): S2-2 (high, Diagnostics empty),
    S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md).
-2. [timeline-work-rows](tasks/20261009-timeline-work-rows.md): TH-1 to TH-6, TH-10.
+2. [timeline-work-rows](tasks/closed/20261009-timeline-work-rows.md): TH-1 to TH-6, TH-10.
 3. [diff-panel-parity](tasks/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
-4. [right-panel-launcher-and-files](tasks/20261009-right-panel-launcher-and-files.md): PA-1, PA-2, PA-4, PA-5, PA-10.
-5. [composer-provider-state-and-details](tasks/20261009-composer-provider-state-and-details.md): CO-5, CO-6, CO-8, CO-9,
+4. [right-panel-launcher-and-files](tasks/closed/20261009-right-panel-launcher-and-files.md): PA-1, PA-2, PA-4, PA-5, PA-10.
+5. [composer-provider-state-and-details](tasks/closed/20261009-composer-provider-state-and-details.md): CO-5, CO-6, CO-8, CO-9,
    CO-10, PA-9.
 6. [settings-appearance-and-skill-chip](tasks/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
-7. [settings-escape-and-nav](tasks/20261009-settings-escape-and-nav.md): S1-1, S1-2, S2-1 (one root cause), S1-3, S1-4,
+7. [settings-escape-and-nav](tasks/closed/20261009-settings-escape-and-nav.md): S1-1, S1-2, S2-1 (one root cause), S1-3, S1-4,
    S2-5.
-8. [snapshot-permission-helper](tasks/20261009-snapshot-permission-helper.md): PG-9.
+8. [snapshot-permission-helper](tasks/closed/20261009-snapshot-permission-helper.md): PG-9.
 
 Wave 2:
 9. [app-color-scheme](tasks/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
@@ -215,7 +215,7 @@ Wave 2:
     S2-10, S2-9's row alignment. After 1 (`settings-core.ts`).
 12. [markdown-links-and-files-preview](tasks/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
     (`r4-surfaces-files.contract`). TH-9 matches the live reference (the user's "match the pin" rule).
-13. [notifications-all-environments](tasks/20261009-notifications-all-environments.md): PG-10. Independent; it needs a
+13. [notifications-all-environments](tasks/closed/20261009-notifications-all-environments.md): PG-10. Independent; it needs a
     two-server lane.
 
 Wave 3:
@@ -238,6 +238,11 @@ draft. `issue-open` reproduces it and checks it against #321. Publication needs 
 
 Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
 draft PR (option a of the blocked record).
+
+Progress (2026-10-10): merged #357, #356, #355, #359, #365, #362 and #361 (records in `tasks/closed/`); #360 waits for a
+reference-matching change to its comparison picker; wave 2b (settings-pages-subscribed-config, shell-sidebar-palette-keys,
+settings-rows-and-labels), markdown-links-and-files-preview, app-color-scheme and the update-controls draft are in flight.
+[audit-wave-followups](tasks/20261010-audit-wave-followups.md) holds four differences the fix agents found outside their tasks.
 
 Coordinator additions:
 - [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
