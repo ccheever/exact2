@@ -1,0 +1,23 @@
+browser-surface-profiles checks at 827470bbca90d7dcbe6e60ae71d6b2198a5a4398 (2026-10-09)
+
+build rc=0
+test rc=0
+clippy rc=0
+fmt rc=0
+boot rc=0
+appkit rc=0
+t3-code-macos lib rc=0
+
+cargo test totals: 3521 passed, 0 failed, 34 ignored
+clippy tail:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.64s
+boot tail: Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and b
+t3-code-macos --lib: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.07s
+
+AppKit (browser, browser-profiles, browser-automation, menus):
+Executed 27 tests, with 0 failures
+Executed 16 tests, with 0 failures
+Executed 20 tests, with 0 failures
+	 Executed 45 tests, with 0 failures (0 unexpected) in 0.429 (0.433) seconds
+
+caps (git add -A && bun scripts/caps.mjs): All budgets within cap.
+Bun, strict tsc and contract build: run again at the final head (see the PR body).
