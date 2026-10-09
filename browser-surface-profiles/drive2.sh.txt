@@ -39,7 +39,9 @@ OPS=("clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window"
   "tap toggle-right-panel" "clock +2000 real"
   "type surface-chooser key ArrowDown" "clock +300 real" "type surface-chooser key ArrowDown" "clock +300 real" "type surface-chooser key ArrowDown" "clock +500 real"
   "screenshot $S/51-launcher-files-lit.png window" tree)
-if [ $MODE = full ]; then OPS+=("type surface-browser-profiles key Enter" "clock +1500 real" "screenshot $S/52-chevron-enter.png window" tree); fi
+if [ $MODE = full ]; then OPS+=("type surface-browser-profiles key Enter" "clock +1500 real" "screenshot $S/52-chevron-enter.png window" tree
+  "type launcher-browser-profile-default key Escape" "clock +800 real" "type surface-browser-profiles key ArrowUp" "clock +1500 real" "screenshot $S/52b-chevron-arrowup.png window" tree
+  "type launcher-browser-profile-incognito key Escape" "clock +800 real" "screenshot $S/52c-after-escape.png window"); fi
 OPS+=("type surface-chooser key ArrowUp" "clock +300 real" "type surface-chooser key ArrowUp" "clock +500 real" "type surface-chooser key Enter" "clock +3000 real"
   "screenshot $S/53-browser-tab.png window" tree
   "type browser-url 127.0.0.1:16782/" "type browser-url key Enter" "clock +5000 real" "screenshot $S/54-first-layout.png window" tree logs state)
