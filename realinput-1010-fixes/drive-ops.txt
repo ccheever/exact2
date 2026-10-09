@@ -1,0 +1,18 @@
+realinput-1010-fixes: the drives behind ri1-reopen-letter-f.png (2026-10-10). Lane realinput-1010-fixes, base port 16340.
+
+Clone (agent mode, 1280x840), same ops on both sides:
+  before: EXACT_ROOT=t3-code-evidence-base (950e8e2e5; it predates #355, so its launcher has no arrow keys and the
+          drive opens Files by letter both times), clone-drive.sh realinput-1010-fixes-before 16340
+  after:  EXACT_ROOT=t3-code-realinput-1010-fixes (this branch, bundle built once), clone-drive.sh realinput-1010-fixes 16340
+  clock +20000 real; clock +3000 real; tap thread-verify-timeline; clock +2500 real; tap toggle-right-panel; clock +1500 real;
+  screenshot 1-launcher; type "Open a surface" key f; clock +2500 real; screenshot 2-files; tap close-tab-files;
+  clock +1500 real; screenshot 3-closed; tap toggle-right-panel; clock +1500 real; screenshot 4-reopened;
+  type "Open a surface" key f; clock +2500 real; screenshot 5-letter-f
+  ("Open a surface" is a text node that takes no focus, so the key goes to whatever holds it: the launcher, focused on
+  mount after the reopen.) Both builds open Files at step 5: the agent's keys go to Exact's route directly
+  (AgentMac: "This driver sends directly to NSWindow, bypassing NSApplication's local monitor"), so the monitor order
+  that broke the real F cannot show here; ri1-appkit-order-test.txt is the before/after for that.
+
+Reference (ref-app.sh realinput-1010-fixes 16340; ref-cdp.mjs 16341): size 1280 840; clickrole button "Timeline
+verification, Verification fixture"; press Meta+Alt+b; press f (Files opens); clickrole button "Close Files";
+press Meta+Alt+b; press f (Files opens).
