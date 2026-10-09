@@ -4,6 +4,7 @@ import { mobileClient } from './client';
 import { initialShell, obj, type Obj } from './shared/domain';
 import { fleet, type FleetEntry } from './shared/settings-b-fleet';
 import type { Native } from './shared/protocol';
+import { mobileCacheClear, mobileCacheClearKind } from './mobile-client-cache';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (minutes: number) => new Date(now + minutes * 60_000).toISOString();
@@ -44,6 +45,7 @@ const native: Native = { available: true, watch() {}, async later(input) {
   const request = obj(input); requests.push(request);
   const generation = request.fleet ? 8 : mobileClient.generation;
   const custom = hook?.(request); if (custom !== undefined) return await custom;
+  if (request.op === 'mobileClientCache') return { ok: true, generation: 0, value: { removed: 0 } };
   if (request.op === 'environments') return { ok: true, generation, value: { saved } };
   if (request.op === 'http') return { ok: true, generation, value: { authenticated: true, permissions: permission } };
   if (request.op === 'ids') return { ok: true, generation, value: ['command-from-native'] };
@@ -151,4 +153,82 @@ test('archive emits targets from filtered archived project headers without signe
   expect(requests.filter(r=>r.path==='/api/auth/session')).toHaveLength(2);
   expect(requests.some(r=>r.method==='assets.createUrl')).toBe(false);
  } finally {snapshot.projects=oldProjects;}
+});
+
+
+describe('warm Archive ownership', () => {
+  const offline = () => { mobileClient.connection='error';for(const entry of fleet.entries.values())entry.phase='disconnected'; };
+  test.each(['forgotten','replaced','ambiguous'])('%s saved identity retires retained project/thread rows', async change => {
+    await mobileArchive(now,'','','newest',native);offline();
+    if(change==='forgotten')saved=saved.filter(row=>row.environmentId!=='one');
+    if(change==='replaced')saved=saved.map(row=>row.environmentId==='one'?{...row,origin:'https://new-home.example'}:row);
+    if(change==='ambiguous')saved=[...saved,{...saved[0]!,origin:'https://duplicate.example'}];
+    fleet.saved=saved;
+    const data=await mobileArchive(now,'','','newest',native);
+    expect(data.items.some(row=>row.environmentId==='one')).toBe(false);
+    expect(threads(data.items).map(row=>[row.environmentId,row.canOperate])).toEqual([['two',false]]);
+    expect(requests.some(row=>row.op==='mobileClientCache')).toBe(false);
+  });
+  test('disabled/offline fallback retains no grant and issues no read or command', async () => {
+    expect(threads((await mobileArchive(now,'','','newest',native)).items).every(row=>row.canOperate)).toBe(true);
+    saved=saved.map(row=>({...row,enabled:false}));fleet.saved=saved;requests=[];
+    const data=await mobileArchive(now,'','','newest',native);
+    expect(threads(data.items)).toHaveLength(2);expect(threads(data.items).every(row=>!row.canOperate)).toBe(true);
+    expect(requests.some(row=>row.method==='orchestration.getArchivedShellSnapshot'||row.path==='/api/auth/session')).toBe(false);
+    expect((await mobileArchiveCommand('delete','one','p','archived',native)).message).toContain('Connect');
+    expect(requests.some(row=>row.method==='orchestration.dispatchCommand'||row.op==='ids')).toBe(false);
+  });
+  test.each(['environment','global','shell kind','other environment','favicon kind','internal VCS'])('%s clear observes the correct retained display boundary', async scope => {
+    await mobileArchive(now,'','','newest',native);offline();
+    if(scope==='environment')await mobileCacheClear(native,{environmentId:'one'});
+    if(scope==='global')await mobileCacheClear(native);
+    if(scope==='shell kind')await mobileCacheClearKind(native,'shell');
+    if(scope==='other environment')await mobileCacheClear(native,{environmentId:'unrelated'});
+    if(scope==='favicon kind')await mobileCacheClearKind(native,'project-favicon');
+    if(scope==='internal VCS')await mobileCacheClear(native,{environmentId:'one',kind:'vcs-refs'},{retainDisplay:true});
+    const data=await mobileArchive(now,'','','newest',native);
+    expect(threads(data.items).map(row=>row.environmentId).sort()).toEqual(scope==='global'||scope==='shell kind'?[]:scope==='environment'?['two']:['one','two']);
+    expect(threads(data.items).every(row=>!row.canOperate)).toBe(true);
+  });
+  test.each(['catalog','forget','ambiguity','clear'])('held archive reply cannot restore rows after %s changes', async change => {
+    saved=saved.slice(0,1);fleet.saved=saved;await mobileArchive(now,'','','newest',native);
+    const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();
+    hook=request=>request.method==='orchestration.getArchivedShellSnapshot'?(async()=>{entered.resolve();await release.promise;return{ok:true,generation:3,value:snapshot};})():undefined;
+    const pending=mobileArchive(now,'','','newest',native);await entered.promise;
+    if(change==='catalog')fleet.saved=saved.map(row=>({...row,origin:'https://replacement.example'}));
+    if(change==='forget')fleet.saved=[];
+    if(change==='ambiguity')fleet.saved=[...saved,{...saved[0]!}];
+    if(change==='clear')await mobileCacheClear(native,{environmentId:'one'});
+    release.resolve();const data=await pending;
+    expect(data.items).toEqual([]);expect(data.error).not.toBe('');
+    hook=null;offline();saved=fleet.saved;
+    expect((await mobileArchive(now,'','','newest',native)).items).toEqual([]);
+  });
+  test('peer completion rechecks successful rows after the focused connection disconnects', async () => {
+    const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>(),authorized=Promise.withResolvers<void>();
+    hook=request=>request.fleet&&request.method==='orchestration.getArchivedShellSnapshot'?(async()=>{entered.resolve();await release.promise;return{ok:true,generation:8,value:snapshot};})()
+      :!request.fleet&&request.path==='/api/auth/session'?(()=>{authorized.resolve();return{ok:true,generation:3,value:{authenticated:true,permissions:permission}};})():undefined;
+    const pending=mobileArchive(now,'','','newest',native);await entered.promise;await authorized.promise;
+    mobileClient.connection='error';release.resolve();const data=await pending;
+    expect(threads(data.items).filter(row=>row.environmentId==='one').every(row=>!row.canOperate)).toBe(true);
+    expect(threads(data.items).find(row=>row.environmentId==='two')?.canOperate).toBe(true);
+  });
+  test('catalog replacement during authorization prevents ids and archive mutation dispatch', async () => {
+    hook=request=>request.path==='/api/auth/session'?(()=>{fleet.saved=fleet.saved.map(row=>row.environmentId==='one'?{...row,origin:'https://replacement.example'}:row);return{ok:true,generation:3,value:{authenticated:true,permissions:permission}};})():undefined;
+    expect((await mobileArchiveCommand('delete','one','p','archived',native)).message).toContain('connection changed');
+    expect(requests.some(row=>row.op==='ids'||row.method==='orchestration.dispatchCommand')).toBe(false);
+  });
+});
+
+
+test('superseded archive answer cannot overwrite a newer successful warm snapshot', async () => {
+  saved=saved.slice(0,1);fleet.saved=saved;
+  const entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();let held=true;
+  hook=request=>request.method==='orchestration.getArchivedShellSnapshot'?(held?(async()=>{entered.resolve();await release.promise;return{ok:true,generation:3,value:{...snapshot,threads:[thread('old')]}};})():{ok:true,generation:3,value:{...snapshot,threads:[thread('new')]}}):undefined;
+  const older=mobileArchive(now,'','','newest',native);await entered.promise;held=false;
+  expect(threads((await mobileArchive(now,'','','newest',native)).items).map(row=>row.threadId)).toEqual(['new']);
+  release.resolve();await expect(older).rejects.toMatchObject({kind:'superseded'});
+  mobileClient.connection='error';hook=null;
+  const retained=threads((await mobileArchive(now,'','','newest',native)).items);
+  expect(retained.map(row=>row.threadId)).toEqual(['new']);expect(retained.every(row=>!row.canOperate)).toBe(true);
 });

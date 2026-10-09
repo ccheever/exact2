@@ -1,3 +1,4 @@
+use ProviderIcon from "./provider-icon.contract"
 use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 // @ref llp/1109.004-home-projection.decision.md#decision
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
@@ -42,6 +43,19 @@ shape HomeSwipeData
   gateExpiry: number
   snoozeItems: list<HomeMenuItem>
 
+shape HomeProviderPrevious
+  key: string
+  driver: string
+
+shape HomeProvider
+  visible: bool
+  driver: string
+  iconUrl: string
+  previous: list<HomeProviderPrevious>
+  showBadge: bool
+  badge: string
+  badgeColor: string
+
 shape HomeItem
   key: string
   kind: string
@@ -79,6 +93,7 @@ shape HomeItem
   iconColor: string
   iconSurface: string
   iconSize: number
+  provider: HomeProvider
   searchExcerpt: string
   menuItems: list<HomeMenuItem>
   nativeMenu: string
@@ -402,6 +417,8 @@ component HomeListItem
                           text item.environmentLabel color=colors.tertiary
                         when length(item.environmentLabel) > 0
                           t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=colors.tertiary width=11 height=11 flex-shrink=0
+                    when item.provider.visible
+                      HomeProviderStack(provider=item.provider, surfaceColor=(surface == "sidebar-list" ? colors.drawer : colors.screen), colors=colors)
                 when item.trailingDivider
                   view height=1 margin-left=17.5 background-color=colors.borderSubtle
               else
@@ -440,3 +457,24 @@ component HomeProjectIcon
           text item.iconText font-family="Menlo" font-size=item.iconSize line-height="15px" font-weight=700 color=item.iconColor text-align="center" line-clamp=1
       else
         ProjectFavicon(mountId=`${projectFaviconSurface}:${item.key}`, target=item.faviconTarget, title=item.projectTitle, size=15, tint=colors.iconSubtle)
+
+// Pinned ProviderInstanceIcon: the brand dims; its account badge stays saturated.
+component HomeProviderStack
+  props
+    provider: HomeProvider
+    surfaceColor: string
+    colors: HomeColors
+  view
+    row align-items="center" flex-shrink=0 aria-hidden=true
+      each previous in provider.previous key=previous.key
+        box margin-right=-3.5 opacity=0.3 width=12 height=12 flex-shrink=0
+          ProviderIcon(driver=previous.driver, size=12, dark=false, iconUrl="")
+      box position="relative" width=14 height=14 flex-shrink=0
+        box opacity=0.6 width=14 height=14
+          ProviderIcon(driver=provider.driver, size=14, dark=false, iconUrl=provider.iconUrl)
+        when provider.showBadge
+          box position="absolute" right=-3 bottom=-3 height=12 min-width=12 box-sizing="border-box"
+            padding-left=2 padding-right=2 border-radius=999 border-width=1 border-style="solid" border-color=surfaceColor
+            background-color=(provider.badgeColor != "" ? provider.badgeColor : colors.card)
+            display="flex" align-items="center" justify-content="center"
+            text provider.badge font-size=7 line-height="9px" font-weight=600 color=(provider.badgeColor != "" ? "#ffffff" : colors.muted)

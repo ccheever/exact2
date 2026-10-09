@@ -12,6 +12,8 @@ import { liveEnvironments, type LiveEnvironment } from './shared/live-streams';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
 import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
+import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
+import { mobileCacheDisplayRevision } from './mobile-client-cache';
 import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
 
 export interface ArchiveSnapshot { environmentId: string; label: string; machine: string; shell: Shell; canOperate: boolean }
@@ -63,17 +65,33 @@ export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, 
 }
 
 // View cache only: shared applyShell validates the server snapshot; no second live reducer.
-const snapshots = new Map<string, ArchiveSnapshot>();
+interface RetainedArchive { identity: string; revision: string; value: ArchiveSnapshot }
+const snapshots = new Map<string, RetainedArchive>();
+let readSerial = 0;
+const archiveRevision = (id: string) => mobileCacheDisplayRevision(id, 'shell');
+const catalogCurrent = (id: string, identity: string) => !!identity && mobileCacheCatalogIdentity(fleet.saved, id) === identity;
+const catalogEnabled = (id: string) => fleet.saved.filter(row => row.environmentId === id).length === 1
+  && fleet.saved.find(row => row.environmentId === id)?.enabled !== false;
+function retainedArchive(id: string, identity: string, revision: string): ArchiveSnapshot | null {
+  const previous = snapshots.get(id);
+  if (!previous) return null;
+  if (!catalogCurrent(id, identity) || previous.identity !== identity || previous.revision !== revision || archiveRevision(id) !== revision) {
+    snapshots.delete(id); return null;
+  }
+  return { ...previous.value, canOperate: false };
+}
 const inFlight = new Set<string>();
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The action could not be completed. Try again.';
 
 /** Existing liveEnvironments supplies request and command IDs. Lock its native seam to this generation. */
-function archiveTransport(environmentId: string, native: Native): { environment: LiveEnvironment; native: Native; generation: number } {
+function archiveTransport(environmentId: string, native: Native, scopeCurrent: () => boolean = () => true): { environment: LiveEnvironment; native: Native; generation: number; current(): boolean } {
   const focused = mobileClient.environmentId === environmentId;
   const entry = [...fleet.entries.values()].find(item => item.environmentId === environmentId);
-  const generation = focused ? mobileClient.generation : entry?.generation ?? -1;
-  const current = () => focused ? mobileClient.environmentId === environmentId && mobileClient.generation === generation
-    : fleet.entries.get(entry?.key ?? '') === entry && entry?.generation === generation;
+  const generation = focused ? mobileClient.generation : entry?.generation ?? -1, origin = focused ? mobileClient.origin : entry?.origin;
+  const current = () => scopeCurrent() && catalogEnabled(environmentId) && (focused
+    ? mobileClient.environmentId === environmentId && mobileClient.origin === origin && mobileClient.generation === generation && mobileClient.ready
+    : mobileClient.environmentId !== environmentId && fleet.entries.get(entry?.key ?? '') === entry && entry?.origin === origin
+      && entry?.generation === generation && entry?.phase === 'connected' && entry?.synchronized === generation);
   const guarded: Native = { available: native.available, watch: topic => native.watch(topic), later: async request => {
     const writing = obj(request).method === 'orchestration.dispatchCommand';
     if (!current()) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
@@ -85,8 +103,8 @@ function archiveTransport(environmentId: string, native: Native): { environment:
     return reply;
   } };
   const environment = liveEnvironments(mobileClient, guarded).find(item => item.environmentId === environmentId);
-  if (!environment?.connected) throw new ClientError('Connect this environment to load its archived threads.');
-  return { environment, native: focused ? guarded : EnvironmentFleet.native(guarded, environment.key), generation };
+  if (!environment?.connected || !current()) throw new ClientError('Connect this environment to load its archived threads.');
+  return { environment, native: focused ? guarded : EnvironmentFleet.native(guarded, environment.key), generation, current };
 }
 async function sessionPermission(native: Native, generation: number) {
   const reply = await bridgeReply(native, { op: 'http', path: '/api/auth/session', generation });
@@ -98,6 +116,7 @@ async function readArchive(environment: LiveEnvironment) {
 
 /** Root owns refresh/revision/query/filter/clock dependencies. Each saved environment keeps its own request. */
 export async function mobileArchive(now: number, query = '', selectedEnvironment = '', sortOrder = 'newest', nativeInput?: Native | null): Promise<ArchiveView> {
+  const request = ++readSerial, readCurrent = () => request === readSerial;
   const filtered = !!query.trim() || !!selectedEnvironment;
   const empty = { items: [] as ArchiveItem[], environments: [] as ArchiveEnvironment[], error: '', loading: false,
     emptyTitle: filtered ? 'No matching threads' : 'No archived threads', emptyDetail: filtered ? 'Try another search or environment.' : 'Threads you archive will appear here.' };
@@ -106,26 +125,45 @@ export async function mobileArchive(now: number, query = '', selectedEnvironment
   let saved: Obj[];
   try { saved = await savedList(native); }
   catch (error) { if (letGo(error)) throw error; return { ...empty, error: 'Failed to load archived threads.' }; }
-  const environments = [...new Map(saved.filter(item => str(item.environmentId)).map(item => [str(item.environmentId), {
+  if (!readCurrent()) throw new ClientError('The archive request was superseded.', 'superseded');
+  const environments = [...new Map(saved.filter(item => mobileCacheCatalogIdentity(saved, str(item.environmentId))).map(item => [str(item.environmentId), {
     id: str(item.environmentId), label: str(item.mobileLabel) || str(item.label) || str(item.environmentId) }])).values()]
     .sort((a, b) => compare(a.label.toLocaleLowerCase(), b.label.toLocaleLowerCase()));
   const ids = new Set(environments.map(item => item.id));
   for (const id of snapshots.keys()) if (!ids.has(id)) snapshots.delete(id);
   const results = await Promise.all(environments.map(async info => {
+    const identity = mobileCacheCatalogIdentity(saved, info.id), revision = archiveRevision(info.id);
+    const owned = () => {
+      const current = readCurrent() && catalogCurrent(info.id, identity) && archiveRevision(info.id) === revision;
+      const retained = snapshots.get(info.id);
+      if (!current && readCurrent() && retained?.identity === identity && retained.revision === revision) snapshots.delete(info.id);
+      return current;
+    };
+    // This warm view has no durable archive record. Explicit cache-clear
+    // eviction is an app ownership adaptation, not upstream atom invalidation.
+    const previous = retainedArchive(info.id, identity, revision);
     try {
-      const selected = archiveTransport(info.id, native), shell = await readArchive(selected.environment);
+      if (!owned() || saved.find(row => row.environmentId === info.id)?.enabled === false) throw new ClientError('Connect this environment to load its archived threads.');
+      const selected = archiveTransport(info.id, native, owned), shell = await readArchive(selected.environment);
       let canOperate = false;
       try { canOperate = await sessionPermission(selected.native, selected.generation); } catch (error) { if (letGo(error)) throw error; }
+      if (!owned() || !selected.current()) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
       const value: ArchiveSnapshot = { environmentId: info.id, label: info.label, machine: machineKind(selected.environment.config), shell, canOperate };
-      snapshots.set(info.id, value); return { value, failed: false };
+      // Persistent view memory never keeps a grant. Only this live invocation
+      // carries the fresh session decision, rechecked after all peers settle.
+      snapshots.set(info.id, { identity, revision, value: { ...value, canOperate: false } });
+      return { value, failed: false, owned, live: selected.current };
     } catch (error) {
       if (letGo(error)) throw error;
-      const previous = snapshots.get(info.id);
-      return { value: previous ? { ...previous, label: info.label, canOperate: false } : null, failed: true };
+      return { value: owned() && previous ? { ...previous, label: info.label, canOperate: false } : null, failed: true, owned, live: () => false };
     }
   }));
-  const items = projectMobileArchive(results.flatMap(result => result.value ? [result.value] : []), now, query, selectedEnvironment, sortOrder);
-  return { ...empty, items, environments, error: results.some(result => result.failed) ? 'Failed to load archived threads.' : '' };
+  if (!readCurrent()) throw new ClientError('The archive request was superseded.', 'superseded');
+  const current = results.filter(result => result.owned());
+  const items = projectMobileArchive(current.flatMap(result => result.value ? [{ ...result.value, canOperate: result.value.canOperate && result.live() }] : []), now, query, selectedEnvironment, sortOrder);
+  return { ...empty, items, environments: environments.filter(info => catalogCurrent(info.id, mobileCacheCatalogIdentity(saved, info.id))),
+    error: results.some(result => result.failed || !result.owned() || !result.live()) ? 'Failed to load archived threads.' : '' };
+
 }
 
 /** Root confirms deletion first; permission, generation and archive membership are rechecked here. */
@@ -138,8 +176,9 @@ export async function mobileArchiveCommand(kind: string, environmentId: string, 
   inFlight.add(key);
   try {
     const native = letGoAware(mobileNative(nativeInput)), saved = await savedList(native);
-    if (!saved.some(item => item.environmentId === environmentId && item.enabled !== false)) throw new ClientError('Connect this environment before changing archived threads.');
-    const selected = archiveTransport(environmentId, native);
+    const identity = mobileCacheCatalogIdentity(saved, environmentId);
+    if (!catalogCurrent(environmentId, identity) || !saved.some(item => item.environmentId === environmentId && item.enabled !== false)) throw new ClientError('Connect this environment before changing archived threads.');
+    const selected = archiveTransport(environmentId, native, () => catalogCurrent(environmentId, identity));
     if (!await sessionPermission(selected.native, selected.generation)) throw new ClientError('This connection does not have permission to change threads.');
     const shell = await readArchive(selected.environment);
     if (!shell.projects.some(project => project.id === projectId) || !shell.threads.some(thread => thread.id === threadId && thread.projectId === projectId && thread.archivedAt != null))
