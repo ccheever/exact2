@@ -162,7 +162,9 @@ alone (`settings-core-view.ts:61`, should-fix) and the base moved to `284254a72`
 passed the resolved scheme into `settingsCore`, and applied the reference's edit/duplicate rule (second commit). The
 bundle was built after each commit; the before build, the reference and the branch were driven through Create theme in
 mode System and an Edit of a two-palette theme (lane `app-color-scheme`, base port 16280; the branch's first drive was
-on the first commit's bundle, the retry on the final one, and every after image is from the retry).
+on the first commit's bundle, the retry on the final one, and every after image is from the retry). Then the base moved
+to `ab220bfdb` (#352, the Browser surface part 2) and was merged too (clean; it adds no `viewport.prefersColorScheme` or
+`look.mode` read, and the one-read test holds); the final checks ran on that head (see the PR).
 
 ## Not verified
 
