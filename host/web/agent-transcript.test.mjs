@@ -32,6 +32,13 @@ test('a tap is one line that keeps its delivery and every field it does not name
     .toBe('type q hi\ntyped #4 "q" · delivery platform · epoch 2 · clock 0 ms');
 });
 
+test('a given answer reads as given, and a delivered input whose answers did not land keeps its verb', () => {
+  expect(render('tap', { ticket: 3, capability: 'pick', node: 9, answered: 'cancel', delivery: 'substituted', clock: 0, epoch: 5 }))
+    .toBe('answered @3 "cancel" · delivery substituted · epoch 5 · clock 0 ms · capability="pick" · node=9');
+  expect(render('tap', { tapped: 3, target: 'go', delivery: 'platform', landError: 'clock land: the session closed', carrier: 'web', mode: 'agent' }))
+    .toBe('tapped #3 "go" · landing failed: clock land: the session closed · delivery platform');
+});
+
 test('a failed input reads as one first, and a phase or a drag keeps where the finger is', () => {
   // A form the carrier cannot deliver did not happen: never `tapped`.
   expect(render('tap', { tapped: 3, target: 'Sky off', delivery: 'unsupported', reason: 'linux has no pinch', pinch: 2, clock: 0, epoch: 2 }))
@@ -50,7 +57,9 @@ test('a failed input reads as one first, and a phase or a drag keeps where the f
 
 test('shrink averages by area: a box average at a whole factor, weighted at a fraction, never larger', () => {
   const data = Uint8Array.from({ length: 9 * 6 * 4 }, (_, i) => (i * 37) % 256), image = { width: 9, height: 6, data };
-  expect(shrink(image, 3, 2)).toEqual(contactSheet([image], { columns: 1, maxWidth: 3 }));
+  const sheet = contactSheet([image], { columns: 1, maxWidth: 3 });
+  expect(shrink(image, 3, 2)).toEqual({ width: sheet.width, height: sheet.height, data: sheet.data });
+  expect(sheet.cell).toEqual([3, 2]); // film reads the sheet's own scale from it
   expect(shrink(image, 9, 6)).toEqual(image);
   const row = { width: 3, height: 1, data: Uint8Array.from([0, 0, 0, 255, 90, 90, 90, 255, 180, 180, 180, 255]) };
   expect([...shrink(row, 2, 1).data]).toEqual([30, 30, 30, 255, 150, 150, 150, 255]);

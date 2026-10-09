@@ -162,8 +162,9 @@ export function identifyInspectedNode(reply, target) {
  *           an app's state (a reply with `slots`) without its empty sections (`emptySection`), a world's whole
  *   tap, type  [ERROR {error} · ]tapped|typed #{id} "{target}" [· at X,Y, a contact's phase or a drag] · delivery D · epoch E
  *           [· incarnation I, when not 1] · clock C ms [· key=JSON for every other field but carrier and mode];
- *           a contact's phase reads `tap {phase}`, and a reply with an error or `delivery: unsupported` `tap`|`type`,
- *           never `tapped`|`typed`
+ *           a contact's phase reads `tap {phase}`, a held request's answer `answered @{ticket} "{choice}"`, a reply with
+ *           an error or `delivery: unsupported` `tap`|`type`, never `tapped`|`typed`; a delivered input whose answers did
+ *           not land keeps its verb and says `landing failed: …`
  *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
  *           one row per site: component, file:line (or `site N`), then each counter the host has
  *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
@@ -226,13 +227,15 @@ export function render(op, r) {
       if (!r || typeof r !== 'object') return q(r);
       // `carrier` and `mode` are the drive's own (its host, its timing): the JSON keeps them. So does a press's `at`, a
       // point only a hit-test diagnosis reads; a contact's phase and a drag answer with where the finger is, so theirs shows.
-      const { tapped, typed, target, phase, delivery, epoch, incarnation, clock, at, carrier, mode, error, ...rest } = r, id = tapped ?? typed;
+      const { tapped, typed, target, phase, delivery, epoch, incarnation, clock, at, carrier, mode, error, landError, answered, ticket, ...rest } = r, id = tapped ?? typed;
       // An input that did not happen (a failure, a form the carrier cannot deliver) never reads in the past tense, and a
       // failure says so first; a phase names itself (`tap down`), held or not.
-      const verb = error != null || phase != null || delivery === 'unsupported' ? `${op}${phase != null ? ` ${phase}` : ''}` : tapped != null ? 'tapped' : typed != null ? 'typed' : op;
-      const head = `${error != null ? `ERROR ${error} · ` : ''}${verb}${id != null ? ` #${id}` : ''}${target != null ? ` ${q(target)}` : ''}`;
+      // A held request's answer (`tap @3 cancel`) was given: `answered @3 "cancel"`.
+      const verb = error != null || phase != null || delivery === 'unsupported' ? `${op}${phase != null ? ` ${phase}` : ''}` : answered != null ? 'answered' : tapped != null ? 'tapped' : typed != null ? 'typed' : op;
+      const head = `${error != null ? `ERROR ${error} · ` : ''}${verb}${ticket != null ? ` @${ticket}` : ''}${answered != null ? ` ${q(answered)}` : ''}${id != null ? ` #${id}` : ''}${target != null ? ` ${q(target)}` : ''}`;
       const where = (phase != null || r.drag != null) && at != null ? (Array.isArray(at) ? `at ${at.join(',')}` : `at=${q(at)}`) : null;
-      return [head, where, delivery != null && `delivery ${delivery}`, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`,
+      // Delivered, but what it started did not land (`landed`): said next to the verb, which stays `tapped`.
+      return [head, landError != null && `landing failed: ${landError}`, where, delivery != null && `delivery ${delivery}`, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`,
         ...Object.entries(rest).map(([k, v]) => `${k}=${q(v)}`)].filter(Boolean).join(' · ');
     }
     default:

@@ -88,7 +88,7 @@ export function encodeApng(frames, delayMs) {
   return Buffer.concat(parts);
 }
 
-/** Equal-size RGBA frames in a grid, left to right, at most `columns` wide, a one-pixel gray gap between cells; shrunk by a whole factor (box average) until the sheet is at most `maxWidth` wide. */
+/** Equal-size RGBA frames in a grid, left to right, at most `columns` wide, a one-pixel gray gap between cells; shrunk by a whole factor (box average) until the sheet is at most `maxWidth` wide. `cell` is one frame's size in it. */
 export function contactSheet(frames, { columns = 6, maxWidth = 2048 } = {}) {
   const cols = Math.min(columns, frames.length), rows = Math.ceil(frames.length / cols);
   const k = Math.max(1, Math.ceil((cols * frames[0].width + cols - 1) / maxWidth));
@@ -107,7 +107,7 @@ export function contactSheet(frames, { columns = 6, maxWidth = 2048 } = {}) {
       }
     }
   });
-  return { width, height, data };
+  return { width, height, data, cell: [w, h] };
 }
 
 /** An image shrunk to w×h, each at most its own, by area: every pixel the mean of the pixels it covers, each

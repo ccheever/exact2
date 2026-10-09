@@ -228,7 +228,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
     let current = null;
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).

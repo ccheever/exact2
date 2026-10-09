@@ -87,6 +87,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const phase = async (name, opts) => {
     const r = await s.pointer(name, opts);
     if (r.error || r.delivery === 'unsupported') throw new Error(`drag: ${name}: ${r.error ?? r.reason ?? 'unsupported'}`);
+    if (r.landError) throw new Error(`drag: ${name} was delivered; landing what it started failed: ${r.landError}`);
     return r;
   };
   try {

@@ -1328,7 +1328,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
       return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
     },
-    /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale`. Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
+    /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale` (a grid wider than 2048 px is shrunk again; the reply's `scale` is the picture's). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
     async film(path, { over, every }) {
       const frames = Math.floor(over / every) + 1;
       if (!(Number.isFinite(over) && over >= 0 && Number.isFinite(every) && every >= 1)) throw new Error('screenshot over <ms> every <ms>: over ≥ 0, every ≥ 1 ms');
@@ -1352,11 +1352,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
           images.push(image); at.push(s.now);
         } catch (error) { failure = Object.assign(new Error(`screenshot over: stopped at frame ${i} (clock ${s.now}) of ${frames}: ${error.message}`), { reply: error.reply }); }
       }
-      if (images.length) writeFileSync(out, animated ? encodeApng(images, every) : encodePng(contactSheet(images)));
+      const sheet = images.length && !animated ? contactSheet(images) : null;
+      if (images.length) writeFileSync(out, animated ? encodeApng(images, every) : encodePng(sheet));
       else rmSync(dir, { recursive: true, force: true });
       if (failure) { failure.message += images.length ? `; the ${images.length} frames taken are in ${out} and ${dir}` : ''; throw failure; }
       const { screenshot, ...tags } = last;
-      return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
+      // `scale` is the written picture's pixels a point: a sheet wider than its bound is shrunk again, by a whole factor.
+      const perPoint = (sheet ? sheet.cell[0] : images[0].width) / tags.w;
+      return { ...tags, ...(Number.isFinite(perPoint) ? { scale: Math.round(perPoint * 1000) / 1000 } : {}), screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
     },
     /** An input's end (LLP 1012 §2): the `then` of each answer the input settled lands before the reply, as a click
      * handler's state is there for a test's next line — the clock unmoved and no timer fired (trivia F3, kanban F19).
@@ -1366,7 +1369,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // The input closed the window (the app's `close()`, or `close`'s button): no session is left to land in.
       if (r.closed) return r;
       const l = await carrier.ask({ op: 'clock', land: true });
-      if (l.error) return { ...r, error: `the input was delivered; landing what it started failed: ${l.error}` }; // so an agent does not send it again
+      if (l.error) return { ...r, landError: l.error }; // delivered: not `error`, so neither an agent nor a test sends it again as if refused
       // A sheet the input (or its answer's `then`) opened or closed still moving past the iOS host's bound.
       if (l.settled === false) { r.settled = false; r.reason = l.reason; }
       delete r.epoch; delete r.incarnation; delete r.clock;

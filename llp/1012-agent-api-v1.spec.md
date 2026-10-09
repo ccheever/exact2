@@ -594,7 +594,8 @@ state    [epoch E · incarnation I · clock C ms], then one line per other secti
 tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
          [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
 type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,
-         and `at` shows for a phase and a drag only
+         a held request's answer `answered @{ticket} "{choice}"`; `at` shows for a phase and a drag only, and an
+         input delivered whose answers did not land keeps its verb and adds `landing failed: …` (`landError`)
 others   the JSON on one line
 ```
 
@@ -605,8 +606,9 @@ is now one line of 74–92 bytes. `delivery` stays, since it says whether a
 finger was simulated or substituted (LLP 1080.000). A failed input says
 `ERROR` first, and neither it nor an `unsupported` form reads `tapped`; a
 contact's `down` reads `tap down`, held; a phase or a drag keeps `at`, where
-the finger is; an input delivered whose answers then failed to land says
-so, so an agent does not send it again. `state` was the JSON pretty-printed,
+the finger is; an input delivered whose answers then failed to land keeps
+`tapped` and says `landing failed` (the reply's `landError`, not `error`),
+so an agent does not send it again; a test still stops there. `state` was the JSON pretty-printed,
 which cost an app's state over half again its compact JSON; it is now one
 line a section (Caltrain, web: 13,654 → 8,150 bytes; on an iPad simulator
 24,123 → 14,202; a one-node app 1,237 → 761). An app's state (a reply with
