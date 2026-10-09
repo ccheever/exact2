@@ -9,36 +9,28 @@ Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file doe
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 
-## No tells (first)
+## Write the web, ship the platform
 
-James's directive, and it outranks the web standard below (Charlie, 2026-10-09): an
-Exact app on iPhone must feel as if it were built by hand with UIKit and/or SwiftUI,
-following Apple's Human Interface Guidelines. No tells: nothing a person who knows iOS
-could point at and say "this isn't native" — not a control, tint, font, metric, inset,
-gesture, transition, presentation, haptic, keyboard behaviour, or accessibility answer.
-Where following CSS (a default, an inherited value, a behaviour) would leave a tell, the
-platform's default wins; what the author sets explicitly on a node still wins over both.
-The same holds for each platform's own conventions (macOS and AppKit, and so on).
-When a change could leave a tell, compare against what a hand-built UIKit/SwiftUI screen
-does on the same iOS version, not against Chrome.
+LLP 1115 (Charlie, 2026-10-09; James's "no tells"). **What the author writes is CSS**: the
+vocabulary, the layout model, the dev loop. **What the author leaves unsaid is the
+platform's**: controls, colour, type, motion, gestures, presentation, haptics, keyboard and
+accessibility come out as a hand-built UIKit/SwiftUI app following Apple's guidelines would
+have them (AppKit on the Mac, and each platform likewise). **What the author writes wins.**
+Precedence: author > platform > CSS default. One test settles a dispute: *would someone who
+knows the platform notice?* If so it is a tell, and the platform's answer wins; judge against
+a hand-built screen on the same OS version, not against Chrome.
 
-## The web is the standard (second to no tells)
-
-CSS stays the authoring vocabulary, the layout model and the dev loop; "No tells" above
-decides where a platform default and a CSS default disagree on an Apple surface. Within that:
-where a default, a property name, a value vocabulary, or a behavior could follow CSS or
-something else (React Native/Yoga, UIKit, AppKit), it follows CSS. The point is to be
-familiar to agents trained on a vast number of web pages, and most of those pages load
-a reset (normalize.css, Tailwind's preflight). So where that common reset convention
-differs from the browser's raw default, the reset's behaviour is also a familiar path
-and may be chosen, declared with the reason (a form control inherits the page's font,
-LLP 1104 D4). Otherwise the raw default stands: a bare node is `display: block`, `box-sizing:
-content-box`, `flex-direction: row`, `flex-shrink: 1`. Rows are named `object-fit`,
-`text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`, `numberOfLines`.
-The web is the dev loop and the layout parity oracle for every other surface; a kernel that
-disagrees with a bare `<div>` reintroduces the four-disagreeing-default-layers bug
-class the predecessor had. An unavoidable deviation (Taffy has no `position: static`)
-is declared in `llp/1001-kernel-v1.spec.md` with the reason.
+So layout stays CSS (users cannot perceive it): a bare node is `display: block`,
+`box-sizing: content-box`, `flex-direction: row`, `flex-shrink: 1`, and the web is the
+layout parity oracle — a kernel that disagrees with a bare `<div>` reintroduces the
+four-disagreeing-default-layers bug class the predecessor had (an unavoidable deviation is
+declared in `llp/1001-kernel-v1.spec.md`). Names stay CSS (they are what the author writes):
+`object-fit`, `text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`,
+`numberOfLines`; where a common reset (normalize.css, Tailwind's preflight) differs from the
+raw default, its behaviour is a familiar path too (LLP 1104 D4). Unsaid presentation is the
+platform's: a `color` a bar button only inherits from the page leaves UIKit's tint. Agents
+writing apps should therefore say less — structure (a header's heading and buttons, a
+`tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
 ## Working here
 

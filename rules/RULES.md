@@ -48,9 +48,9 @@ Tracked every commit. A regression is a P0 with a name on it.
   and taking something off, or Charlie's waiver. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
-- **No tells, then the web.** iPhone apps feel hand-built in UIKit/SwiftUI per Apple's
-  guidelines (James; Charlie, 2026-10-09): where CSS would leave a tell, the platform
-  default wins. Otherwise CSS; the web is the dev loop. **[review]**
+- **Write the web, ship the platform.** Authors write CSS; what they leave unsaid is the
+  platform's, as a hand-built UIKit/SwiftUI app has it (LLP 1115, "no tells"). Author >
+  platform > CSS default. **[review]**
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
