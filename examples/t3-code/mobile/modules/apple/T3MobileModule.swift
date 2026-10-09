@@ -91,6 +91,7 @@ final class T3MobileModule: ExactModule {
     let media: T3MobileMedia
     private let attachments: T3MobileAttachments
     private let homePreferences: T3MobilePreferences
+    private lazy var incomingShares = T3MobileIncomingShares(directory: documentRoot.appendingPathComponent("incoming-shares", isDirectory: true))
 
     required init(context: ExactModuleContext) {
         let audioSession = T3MobileAudioSession()
@@ -291,6 +292,13 @@ final class T3MobileModule: ExactModule {
             answer(["state": "refused", "refused": "Local T3 servers are not available on iOS."])
         case "mobileHomePreferences", "mobileToggleShelf", "mobilePreferences", "mobilePreferencesPatch":
             homePreferences.perform(request, reply: reply)
+        case "mobileIncomingShares":
+            // GAP 006: this build has no embedded Share Extension/App Group producer.
+            // Reading a durable inbox does not claim system sharing is available.
+            do {
+                let entries = try JSONSerialization.jsonObject(with: JSONEncoder().encode(incomingShares.entries()))
+                answer(["available": false, "entries": entries])
+            } catch { reply.fail("The saved shared content could not be read.") }
         case "mobileBrowser":
             browser.perform(request) { reply.send($0) }
         case "mobileDevices":
