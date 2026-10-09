@@ -15,13 +15,13 @@ verified_commit: null
 
 ## Outcome
 
-The Browser tab built in [part 1](20261005-browser-surface.md) gains the reference's navigation aids: the empty state's
+The Browser tab built in [part 1](closed/20261005-browser-surface.md) gains the reference's navigation aids: the empty state's
 "Recently used" and "Local servers", the full unreachable page, the history store, target resolution, page zoom, the
 appearance preference sent to the page, the device toolbar (fill, freeform, the 17 presets, rotate, resize handles) and
 the preview keys. The More menu's Show/Hide device toolbar, Appearance and Zoom rows, disabled and marked "Part 2" by
 part 1, work. Settings › Integrations › Browser gains its default viewport, zoom and appearance rows.
 
-Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 2). It starts
+Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 2). It starts
 after part 1 merges into `feat(example)/t3-code`; the engine (`T3BrowserSession.swift`), the state store
 (`browser-state.ts`) and the chrome row (`browser-surface.contract`) are part 1's.
 
@@ -70,7 +70,7 @@ The More menu rows marked "Part 2" lose the mark when they work.
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | its draft PR | Merged into `feat(example)/t3-code` | pending |
+| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X21](../issues/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `subscribeDiscoveredLocalServers` is a stream; the Swift transport carries it until #126 | — |
 | framework issue | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | #140 | nonblocking: the preview keys are native monitors while the page has focus | — |
 

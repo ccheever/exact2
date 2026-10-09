@@ -140,7 +140,7 @@ browser-shell consumer.
   work now, not a framework wait.
 - The user's decision (2026-10-08): **build path B.** A `WKWebView` inside the clone's own module, with no CDP,
   Safari Web Inspector for the page's tools and injected-script automation. Every path-B row of the table under
-  "Requested support" is a declared difference. [browser-surface](../../tasks/20261005-browser-surface.md) holds
+  "Requested support" is a declared difference. [browser-surface](../../tasks/closed/20261005-browser-surface.md) holds
   the rewritten scope. It starts after the `app.contract` root rewrite, because it adds root resources and the
   root is at its line cap.
 - Nothing waits on main for this record, so it closes (moved to `issues/closed/`).

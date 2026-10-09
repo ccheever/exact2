@@ -20,7 +20,7 @@ injected-script automation. Tabs an agent opens appear through the server's prev
 requests, checks and the terminal open in a Browser tab when "Open links in" is "T3 Code". The tab menu's Mute / Unmute
 item and the audible indicator work where WebKit offers the mechanism.
 
-Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 5). It starts
+Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 5). It starts
 after part 1 merges into `feat(example)/t3-code`.
 
 ## Scope and exclusions
@@ -61,7 +61,7 @@ Swift transport behind one seam, which #126's runner-owned streams replace (issu
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | its draft PR | Merged into `feat(example)/t3-code` | pending |
+| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X21](../issues/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `previewAutomation.connect` and `subscribePreviewEvents` are streams on the Swift transport until #126 | — |
 | scheduling preference | `20261005-terminal-integrations` (link routing hook), `20261005-right-panel-tab-menu` (Mute slot) | none | Not prerequisites | — |
 

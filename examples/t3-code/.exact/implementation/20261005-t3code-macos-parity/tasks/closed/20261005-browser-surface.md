@@ -1,9 +1,9 @@
 ---
 name: 20261005-browser-surface
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface
@@ -32,17 +32,17 @@ their part.
 
 This is part 1 of the planned split (below). The rest of the reference's Browser surface is in four records, each
 planned to start after this one merges:
-- [part 2, navigation](20261005-browser-surface-navigation.md): Recently used and Local servers, the unreachable page's
+- [part 2, navigation](../20261005-browser-surface-navigation.md): Recently used and Local servers, the unreachable page's
   Details, history and discovery, zoom, appearance, the device toolbar and the preview keys;
-- [part 3, capture](20261005-browser-surface-capture.md): Annotate, screenshots, recording, downloads, the separate
+- [part 3, capture](../20261005-browser-surface-capture.md): Annotate, screenshots, recording, downloads, the separate
   window and the floating player;
-- [part 4, profiles](20261005-browser-surface-profiles.md): Incognito and named profiles, cookie import, Clear cookies
+- [part 4, profiles](../20261005-browser-surface-profiles.md): Incognito and named profiles, cookie import, Clear cookies
   and Clear cache;
-- [part 5, automation](20261005-browser-surface-automation.md): the `previewAutomation.*` host, preview events, links
+- [part 5, automation](../20261005-browser-surface-automation.md): the `previewAutomation.*` host, preview events, links
   from chat and terminal, and Mute.
 
 Engine (user decision, 2026-10-08, after [#100](https://github.com/ccheever/exact2/issues/100) was closed upstream as not planned): **path B of
-[X1](../issues/closed/20261005-x01-chromium-cdp-browser-surface.md)**, a `WKWebView` in the clone's module.
+[X1](../../issues/closed/20261005-x01-chromium-cdp-browser-surface.md)**, a `WKWebView` in the clone's module.
 - No CDP, no Chromium and no per-page Chromium DevTools: Charlie refused path A ("Keep a browser shell outside core … Do not add Chromium/CEF or browser-control commands as incidental
   iframe work").
 - Safari Web Inspector stands in for DevTools (development builds only, as #101 allows); it cannot be opened from code.
@@ -90,13 +90,13 @@ feed, WSL.
 
 **Planned split (done at `prepare`, 2026-10-09).** This ticket was a whole product; it is split into five PRs from the
 updated integration branch (no stacks), this name for the first: (1) engine view, tabs and chrome; (2)
-[navigation](20261005-browser-surface-navigation.md); (3) [capture](20261005-browser-surface-capture.md); (4)
-[profiles](20261005-browser-surface-profiles.md); (5) [automation](20261005-browser-surface-automation.md). Each later
+[navigation](../20261005-browser-surface-navigation.md); (3) [capture](../20261005-browser-surface-capture.md); (4)
+[profiles](../20261005-browser-surface-profiles.md); (5) [automation](../20261005-browser-surface-automation.md). Each later
 part starts after this one merges into `feat(example)/t3-code`.
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/desktop/src/preview/{Manager,BrowserSession,FaviconCapture}.ts`,
+Parent specification: [spec](../../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/desktop/src/preview/{Manager,BrowserSession,FaviconCapture}.ts`,
 `apps/web/src/browser/{ElectronBrowserHost,HostedBrowserWebview,desktopTabLifetime,webviewCrashRecovery,previewRuntimeTabId}.ts(x)`,
 `apps/web/src/components/preview/{PreviewView,PreviewChromeRow,PreviewMoreMenu,PreviewEmptyState,PreviewUnreachable,addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewSession,usePreviewBridge}.ts(x)`,
 `apps/web/src/previewStateStore.ts`, `apps/web/src/rightPanelStore.ts`, `apps/web/src/components/RightPanelTabs.tsx`,
@@ -124,12 +124,12 @@ How part 1 is built (the seams the later parts extend):
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| recorded decision | [X1 embedded browser engine](../issues/closed/20261005-x01-chromium-cdp-browser-surface.md) | [#100](https://github.com/ccheever/exact2/issues/100), closed not planned 2026-10-08 | Path B, a `WKWebView` in the clone's module (user decision, 2026-10-08) | decided |
+| recorded decision | [X1 embedded browser engine](../../issues/closed/20261005-x01-chromium-cdp-browser-surface.md) | [#100](https://github.com/ccheever/exact2/issues/100), closed not planned 2026-10-08 | Path B, a `WKWebView` in the clone's module (user decision, 2026-10-08) | decided |
 | merged task PR | [20261008-app-contract-root-rewrite](20261008-app-contract-root-rewrite.md) | [#332](https://github.com/ccheever/exact2/pull/332) | Merged: the surface adds root resources and state, and the root was at its line cap | merged into `feat(example)/t3-code` as `f633671b7`; this branch starts there |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | #99 | Merged | not a blocker for part 1 (the branch builds on the feature branch's adopted main) |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | — | Merged into the T3 branch | merged |
-| framework issue | [X66](../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the "+" menu's profile submenu opens from its chevron, not on hover | declared in `EXACT2-GAPS.md` |
-| not a prerequisite | [20261005-desktop-oracle-and-trace](closed/20261005-desktop-oracle-and-trace.md) | none | Not built (user decision, 2026-10-06): oracle and trace rows are recorded "not run — user decision 2026-10-06" | — |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | #99 | Merged | not a blocker for part 1 (the branch builds on the feature branch's adopted main) |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | — | Merged into the T3 branch | merged |
+| framework issue | [X66](../../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the "+" menu's profile submenu opens from its chevron, not on hover | declared in `EXACT2-GAPS.md` |
+| not a prerequisite | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Not built (user decision, 2026-10-06): oracle and trace rows are recorded "not run — user decision 2026-10-06" | — |
 
 ## Acceptance and reproduction (part 1)
 
@@ -232,5 +232,7 @@ the page, then the setting off (read back) and quit Safari if it was not running
 Event quit stops its server), stop the fixture, `defaults delete com.exact.t3code.macos.lanebrowser`, release the lock.
 
 ## Next action
+
+2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #337 (`dce6d78df`); the record moved to `tasks/closed/`. Every real-input row passed before the merge; parts 2–5 start from here.
 
 None for part 1: review and merge #337. Parts 2–5 start after it merges.

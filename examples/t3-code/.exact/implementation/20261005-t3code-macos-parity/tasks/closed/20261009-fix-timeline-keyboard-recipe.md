@@ -1,9 +1,9 @@
 ---
 name: 20261009-fix-timeline-keyboard-recipe
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: passed
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fix-timeline-keyboard-recipe
@@ -21,7 +21,7 @@ regression test of the timeline's keyboard handling through ExactKit's real key 
 the next control, the output's `focus`, `blur` and scroll keys reaching the Contract action, and the row's hatches and
 timestamp staying out of the Tab order.
 
-Found by [app-contract-room](closed/20261008-app-contract-room.md) and
+Found by [app-contract-room](20261008-app-contract-room.md) and
 [app-contract-root-rewrite](20261008-app-contract-root-rewrite.md) ("Not done / not verified"): the recipe stopped
 compiling on the base. The coordinator made this follow-up task (2026-10-09).
 
@@ -36,7 +36,7 @@ recipe, which passes).
 
 ## Context and guidance
 
-- Parent: [spec](../spec.md), [plan](../plan.md).
+- Parent: [spec](../../spec.md), [plan](../../plan.md).
 - The test came from `5a355f704` (fix(t3-code): keep hidden timeline hooks out of the Tab order).
 
 ## Dependencies
@@ -104,5 +104,7 @@ rewrite; no conflict), rebuilt and re-ran everything. Delivered as draft [PR #33
 | merged tree | `2526ef4e2` (`f633671b7` merged) | macOS app rebuilt; README block verbatim exit 0 with the same PASS lines; `bun test` 3,468 / 1 / 0; `cargo test -p t3-code-macos --lib` 13 pass; caps within | PR body; local `run-recipe-merged.txt` | none |
 
 ## Next action
+
+2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #333 (`3c7b35984`); the record moved to `tasks/closed/`.
 
 Coordinator: review and merge draft PR #333.

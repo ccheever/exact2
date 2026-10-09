@@ -1,9 +1,9 @@
 ---
 name: 20261005-pr-links-previews-and-routing
 plan: 20261005-t3code-macos-parity
-implementation: built
+implementation: done
 verification: partial
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-links-previews-and-routing
@@ -37,7 +37,7 @@ Corrections: the clone reads one environment with `limit: 99` and no cursors (`p
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Source behavior (T3 Code `1e2ecbd975`; `W/` = `apps/web/src/components/pullRequest/`):
+Parent specification: [spec](../../spec.md). Source behavior (T3 Code `1e2ecbd975`; `W/` = `apps/web/src/components/pullRequest/`):
 `W/PullRequestThreadLinks.tsx:67-243`, `apps/web/src/hooks/usePullRequestLinking.ts`, `apps/web/src/components/CommandPalette.logic.ts:24-40` (`buildLinkedThreadActionItems`), `commandPaletteBus.ts`;
 `W/PullRequestLinkPreview.tsx:32-151`, `W/pullRequestMarkdown.logic.ts:150-192` (`remarkPullRequestAutolinks`), `apps/web/src/components/ChatMarkdown.tsx:3043-3260`, `apps/web/src/lib/openPullRequestLink.ts`;
 `packages/client-runtime/src/state/pullRequestRouting.ts:119-330`, `connection/githubRoutingPermissions.ts`, `W/pullRequestProjectAssignment.logic.ts`, `W/PullRequestDetailPanel.tsx:271-309,1550`;
@@ -52,18 +52,18 @@ Reference rules to keep: writes route only when both servers are "read-write", r
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](closed/20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-environment-routes](closed/20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
-| merged task PR | [20261005-pr-conversation-and-refresh](closed/20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
-| merged task PR | [20261005-pr-handoffs-and-quick-actions](closed/20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
-| merged task PR | [20261007-real-github-lane](closed/20261007-real-github-lane.md) | pending | Sandbox's bulk pull requests page the list (probe `R3`/`R4`); a second lane server per account | pending |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
-| merged task PR | [20261008-fix-hover-cards](closed/20261008-fix-hover-cards.md) (window hover layer, `hover-layer.contract`) | [#307](https://github.com/ccheever/exact2/pull/307) | Merged into `feat(example)/t3-code`; the card is drawn by its layer as kind `"pr-preview"` (coordinator 2026-10-08: no second hover helper) | merged (`3c8c11ef2`), merged here in `b06586859`; the three edits applied: PrLinkRun `inject hoverTipAt`, `hoverDelay("pr-preview") = 120`, `hoverOpenDelay("pr-preview") = 350`, the T3Window layer branch |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
+| merged task PR | [20261005-environment-routes](20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
+| merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
+| merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox's bulk pull requests page the list (probe `R3`/`R4`); a second lane server per account | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261008-fix-hover-cards](20261008-fix-hover-cards.md) (window hover layer, `hover-layer.contract`) | [#307](https://github.com/ccheever/exact2/pull/307) | Merged into `feat(example)/t3-code`; the card is drawn by its layer as kind `"pr-preview"` (coordinator 2026-10-08: no second hover helper) | merged (`3c8c11ef2`), merged here in `b06586859`; the three edits applied: PrLinkRun `inject hoverTipAt`, `hoverDelay("pr-preview") = 120`, `hoverOpenDelay("pr-preview") = 350`, the T3Window layer branch |
 | framework issue | X17 popover side areas and flips | [#112](https://github.com/ccheever/exact2/issues/112) | The side the card opens on (PreviewCardPopup side top, align center, sideOffset 6) | the hover layer's own `hoverFlip` (#307) places it; this task adds no per-site flip (#112 is the core work) |
 | framework issue | X34 frame of an inline run | [#272](https://github.com/ccheever/exact2/issues/272) | The card's anchor: an inline link inside rendered text | blocked rows: none; anchoring limited by #272: the card anchors at the link chip's own box (`frame(pr-link-<id>)` through `hoverTipAtFrame`); no inline-run frame or rectangle computation here (#272 is approved main-side work) |
-| merged task PR | [20261008-fix-keyboard-focus](closed/20261008-fix-keyboard-focus.md) | [#310](https://github.com/ccheever/exact2/pull/310) | The More and Check out menus' keyboard (`KeyMenu`) | merged (`f45eab04a`), merged here in `00af6adb3`: the Link item and each "Act on" row have a `KmItem` entry in menu order; an Act on row lights while focused |
-| merged task PR | [20261005-pr-code-tab](closed/20261005-pr-code-tab.md) | [#308](https://github.com/ccheever/exact2/pull/308) | Not needed: a commit autolink opens on the host, as the reference's (it is not a change request) | merged (`0e2901aec`), merged here in `b06586859`; its nine `Tip`s inside the diff list, file header, off-diff list and thread cards moved onto the hover layer (`LayerTip`, kind "tip"); a later Code-tab route for a commit link goes in `pages-pr-links.ts openLink` |
+| merged task PR | [20261008-fix-keyboard-focus](20261008-fix-keyboard-focus.md) | [#310](https://github.com/ccheever/exact2/pull/310) | The More and Check out menus' keyboard (`KeyMenu`) | merged (`f45eab04a`), merged here in `00af6adb3`: the Link item and each "Act on" row have a `KmItem` entry in menu order; an Act on row lights while focused |
+| merged task PR | [20261005-pr-code-tab](20261005-pr-code-tab.md) | [#308](https://github.com/ccheever/exact2/pull/308) | Not needed: a commit autolink opens on the host, as the reference's (it is not a change request) | merged (`0e2901aec`), merged here in `b06586859`; its nine `Tip`s inside the diff list, file header, off-diff list and thread cards moved onto the hover layer (`LayerTip`, kind "tip"); a later Code-tab route for a commit link goes in `pages-pr-links.ts openLink` |
 
 ## Issue assessment at preparation
 
@@ -71,12 +71,12 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X13](../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover close/cancel during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare in matrix |
-| [X17](../issues/20261005-x17-popover-position-try.md) | Hover card flips near window edges | AGENT-HANDOFF "flipped hover card overhang" | nonblocking (workaround: fixed placement) | Declare |
-| [X19](../issues/20261005-x19-data-source-timers.md) | 350 ms open / 120 ms close hover delays; 10 s linked-thread poll | Delays held in Contract/`now` args today | nonblocking (workaround: `now` arguments, Contract tasks) | Reuse the details-card hover card's delay mechanism |
-| [X34](../issues/20261005-x34-inline-span-frame.md) | Frame and hover of an inline link inside rendered Markdown, to anchor the card | `t3-anchor`/`t3-frame` hooks cover boxes ([X22](../issues/20261005-x22-reactive-layout-facts.md)), not inline runs | unknown | Spike at `prepare`; if the renderer cannot expose a link's frame, the hover card on inline links is held for a user decision (no matching workaround); autolinks still link 2026-10-07: #133 closed; main #178 makes the macOS agent hover inline runs (enter, leave, a point's hit test), so an inline link's hover can be built and driven; `frame()` of an inline run is still missing, so the card's anchor remains the open question (adopt-main-fixes-input). |
-| [X21](../issues/20261005-x21-two-way-websocket.md) | RPC to background environments | `T3Fleet.swift` transports | nonblocking | Reuse |
-| [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,488/1,500 on the base (`44e939f1e`) and after this task (0 net root lines: +2 for `pr-select:`, −2 by folding `prClose` into `prSelect("")`; the rest in-place edits) | nonblocking | New files only; in-place edits of the root's existing lines |
+| [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover close/cancel during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare in matrix |
+| [X17](../../issues/20261005-x17-popover-position-try.md) | Hover card flips near window edges | AGENT-HANDOFF "flipped hover card overhang" | nonblocking (workaround: fixed placement) | Declare |
+| [X19](../../issues/20261005-x19-data-source-timers.md) | 350 ms open / 120 ms close hover delays; 10 s linked-thread poll | Delays held in Contract/`now` args today | nonblocking (workaround: `now` arguments, Contract tasks) | Reuse the details-card hover card's delay mechanism |
+| [X34](../../issues/20261005-x34-inline-span-frame.md) | Frame and hover of an inline link inside rendered Markdown, to anchor the card | `t3-anchor`/`t3-frame` hooks cover boxes ([X22](../../issues/20261005-x22-reactive-layout-facts.md)), not inline runs | unknown | Spike at `prepare`; if the renderer cannot expose a link's frame, the hover card on inline links is held for a user decision (no matching workaround); autolinks still link 2026-10-07: #133 closed; main #178 makes the macOS agent hover inline runs (enter, leave, a point's hit test), so an inline link's hover can be built and driven; `frame()` of an inline run is still missing, so the card's anchor remains the open question (adopt-main-fixes-input). |
+| [X21](../../issues/20261005-x21-two-way-websocket.md) | RPC to background environments | `T3Fleet.swift` transports | nonblocking | Reuse |
+| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,488/1,500 on the base (`44e939f1e`) and after this task (0 net root lines: +2 for `pr-select:`, −2 by folding `prClose` into `prSelect("")`; the rest in-place edits) | nonblocking | New files only; in-place edits of the root's existing lines |
 
 ## Implementation notes
 
@@ -225,6 +225,8 @@ Act on row by default).
 3. The same from More: Return on More, ↓ past the Link item, Refresh and the three hand-offs to the Act on rows.
 
 ## Next action
+
+2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #311 (`96c4c38f2`); the record moved to `tasks/closed/`. Its three real-input rows stay in `STATUS.md` "Next real-input batch".
 
 None for this task: the coordinator checks conflicts and moves the PR to ready. Three rows wait in STATUS "Next real-input
 batch" (sections A, B and C above): the hover card and clicks by real input, the Code tab's tips, and the Act on focus.
