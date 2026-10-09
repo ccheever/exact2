@@ -1,0 +1,227 @@
+browser-surface-profiles live drive after3 (agent mode, 1280x840) at eb8daccda
+Lane ports: 16780 (the app's embedded T3 server), 16781 (cookie probe: names only, never values), 16782 (part 2's first-layout fixture).
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/). No real browser profile, Keychain item or Full Disk Access.
+
+  1 clock +15000 real  -> clock 15000 (real 15019 ms)
+  2 clock +6000 real  -> clock 21000 (real 6019 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1523 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 3017 ms)
+  8 screenshot 10-integrations.png window  -> screenshot 10-integrations.png
+  9 tree  -> tree (1177 nodes)
+ 10 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 11 clock +5000 real  -> clock 30500 (real 5018 ms)
+ 12 screenshot 11-add-menu.png window  -> screenshot 11-add-menu.png
+ 13 tree  -> tree (1185 nodes)
+ 14 tap browser-profiles-blank  -> tapped browser-profiles-blank at [1069.31, 379]
+ 15 clock +2000 real  -> clock 32500 (real 2017 ms)
+ 16 screenshot 12-blank.png window  -> screenshot 12-blank.png
+ 17 type "Rename New profile" Work QA  -> typed into Rename New profile
+ 18 type "Rename New profile" key Enter  -> typed into Rename New profile key Enter
+ 19 clock +2000 real  -> clock 34500 (real 2016 ms)
+ 20 screenshot 13-renamed.png window  -> screenshot 13-renamed.png
+ 21 tap "Work QA options"  -> tapped Work QA options at [1150.5, 449]
+ 22 clock +1000 real  -> clock 35500 (real 1016 ms)
+ 23 screenshot 14-row-menu.png window  -> screenshot 14-row-menu.png
+ 24 tap "Remove profile and data"  -> tapped Remove profile and data at [1026.5, 540]
+ 25 clock +1500 real  -> clock 37000 (real 1520 ms)
+ 26 screenshot 15-remove-dialog.png window  -> screenshot 15-remove-dialog.png
+ 27 tap browser-profile-remove-confirm  -> tapped browser-profile-remove-confirm at [809.74, 480.5]
+ 28 clock +2000 real  -> clock 39000 (real 2019 ms)
+ 29 screenshot 16-removed.png window  -> screenshot 16-removed.png
+ 30 tree  -> tree (1185 nodes)
+ 31 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 32 clock +5000 real  -> clock 44000 (real 5020 ms)
+ 33 tap browser-import-source-chrome  -> tapped browser-import-source-chrome at [1068.97, 444]
+ 34 clock +2000 real  -> clock 46000 (real 2019 ms)
+ 35 screenshot 20-chrome-configure.png window  -> screenshot 20-chrome-configure.png
+ 36 tap browser-import-run  -> tapped browser-import-run at [837.13, 548.5]
+ 37 clock +4000 real  -> clock 50000 (real 4018 ms)
+ 38 screenshot 21-chrome-done.png window  -> screenshot 21-chrome-done.png
+ 39 tree  -> tree (1224 nodes)
+ 40 logs  -> logs (4096 lines)
+ 41 tap browser-import-done  -> tapped browser-import-done at [841.7, 498.5]
+ 42 clock +1500 real  -> clock 51500 (real 1516 ms)
+ 43 screenshot 22-profiles-after-import.png window  -> screenshot 22-profiles-after-import.png
+ 44 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 45 clock +5000 real  -> clock 56500 (real 5017 ms)
+ 46 tap browser-import-source-brave  -> tapped browser-import-source-brave at [1068.97, 472]
+ 47 clock +2000 real  -> clock 58500 (real 2016 ms)
+ 48 screenshot 23-brave-quit.png window  -> screenshot 23-brave-quit.png
+ 49 clock +3000 real  -> clock 61500 (real 3018 ms)
+ 50 tap browser-import-quit  -> tapped browser-import-quit at [826.7, 480.5]
+ 51 clock +3000 real  -> clock 64500 (real 3017 ms)
+ 52 screenshot 24-brave-after-quit.png window  -> screenshot 24-brave-after-quit.png
+ 53 tap browser-import-cancel  -> tapped browser-import-cancel at [760.59, 579.5]
+ 54 clock +1000 real  -> clock 65500 (real 1016 ms)
+ 55 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 56 clock +5000 real  -> clock 70500 (real 5017 ms)
+ 57 tap browser-import-source-safari  -> tapped browser-import-source-safari at [1068.97, 528]
+ 58 clock +2000 real  -> clock 72500 (real 2015 ms)
+ 59 screenshot 25-safari-fda.png window  -> screenshot 25-safari-fda.png
+ 60 state  -> background, canvas, clock, collections, contentRegion, delivery, derives, device, dialog, documents, epoch, focus, hatch
+ 61 clock +3200 real  -> clock 75700 (real 3212 ms)
+ 62 state  -> background, canvas, clock, collections, contentRegion, delivery, derives, device, dialog, documents, epoch, focus, hatch
+ 63 tap browser-import-fda-allow  -> tapped browser-import-fda-allow at [833.36, 427.5]
+ 64 clock +1500 real  -> clock 77200 (real 1512 ms)
+ 65 screenshot 26-safari-fda-allow.png window  -> screenshot 26-safari-fda-allow.png
+ 66 tap browser-import-cancel  -> tapped browser-import-cancel at [744.76, 547.5]
+ 67 clock +1000 real  -> clock 78200 (real 1014 ms)
+ 68 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 69 clock +5000 real  -> clock 83200 (real 5010 ms)
+ 70 tap browser-import-source-arc  -> tapped browser-import-source-arc at [1068.97, 500]
+ 71 clock +2000 real  -> clock 85200 (real 2013 ms)
+ 72 tap browser-import-run  -> tapped browser-import-run at [837.13, 579.5]
+ 73 clock +4000 real  -> clock 89200 (real 4013 ms)
+ 74 screenshot 27-arc-blocked.png window  -> screenshot 27-arc-blocked.png
+ 75 tap browser-import-close  -> tapped browser-import-close at [747.82, 470.5]
+ 76 clock +1000 real  -> clock 90200 (real 1012 ms)
+ 77 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 78 clock +5000 real  -> clock 95200 (real 5012 ms)
+ 79 tap browser-import-source-firefox  -> tapped browser-import-source-firefox at [1068.97, 556]
+ 80 clock +2000 real  -> clock 97200 (real 2013 ms)
+ 81 tap browser-import-tile-existing:default  -> tapped browser-import-tile-existing:default at [767.5, 441.5]
+ 82 clock +800 real  -> clock 98000 (real 819 ms)
+ 83 screenshot 28-firefox-into-default.png window  -> screenshot 28-firefox-into-default.png
+ 84 tap browser-import-run  -> tapped browser-import-run at [837.13, 579.5]
+ 85 clock +4000 real  -> clock 102000 (real 4017 ms)
+ 86 screenshot 29-firefox-done.png window  -> screenshot 29-firefox-done.png
+ 87 tap browser-import-done  -> tapped browser-import-done at [841.7, 470.5]
+ 88 clock +1000 real  -> clock 103000 (real 1017 ms)
+ 89 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+ 90 clock +1000 real  -> clock 104000 (real 1017 ms)
+ 91 tap browser-default-viewport  -> tapped browser-default-viewport at [1087.5, 446]
+ 92 clock +1000 real  -> clock 105000 (real 1020 ms)
+ 93 screenshot 40-viewport-menu.png window  -> screenshot 40-viewport-menu.png
+ 94 tree  -> tree (1209 nodes)
+ 95 tap browser-default-viewport-option-iphone-12-pro  -> tapped browser-default-viewport-option-iphone-12-pro at [1036.5, 623]
+ 96 clock +1500 real  -> clock 106500 (real 1512 ms)
+ 97 tap browser-default-zoom  -> tapped browser-default-zoom at [1095.5, 530]
+ 98 clock +1000 real  -> clock 107500 (real 1016 ms)
+ 99 tap browser-default-zoom-option-1.25  -> tapped browser-default-zoom-option-1.25 at [1095.5, 751]
+100 clock +1500 real  -> clock 109000 (real 1517 ms)
+101 tap browser-recording-frame-rate  -> tapped browser-recording-frame-rate at [1095.5, 662]
+102 clock +1000 real  -> clock 110000 (real 1019 ms)
+103 tap browser-recording-frame-rate-option-60  -> tapped browser-recording-frame-rate-option-60 at [1095.5, 727]
+104 clock +1500 real  -> clock 111500 (real 1515 ms)
+105 tap settings-general  -> tapped settings-general at [128, 116]
+106 clock +3000 real  -> clock 114500 (real 3021 ms)
+107 screenshot 60-general-restore.png window  -> screenshot 60-general-restore.png
+108 tree  -> tree (1958 nodes)
+109 tap restore-device-defaults  -> tapped restore-device-defaults at [1178.05, 26]
+110 clock +1500 real  -> clock 116000 (real 1523 ms)
+111 screenshot 61-restore-dialog.png window  -> screenshot 61-restore-dialog.png
+112 tree  -> tree (1967 nodes)
+113 tap restore-defaults-confirm  -> tapped restore-defaults-confirm at [800.52, 467]
+114 clock +2500 real  -> clock 118500 (real 2521 ms)
+115 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+116 clock +3000 real  -> clock 121500 (real 3016 ms)
+117 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+118 clock +1000 real  -> clock 122500 (real 1016 ms)
+119 screenshot 62-restored.png window  -> screenshot 62-restored.png
+120 tree  -> tree (1209 nodes)
+121 tap browser-default-viewport  -> tapped browser-default-viewport at [1087.5, 446]
+122 clock +1000 real  -> clock 123500 (real 1017 ms)
+123 tap browser-default-viewport-option-iphone-12-pro  -> tapped browser-default-viewport-option-iphone-12-pro at [1036.5, 623]
+124 clock +1500 real  -> clock 125000 (real 1519 ms)
+125 tap browser-default-zoom  -> tapped browser-default-zoom at [1095.5, 530]
+126 clock +1000 real  -> clock 126000 (real 1019 ms)
+127 tap browser-default-zoom-option-1.25  -> tapped browser-default-zoom-option-1.25 at [1095.5, 751]
+128 clock +1500 real  -> clock 127500 (real 1516 ms)
+129 tap browser-default-appearance  -> tapped browser-default-appearance at [1095.5, 596]
+130 clock +1000 real  -> clock 128500 (real 1016 ms)
+131 tap browser-default-appearance-option-dark  -> tapped browser-default-appearance-option-dark at [1095.5, 689]
+132 clock +1500 real  -> clock 130000 (real 1513 ms)
+133 tap browser-recording-frame-rate  -> tapped browser-recording-frame-rate at [1095.5, 662]
+134 clock +1000 real  -> clock 131000 (real 1017 ms)
+135 tap browser-recording-frame-rate-option-60  -> tapped browser-recording-frame-rate-option-60 at [1095.5, 727]
+136 clock +1500 real  -> clock 132500 (real 1514 ms)
+137 tap browser-recording-key-presses  -> tapped browser-recording-key-presses at [1160.5, 728]
+138 clock +1500 real  -> clock 134000 (real 1518 ms)
+139 tap browser-auto-show-floating-preview  -> tapped browser-auto-show-floating-preview at [1160.5, 446]
+140 clock +1500 real  -> clock 135500 (real 1516 ms)
+141 screenshot 41-defaults-set.png window  -> screenshot 41-defaults-set.png
+142 tap reset-browser-default-frame-rate  -> tapped reset-browser-default-frame-rate at [570.8, 153]
+143 clock +1000 real  -> clock 136500 (real 1016 ms)
+144 tap reset-browser-default-auto-show  -> tapped reset-browser-default-auto-show at [558.67, 435]
+145 clock +1000 real  -> clock 137500 (real 1016 ms)
+146 screenshot 42-defaults-reset.png window  -> screenshot 42-defaults-reset.png
+147 tree  -> tree (1233 nodes)
+148 tap settings-go-to-threads  -> tapped settings-go-to-threads at [156.88, 26]
+149 clock +3000 real  -> clock 140500 (real 3014 ms)
+150 tap toggle-right-panel  -> tapped toggle-right-panel at [1253, 26]
+151 clock +2000 real  -> clock 142500 (real 2013 ms)
+152 screenshot 30-launcher.png window  -> screenshot 30-launcher.png
+153 tap surface-browser-profiles  -> tapped surface-browser-profiles at [1126.5, 334]
+154 clock +1000 real  -> clock 143500 (real 1015 ms)
+155 screenshot 31-launcher-profiles.png window  -> screenshot 31-launcher-profiles.png
+156 tree  -> tree (565 nodes)
+157 tap "Chrome"  -> tapped Chrome at [1026.5, 427]
+158 clock +3000 real  -> clock 146500 (real 3015 ms)
+159 screenshot 32-chrome-tab.png window  -> screenshot 32-chrome-tab.png
+160 type browser-url 127.0.0.1:16781/cookies  -> typed into browser-url
+161 type browser-url key Enter  -> typed into browser-url key Enter
+162 clock +4000 real  -> clock 150500 (real 4014 ms)
+163 screenshot 33-chrome-cookies.png window  -> screenshot 33-chrome-cookies.png
+164 tap browser-more  -> tapped browser-more at [1260, 71.5]
+165 clock +1000 real  -> clock 151500 (real 1016 ms)
+166 screenshot 34-more-profile.png window  -> screenshot 34-more-profile.png
+167 tree  -> tree (831 nodes)
+168 tap browser-more-clear-cookies  -> tapped browser-more-clear-cookies at [1140, 292.5]
+169 clock +2000 real  -> clock 153500 (real 2015 ms)
+170 tap browser-refresh  -> tapped browser-refresh at [813, 71.5]
+171 clock +3000 real  -> clock 156500 (real 3015 ms)
+172 screenshot 35-cleared.png window  -> screenshot 35-cleared.png
+173 tap panel-add-surface  -> tapped panel-add-surface at [872.52, 26]
+174 clock +1000 real  -> clock 157500 (real 1016 ms)
+175 tap add-surface-browser-profiles  -> tapped add-surface-browser-profiles at [1033.52, 57]
+176 clock +1000 real  -> clock 158500 (real 1015 ms)
+177 screenshot 36-plus-profiles.png window  -> screenshot 36-plus-profiles.png
+178 tree  -> tree (831 nodes)
+179 tap browser-profile-incognito  -> tapped browser-profile-incognito at [1101.52, 116]
+180 clock +3000 real  -> clock 161500 (real 3014 ms)
+181 type browser-url 127.0.0.1:16781/set  -> typed into browser-url
+182 type browser-url key Enter  -> typed into browser-url key Enter
+183 clock +3000 real  -> clock 164500 (real 3015 ms)
+184 tap browser-refresh  -> tapped browser-refresh at [813, 71.5]
+185 clock +3000 real  -> clock 167500 (real 3015 ms)
+186 screenshot 37-incognito.png window  -> screenshot 37-incognito.png
+187 tap panel-add-surface  -> tapped panel-add-surface at [968.5, 26]
+188 clock +1000 real  -> clock 168500 (real 1016 ms)
+189 tap add-surface-browser  -> tapped add-surface-browser at [1052.5, 57]
+190 clock +3000 real  -> clock 171500 (real 3015 ms)
+191 type browser-url 127.0.0.1:16781/cookies  -> typed into browser-url
+192 type browser-url key Enter  -> typed into browser-url key Enter
+193 clock +4000 real  -> clock 175500 (real 4016 ms)
+194 screenshot 38-default-tab.png window  -> screenshot 38-default-tab.png
+195 logs  -> logs (4096 lines)
+
+Module browser lines (t3.browser):
+
+fixture.log:
+  fixture on 16781
+  2026-10-09T20:29:32.449Z GET / cookie names=[]
+  2026-10-09T20:29:35.491Z GET /cookies cookie names=[lane_chrome, lane_session]
+  2026-10-09T20:29:35.507Z GET /favicon.ico cookie names=[]
+  2026-10-09T20:29:42.744Z GET /cookies cookie names=[]
+  2026-10-09T20:29:48.905Z GET / cookie names=[]
+  2026-10-09T20:29:51.201Z GET /set cookie names=[]
+  2026-10-09T20:29:51.210Z GET /favicon.ico cookie names=[]
+  2026-10-09T20:29:54.183Z GET /set cookie names=[incognito_probe]
+  2026-10-09T20:30:01.486Z GET /cookies cookie names=[lane_firefox]
+  2026-10-09T20:30:01.495Z GET /favicon.ico cookie names=[]
+
+End:
+  fixture pid 86730
+  brave stand-in pid 86731
+  agent pid 86738
+  t3 app exit 0
+  brave stand-in quit after op 48
+  agent exit 0
+
+Read from the run:
+  op 60 state: clock 72500, slots.fdaPoll 2, integrations.browserProfiles.wizard.step fullDiskAccess
+  op 62 state: clock 75700, slots.fdaPoll 4, integrations.browserProfiles.wizard.step fullDiskAccess
+  after Restore defaults' Confirm (op 120 tree): browser-default-viewport = Fill panel, browser-default-zoom = 100%, browser-default-appearance = System, browser-recording-frame-rate = 30 fps
