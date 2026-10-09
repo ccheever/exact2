@@ -47,6 +47,7 @@ use BrowserSurface from "./browser-surface.contract" // browser-surface: a Brows
 use BrowserTabIcon from "./browser-surface.contract"
 use BrowserAddItem from "./browser-surface.contract"
 use BrowserProfileChoice from "./browser-shapes.contract"
+use BrowserAudioButton from "./browser-automation.contract" // browser-surface part 5: the tab's audio button
 
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
@@ -202,6 +203,8 @@ component R4TabChip
                   ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         when tab.pending
           box position="absolute" right=-1 bottom=-1 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      when tab.audio == "audible" or tab.audio == "muted"
+        BrowserAudioButton(tabId=tab.id, title=tab.title, audio=tab.audio, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), local=local)
       box hatch="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") tabindex=-1 width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       when tab.renaming
         R4TabNameField(tab=tab, local=local)

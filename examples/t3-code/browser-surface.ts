@@ -28,6 +28,7 @@ import {
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { resolveBrowserOpenDefaults } from './browser-defaults';
+import { adoptAutomationTabs, automationOverlay, automationPrepare } from './browser-automation';
 
 // ── Profiles (browser-profiles.ts, part 4) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -48,6 +49,8 @@ type Host = {
   reported: Map<string, Report>;
   /** The live set last sent to the module (`browserSync`). */
   synced: string;
+  /** Its runtime ids: a tab not among them is new to the module and starts at the default zoom and appearance (part 4). */
+  syncedIds?: ReadonlySet<string>;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function browserHost(client: T3Client): Host {
@@ -145,13 +148,7 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId }, () => defaults);
   client.diffOpen = false;
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
-  await syncNativeSessions(client, native);
-  // Part 4: the new page starts at the default zoom and appearance (browserDefaultTabState, through part 2's `browserSet`).
-  if (defaults.zoomFactor !== 1 || defaults.appearance !== 'system') {
-    const runtimeId = previewRuntimeTabId(ref, host.store.read(ref).serverEpoch, snapshot.tabId);
-    try { await nativeOp(client, native, { op: 'browserSet', tab: runtimeId, zoom: defaults.zoomFactor, colorScheme: defaults.appearance }); }
-    catch (error) { if (letGo(error)) throw error; }
-  }
+  await syncNativeSessions(client, native); // the new page starts at the default zoom and appearance there
   return '';
 }
 
@@ -229,10 +226,26 @@ export function liveSessions(client: T3Client): Live[] {
 }
 export async function syncNativeSessions(client: T3Client, native: Native): Promise<void> {
   const host = browserHost(client), live = liveSessions(client);
-  const signature = JSON.stringify(live.map(entry => entry.id).sort());
+  const ids = live.map(entry => entry.id).sort(), signature = JSON.stringify(ids);
   if (signature === host.synced) return;
+  const before = host.syncedIds ?? new Set<string>();
   const reply = await client.raw(native, { op: 'browserSync', tabs: live });
-  if (reply.ok) host.synced = signature;
+  if (!reply.ok) return;
+  host.synced = signature; host.syncedIds = new Set(ids);
+  await applyTabDefaults(client, native, ids.filter(id => !before.has(id)));
+}
+/** Part 4, desktopTabLifetime's `createTab(tabId, browserDefaultTabState(defaults))`: a page the module creates, however the
+ *  tab was opened (the launcher, a link, an agent, a relaunch), starts at the default zoom and appearance (part 2's
+ *  `browserSet`). Unread settings leave the page as WebKit made it. */
+async function applyTabDefaults(client: T3Client, native: Native, created: readonly string[]): Promise<void> {
+  if (created.length === 0) return;
+  let defaults: ReturnType<typeof resolveBrowserOpenDefaults>;
+  try { defaults = resolveBrowserOpenDefaults(client); } catch { return; }
+  if (defaults.zoomFactor === 1 && defaults.appearance === 'system') return;
+  for (const tab of created) {
+    try { await nativeOp(client, native, { op: 'browserSet', tab, zoom: defaults.zoomFactor, colorScheme: defaults.appearance }); }
+    catch (error) { if (letGo(error)) throw error; }
+  }
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
   const reply = await client.raw(native, request);
@@ -247,7 +260,7 @@ async function mirrorNativeState(client: T3Client, native: Native): Promise<void
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
       const runtimeId = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), tab = tabs[runtimeId];
-      host.store.applyDesktopState(ref, snapshot.tabId, tab ? projectDesktopState(tab) : null);
+      host.store.applyDesktopState(ref, snapshot.tabId, tab ? { ...projectDesktopState(tab), ...automationOverlay(client, runtimeId) } : null); // part 5: audio, appearance, controller
       if (!tab || ref.environmentId !== client.environmentId || client.connection !== 'connected') continue;
       const report = buildReportInput(ref.threadId, snapshot.tabId, tab, host.reported.get(runtimeId) ?? null);
       if (!report) continue;
@@ -331,6 +344,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
   if (!native?.available) return;
   const ref = activeRef(client), host = browserHost(client);
   installBrowserCleanup(client, native);
+  adoptAutomationTabs(client); // part 5: tabs the previewAutomation host opened (browser-automation.ts)
   try {
     if (ref && client.connection === 'connected' && ref.environmentId === client.environmentId) {
       await listPreviewSessions(client, native, ref);
@@ -341,6 +355,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     }
     await mirrorNativeState(client, native);
     await syncNativeSessions(client, native);
+    await automationPrepare(client, native); // part 5: the previewAutomation host (browser-automation.ts)
   } catch (error) { if (letGo(error)) throw error; }
 }
 
@@ -361,6 +376,11 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       try { url = normalizePreviewUrl(value); } catch { return ''; }
       await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
       host.store.rememberUrl(ref, url);
+      return '';
+    }
+    case 'toggle-mute': { // part 5: the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)
+      const overlay = snapshot ? host.store.read(ref).desktopByTabId[snapshot.tabId] : undefined;
+      if (overlay) await nativeOp(client, native, { op: 'browserMute', tab: runtimeId, muted: !overlay.audioMuted });
       return '';
     }
     case 'back': case 'forward': case 'refresh': case 'hard-reload':

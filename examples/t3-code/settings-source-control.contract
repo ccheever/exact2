@@ -124,6 +124,8 @@ shape IntegrationsPage
   simulatorSupport: list<SimulatorSupportRow>
   // browser-surface part 4: Browser profiles and the import wizard (browser-profiles-settings.ts).
   browserProfiles: BrowserProfilesView
+  // browser-surface part 5: "Open links in" ("system" or "app", the client setting browserLinkTarget).
+  linkTarget: string
 
 component SectionTitle
   props
@@ -410,7 +412,7 @@ component IntegrationsPanel
             // Part 4: the group's rows (BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show); "Open links in" is part 5's.
             BrowserProfilesSetting(view=data.browserProfiles, local=local)
             BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
-            BrowserDefaults()
+            BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
             BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -445,37 +447,37 @@ component DeviceRow
         DeviceVersions(tool=tool, busy=busy, rest=rest)
         ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
-// "Open links in" until part 5's row replaces it (browser-surface-automation, BrowserLinkTargetRow).
+// "Open links in" (part 5, BrowserLinkTargetRow) between part 4's tab defaults and Auto-show.
 component BrowserDefaults
+  props
+    linkTarget: string
+    restInput: action
   view
     column width="100%" testId="browser-defaults-links"
-      DisabledRow(title="Open links in", description="Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way.", control="Your default browser", kind="wide-select")
+      BrowserLinkTargetRow(value=linkTarget, restInput=restInput)
 
-// SettingsUnavailableGroup's inert row: titles and descriptions at 64% (its
-// [&_h3]/[&_p] opacity), controls drawn as they are but inert.
-component DisabledRow
+// browser-surface part 5: IntegrationsSettings `BrowserLinkTargetSetting`, live (the client setting, written by
+// `rest:browser-link-target`); its reset shows while it is not the default.
+component BrowserLinkTargetRow
+  inject
+    rem: number
   props
-    title: string
-    description: string
-    control: string
-    kind: string
+    value: string
+    restInput: action
   view
-    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center"
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-link-target-row"
       column flex=1 min-width=0 gap="0.25rem"
-        text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" opacity=0.64 role="heading" aria-level=3
-        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" opacity=0.64 max-width="36rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text "Open links in" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            when value != "system"
+              button press=restInput("browser-link-target", "", "system") aria-label="Reset link target to default" testId="reset-browser-link-target" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text "Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
-        when kind == "button"
-          row align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=0.64 aria-label=control
-            LucidePlus(size=16, color="light-dark(#71717b, #818181)")
-            text control font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        when kind == "select" or kind == "wide-select"
-          row align-items="center" gap="0.375rem" width=(kind == "wide-select" ? "11rem" : "10rem") height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=0.64 role="combobox" aria-label=title
-            text control font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
-            LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
-        when kind == "switch"
-          row width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5625rem" justify-content=(control == "on" ? "flex-end" : "flex-start") background-color=(control == "on" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") opacity=0.64 role="switch" aria-label=title aria-checked=(control == "on")
-            box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+        SettingsSelect(selectId="browser-link-target", label="Open links in", valueLabel=(value == "app" ? "T3 Code" : "Your default browser"), value=(value == "app" ? "app" : "system"), width=(160 * rem / 16), disabled=false, options=linkTargetOptions(), choose=restInput("browser-link-target", ""))
+
+fn linkTargetOptions(): list<SelectOption> = [SelectOption(value="system", label="Your default browser", selected=false), SelectOption(value="app", label="T3 Code", selected=false)]
 
 // DeviceToolVersions: a muted inline button (underlined while hovered or open) and
 // its popover — Running / Required / Installed in monospace, the update note and

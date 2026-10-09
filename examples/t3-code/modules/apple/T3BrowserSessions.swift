@@ -26,6 +26,9 @@ final class T3BrowserSessions {
     private var scheduled = false
     /// The module's ops and syncs, newest last (the agent's status).
     private(set) var log: [String] = []
+    /// A page made or closed (browser-surface part 5: the automation host's scripts go in before the first load).
+    var created: ((T3BrowserSession) -> Void)?
+    var ended: ((String) -> Void)?
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
         self.agent = agent
@@ -73,6 +76,7 @@ final class T3BrowserSessions {
         session.changed = { [weak self] in self?.publish() }
         session.dialogs = !agent
         sessions[id] = session
+        created?(session)
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
         note("open \(id)")
         publish()
@@ -93,6 +97,7 @@ final class T3BrowserSessions {
     func close(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.close()
+        ended?(id)
         note("close \(id)")
         publish()
     }

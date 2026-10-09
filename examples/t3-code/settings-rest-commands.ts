@@ -19,6 +19,7 @@ import { bitbucketCommand } from './settings-a-bitbucket';
 import { browserProfilesLocal } from './browser-profiles-settings'; // browser-surface part 4
 import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
+import { applyDeviceSetting } from './settings-core'; // browser-surface part 5: "Open links in"
 import { copyThreadReference } from './thread-reference'; // thread-commands-and-keys: ⇧⌘C copies the PR link or the thread ID
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
@@ -100,6 +101,7 @@ export function storagePatch(settings: Obj, projectId: string, key: string, raw:
 
 export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
+  if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // browser-surface part 5: "Open links in"
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
   if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);

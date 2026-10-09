@@ -380,23 +380,34 @@ component BlockBody
 // Inline runs in one text node; only a web link keeps its href (a chip's
 // href is how its ChipView finds it, not a destination).
 component ChatRuns
+  inject
+    linkOpen: action
   props
     runs: list<ChatRun>
     size: number
     weight: number
   view
     each run in runs key=run.id
-      when run.mono
+      when run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
+        text run.text href=run.href press=linkOpen("link", run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+      when run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
         text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-      else
-        when run.kind == "link" or run.kind == "link-start"
+      when not run.mono
+        when (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
+          text run.text href=run.href press=linkOpen("link", run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+        when (run.kind == "link" or run.kind == "link-start") and not webLink(run.href)
           text run.text href=run.href font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
-        else
+        when run.kind != "link" and run.kind != "link-start"
           text run.text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
+
+// browser-surface part 5: an http(s) link follows "Open links in" (its press); any other scheme stays the shell's.
+fn webLink(href: string): bool = startsWith(href, "http://") or startsWith(href, "https://")
 
 // Prose with inline code, word by word on 22.75pt lines so every code span is a
 // bordered box whose text shares the line's baseline (`.chat-markdown code`).
 component FlowRuns
+  inject
+    linkOpen: action
   props
     runs: list<ChatRun>
     size: number
@@ -435,9 +446,12 @@ component FlowRuns
                   row flex-shrink=0 align-items="flex-start"
                     box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
                       TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
-                    text run.text href=run.href white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+                    text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
                 else
-                  text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+                  when run.kind == "link" and webLink(run.href)
+                    text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+                  when not (run.kind == "link" and webLink(run.href))
+                    text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it

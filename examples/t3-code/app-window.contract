@@ -311,6 +311,11 @@ component T3Window
     hoverTipAt
     hoverTip
     hoverShown
+    linkOpen
+  // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
+  // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
+  action linkOpen(kind: string, href: string)
+    chatLocal("link-open", kind, href)
   // fix-hover-cards: the hover layer's tooltip or card (hover-layer.contract). It shows once its trigger has had the
   // pointer for its open delay (Base UI's delay, hoverOpenDelay; nothing is drawn before it, so a card still waiting
   // takes no press) while the trigger or the card has it (hoverOn), then a card for its closeDelay (hoverDelay), so the

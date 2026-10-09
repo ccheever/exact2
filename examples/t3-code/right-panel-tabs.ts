@@ -1,5 +1,5 @@
 // MIT T3 Code 1e2ecbd975: rightPanelStore / RightPanelTabs / ChatView.
-// Browser tabs close through the 'browser' close hook (browser-surface.ts); their toggle-mute slot is reserved in TabAction for part 5.
+// Browser tabs close through the 'browser' close hook (browser-surface.ts); their Mute / Unmute row is part 5's (tabMuteMenuItem).
 import type { T3Client } from './client';
 import type { PanelState, Surface, SurfaceKind } from './r4-surfaces-panel';
 import type { DeviceTarget } from './r6-media-device';
@@ -11,12 +11,27 @@ export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'clos
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
 /** A tab's menu row as the tab strip's `contextPopover` shows it (R4Tab.menu): every flag spelled out. */
 export type TabMenuRow = { id: TabAction; label: string; disabled: boolean };
-export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface[]): TabMenuItem[] {
+/** A Browser tab's Mute / Unmute row (RightPanelTabs `tabMuteMenuItem`): disabled until the page exists (the
+ *  native overlay) and its runtime id resolves. Not gated on audibility: silencing a quiet tab ahead of time counts. */
+export function tabMuteMenuItem(input: { overlay: { audioMuted: boolean } | null; canResolveRuntimeTabId: boolean }): { label: string; disabled: boolean } {
+  return { label: input.overlay?.audioMuted ? 'Unmute tab' : 'Mute tab', disabled: input.overlay === null || !input.canResolveRuntimeTabId };
+}
+export type TabAudioState = 'none' | 'audible' | 'muted';
+/** RightPanelTabs `tabAudioState`: a muted tab that makes no sound shows nothing. */
+export function tabAudioState(overlay: { audioMuted: boolean; audible: boolean } | null): TabAudioState {
+  if (!overlay?.audible) return 'none';
+  return overlay.audioMuted ? 'muted' : 'audible';
+}
+/** The surface's Mute row, when it has one (a Browser tab; browser-surface.ts `browserTabMute`). */
+export type MuteRow = (surface: Surface) => { label: string; disabled: boolean } | null;
+export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface[], mute?: MuteRow): TabMenuItem[] {
   const index = surfaces.findIndex(entry => entry.id === surface.id);
   if (index < 0) return [];
+  const muteRow = surface.kind === 'browser' ? mute?.(surface) ?? null : null;
   return [
     ...(surface.kind === 'device' ? [{ id: 'rename' as const, label: 'Rename' }] : []),
     ...(surface.kind === 'file' && !surface.attachment ? [{ id: 'copy-path' as const, label: 'Copy path' }] : []),
+    ...(muteRow ? [{ id: 'toggle-mute' as const, ...muteRow }] : []),
     { id: 'close', label: 'Close' },
     { id: 'close-others', label: 'Close others', disabled: surfaces.length <= 1 },
     { id: 'close-to-right', label: 'Close to the right', disabled: index >= surfaces.length - 1 },
@@ -29,8 +44,8 @@ export function tabContextMenuItems(surface: Surface, surfaces: readonly Surface
  * painted popover), so no native request waits on menu tracking; each row presses
  * `surface-<id>` for its tab, the same op the menu's choice ran before.
  */
-export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[]): TabMenuRow[] =>
-  tabContextMenuItems(surface, surfaces).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
+export const tabMenuRows = (surface: Surface, surfaces: readonly Surface[], mute?: MuteRow): TabMenuRow[] =>
+  tabContextMenuItems(surface, surfaces, mute).map(item => ({ id: item.id, label: item.label, disabled: item.disabled === true }));
 export function closeSurface(state: PanelState, id: string): void {
   const index = state.surfaces.findIndex(entry => entry.id === id);
   if (index < 0) return;
@@ -114,10 +129,10 @@ export async function copyTabPath(client: T3Client, native: Native, surface: Sur
     pushToast(client, { kind: 'success', title: 'Path copied', description: surface.path });
   } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
 }
-export async function showTabMenu(client: T3Client, native: Native, state: PanelState, id: string, keyboard = false): Promise<string> {
+export async function showTabMenu(client: T3Client, native: Native, state: PanelState, id: string, keyboard = false, mute?: MuteRow): Promise<string> {
   const surface = state.surfaces.find(entry => entry.id === id);
   if (!surface) return '';
-  const items = tabContextMenuItems(surface, state.surfaces);
+  const items = tabContextMenuItems(surface, state.surfaces, mute);
   const result = obj(await client.restAccess(native).call({ op: 'contextMenu', items, ...(keyboard ? { anchor: 'focus' } : {}) }));
   const action = str(result.clicked);
   return items.some(item => item.id === action && !item.disabled) ? action : '';
