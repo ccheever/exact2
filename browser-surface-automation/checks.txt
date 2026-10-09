@@ -1,0 +1,17 @@
+# browser-surface-automation: checks after merging d564a5c02 (branch at ac610d7f2, 2026-10-09T04:17Z)
+
+The five checks (CLAUDE.md flags):
+  cargo build --all-targets --keep-going: exit 0
+  cargo test --lib --bins --tests --no-fail-fast: exit 0, 3521 passed, 0 failed, 34 ignored in 94 test binaries
+  cargo clippy --all-targets --keep-going -- -D warnings: exit 0
+  cargo fmt --all -- --check: exit 0
+  bun scripts/caps.mjs (after git add -A): exit 0, "All budgets within cap. 6 categories inspected."
+  bun scripts/boot.mjs: exit 0
+
+Clone checks:
+  bun test --timeout 60000 examples/t3-code: 7184 pass, 2 skip, 0 fail (7186 tests, 517 files)
+  strict tsc (tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --lib ES2023,DOM --skipLibCheck examples/t3-code/app.ts): exit 0, no errors
+  bun scripts/exact.mjs contract build examples/t3-code/app.contract: OK, 5736 slots, 46 resources, 6967 actions, 89920 nodes
+  cargo test -p t3-code-macos --lib: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.81s
+  AppKit browser-automation: 17 tests, 0 failures; part 1's browser: 23 tests (1 race in the first run, 0 failures in 3 reruns; appkit-browser-automation.txt)
+  app.contract: 1,230 lines (unchanged); largest new files: T3BrowserAutomation.swift 663, browser-automation.test.ts 490, T3BrowserAutomationScripts.swift 371
