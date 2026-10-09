@@ -36,6 +36,15 @@ shape CheckpointFile
 shape MarkdownSkill
   name: string
   displayName: string
+// timeline-work-rows TH-5: one V2ItemInspector list item: a file search result ("file": path and
+// line over its preview), a web result ("web": its title, a link when href is set, over its snippet)
+// or one change of a file edit ("change").
+shape InspectorResult
+  id: string
+  kind: string
+  label: string
+  href: string
+  preview: string
 shape Activity
   id: string
   label: string
@@ -61,6 +70,20 @@ shape Activity
   timeTip: string
   // r11-upstream (737993303d): the failed run a workspace preparation Retry prepares again.
   retryRunId: string
+  // timeline-work-rows TH-5: the inspector's results, and a file change's path, +/- counts and Open diff.
+  results: list<InspectorResult>
+  changePath: string
+  stats: bool
+  additions: number
+  deletions: number
+  diffRunId: string
+  diffPath: string
+  // timeline-work-rows TH-6: SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
+  initials: string
+  driverIcon: string
+  startedMs: number
+  // timeline-work-rows TH-2: the trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
+  targetLabel: string
 shape Message
   id: string
   kind: string
@@ -339,6 +362,8 @@ shape Snapshot
   threadHeading: list<CommandChoice>
   draft: string
   running: bool
+  // timeline-work-rows TH-6: a live subagent's elapsed time ticks on the timeline clock (AgentElapsed).
+  subagentsLive: bool
   canSend: bool
   canStop: bool
   providerId: string

@@ -58,6 +58,7 @@ describe("toolActivityFaviconUrl", () => {
 });
 
 import type { Obj } from './domain';
+import { groupToolPresentation } from './timeline-work-rows';
 const native = { available: true, watch() {}, later: async () => ({}) };
 function fixture(items: Obj[], rpc: (native: unknown, method: string, payload: Obj) => Promise<Obj> = async () => ({ relativeUrl: '/assets/icon' })) {
   return { generation: 1, environmentId: 'environment-a', origin: 'http://localhost:16001', connection: 'connected',
@@ -113,6 +114,20 @@ describe('syncToolActivityIcons', () => {
     finish({ relativeUrl: '/old-icon' });
     await request;
     expect(toolActivityIconSources(client, appIcon)).toEqual({ iconLight: '', iconDark: '' });
+  });
+  it('a work group draws the native icon its entry loaded, whatever the raw app carried (timeline-work-rows review)', async () => {
+    // The group row reads groupToolPresentation's decoded icon; the entries and the request read the raw item.
+    const raw = { toolIcon: { _tag: 'native-app', app: { _tag: 'app-id', appId: ' com.apple.Safari ', bundlePath: '/Applications/Safari.app' } } };
+    const calls: Obj[] = [];
+    const client = fixture([raw], async (_native, _method, payload) => { calls.push(payload); return { relativeUrl: '/safari' }; });
+    await syncToolActivityIcons(client, native, 1);
+    expect(calls).toEqual([{ resource: { _tag: 'native-app-icon', app: { _tag: 'app-id', appId: 'com.apple.Safari' } } }]);
+    const group = groupToolPresentation([raw]);
+    expect(group.toolIcon).toEqual(appIcon.toolIcon);
+    expect(toolActivityIconSources(client, { toolIcon: group.toolIcon })).toEqual({ iconLight: 'http://localhost:16001/safari', iconDark: 'http://localhost:16001/safari' });
+    expect(toolActivityIconSources(client, raw).iconLight).toBe('http://localhost:16001/safari');
+    // An app the schema refuses is no native icon: no request, the fallback glyph.
+    expect(toolActivityIconSources(client, { toolIcon: { _tag: 'native-app', app: { _tag: 'app-id', appId: 'not an id' } } })).toEqual({ iconLight: '', iconDark: '' });
   });
   it('shows fallback after a failed asset request without retrying every refresh', async () => {
     let calls = 0;
