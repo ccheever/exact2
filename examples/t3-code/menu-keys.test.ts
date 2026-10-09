@@ -265,3 +265,23 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     expect(await source('app.contract')).not.toContain('pr-action-dialog-cancel');
   });
 });
+
+// audit-wave-followups-3: the Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
+describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
+  test('FW-3: Escape with a submenu open closes only the submenu and gives the focus back to its row', async () => {
+    const menu = await component('pages-prs.contract', 'PrFiltersMenu');
+    expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      focus(`pr-filter-${sub}`)\n      sub = ""');
+    // On the row that holds the submenu and the Filters rows, so an Escape from either (or the search field) reaches it.
+    expect(menu).toContain('row align-items="flex-start" key=subEscape');
+    // The author search lets Escape through to it.
+    expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k != "ArrowDown" and k != "Escape"\n      stopPropagation()');
+  });
+  test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
+    const sub = await component('pages-prs.contract', 'PrFilterSub');
+    expect(sub).toContain('label="Anyone", detail="", selected=(page.author == ""), tick=false,');
+    expect(sub).toContain('label="Open", detail="", selected=(page.state == "open"), tick=true,');
+    const author = await component('pages-prs.contract', 'PrAuthorItem');
+    expect(author).not.toContain('name="check"');
+    expect(author).toContain('person.selected ? "light-dark(#27272a14, #f2f2f214)"');
+  });
+});

@@ -1148,7 +1148,9 @@ component T3Code
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
   resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState) as shape ShellView
-  resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource) as shape TranscriptMarkdown // markdown-links-and-files-preview PA-3: Files › Show rendered markdown is ChatMarkdown
+  // markdown-links-and-files-preview PA-3: Files › Show rendered markdown is ChatMarkdown; audit-wave-followups-3 FW-2: so is a
+  // sent attachment's rendered Markdown (the panel shows one of the two, so at most one source is asked).
+  resource filesMarkdown = renderFileMarkdown(concat(shell.panel.files.markdownSource, shell.panel.attachment.markdownSource)) as shape TranscriptMarkdown
   // audit-wave-followups FU-2: the right panel's open state is the thread's (rightPanelStore byThreadKey isOpen): the window
   // holds it for the panel key it was opened on (shell.panel.key) until the client's own state answers, and the client
   // keeps each thread's launcher open (shell.panel.launcher), so a fresh draft or another thread opens with it closed.
