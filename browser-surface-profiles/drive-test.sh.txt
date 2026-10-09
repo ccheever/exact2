@@ -1,0 +1,23 @@
+#!/bin/zsh
+# browser-surface part 4: run a `.test.contract` file against this worktree's macOS build in the lane env (agent mode).
+# Not committed. Usage: drive-test.sh <run name> <file.test.contract>. The embedded server on 16780; the lane's seeded
+# T3 home (the project "work" and its draft thread).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-profiles
+L=$W/target/lane
+P=${1:-test}; FILE=$2; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16780 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export T3_BROWSER_IMPORT_HOME=$L/browser-home
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+cd $W
+$BUN scripts/agent.mjs macos --json --size 1280x840 --test $FILE > $OUT/test.jsonl 2> $OUT/test.err &
+AG=$!; echo "agent pid $AG" > $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+echo TEST-DONE
