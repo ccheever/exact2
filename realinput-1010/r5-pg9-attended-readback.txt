@@ -1,0 +1,20 @@
+realinput-1010 attended PG-9 (snapshot-permission-helper #359, record steps 3-4). The user did both drags in person.
+Lane copy "T3 Code (RI1010 e)" com.exact.t3code.macos.ri1010e, pid 80873, launched with `open -n --env ...` (its own TCC
+responsible process), port 16968. Bundle: t3-code-snapshot-permission-helper/target/clients/b1c5badc07a0869b05c49b3e (built after ba427ae29).
+Read-backs: CGWindowList (helper window, front app via lsappinfo), the lane window's setup dialog (screen capture of window 219459),
+System Settings' privacy list via accessibility (read-only, no clicks). Agent did not drag or toggle anything.
+
+Setup  02:22:07 Screen Recording > Allow: System Settings on Screen & System Audio Recording, helper "Set up Screen Recording"
+       x 555 y 638 w 475 h 140 docked. NOTE: another session's agent-mode "T3 Code (Exact)" window (pid 90174, later 97912)
+       came up above System Settings and covered its list during the attended part.
+Screen Recording (step 3), user reported "done" before 02:22:52:
+  02:22:52  helper "Set up Screen Recording" still on screen; front System Settings
+  02:23:2x  System Settings list (AX): one row "T3 Code (RI1010 e)", switch Value 1 (granted)
+  02:23:5x  lane app setup row: Screen Recording "Allow" (the running app does not read the grant)
+  user reports: the helper closed by itself and T3 Code came to the front (not seen by the agent between its reads)
+  02:23:58  helper is now "Set up Accessibility"; System Settings window title "Accessibility" (the agent pressed nothing)
+Accessibility (step 4), user reported "done":
+  02:24:29  no helper window for pid 80873; front app "T3 Code (RI1010 e)"
+            lane app setup row: Accessibility "Allowed" (Screen Recording still "Allow")
+            System Settings Accessibility list (AX): one row "T3 Code (RI1010 e)", switch Value 1
+  a macOS "Accessibility Access" prompt (universalAccessAuthWarn) for the copy was still open
