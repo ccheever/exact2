@@ -5,7 +5,7 @@
 // Audio Session API; and the drop before a user activation. Firefox and
 // WebKit come from Playwright (`bunx playwright@1.63.0 install firefox
 // webkit`), Chrome from the machine's; an engine that is missing is skipped.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
@@ -50,7 +50,7 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
 
 const engines = ['chromium', 'firefox', 'webkit'];
 
-async function browser(name) {
+async function launch(name) {
   const playwright = await import('playwright-core');
   if (name === 'chromium') {
     const { executable, unavailable } = installed();
@@ -60,6 +60,16 @@ async function browser(name) {
   if (!existsSync(playwright[name].executablePath())) return null;
   return playwright[name].launch({ headless: true });
 }
+
+// One browser per engine for this file, and a context of its own for each
+// test (its page, its activation, its storage), closed when the test ends.
+const launched = new Map();
+async function browser(name) {
+  if (!launched.has(name)) launched.set(name, launch(name));
+  const b = await launched.get(name);
+  return b && b.newContext();
+}
+afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); });
 
 async function serve(session) {
   const server = createServer((req, res) => {
