@@ -39,6 +39,11 @@ shape PagesHome
   // HostedStaticOnboardingState's second paragraph: the Local environment switched off, or the pairing hint.
   noEnvironmentDescription: string
 
+// useNavigateBack's history over the utility pages (app.contract pageTrail, usage-and-pr-pages PG-7): the pages a
+// page's Back goes back through after `current` opens `name`. A page opened from another keeps the one it left; one
+// opened from a thread, or a thread, starts over.
+fn pageTrailNext(trail: list<string>, current: string, name: string): list<string> = current == "" or name == "" ? [] : (name == current ? trail : concat(trail, [current]))
+
 // The draft hero. The heading sits 16pt above the composer stack (pb-4,
 // upstream 44b4965017), so the column ends 4pt above the composer column's
 // 12pt top padding; with a shoulder tab (the stash badge) on the stack it

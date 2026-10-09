@@ -120,7 +120,8 @@ component PrdComposer
       each closeKey in [writes.closeSerial] key=closeKey
         // PopoverPopup side="top" align="end" sideOffset=8 width="lg": the transparent tail lets the
         // window's edge push the card back over the trigger's right edge (X17: no `span-left` area).
-        row id=popId popover="auto" position="absolute" position-area="top span-right" padding-bottom="0.5rem" align-items="flex-end" testId=`${scope}-composer-layer`
+        // aria-modal: while it shows, its Escape closes it, not the Pull Requests page (usage-and-pr-pages PG-7).
+        row id=popId popover="auto" aria-modal=true position="absolute" position-area="top span-right" padding-bottom="0.5rem" align-items="flex-end" testId=`${scope}-composer-layer`
           column width="24rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Pull request composer" testId="pull-request-composer"
             row width="100%" margin-bottom="0.75rem" align-items="center" justify-content="space-between" gap="0.5rem"
               when both

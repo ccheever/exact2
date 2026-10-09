@@ -7,6 +7,7 @@ import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue,
   parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from './settings-core';
 import { toasts } from './toast';
 import { fleet } from './settings-b-fleet';
+import { applyBrowserDefault, browserDefaultsView } from './browser-defaults';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -213,6 +214,24 @@ describe('writes through the command', () => {
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
     expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph' } });
     expect((client.local.clientSettings as Obj).chatWidth).toBe('comfortable');
+  });
+  test("restore lists and resets the Browser defaults (browser-surface part 4; getChangedBrowserSettingLabels)", async () => {
+    // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
+    const client = fake({}, false);
+    applyBrowserDefault(client, 'frame-rate', '60');
+    applyBrowserDefault(client, 'zoom', '1.25');
+    applyBrowserDefault(client, 'viewport', 'iphone-12-pro');
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, false)).toEqual(['Browser viewport', 'Browser zoom', 'Recording frame rate']);
+    applyDeviceSetting(client.local as never, 'chatWidth', 'wide');
+    applyDeviceSetting(client.local as never, 'browserLinkTarget', 'app');
+    applyBrowserDefault(client, 'appearance', 'dark');
+    applyBrowserDefault(client, 'key-presses', 'true');
+    applyBrowserDefault(client, 'auto-show', 'false');
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, false)).toEqual(['Chat width', 'Browser viewport', 'Browser zoom', 'Browser appearance',
+      'Recording frame rate', 'Recording key presses', 'Open links in', 'Floating preview']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, client.config.settings as Obj, false)).toEqual([]);
+    expect(browserDefaultsView(client)).toMatchObject({ viewportValue: 'fill', zoomLabel: '100%', appearanceLabel: 'System', frameRateLabel: '30 fps', keyPresses: false, autoShow: true });
   });
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();

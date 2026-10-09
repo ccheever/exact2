@@ -26,6 +26,7 @@ import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettings
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from './settings-b-fleet';
+import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from './browser-defaults'; // browser-surface part 4: Restore defaults' browser rows
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
@@ -64,6 +65,10 @@ export const CLIENT_DEFAULTS = {
   sidebarProjectSortOrder: 'updated_at',
   // legacy-sidebar: the legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
   sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
+  // browser-surface part 3: the recording and floating-preview defaults it reads (contracts settings.ts names and defaults:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Part 4 (profiles) draws
+  // their rows in Settings › Integrations › Browser and writes them.
+  browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -76,7 +81,7 @@ const CHOICES: Record<string, readonly string[]> = {
 const BOUNDS: Record<string, [number, number, number]> = {
   appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
   fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
-  sidebarThreadPreviewCount: [1, 15, 1],
+  sidebarThreadPreviewCount: [1, 15, 1], browserRecordingFrameRate: [30, 60, 30],
 };
 const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
 const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };
@@ -150,6 +155,7 @@ export function restoreDeviceDefaults(local: LocalPrefs): void {
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS);
   local.clientSettings = decodeClientPrefs({});
   local.groupingMode = 'repository';
+  restoreBrowserTabDefaults({ local }); // browser-surface part 4: the default viewport, zoom and appearance (browser-defaults.ts)
 }
 
 // ── Scope ─────────────────────────────────────────────────────────────────
@@ -608,7 +614,8 @@ export function restoreLabels(local: LocalPrefs, settings: Obj, connected: boole
     confirmThreadUnpin: 'Unpin confirmation', confirmThreadArchive: 'Archive confirmation', confirmThreadDelete: 'Delete confirmation', confirmQuit: 'Quit shortcut' };
   const device = changedDeviceLabels(local).filter(key => key in names && key !== 'themeLight' && key !== 'themeDark').map(key => names[key]!);
   const server = connected ? Object.keys(SERVER_LABELS).filter(key => key in settings && !same(settings[key], SERVER_DEFAULTS[key])).map(key => SERVER_LABELS[key]!) : [];
-  return [...new Set([...device, ...server])];
+  // getChangedBrowserSettingLabels, after "Text generation model" as in the reference (browser-defaults.ts).
+  return [...new Set([...device, ...server, ...changedBrowserSettingLabels({ local })])];
 }
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
