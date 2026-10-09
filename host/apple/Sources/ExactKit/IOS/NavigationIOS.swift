@@ -38,24 +38,32 @@ final class RouteController: UIViewController {
         host?.coversChanged()
     }
     /// The scroller the bar follows (LLP 1075.003 §3.7), given to UIKit at
-    /// once unless the route has never been laid out in a window. A bar
+    /// once when the route has been laid out in a window, or joins a stack
+    /// shown in one (`nav`, before a push: the push starts with it). A bar
     /// first laid out in the window over a scroller it already follows rests
-    /// with its large title collapsed (iOS 26): a tab's route not yet shown
-    /// takes it the turn after it is first laid out in, or appears in, the
-    /// window (a view whose size has not changed is not laid out again), the
-    /// bar laid out large and the scroller at rest under it. Not at
-    /// `viewDidAppear`, which a tab's selection animation holds back past an
-    /// authored scroll.
+    /// with its large title collapsed (iOS 26): a route of a stack not yet
+    /// shown (a tab's, the first at launch) takes it the turn after it is
+    /// first laid out in, or appears in, the window (a view whose size has
+    /// not changed is not laid out again), the bar laid out large and the
+    /// scroller at rest under it. Not at `viewDidAppear`, which a tab's
+    /// selection animation holds back past an authored scroll.
     private(set) weak var topScroll: UIScrollView?
     private var trackQueued = false
     private var laidOut = false
-    func track(_ scroll: UIScrollView?) {
+    func track(_ scroll: UIScrollView?, in nav: UINavigationController?) {
         topScroll = scroll
-        if scroll == nil || laidOut || navigationController?.view.window != nil { give(scroll) }
+        let shown = nav?.view.window != nil && nav?.viewControllers.contains { ($0 as? RouteController)?.laidOut == true } == true
+        if scroll == nil || laidOut || shown { give(scroll) }
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         queueTrack()
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        #if !os(tvOS)
+        settle()
+        #endif
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -79,39 +87,54 @@ final class RouteController: UIViewController {
     /// since sets its height by the scroller's place but not its titles
     /// (iOS 26): collapsed over one at rest at its top, it shows neither the
     /// large title, folded away, nor the inline one, not yet faded in; over
-    /// one scrolled past the large title, not the inline one. After the
-    /// batch (a grouped list's insets follow in its own sync), the bar over
-    /// a scroller at its top is sized to its large title, as the web shows a
+    /// one scrolled past the large title, not the inline one. So `settle`
+    /// is owed: after the batch (a grouped list's insets follow in its own
+    /// sync), once the route shows on top of its stack, the bar over a
+    /// scroller at its top is sized to its large title, as the web shows a
     /// header above content at its top in full, and over one scrolled it
     /// sets its titles again, its large title turned off and on.
     private func give(_ scroll: UIScrollView?) {
         let old = contentScrollView(for: .top)
         guard old !== scroll else { return }
         setContentScrollView(scroll, for: .top)
+        #if !os(tvOS)
+        settleOwed = scroll != nil && navigationItem.largeTitleDisplayMode == .always
+        #endif
         guard let bar = navigationController?.navigationBar else { return }
         if old != nil {
             bar.setNeedsLayout()
             bar.layoutIfNeeded()
         }
         #if !os(tvOS)
-        guard scroll != nil, navigationItem.largeTitleDisplayMode == .always else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let scroll = contentScrollView(for: .top), let nav = navigationController,
-                  nav.topViewController === self, nav.transitionCoordinator == nil, view.window != nil,
-                  !scroll.isTracking, !scroll.isDecelerating else { return }
-            let bar = nav.navigationBar
-            if scroll.contentOffset.y <= 0.5 - scroll.adjustedContentInset.top {
-                bar.sizeToFit()
-            } else {
-                let mode = navigationItem.largeTitleDisplayMode
-                navigationItem.largeTitleDisplayMode = .never
-                bar.layoutIfNeeded()
-                navigationItem.largeTitleDisplayMode = mode
-                bar.layoutIfNeeded()
-            }
-        }
+        if settleOwed { DispatchQueue.main.async { [weak self] in self?.settle() } }
         #endif
     }
+    #if !os(tvOS)
+    private var settleOwed = false
+    /// Paid on top of the stack with no push or pop in flight: a transition
+    /// holds it to its end, and a route not shown to its `viewDidAppear`.
+    /// A finger on the scroller sets the titles itself.
+    private func settle() {
+        guard settleOwed, let scroll = contentScrollView(for: .top), let nav = navigationController,
+              nav.topViewController === self, view.window != nil else { return }
+        if let transition = nav.transitionCoordinator {
+            transition.animate(alongsideTransition: nil) { [weak self] _ in DispatchQueue.main.async { self?.settle() } }
+            return
+        }
+        settleOwed = false
+        guard !scroll.isTracking, !scroll.isDecelerating else { return }
+        let bar = nav.navigationBar
+        if scroll.contentOffset.y <= 0.5 - scroll.adjustedContentInset.top {
+            bar.sizeToFit()
+        } else {
+            let mode = navigationItem.largeTitleDisplayMode
+            navigationItem.largeTitleDisplayMode = .never
+            bar.layoutIfNeeded()
+            navigationItem.largeTitleDisplayMode = mode
+            bar.layoutIfNeeded()
+        }
+    }
+    #endif
     override func loadView() {
         view = UIView()
         // The sheet supplies its surface behind transparent authored corners.

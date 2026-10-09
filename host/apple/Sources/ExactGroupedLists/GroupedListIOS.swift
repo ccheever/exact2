@@ -445,16 +445,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             var inset = scroll.contentInset
             inset.top += added.top
             inset.bottom += added.bottom
-            // A list at rest at its top stays there, its first section below
-            // the new room, as a scroll keeps its top under a new inset.
-            // Only when the inset moves and the list is still, so a drag, a
-            // fling or a bounce past the top is left alone.
-            let moved = collection.contentInset.top != inset.top
-            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
+            // A list at rest at its top stays there (GroupedCollectionView).
             assign(collection, \.contentInset, inset)
-            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
-                collection.contentOffset.y = -collection.adjustedContentInset.top
-            }
             // The indicator keeps to the same room.
             var indicator = scroll.verticalScrollIndicatorInsets
             indicator.top += added.top
@@ -733,18 +725,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
 /// A grouped list's collection view, by type, for the agent's wheel.
 final class GroupedCollectionView: UICollectionView, GroupedScroller {
-    /// A list at rest at its top stays there when the room its window or
-    /// bar gives it changes, as a scroll does: a tab shown again over a list
-    /// that a hidden batch put under its large title (LLP 1084 §6.5) would
-    /// otherwise rest scrolled under the bar. `mount` does the same for the
-    /// room the list itself adds.
+    /// A list at rest at its top stays there, its first section below the
+    /// new room, when the room above it changes, as a scroll keeps its top
+    /// under a new inset: the list's own (`mount`) or what its window or bar
+    /// gives it (a tab shown again over a list that a hidden batch put under
+    /// its large title, LLP 1084 §6.5, would otherwise rest scrolled under
+    /// the bar). Only when the list is still, so a drag, a fling or a bounce
+    /// past the top is left alone, and not for room below or beside it.
     private var restingTop: CGFloat = 0
     override func adjustedContentInsetDidChange() {
         let top = restingTop
         restingTop = adjustedContentInset.top
         super.adjustedContentInsetDidChange()
-        guard abs(contentOffset.y + top) < 0.5, !(isTracking || isDragging || isDecelerating) else { return }
-        contentOffset.y = -adjustedContentInset.top
+        guard restingTop != top, abs(contentOffset.y + top) < 0.5, !(isTracking || isDragging || isDecelerating) else { return }
+        contentOffset.y = -restingTop
     }
 }
 

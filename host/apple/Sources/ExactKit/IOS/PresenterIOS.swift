@@ -33,8 +33,12 @@ package final class Presenter {
             // Rows stay carried: a trait refresh never pulls a row (and a
             // first responder or a touch in it) out of its cell. Lists mount
             // first, so a segment or control in a carried row is judged
-            // where it shows.
-            groupedLists?.sync(changed: [])
+            // where it shows. A list built here (its model was busy in the
+            // batch) is the scroller its route's bar follows, as after one.
+            if let groupedLists {
+                groupedLists.sync(changed: [])
+                navigation.trackGroupedLists()
+            }
             segments.sync()
             controls.sync()
         }

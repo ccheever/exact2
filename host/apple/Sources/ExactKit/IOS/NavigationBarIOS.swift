@@ -468,7 +468,7 @@ extension NavigationHost {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
-            collapse(c, shape: shape, scroll: scroll)
+            collapse(c, shape: shape, scroll: scroll, in: nav)
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
@@ -609,7 +609,7 @@ extension NavigationHost {
     /// where the browser's does while the bar's height changes. An inline
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
     /// scroll edge appearance follows it; its inset does not change.
-    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
+    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?, in nav: UINavigationController) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
         let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
@@ -631,7 +631,7 @@ extension NavigationHost {
         }
         c.collapseScroll = target
         if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        c.track(target.flatMap(shownScroll))
+        c.track(target.flatMap(shownScroll), in: nav)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -650,7 +650,7 @@ extension NavigationHost {
     func trackGroupedLists() {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             guard let node = c.collapseScroll, let shown = shownScroll(of: node), c.topScroll !== shown else { continue }
-            c.track(shown)
+            c.track(shown, in: c.navigationController)
         }
     }
 
