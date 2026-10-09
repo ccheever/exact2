@@ -1,0 +1,18 @@
+settings-diagnostics-and-scope: the live reference (T3 Code 1e2ecbd975, Electron production build, lane ports 16800/16801), driven over CDP
+
+S2-11. Settings > General, click "View diagnostics" (clicktext), then read the URL and the scope buttons:
+  location.hash = #/settings/diagnostics?machine=ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720
+  scope buttons = "Project scope: All projects", "Environment scope: Daehyeon's MacBook Pro"
+  The link is SettingsPanels.tsx:3357 <Link to="/settings/diagnostics" search={{ machine: environmentId ?? undefined }} />,
+  environmentId = the General scope's representative environment (SettingsPanels.tsx:2181). The audit's "across All
+  environments" image (S2-11-ref.png) shows the route opened without that link (no machine in the URL).
+
+PG-8. On the draft thread of project work: Meta+K, type "Project settings", Enter:
+  location.hash = #/settings/projects?project=ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720%3A%2FUsers%2F...%2Fprojects%2Fwork
+  scope buttons = "Project scope: work", "Environment scope: All environments" (connective "across")
+  Every entry (CommandPalette.tsx:2288, Sidebar.tsx:2648, LegacySidebar.tsx:1761/2271, useThreadActionMenu.ts:193,
+  ChatView.tsx:2527) navigates to /projects/$projectKey, which redirects with { project: key, machine: undefined }.
+
+S2-2. After the click, 12 s: the page shows Resource monitor, Host & collection, Resource timeline, Live process tree,
+  Instrumented application I/O, Live Processes, Resource History, Trace Diagnostics, Latest Failures, Most Common
+  Failures, Slowest Spans, Span Logs, Top Span Names (innerText headings).
