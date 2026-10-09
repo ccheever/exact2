@@ -1,0 +1,17 @@
+snapshot-permission-helper, review round (2026-10-10), code head ba427ae29 (Swift and AppKit tests only; no TS, contract or Rust change)
+
+AppKit macos/tests/snapshot (README recipe)          exit 0  (53 permission-helper checks, 16 permission-request checks; all groups pass)
+cargo test -p t3-code-macos --lib                     exit 0  (13 passed)
+git add -A && bun scripts/caps.mjs                    exit 0  (All budgets within cap)
+host/apple/build.mjs t3-code-macos --bundle           exit 0
+Five checks (CLAUDE.md), once:
+  cargo build --all-targets --keep-going              exit 0
+  cargo test --lib --bins --tests --no-fail-fast      exit 0  (3,521 passed, 0 failed, 34 ignored)
+  cargo clippy --all-targets --keep-going -- -D warnings  exit 0
+  cargo fmt --all -- --check                          exit 0
+  bun scripts/caps.mjs                                exit 0
+  bun scripts/boot.mjs                                exit 0
+Not re-run (no file they read changed since 109c5a78c): bun test examples/t3-code, strict tsc, contract build (app.contract 1,230 lines, unchanged).
+Live agent drive (lane snapshot-permission-helper, base 16940): the bundle boots and Settings > SnapShots renders; the
+"Enable snapshots" tap landed on the lane's "Nightly needs the beta mobile app" toast, which covers the switch, so the
+setup dialog was not reopened (the retry was spent; agent mode never docks a helper, and its setup guard is unchanged).
