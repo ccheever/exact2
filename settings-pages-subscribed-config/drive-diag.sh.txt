@@ -1,0 +1,26 @@
+#!/bin/zsh
+# settings-pages-subscribed-config, review round: Diagnostics opened three times on the after build (agent mode, audit
+# lane), to count server.getResourceTelemetryHistory and subscribeResourceTelemetry per open, then held 30 s while
+# renamer.sh renames the lane project every 7 s. Not committed; uploaded as evidence.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-pages-subscribed-config
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+LANE=settings-pages-subscribed-config
+S=$W/target/sc/runs/diag; rm -rf $S; mkdir -p $S
+$A/lane-init.sh $LANE
+L=$A/lanes/$LANE
+OPS=("clock +20000 real" "clock +3000 real" "screenshot $S/00-start.png window" "tap connection-settings" "clock +1500 real")
+for i in 1 2 3; do
+  OPS+=("tap settings-general" "clock +2000 real" "screenshot $S/open$i-before.png window" "tap \"View diagnostics\"" "clock +3000 real" "screenshot $S/open$i.png window")
+done
+OPS+=("clock +30000 real" "screenshot $S/open3-30s.png window")
+OPS+=("tap settings-go-to-threads" "clock +2000 real" "screenshot $S/09-left.png window")
+printf '%s\n' "${OPS[@]}" > $S/ops.txt
+rm -f $S/stop
+$W/target/sc/tools/renamer.sh $L/clone-t3-home $LANE 300 $S/stop $S/renames.log &
+echo "renamer pid $!" > $S/pids.txt
+EXACT_ROOT=$W $A/clone-drive.sh $LANE 16200 "${OPS[@]}" 2> $S/agent.err | perl -MTime::HiRes=time -ne 'printf "%.3f %s", time, $_' > $S/agent.jsonl.ts
+echo "driver exit $?" >> $S/pids.txt
+touch $S/stop
+for f in $S/*.png; do echo "$(stat -f %Fm $f) ${f:t}"; done > $S/png-mtimes.txt
+cp $L/clone-t3-home/userdata/logs/server.trace.ndjson* $S/ 2>/dev/null
+echo DRIVE-DONE
