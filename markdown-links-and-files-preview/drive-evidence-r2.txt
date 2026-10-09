@@ -1,0 +1,51 @@
+markdown-links-and-files-preview, review round (2026-10-10): live drives, 1280x840
+Before: base build t3-code-evidence-base 950e8e2e5, lane markdown-links-and-files-preview-before, storage audit-mlfp-r2c-before.
+After: this branch's bundle (one live drive), lane markdown-links-and-files-preview, storage audit-mlfp-r2-after.
+Reference: T3 Code 1e2ecbd975 Electron production build over CDP (ref-cdp.mjs), same lane.
+
+Fixture docs/flow.md (both lanes; restored after each toggle):
+  # Flow
+  
+  - [ ] **Write** the tests
+  - [x] `code` first
+  - [ ] [link](https://example.com) after
+  
+  ```mermaid
+  graph LR
+    A[Files] --> B[Preview]
+  ```
+
+Clone ops: clock +20000 real | clock +3000 real | tap toast-dismiss-2 | tap toast-secondary-1 | tap toggle-right-panel | type surface-chooser key f | tap files-expand-all | tap flow.md | tap file-toggle-render | clock +8000 real | screenshot | tree
+After only: tap task-1 | screenshot | tap mermaid-expand-4 | screenshot | tree | tap diagram-preview-close
+Reference ops: clickrole treeitem flow.md | shot | clickrole checkbox Toggle task | shot | clickrole button Expand diagram | shot
+
+== After tree, task checkboxes and the diagram (before / after the press) ==
+tree 1 (after the render)
+   task-1 Pressable handlers=['press', 'hover'] checked=False
+   task-2 Pressable handlers=['press', 'hover'] checked=True
+   task-3 Pressable handlers=['press', 'hover'] checked=False
+   mermaid-4 View handlers=[] checked=-
+   mermaid-expand-4 Pressable handlers=['press'] checked=-
+tree 2 (after task-1 and Expand diagram)
+   task-1 Pressable handlers=['press', 'hover'] checked=True
+   task-2 Pressable handlers=['press', 'hover'] checked=True
+   task-3 Pressable handlers=['press', 'hover'] checked=False
+   mermaid-4 View handlers=[] checked=-
+   mermaid-expand-4 Pressable handlers=['press'] checked=-
+   diagram-preview View handlers=[] checked=-
+
+== Before (base build): the items are static glyphs and the fence a code block ==
+   task-/mermaid- views: 0
+
+== docs/flow.md after pressing '**Write** the tests' ==
+clone:
+3c3
+< - [ ] **Write** the tests
+---
+> - [x] **Write** the tests
+reference:
+3c3
+< - [ ] **Write** the tests
+---
+> - [x] **Write** the tests
+cmp: the clone's file is byte-identical to the reference's
