@@ -441,7 +441,7 @@ component T3Code
   resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
-  resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape DiagnosticsPage
+  resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)
   state settingsFocusTarget = ""
   resource snapshotSettings = snapshotSettings(settingsOpen and settingsRoute == "snap-shot", settingsRefresh, data.revision, page.hasFocus) as shape SnapshotSettings // SnapShotSettings refreshState on window focus (exact2 #219): back from System Settings, the permissions read again
   state settingsQuery = ""

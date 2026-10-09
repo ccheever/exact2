@@ -57,8 +57,12 @@ export function visibleLive(processes: Obj[], collapsed: Set<string>): Obj[] {
 /** ExpandableText: clamp text longer than 180 characters or with a line break. */
 const expandable = (text: string) => text.length > 180 || text.includes('\n');
 
-// One fetch per visit and Refresh: the key is the environment, period and refresh count.
-type Reads = { key: string; processes: { value: Obj; error: string }; history: { value: Obj; error: string }; traces: { value: Obj; error: string } };
+// One fetch per visit and Refresh: the key is the environment, period and refresh count. Each read is kept
+// as it lands and is a shared read (T3Transport `share`): an answer Exact asked again before a reply (a
+// telemetry sample, data.telemetry) joins the read still pending instead of sending it again, and keeps
+// what the earlier answer never received (settings-diagnostics-and-scope, S2-2).
+type Read = { value: Obj; error: string };
+type Reads = { key: string; processes?: Read; history?: Read; traces?: Read };
 const cache = new WeakMap<T3Client, Reads>();
 
 export async function diagnosticsPage(client: T3Client, native: Native | null | undefined, environmentId: string, period: string, active: boolean, now = 0, refresh = 0) {
@@ -73,15 +77,16 @@ export async function diagnosticsPage(client: T3Client, native: Native | null | 
   const window = WINDOWS[period];
   if (!window) return { ...empty, error: 'Unsupported resource history period.' };
   const access = client.restAccess(native);
-  const read = async (method: string, payload: Obj) => { try { return { value: await access.request(method, payload), error: '' }; } catch (error) { if (letGo(error)) throw error; return { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; } };
   const key = `${client.environmentId}|${period}|${refresh}`;
   let reads = cache.get(client);
-  if (!reads || reads.key !== key) {
-    const [processes, history, traces] = await Promise.all([read('server.getProcessDiagnostics', {}), read('server.getProcessResourceHistory', { windowMs: window[0], bucketMs: window[1] }), read('server.getTraceDiagnostics', {})]);
-    reads = { key, processes, history, traces };
-    cache.set(client, reads);
-  }
-  const { processes, history, traces } = reads;
+  if (!reads || reads.key !== key) cache.set(client, reads = { key });
+  const kept = reads;
+  const read = async (slot: 'processes' | 'history' | 'traces', method: string, payload: Obj): Promise<Read> => {
+    const hit = kept[slot]; if (hit) return hit;
+    try { return kept[slot] = { value: await access.read(method, payload), error: '' }; }
+    catch (error) { if (letGo(error)) throw error; return kept[slot] = { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; }
+  };
+  const [processes, history, traces] = await Promise.all([read('processes', 'server.getProcessDiagnostics', {}), read('history', 'server.getProcessResourceHistory', { windowMs: window[0], bucketMs: window[1] }), read('traces', 'server.getTraceDiagnostics', {})]);
   const checked = (value: Obj) => str(value.readAt) ? relativeTimeLabel(str(value.readAt), now) : '';
   const checkedLabel = (value: Obj) => str(value.readAt) ? (/ago$/.test(checked(value)) ? 'Checked' : `Checked ${checked(value)}`) : 'Checking';
   const checkedValue = (value: Obj) => /ago$/.test(checked(value)) ? checked(value).replace(/ ago$/, '') : '';
