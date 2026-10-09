@@ -119,7 +119,7 @@ export function snapshot(client: T3Client, now = 0) {
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
     status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // auto-balance: a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
