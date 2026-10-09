@@ -77,14 +77,20 @@ Built on `feat(example)/t3-code-notifications-all-environments`
   (`focusFleetThread`), so a toast or notification opens the right thread even after the focus moved.
 - Only the open thread of the focused environment is quiet (the reference's `activeEnvironmentId !== environmentId ||
   activeThreadId !== thread.id`); a background thread with the same id as the open one notifies.
+- Review follow-up (2026-10-10): every environment is diffed and its memory saved before the first notification is
+  awaited, and the collected transitions are notified after. Before, the first call awaited A's sound or post before
+  diffing B, so a second call in between could diff B's newer shell, and the first call then wrote B's older shell back
+  over that memory (a stale "Approval needed", or the next pass repeating "Thread completed"). The reference diffs each
+  environment synchronously in its effect, so it has no such window. The mode is recorded before the `notifyClear` await,
+  so two calls do not both clear.
 - Not changed (excluded above, #224): the Dock badge and the notification center's pending list. The reference also
   closes the delivered notifications of an environment that leaves its catalog; that bookkeeping is the badge's
   (`T3Notifications.swift` clears every pending notification when the window gains focus).
 
 | Id | Row | Result | Proof |
 | --- | --- | --- | --- |
-| PG-10 | Focus A; complete a turn in B: "Thread completed" with "Open thread"; Open thread opens B's thread | pass (agent drive) | [pg10-other-environment-toast.png](https://raw.githubusercontent.com/ccheever/exact2/263e6c37276c861afb70c0dddaef1815dc9d0d15/notifications-all-environments/pg10-other-environment-toast.png), [pg10-open-thread.png](https://raw.githubusercontent.com/ccheever/exact2/71469ff91caafd24b59e7af835b77e85bc31be7e/notifications-all-environments/pg10-open-thread.png) |
-| PG-10 | Bun test: transitions in a non-focused environment produce notifications | pass | `shell.test.ts` "every connected environment (ThreadNotificationCoordinator)" (6 tests); the probe below |
+| PG-10 | Focus A; complete a turn in B: "Thread completed" with "Open thread"; Open thread opens B's thread | pass (agent drive) | [pg10-other-environment-toast.png](https://raw.githubusercontent.com/ccheever/exact2/263e6c37276c861afb70c0dddaef1815dc9d0d15/notifications-all-environments/pg10-other-environment-toast.png), [pg10-open-thread.png](https://raw.githubusercontent.com/ccheever/exact2/71469ff91caafd24b59e7af835b77e85bc31be7e/notifications-all-environments/pg10-open-thread.png) (its top row: [pg10-open-thread-history-row.png](https://raw.githubusercontent.com/ccheever/exact2/4323d2cfd8a1b9cfed1d089e217c000b41295ccb/notifications-all-environments/pg10-open-thread-history-row.png)) |
+| PG-10 | Bun test: transitions in a non-focused environment produce notifications | pass | `shell.test.ts` "every connected environment (ThreadNotificationCoordinator)" (7 tests, with "a call that runs while an earlier one awaits its notifications never rewinds an environment's memory", which fails on the previous code); the probes below |
 | PG-10 | Unfocused window: B's completion posts a system notification with the sound setting | open: needs real input | Bun test "unfocused: the system notification is tagged with B and opens B's thread"; batch steps below |
 
 Text before/after (a probe calling `threadNotifications` with A focused and a background fleet entry B whose thread
@@ -110,6 +116,34 @@ Settings › Connections › Add environment with a fresh `t3 pair` link, stayed
 released B's held turn after the `-pre` screenshot. The before build showed B's row turning Done with no toast; the after
 build showed "Thread completed · Build the lane B report · Open thread", and Open thread focused B with that thread open.
 The reference showed the same toast for the same completion and opened the same thread.
+
+The text at the top of `pg10-open-thread.png`'s after panel ("Failed to open grok provider session
+provider-session:…") is not a thread error banner. It is B's run-1 history row, "Provider session failed to open ·
+12:37 AM": the lane's Grok stand-in failed to start five times at 15:37:09–15:37:11Z (`acp-hold.log`, B's
+`server.trace.ndjson` `AcpAdapterV2.openSession` failures) before the held-turn proxy first worked at 15:38:05Z. The
+clone's state at that capture has no thread error (`resources.data.error` is empty, `errorWarning` false). The reference
+renders the same row in the same thread (re-checked 2026-10-10 on the lane's data: aria "Provider session failed to open
+12:37 AM" with the same detail paragraph, no `role=alert`). Its panel in `pg10-open-thread.png` does not show it because
+that capture came after a fourth turn (released 15:47:19Z, after the clone's capture), so the timeline sat one turn lower
+and the row was above the viewport ([pg10-open-thread-history-row.png](https://raw.githubusercontent.com/ccheever/exact2/4323d2cfd8a1b9cfed1d089e217c000b41295ccb/notifications-all-environments/pg10-open-thread-history-row.png):
+the clone's capture beside the reference scrolled to that row). Not a difference of this change and not a thread-view
+difference: no follow-up.
+
+Text before/after for the review's race (a second `threadNotifications` runs while the first is held at A's sound and
+B's thread has completed again, at 10:01 then 10:02; `target/notify-lane/race-probe.ts`, not committed):
+
+```
+== before (branch head 3c5cd63db) ==
+both calls settled: ["Thread completed · Build b1 · fleet:env-b:b1","Thread completed · Build a2 · fleet:env-a:a2"]
+the next pass over the same shells adds: ["Thread completed · Build b1 · fleet:env-b:b1"]
+== after (this fix) ==
+both calls settled: ["Thread completed · Build b1 · fleet:env-b:b1","Thread completed · Build a2 · fleet:env-a:a2","Thread completed · Build b1 · fleet:env-b:b1"]
+the next pass over the same shells adds: []
+```
+
+Before, B's 10:01 completion was lost, and the 10:02 one was notified twice (the second time by a pass with nothing new). After,
+each completion is notified once. The 10:01 toast lands after the 10:02 one only because the first call was held in
+between; no UI changed, so there is no new screenshot pair.
 
 ## Real-input batch steps
 
