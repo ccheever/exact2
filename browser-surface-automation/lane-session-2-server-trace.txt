@@ -1,0 +1,14 @@
+# Lane server trace (server.trace.ndjson), preview spans only: seconds since the first span, name, exit
+    0.106  PreviewManager.make                              Success
+    0.151  PreviewAutomationBroker.make                     Success
+    0.161  McpHttpServer.registerPreviewSnapshot            Success
+    1.491  PreviewAutomationBroker.connect                  Success
+    1.491  PreviewAutomationBroker.acquireConnection        Success
+    1.552  PreviewAutomationBroker.focusHost                Success
+    1.552  ws.rpc.previewAutomation.focusHost               Success
+   14.823  PreviewManager.list                              Success
+   14.823  ws.rpc.preview.list                              Success
+    1.488  ws.rpc.subscribePreviewEvents                    Success
+    1.490  ws.rpc.previewAutomation.connect                 Interrupted
+   50.633  PreviewAutomationBroker.closeConnection          Success
+   50.633  PreviewAutomationBroker.disconnect               Success
