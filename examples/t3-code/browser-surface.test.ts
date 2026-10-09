@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
-// apps/web/src/components/preview/openPreviewSession.test.ts (3 of 4: the unread-settings retry waits for
-// part 2's browser defaults), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
+// apps/web/src/components/preview/openPreviewSession.test.ts (4 of 4: part 4 ported the unread-settings retry's
+// "session" row; its "link" row is part 5's openUrlInPreview), addBrowserSurface.test.ts (2) and closePreviewSession.test.ts (2). The
 // reference's atom commands are the clone's `client.rpc`; its rightPanelStore is the panel state
 // (r4-surfaces-panel.ts). Then the clone's own rows for part 1, each named after the reference code it
 // follows: rightPanelStore.reconcileBrowserSurfaces, RightPanelTabs surfaceTitle / PreviewFavicon,
@@ -10,11 +10,12 @@
 // the web view stays while the session does, and only a close drops it).
 import { describe, expect, it } from 'bun:test';
 import {
-  BROWSER_PROFILES, DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserProfileName, browserTabFavicon, browserTabTitle, browserView,
-  buildReportInput, closePreviewSession, installBrowserCleanup, launcherOffersProfiles, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
+  DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
+  buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
   reconcileBrowserSurfaces, type NativeTab, type Rpc,
 } from './browser-surface';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from './browser-state';
+import { BrowserSettingsReadError, resolveBrowserDefaults } from './browser-profiles';
 import { panelState, panelView, surfaceLocal, surfaceStore, panelKey, type PanelState } from './r4-surfaces-panel';
 import type { T3Client } from './client';
 import { ClientError, type Native } from './protocol';
@@ -75,6 +76,21 @@ describe('openPreviewSession', () => {
     await expect(openPreviewSession(async () => { throw new Error('preview unavailable'); }, store, threadRef, { url: 't3.chat' })).rejects.toThrow('preview unavailable');
     expect(store.read(threadRef).snapshot).toBeNull();
     expect(store.read(threadRef).recentlySeenUrls).toEqual([]);
+  });
+
+  // Part 4: the reference's it.each over "session" and "link"; the clone's link entry point is part 5's.
+  it('does not open a session with unread settings and uses the saved profile on retry', async () => {
+    const store = new PreviewStateStore(), opened: Obj[] = [];
+    const settings = { local: { browserProfiles: [{ id: 'work', name: 'Work', kind: 'persistent' }], browserDefaultProfileId: 'work' }, preferencesLoaded: false };
+    const rpc: Rpc = async (_method, payload) => { opened.push(payload); return snapshot; };
+    const input = { url: 'https://t3.chat/' };
+    await expect(openPreviewSession(rpc, store, threadRef, input, () => resolveBrowserDefaults(settings))).rejects.toBeInstanceOf(BrowserSettingsReadError);
+    expect(opened).toEqual([]);
+    expect(store.read(threadRef).snapshot).toBeNull();
+    expect(store.read(threadRef).recentlySeenUrls).toEqual([]);
+    settings.preferencesLoaded = true;
+    await openPreviewSession(rpc, store, threadRef, input, () => resolveBrowserDefaults(settings));
+    expect(opened).toEqual([{ threadId: 'thread-1', url: input.url, viewport: FILL, profileId: 'work' }]);
   });
 });
 
@@ -182,15 +198,6 @@ describe('usePreviewBridge', () => {
     // The projection runs on every answer: the same failure is not sent again; the next failure of the same URL is.
     expect(buildReportInput('thread-1', 'tab-1', failed, report.report)).toBeNull();
     expect(buildReportInput('thread-1', 'tab-1', { ...failed, failures: 2 }, report.report)).not.toBeNull();
-  });
-});
-
-describe('profiles (part 1: the built-in Default)', () => {
-  it('names a tab profile, says when it is gone, and offers the launcher chevron only with a choice', () => {
-    expect(browserProfileName(BROWSER_PROFILES, 'default')).toBe('Default');
-    expect(browserProfileName(BROWSER_PROFILES, 'work')).toBe('Removed profile');
-    expect(launcherOffersProfiles(BROWSER_PROFILES)).toBe(false);
-    expect(launcherOffersProfiles([...BROWSER_PROFILES, { id: 'incognito', name: 'Incognito' }])).toBe(true);
   });
 });
 

@@ -18,6 +18,8 @@ use ChatDocument from "./markdown.contract"
 use Look from "./settings-appearance-look.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
+use BrowserLauncherProfiles from "./browser-surface.contract" // browser-surface part 4
+use BrowserProfileChoice from "./browser-shapes.contract"
 
 // RightPanelEmptyState in a 540pt panel (1px left border): its own top bar
 // (maximize, terminal drawer, right panel pressed) and the centred launcher,
@@ -91,7 +93,7 @@ component SurfacePanel
             text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
             column width="100%" gap="0.125rem"
               each surface in shell.surfaces key=surface.id
-                SurfaceRow(surface=surface, highlighted=(hovered == surface.id), hover=hover, choose=ui("choose"))
+                SurfaceRow(surface=surface, highlighted=(hovered == surface.id), hover=hover, choose=ui("choose"), profiles=shell.panel.browser.profiles, local=local)
 
 component SurfaceRow
   props
@@ -99,14 +101,18 @@ component SurfaceRow
     highlighted: bool
     hover: action
     choose: action
+    profiles: list<BrowserProfileChoice> // browser-surface part 4: the Browser row's profile chevron
+    local: action
   view
     box position="relative" width="100%" hover=hover(surface.id)
       when surface.available
         button press=choose(surface.id) testId=`surface-${surface.id}` aria-label=`${surface.label} ${surface.shortcut}` width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(highlighted ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000")
           ShellIcon(name=surface.icon, size=16, color="light-dark(#262626, #f5f5f5)")
           // A button centers its text (text-align: center, as on the web); the reference's row is start-aligned.
-          text surface.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)"
+          text surface.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" padding-right=(surface.id == "browser" and length(profiles) > 1 ? "1.75rem" : 0) color="light-dark(#262626, #f5f5f5)"
           SurfaceKey(shortcut=surface.shortcut)
+        when surface.id == "browser" and length(profiles) > 1
+          BrowserLauncherProfiles(profiles=profiles, local=local)
       else
         row width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" align-items="center" opacity=0.5 aria-label=`${surface.label} ${surface.shortcut}` testId=`surface-${surface.id}`
           ShellIcon(name=surface.icon, size=16, color="light-dark(#262626, #f5f5f5)")

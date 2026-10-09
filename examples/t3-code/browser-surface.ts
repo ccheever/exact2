@@ -26,18 +26,11 @@ import {
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
+import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, resolveBrowserDefaults, tabProfile, type BrowserDefaults } from './browser-profiles';
 
-// ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
-export const DEFAULT_BROWSER_PROFILE_ID = 'default';
+// ── Profiles (browser-profiles.ts, part 4) ─────────────────────────────────────────────────────────
+export { DEFAULT_BROWSER_PROFILE_ID };
 export type BrowserProfileChoice = { id: string; name: string };
-/** The profiles a new tab can open under. Part 1 has the built-in Default only; Incognito and the 24
- *  named profiles arrive with part 4 (browser-surface-profiles), which fills this list. */
-export const BROWSER_PROFILES: readonly BrowserProfileChoice[] = [{ id: DEFAULT_BROWSER_PROFILE_ID, name: 'Default' }];
-/** PreviewView previewProfileName: a tab's profile by name, "Removed profile" once it is gone. */
-export const browserProfileName = (profiles: readonly BrowserProfileChoice[], profileId: string): string =>
-  profiles.find(profile => profile.id === profileId)?.name ?? 'Removed profile';
-/** RightPanelEmptyState: the launcher's Browser row shows its profile chevron only with a choice to make. */
-export const launcherOffersProfiles = (profiles: readonly BrowserProfileChoice[]): boolean => profiles.length > 1;
 /** browserDefaultOpenViewport: fill until part 2 adds the default viewport setting. */
 export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
@@ -65,11 +58,16 @@ const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => cl
 
 // ── Sessions: open, close, list (openPreviewSession, addBrowserSurface, closePreviewSession, usePreviewSession) ──
 export type OpenInput = { url?: string; profileId?: string; viewport?: PreviewViewportSetting };
-/** openPreviewSession: `preview.open` with the configured defaults; the answer is applied at once (no event needed). */
-export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref: ScopedThreadRef, input: OpenInput = {}): Promise<PreviewSessionSnapshot> {
+/** The configured defaults a new tab opens with (browserDefaults.ts; part 4: the profile, part 2: the viewport). */
+export type OpenDefaults = () => Pick<BrowserDefaults, 'profileId'>;
+const builtInDefaults: OpenDefaults = () => ({ profileId: DEFAULT_BROWSER_PROFILE_ID });
+/** openPreviewSession: `preview.open` with the configured defaults, resolved once and never from unread settings (the
+ *  resolver throws BrowserSettingsReadError and nothing opens); the answer is applied at once (no event needed). */
+export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref: ScopedThreadRef, input: OpenInput = {}, defaults: OpenDefaults = builtInDefaults): Promise<PreviewSessionSnapshot> {
+  const resolved = defaults();
   const answer = await rpc('preview.open', {
     threadId: ref.threadId, ...(input.url === undefined ? {} : { url: input.url }),
-    viewport: input.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? DEFAULT_BROWSER_PROFILE_ID,
+    viewport: input.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? resolved.profileId,
   });
   const snapshot = readSnapshot(answer);
   if (!snapshot) throw new Error('The server answered preview.open with no session.');
@@ -142,7 +140,7 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   installBrowserCleanup(client, native);
   const host = browserHost(client);
   await listPreviewSessions(client, native, ref); // the server's epoch first: the tab's native identity names it
-  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId });
+  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId }, () => resolveBrowserDefaults(client));
   client.diffOpen = false;
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
   await syncNativeSessions(client, native);
@@ -297,25 +295,26 @@ export type BrowserView = {
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
   profiles: BrowserProfileChoice[];
 };
-export const emptyBrowserView = (): BrowserView => ({
+/** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
+export const emptyBrowserView = (client?: T3Client): BrowserView => ({
   tabId: '', runtimeId: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
-  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+  profiles: browserProfileChoices(client),
 });
 
 /** PreviewView's chrome and body for the active Browser tab. */
 export function browserView(client: T3Client, surface: Surface | null): BrowserView {
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
-  if (!ref || !surface?.browser) return emptyBrowserView();
+  if (!ref || !surface?.browser) return emptyBrowserView(client);
   const host = browserHost(client), { nav, tab, snapshot, runtimeId } = effectiveNav(client, ref, surface.browser.tabId);
-  const profileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID, empty = shouldShowPreviewEmptyState(snapshot ? { navStatus: nav } : null), failed = nav._tag === 'LoadFailed';
+  const empty = shouldShowPreviewEmptyState(snapshot ? { navStatus: nav } : null), failed = nav._tag === 'LoadFailed';
   return {
-    tabId: surface.browser.tabId, runtimeId, environment: ref.environmentId, profileId, profileName: browserProfileName(BROWSER_PROFILES, profileId), showProfile: profileId !== DEFAULT_BROWSER_PROFILE_ID,
+    tabId: surface.browser.tabId, runtimeId, environment: ref.environmentId, ...tabProfile(client, snapshot?.profileId), // part 4: the badge shows a profile other than the configured default
     url: nav._tag === 'Idle' ? '' : nav.url, loading: nav._tag === 'Loading', canGoBack: tab?.canGoBack ?? snapshot?.canGoBack ?? false,
     canGoForward: tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle', hasWebContents: !!tab,
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
-    profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+    profiles: browserProfileChoices(client),
   };
 }
 
@@ -363,6 +362,12 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       // PreviewView handleOpenInBrowser: localApi.shell.openExternal(url); an agent run records it (T3RemoteEditors).
       const url = nav._tag === 'Idle' ? '' : nav.url;
       if (url) await nativeOp(client, native, { op: 'remoteEditorsOpen', url });
+      return '';
+    }
+    case 'clear-cookies': case 'clear-cache': {
+      // Part 4, PreviewMoreMenu's Profile group: this tab's environment and profile only; a failure is ignored, as there.
+      const bridge = nativeProfileBridge(request => client.raw(native, request));
+      await (op === 'clear-cookies' ? bridge.clearCookies(ref.environmentId, profile) : bridge.clearCache(ref.environmentId, profile)).catch(() => undefined);
       return '';
     }
   }

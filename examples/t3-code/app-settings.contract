@@ -8,6 +8,7 @@ use ScheduledPanel from "./settings-scheduled.contract"
 use ScheduledPage from "./settings-scheduled.contract"
 use SourceControlPanel from "./settings-source-control.contract"
 use IntegrationsPanel from "./settings-source-control.contract"
+use BrowserProfileDialogs from "./browser-profiles.contract" // browser-surface part 4
 use SourceControlPage from "./settings-source-control.contract"
 use IntegrationsPage from "./settings-source-control.contract"
 use StoragePanel from "./settings-storage.contract"
@@ -222,7 +223,7 @@ component SettingsWindow
               when settingsRoute == "source-control"
                 SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
               when settingsRoute == "integrations"
-                IntegrationsPanel(data=integrations, busy=commandPending, error=modalError, rest=rest, restInput=restInput)
+                IntegrationsPanel(data=integrations, busy=commandPending, error=modalError, rest=rest, restInput=restInput, local=restLocal)
               when settingsRoute == "snap-shot"
                 SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
               when settingsRoute == "keybindings"
@@ -251,6 +252,9 @@ component SettingsWindow
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     when settingsOpen and settingsRestoreOpen
       SettingsRestoreDialog(core=settingsCore, busy=commandPending, cancel=coreRestoreClose, confirm=coreRestoreConfirm)
+    // browser-surface part 4: "Remove “<name>”?" and the cookie import wizard (browser-profiles.contract), over the window.
+    when settingsOpen and settingsRoute == "integrations"
+      BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, still=viewport.prefersReducedMotion)
 
 // Settings editors: the scheduled-task and project dialogs (settings-rest/settings-b).
 component ProjectDialogs

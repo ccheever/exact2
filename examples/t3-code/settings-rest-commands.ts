@@ -16,6 +16,7 @@ import { devicePlatformsCommand } from './device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
+import { browserProfilesLocal } from './browser-profiles-settings'; // browser-surface part 4
 import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
 import { copyThreadReference } from './thread-reference'; // thread-commands-and-keys: ⇧⌘C copies the PR link or the thread ID
@@ -220,5 +221,6 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
   // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
+  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // browser-surface part 4: Browser profiles and the cookie import
   throw new ClientError(`Unknown settings action: ${op}`);
 }
