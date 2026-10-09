@@ -3,12 +3,12 @@ name: 20261009-settings-diagnostics-and-scope
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-diagnostics-and-scope
 pr_url: https://github.com/ccheever/exact2/pull/357
-verified_commit: null
+verified_commit: 22dff6be3b6511012f754301ede9004e9ff55cfb
 ---
 
 # Settings: the Diagnostics page fills again, and the Project page opens on every environment
@@ -222,3 +222,7 @@ The coordinator runs the two real-input batch steps, reviews the draft PR, and m
 [settings-pages-subscribed-config](20261009-settings-pages-subscribed-config.md) merges first and also changes
 Diagnostics' answer (`diagnostics-view.ts`), the second to merge keeps both: the shared, kept reads here and its
 subscribed config there.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `22dff6be3` (#357, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
