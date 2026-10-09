@@ -1,0 +1,25 @@
+browser-surface-profiles live drive before3-offline (agent mode, 1280x840) at 950e8e2e5, no embedded server
+Lane ports: 16780 (the app's embedded T3 server), 16781 (cookie probe: names only, never values), 16782 (part 2's first-layout fixture).
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/). No real browser profile, Keychain item or Full Disk Access.
+
+  1 clock +15000 real  -> clock 15000 (real 15010 ms)
+  2 clock +6000 real  -> clock 21000 (real 6011 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1516 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 3011 ms)
+  8 screenshot 70-integrations-offline.png window  -> screenshot 70-integrations-offline.png
+  9 tree  -> tree (463 nodes)
+ 10 state  -> background, canvas, clock, collections, contentRegion, delivery, derives, device, dialog, documents, epoch, focus, hatch
+
+Module browser lines (t3.browser):
+
+fixture.log:
+  fixture on 16781
+
+End:
+  fixture pid 65188
+  brave stand-in pid 65189
+  agent pid 65196
+  agent exit 0
