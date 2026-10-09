@@ -1,12 +1,12 @@
 ---
 name: 20261009-composer-provider-state-and-details
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-composer-provider-state-and-details
 pr_url: null
 verified_commit: null
 ---
@@ -91,8 +91,65 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | CO-5 | "Add project script" opens the Add Action dialog over the thread. Cancel closes it; Save action saves the script. | `co5-add-action-dialog.png` | agent |
 | PA-9 | An unstarted server thread's Workspace row is a select with both options; a started thread stays locked. | `pa9-workspace-select.png` | agent |
 
+## Cause and fix
+
+- CO-9, CO-10: the placeholder used "no provider enabled", and the control row used "every provider is ready". Both now
+  read one port of `resolveComposerProviderSelection` and `resolveSelectableProviderInstanceEntry`
+  (`composer-provider-selection.ts`): the composer's choice, the thread's runtime instance, the thread's and the
+  project's selections are the candidates; an enabled, available candidate stays selected whatever its probe status; a
+  thread's driver lock (`providerLock`) limits the fallback; a multi-model draft never shows the control.
+- CO-6: `composerSelection` ports `deriveEffectiveComposerModelState` (`resolveAppModelSelectionForInstance`,
+  `resolveAppModelSelection`, `getDefaultServerModel`, `DEFAULT_MODEL_BY_PROVIDER`). The trigger (`presentation.ts`), the
+  tooltip, the traits menu, the option change and the send (`client-ops-composer.ts`) use the resolved instance and model.
+- CO-8: the details Workspace row follows `forceNewWorktree` (a multi-model draft): New worktree, "Create", and a pick in
+  the row changes nothing (`onEnvModeChange` returns), as in the strip.
+- CO-5: "Add project script" (the row and the scripts menu's item) opens the settings' Add Action editor over the thread
+  (`ui:add-script`, `restEditor` "card-action", scope = the thread's project); Save action writes through the same
+  `sb:action-add` as Settings; Cancel closes it.
+- PA-9: `canOverrideServerEnv` (ChatView `canOverrideServerThreadEnvMode`: a server thread with no message, no run, no
+  provider thread and no worktree) makes the row a select; the pending choice is per thread and ends when the thread
+  changes or starts. New worktree shows "Create", the branch row picks a base ("From origin/feature/audit"), and the
+  first message goes out as `orchestration.launchThread` with `reuseExistingThread` and a worktree strategy
+  (startThreadTurn's `bootstrap.prepareWorktree`). A started thread stays locked. The composer strip follows the same
+  rule when "persist context strip" is on.
+
+## Lane setup
+
+Lane `composer-provider-state-and-details` (base port 16880), before lane `composer-provider-state-and-details-before`.
+All three homes (reference, before, after) got `providerInstances` with Claude at `~/.local/bin/claude` and Codex at
+`~/.local/bin/codex` (lane `CODEX_HOME`: not authenticated), `enableProviderUpdateChecks: false` (no Codex update toast),
+and an unstarted server thread "Audit work thread" (codex/gpt-5.4, branch feature/audit) made by the lane's
+`tools/setup-thread.sh`. CO-9 and CO-10 switch Claude off in Settings › Providers in the same drive, on all three sides.
+The reference was restarted once to clear its in-memory multi-model draft.
+
+## Acceptance results
+
+Before = `t3-code-evidence-base` (`950e8e2e5`); after = this branch's bundle; reference = T3 Code `1e2ecbd975` Electron.
+All rows ran in agent mode; no row needs real input.
+
+| Id | Result | Evidence |
+| --- | --- | --- |
+| CO-9 | pass: the work draft reads "Enable a provider in Settings to send a message" beside "Open provider settings" (before: "Ask for changes…"). Ported tests pass. | [co9-no-provider-draft.png](https://raw.githubusercontent.com/ccheever/exact2/8e652d3320a1e35be86e490879ea94f52b819c9b/composer-provider-state-and-details/co9-no-provider-draft.png) |
+| CO-10 | pass: the fixture thread keeps "gpt-6-astra" and "Full access" with the "Codex is unauthenticated" banner (before: "Open provider settings"). Plan mode is off in this lane, so neither side shows Build. | [co10-failing-provider-thread.png](https://raw.githubusercontent.com/ccheever/exact2/61f2e66059c1504aaa44be0979a5480e2abebb9d/composer-provider-state-and-details/co10-failing-provider-thread.png) |
+| CO-6 | pass: the trigger reads "gpt-6-astra" and its tooltip "gpt-6-astra · ⇧⌘M" on both codex/gpt-5.4 threads (before: "gpt-5.4 · ⇧⌘M"). A unit test checks the sent selection. | [co6-default-model.png](https://raw.githubusercontent.com/ccheever/exact2/77fded4e0b82589605677e660ea55dbaff32153b/composer-provider-state-and-details/co6-default-model.png) |
+| CO-8 | pass: after Shift+click of Claude Sonnet 5.5, the details row reads "New worktree · Create" and the branch row "From feature/audit" (before: "work"). | [co8-details-workspace.png](https://raw.githubusercontent.com/ccheever/exact2/680fca14bf0cf1a8ccb059dca1927deb3b74c5f4/composer-provider-state-and-details/co8-details-workspace.png) |
+| CO-5 | pass: "Add project script" opens "Add Action" over the thread (before: Settings › Project); Cancel closes it; Save action (Lint, `bun run lint`) adds the "Lint" row, as the reference does. | [co5-add-action-dialog.png](https://raw.githubusercontent.com/ccheever/exact2/4c42a52a97dcc82bf85532f0d275fae12f8adb6a/composer-provider-state-and-details/co5-add-action-dialog.png) |
+| PA-9 | pass: "Audit work thread" has the Workspace select (Current checkout, New worktree); New worktree reads "New worktree · Create" and the branch row "From origin/feature/audit", as the reference. The fixture thread (started) keeps its static row. | [pa9-workspace-select.png](https://raw.githubusercontent.com/ccheever/exact2/ec028e1c6dac736d260a7c89d2b7a87b0ea0e60d/composer-provider-state-and-details/pa9-workspace-select.png) |
+
+Tests:
+- `composer-provider-selection.test.ts`: the reference's `resolveComposerProviderSelection`,
+  `resolveSelectableProviderInstance` and instance-scoped model selection tests by name; CO-9, CO-10 and CO-6 (the
+  dispatched `modelSelection` is codex/model-a for a thread that stores gpt-5.4) against the fake backend.
+- `composer-details-workspace.test.ts`: CO-8 (forced New worktree, a pick changes nothing), PA-9 (the select, the
+  `launchThread` with `reuseExistingThread` and the worktree strategy, a pick stays with its thread, a started thread
+  refuses).
+- Changed to the reference rule: `client.test.ts` (a missing default instance falls back to a ready one),
+  `composer-controls.test.ts` (an errored instance the thread asked for keeps the picker),
+  `composer-controls-branch.test.ts` (only a started thread shows the locked strip row).
+
+Observed, not in scope: on an empty server thread the clone's composer sits mid-window while the reference docks it at
+the bottom with "Send a message to start the conversation." (before and after alike; see the PA-9 and CO-6 images).
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Set up the lane's provider state. Build and unit-test. Then do one batched
-live drive at the end for every row's before/after pair. Close every row in this PR, or record the blocker of a row that
-cannot pass.
+None: review and merge.
