@@ -1,0 +1,88 @@
+# realinput-1009b, row 2 (STATUS 'Next real-input batch' rows that wait on nothing), 2026-10-09 13:43:21-13:48:48Z
+Lock: target/t3-ui-parity/lanes/.realinput-lock held 13:39:08-13:48:54Z (owner: realinput-20261009b coordinator). Screen unlocked.
+App: a normal launch of a lane copy 'T3 Code (Lane Base 1009b)' (bundle id com.exact.t3code.macos.lanebase1009b, ad-hoc signed)
+of the evidence-base build of feat(example)/t3-code at 950e8e2e5 (t3-code-evidence-base, target/clients/0d02a3550eba6edce4b12b59/...,
+base-build-950e8e2e5.log 'exit 0'), embedded server on 16962, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3_LOCAL_HOME,
+telemetry off, env -i launch. Pointer: `orca computer click` at window coordinates; keys: `orca computer press-key` to the
+copy's pid while it was frontmost. Read back from the accessibility tree (focus line) and window images. Input source untouched.
+
+## fix-keyboard-focus (#310): a reopened diff scope menu takes the focus with real keys -- PASS
+Thread 'Timeline verification' (seeded), details panel Changes -> Diff tab, scope trigger 'Changes' at (788, 65).
+k01 open 1 by click:
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 1 scroll area, Secondary Actions: scroll up, scroll down.
+k02 Escape:
+    67 button Diff scope: Changes
+    The focused UI element is 67 button Diff scope: Changes.
+k03 reopen (open 2) by Down: first item takes the focus (ring in rf-310-reopen-down.png)
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 75 button Changes.
+k04 Down:
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 76 button Uncommitted.
+k05 Escape:
+    67 button Diff scope: Changes
+    The focused UI element is 67 button Diff scope: Changes.
+k06 reopen (open 3) by click:
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 1 scroll area, Secondary Actions: scroll up, scroll down.
+k07 Escape:
+    67 button Diff scope: Changes
+    The focused UI element is 67 button Diff scope: Changes.
+k08 reopen (open 4) by Return:
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 75 button Changes.
+k09 Escape:
+    67 button Diff scope: Changes
+    The focused UI element is 67 button Diff scope: Changes.
+k10 reopen (open 5) by click:
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 1 scroll area, Secondary Actions: scroll up, scroll down.
+k11 Down after the click reopen: reaches the first item (rf-310-reopen-click-down.png)
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 75 button Changes.
+k12 Up: wraps to the last item
+    67 button (expanded) Diff scope: Changes
+    75 button Changes
+    76 button Uncommitted
+    The focused UI element is 76 button Uncommitted.
+k13 Escape:
+    67 button Diff scope: Changes
+    The focused UI element is 67 button Diff scope: Changes.
+Result: every reopen took the keys. A keyboard open (Down, Return) focuses the first item; a click open leaves the focus
+on the window's scroll area and the first Down reaches the first item; Escape returns the focus to the trigger each time. The 2026-10-08
+failure (a reopened menu took no focus; record real-input-record-2.txt) did not reproduce on 950e8e2e5.
+
+## popover-escape-parity (#290), both rows -- NOT RUN
+Both rows need a pinned 5h Codex usage segment. This lane's Codex is unauthenticated ('Codex is unauthenticated' in the
+thread); a click on the sidebar Usage gauge (96, 820) showed only its 'Usage' tooltip and no Usage page or limits (u02, u04).
+The 2026-10-08 run paired the copy to a Build box with a usage fixture proxy (record 'Real-input record'); that lane is not
+on disk now. The rows need that fixture lane (or a signed-in Codex).
+
+## browser-surface-automation (#346) rows 1-4 -- NOT RUN
+Rows 1-3 need an agent run and its reply (the part-5 lane's fake ACP agent 'Lane browser agent'); the part-5 lane
+(target/bsa-lane, its seeded home) is not on disk and this batch makes no provider turns.
+Row 4 (muted tab behind another) was tried with hand-opened tabs: the part-5 fixture's media page served on 16964
+(lane-fixture.mjs with '/' -> the media page). Add panel surface -> Browser opened tab_1 ('No preview yet' on this base
+build). The URL went in by set-value (m03, AX read back) and then by real keys (Cmd-A, typed '127.0.0.1:16964', AX value
+read back, focus in the field, m10); Return (three tries: m04, m08, m11) did not navigate: no 't3.browser: navigate' line,
+no GET in the fixture log, 'No preview yet' stayed. Stopped after three rounds. Unconfirmed observation for the
+coordinator: Return in the base build's URL field did not load the page under orca press-key (Return did reach the app:
+it reopened the diff scope menu in k08).
+
+After: the copy quit by an Apple Event (app and its server exited), both fixtures stopped, ports 16960-16979 free,
+`defaults delete com.exact.t3code.macos.lanebase1009b`, no keychain item created (none dated after 13:20Z).
