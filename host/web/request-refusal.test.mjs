@@ -878,13 +878,15 @@ test('the web build retains every ambient diagnostic with its source location', 
         'export const b = () => globalThis.setTimeout(() => {}, 1);',
         "export const c = () => Date['now']();",
         'export const d = () => Math[`random`]();',
+        "export const e = () => new WebSocket('ws://127.0.0.1:9/x');",
         '',
       ].join('\n'));
       const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'diagnostics', '--render', 'none'], {
         cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'dist') },
       });
       expect(built.status, built.stderr).toBe(1);
-      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()']]) {
+      // The browser's own I/O, whose words end the line (#126).
+      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()'], [6, 'WebSocket']]) {
         expect(built.stderr, built.stderr).toContain(`${file}:${line}:24: ${api} is unavailable in data sources`);
       }
       expect(built.stderr).toContain('the web build (the JS target) failed');
@@ -941,8 +943,9 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
 });
 
 // LLP 1016.000 D3 on the JS target: a data module's own socket, request or
-// event source refuses with the wasm target's words (module-glue.js), in every
-// spelling, so no frame leaves past the grants (#126).
+// event source refuses with the prelude's words (js/src/prelude.js, which
+// Hermes and the wasm target's realms run), in every spelling, so no frame
+// leaves past the grants (#126).
 test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and EventSource as the wasm target does", async () => {
   const { transformSync } = await import('rolldown/utils');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-io-'));
@@ -979,6 +982,29 @@ globalThis.exact = { answer: (form, name) => { try { forms[form](name); return '
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The same in the realm the prelude makes, natively and on the wasm target:
+// `typeof` is "function", not "undefined", and every spelling refuses with the
+// JS target's words (#126).
+test("the prelude refuses a data module's own WebSocket, XMLHttpRequest and EventSource with the JS target's words", async () => {
+  const names = ['WebSocket', 'XMLHttpRequest', 'EventSource'], forms = ['bare', 'global', 'self', 'alias', 'call', 'reflect'];
+  const verdict = await realmVerdict(`
+const io = { WebSocket, XMLHttpRequest, EventSource };
+const forms = {
+  bare: name => ({ WebSocket: () => new WebSocket('ws://127.0.0.1:9/x'), XMLHttpRequest: () => new XMLHttpRequest(), EventSource: () => new EventSource('http://127.0.0.1:9/x') })[name](),
+  global: name => new globalThis[name]('ws://127.0.0.1:9/x'), self: name => new self[name]('ws://127.0.0.1:9/x'),
+  alias: name => new io[name]('ws://127.0.0.1:9/x'), call: name => globalThis[name]('ws://127.0.0.1:9/x'),
+  reflect: name => Reflect.construct(globalThis[name], ['ws://127.0.0.1:9/x']),
+};
+const seen = ${JSON.stringify(names)}.map(name => 'typeof ' + name + ': ' + typeof globalThis[name]);
+for (const name of ${JSON.stringify(names)}) for (const form of ${JSON.stringify(forms)}) {
+  try { forms[form](name); seen.push(form + ' ' + name + ': opened'); } catch (e) { seen.push(form + ' ' + name + ': ' + e.message); }
+}
+postMessage(seen);
+`);
+  expect(verdict).toEqual([...names.map(name => `typeof ${name}: function`),
+    ...names.flatMap(name => forms.map(form => `${form} ${name}: ${name} is unavailable in data sources`))]);
 });
 
 test('module-glue prepare accepts normalized formatting and exact-only grants', async () => {

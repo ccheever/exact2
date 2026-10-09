@@ -75,11 +75,12 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
-  const ambientDiagnostic = (l) => /^.+:\d+:\d+: .+ is unavailable in data sources[;:]/.test(l);
+  const ambientDiagnostic = (l) => /^.+:\d+:\d+: .+ is unavailable in data sources(?:[;:]|$)/.test(l);
   const all = (js.stderr ?? '').trim().split('\n').filter((l) => ambientDiagnostic(l) || !/^\s*(Compiling|Finished|Running)/.test(l));
   const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
   // Keep TypeScript's lines (`app.ts(2,8): error TS…`) and the shared
-  // ambient check's file:line:col diagnostics, including paths with spaces.
+  // ambient check's file:line:col diagnostics (the clock, timers and the
+  // browser's own I/O, whose words end the line), including paths with spaces.
   const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || ambientDiagnostic(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
     // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));

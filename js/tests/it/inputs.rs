@@ -80,6 +80,8 @@ component App
     send result = utc()
   action intl
     send result = intl(elapsedMs)
+  action io
+    send result = io(form)
   view
     text value testId="value"
 "#;
@@ -150,6 +152,33 @@ fn ambient_reads_still_refuse_after_the_host_fulfills_a_fetch() {
         refused(result, api);
     }
     assert_eq!(module.in_flight(), 0);
+}
+
+/// LLP 1016.000 D3 on every Hermes host: the module's own WebSocket,
+/// XMLHttpRequest and EventSource are functions that refuse by name, with
+/// the words the web's realms use, not a bare `undefined` (#126).
+#[test]
+fn the_browsers_own_io_refuses_by_name_as_on_the_web() {
+    let mut module = module();
+    let io = |module: &mut Module, form: &str| {
+        let value = module.query("io", &[Value::str(form)]).unwrap();
+        value.as_str().unwrap().to_owned()
+    };
+    assert_eq!(io(&mut module, "kinds"), "function function function");
+    for (form, api) in [
+        ("socket", "WebSocket"),
+        ("request", "XMLHttpRequest"),
+        ("event-source", "EventSource"),
+        ("computed-socket", "WebSocket"),
+        ("call-socket", "WebSocket"),
+        ("reflect-socket", "WebSocket"),
+    ] {
+        assert_eq!(
+            io(&mut module, form),
+            format!("Error: {api} is unavailable in data sources"),
+            "{form}"
+        );
+    }
 }
 
 #[test]
