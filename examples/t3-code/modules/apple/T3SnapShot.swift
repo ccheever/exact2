@@ -4,6 +4,23 @@ import ApplicationServices
 import Foundation
 import ImageIO
 
+/// The macOS grants, prompts and System Settings as snapshot setup and
+/// requestPermissions reach them (reference getMediaAccessStatus,
+/// isTrustedAccessibilityClient, desktopCapturer.getSources, shell.openExternal).
+/// The defaults are the real system; the snapshot AppKit test replaces every one,
+/// so it never reaches TCC.
+struct T3SnapshotPermissionSystem {
+    var screenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
+    var accessibility: () -> Bool = { AXIsProcessTrusted() }
+    /// isTrustedAccessibilityClient(true): the system prompt while the grant is missing.
+    var promptAccessibility: () -> Bool = { AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) }
+    /// desktopCapturer.getSources: the system prompt the first time.
+    var requestScreenRecording: () -> Bool = { CGRequestScreenCaptureAccess() }
+    var openSettings: (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
+    var focusedWindow: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+    func granted(_ permission: T3MacPermission) -> Bool { permission == .screenRecording ? screenRecording() : accessibility() }
+}
+
 final class T3SnapShot {
     private let directory: URL
     private let agent: Bool
@@ -24,6 +41,14 @@ final class T3SnapShot {
     private var lastError = ""
     private var closing = false
     private let feedback = T3SnapshotFeedback()
+    private lazy var permissionHelper: T3PermissionHelper = {
+        let helper = T3PermissionHelper(); helper.finished = { [weak self] in self?.changed("t3.status") }; return helper
+    }()
+    // Seams for the snapshot AppKit test; the defaults are the real system and helper.
+    var permissions = T3SnapshotPermissionSystem()
+    lazy var showHelper: (T3MacPermission, NSWindow?, @escaping () -> Bool) -> Void = { [weak self] permission, owner, isGranted in
+        self?.permissionHelper.show(permission, owner: owner, isGranted: isGranted)
+    }
     private var playSound = true
     private var soundChoice = "soft-pop"
     private var flashEnabled = true
@@ -146,7 +171,7 @@ final class T3SnapShot {
         monitors.removeAll(); pairHeld = false; shortcut.stopRegistration()
     }
     func destroy() {
-        closing = true; tiles.values.forEach { $0.image.removeFromSuperview() }; tiles.removeAll(); deferredAcks.removeAll(); composer = nil; shortcut.destroy(); feedback.destroy(); enabled = false; wanted = false; removeMonitors(); stopActive()
+        closing = true; permissionHelper.close(); tiles.values.forEach { $0.image.removeFromSuperview() }; tiles.removeAll(); deferredAcks.removeAll(); composer = nil; shortcut.destroy(); feedback.destroy(); enabled = false; wanted = false; removeMonitors(); stopActive()
         for (id, capture) in pending {
             try? FileManager.default.removeItem(at: capture.path)
             // A saved but unacknowledged copy may be referenced by preferences;
@@ -154,6 +179,16 @@ final class T3SnapShot {
             if let saved = persistedDraftIds(), !saved.contains(id) { try? FileManager.default.removeItem(at: directory.appendingPathComponent("drafts/\(id).png")) }
         }
         pending.removeAll()
+    }
+    /// Reference MacPermissions.showHelper; the helper polls the same grant it docks for.
+    private func dockHelper(_ permission: T3MacPermission, owner: NSWindow?) {
+        let system = permissions
+        showHelper(permission, owner) { system.granted(permission) }
+    }
+    /// Reference requestMacScreenCapturePermission: the system prompt once, then
+    /// Privacy › Screen Recording while the grant is still missing.
+    private func requestScreenRecording() {
+        if !permissions.screenRecording() && !permissions.requestScreenRecording() { permissions.openSettings(T3MacPermission.screenRecording.settingsURL) }
     }
     /// Reference macPermissionMessage: the saved choice stays On while a grant
     /// is missing; the shortcut is installed again once grants return.
@@ -277,13 +312,17 @@ final class T3SnapShot {
             let action = request["action"] as? String ?? ""
             guard ["allow-screen-recording", "allow-accessibility", "test-mac-capture"].contains(action) else { fail("Unsupported capture setup action."); return }
             guard !agent else { fail("Permission prompts and test captures are disabled in isolated testing."); return }
-            let settings = "x-apple.systempreferences:com.apple.preference.security?Privacy_"
+            // Both Allow actions dock the helper beside System Settings (dockHelper).
             if action == "allow-accessibility" {
-                if !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary), let url = URL(string: settings + "Accessibility") { NSWorkspace.shared.open(url) }
+                let owner = permissions.focusedWindow()
+                if !permissions.promptAccessibility() { permissions.openSettings(T3MacPermission.accessibility.settingsURL) }
+                dockHelper(.accessibility, owner: owner)
                 changed("t3.status"); complete(["action": action]); return
             }
             if action == "allow-screen-recording" {
-                if !CGRequestScreenCaptureAccess(), let url = URL(string: settings + "ScreenCapture") { NSWorkspace.shared.open(url) }
+                let owner = permissions.focusedWindow()
+                requestScreenRecording()
+                dockHelper(.screenRecording, owner: owner)
                 changed("t3.status"); complete(["action": action]); return
             }
             // Exercise the real capture path on this app's own window; the image is discarded.
@@ -298,6 +337,16 @@ final class T3SnapShot {
                 try? FileManager.default.removeItem(at: test)
                 DispatchQueue.main.async { ok ? complete(["action": action]) : fail("macOS did not return a test snapshot. Check Screen Recording in System Settings.") }
             }
+        case "snapshotRequestPermissions":
+            // Reference requestPermissions (setup's Continue, Include app text): prompt
+            // for what is missing, then dock the helper for the first missing grant.
+            guard !agent else { complete(["requested": false]); return }
+            let include = request["includeAccessibility"] as? Bool ?? true, owner = permissions.focusedWindow()
+            if include { _ = permissions.promptAccessibility() }
+            requestScreenRecording()
+            if !permissions.screenRecording() { dockHelper(.screenRecording, owner: owner) }
+            else if include && !permissions.accessibility() { permissions.openSettings(T3MacPermission.accessibility.settingsURL); dockHelper(.accessibility, owner: owner) }
+            changed("t3.status"); complete(["requested": true])
         case "snapshotDismiss":
             // Reference dismissSnapShotAnimation: end this capture's flight now; the
             // capture stays pending. An acknowledged landing is never cut short.
