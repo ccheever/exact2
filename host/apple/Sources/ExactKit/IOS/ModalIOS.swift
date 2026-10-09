@@ -149,6 +149,7 @@ private final class Presentation {
     let backgroundNode: NodeView?
     weak var backgroundHome: UIView?
     let backgroundHomeFrame: CGRect
+    let backgroundHomeSize: CGSize
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -170,6 +171,7 @@ private final class Presentation {
         backgroundNode = node
         backgroundHome = background.view.superview
         backgroundHomeFrame = background.view.frame
+        backgroundHomeSize = background.view.superview?.bounds.size ?? .zero
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
         self.home = home
@@ -342,7 +344,17 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         layer.backgroundHome?.addSubview(background.view)
-        background.view.frame = layer.backgroundHomeFrame
+        // Its home kept resizing while it was away (framed to the sheet, then
+        // the keyboard coming back), and autoresizing would have carried it
+        // along. Put back at its old size, the home's next shrink took the
+        // difference out of it a second time: a navigation controller, which
+        // clips, cut its route off far above the keyboard until the
+        // dismissal ended.
+        let mask = background.view.autoresizingMask
+        background.view.frame = NavigationRules.restoredFrame(
+            layer.backgroundHomeFrame, homeThen: layer.backgroundHomeSize,
+            homeNow: layer.backgroundHome?.bounds.size ?? layer.backgroundHomeSize,
+            flexibleWidth: mask.contains(.flexibleWidth), flexibleHeight: mask.contains(.flexibleHeight))
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired

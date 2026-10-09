@@ -71,7 +71,9 @@ final class RouteController: UIViewController {
     func freeze() {
         guard isViewLoaded, let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
         snapshot.frame = view.bounds
-        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // Pinned to the top, never stretched: the viewport can grow under it
+        // as the pop starts (a keyboard going away, see NavigationHost.sync).
+        snapshot.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
         view.addSubview(snapshot)
         snapshot.setPaintForeground()
     }
@@ -356,6 +358,33 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // Mount the destination under a departing presentation before starting
         // dismissal, so its editor can accept the batch's focus handoff.
         let owners = [primaryNavigation].compactMap { $0 } + presentedNavigations
+        // A press that changes a stack with the keyboard up resigns the editor
+        // inside this batch, and the viewport grows only once the batch ends
+        // (Presenter.applyKeyboard), in a resize batch of its own. UIKit fixes
+        // the routes' frames as its transition starts, so the route a pop
+        // revealed was laid out only down to the keyboard's top until the
+        // transition ended: a list's top half, then the rest. The change
+        // waits one turn, for that growth (a swipe drops the keyboard first:
+        // dropKeyboard).
+        if awaitingKeyboardViewport || NavigationRules.waitsForKeyboardViewport(
+            applying: presenter.applying, keyboardShown: presenter.keyboardTop != nil,
+            editing: presenter.hasKeyboardEditor, agentFreezes: ExactEnv.agentFreezes,
+            stackChanges: zip(owners, parts).contains { nav, part in
+                !nav.viewControllers.elementsEqual(wanted[part], by: { $0 === $1 })
+            }) {
+            pendingSync = true
+            if !awaitingKeyboardViewport {
+                awaitingKeyboardViewport = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    awaitingKeyboardViewport = false
+                    guard pendingSync, !changing, !presenter.modals.inTransition else { return }
+                    pendingSync = false
+                    sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+                }
+            }
+            return
+        }
         for index in 0...common where index < owners.count {
             let nav = owners[index], stack = Array(wanted[parts[index]])
             prepareRoutes(stack, in: nav)
@@ -559,6 +588,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// A back swipe began with the keyboard up and put it away (see willShow):
     /// its hide is real, and the viewport follows it.
     private var keyboardDropped = false
+    /// A stack change waits a turn for the viewport a leaving keyboard
+    /// frees (see sync).
+    private var awaitingKeyboardViewport = false
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.

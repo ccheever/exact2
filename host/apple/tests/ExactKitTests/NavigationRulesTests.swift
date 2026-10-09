@@ -250,6 +250,34 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
     }
 
+    /// D5: a stack change waits for the viewport only when its batch put the
+    /// keyboard away: shown, no editor left, a stack that changes, and not
+    /// under the agent (Ocho's Back over the composer, 2026-10-08).
+    func testAStackChangeWaitsForTheViewportOnlyWhenItsBatchDroppedTheKeyboard() {
+        XCTAssertTrue(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: false, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: false, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: true, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: true, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: false))
+    }
+
+    /// A presentation's background goes home as autoresizing would have
+    /// carried it: the home that grew to a sheet and shrank for the keyboard
+    /// meanwhile must not take that shrink out of it twice (Ocho's model
+    /// sheet, 2026-10-08: a 546 pt route left 280 pt tall).
+    func testAPresentationsBackgroundGoesHomeAtTheHomesNewSize() {
+        let saved = CGRect(x: 0, y: 0, width: 402, height: 546)
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
+                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 402, height: 812))
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
+                                                     flexibleWidth: true, flexibleHeight: false), saved)
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 874, height: 402),
+                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 874, height: 402))
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 0),
+                                                     flexibleWidth: false, flexibleHeight: true).height, 0)
+    }
+
     /// D3: a focus that cannot be delivered has a named reason, in a fixed
     /// order, and a deliverable one has none.
     func testAFocusRefusalNamesItsReason() {
