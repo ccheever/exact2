@@ -19,6 +19,8 @@ const run = (cmd, args, opts = {}) => {
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
  * the plist keys to merge; nothing when the app declares no such icon. */
 export function appIcon(app, dir, platform, { catalog = false } = {}) {
+  // An Icon Composer package goes to actool as it is (`iosAssets`).
+  if (platform === 'ios' && app.manifest.host?.ios?.icon) return {};
   const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
@@ -48,6 +50,36 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** The manifest's `host.ios.icon` copied into `work` as AppIcon.icon, or
+ * null when the app declares none. */
+function composedIcon(app, work) {
+  const declared = app.manifest.host?.ios?.icon;
+  if (!declared) return null;
+  const source = resolve(app.dir, declared);
+  if (!existsSync(resolve(source, 'icon.json'))) throw new Error(`host/apple: ${app.name}'s host.ios.icon ${declared} is not an Icon Composer package (no icon.json)`);
+  const target = resolve(work, 'AppIcon.icon');
+  cpSync(source, target, { recursive: true });
+  return target;
+}
+
+/** Every file of an Icon Composer package, by path and content, for the
+ * kept assets' key. */
+function composedHash(app) {
+  const declared = app.manifest.host?.ios?.icon;
+  const source = declared && resolve(app.dir, declared);
+  if (!source || !existsSync(source)) return null;
+  const hash = createHash('sha256');
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = resolve(dir, name);
+      if (lstatSync(path).isDirectory()) walk(path);
+      else hash.update(relative(source, path)).update(readFileSync(path));
+    }
+  };
+  walk(source);
+  return hash.digest('hex');
+}
+
 /** All iOS asset sets share one actool pass: each pass replaces Assets.car.
  * `kept` names a directory of the app's and the toolchain's stamp: the icons
  * and the catalog are then made once for each icon file, colour, platform and
@@ -56,7 +88,7 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
 export function iosAssets(app, dir, device, { catalog = false, kept = null } = {}) {
   if (kept) {
     const icons = (app.manifest.icons ?? []).map((icon) => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
+    const key = createHash('sha256').update(JSON.stringify([icons, composedHash(app), app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
       app.manifest.host?.ios?.minimumOS ?? null, device, catalog, kept.stamp])).digest('hex').slice(0, 16);
     const made = resolve(kept.dir, `assets-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
@@ -75,12 +107,16 @@ export function iosAssets(app, dir, device, { catalog = false, kept = null } = {
   try {
     const assets = resolve(work, 'Assets.xcassets');
     const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
-    const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
+    // `host.ios.icon`, an Icon Composer package: actool takes it beside the
+    // catalog and names the icon after the package, so it goes in as
+    // AppIcon.icon. It writes the fallback PNGs and the plist keys itself.
+    const composed = composedIcon(app, work);
+    const hasIcon = Boolean(composed) || existsSync(resolve(assets, 'AppIcon.appiconset'));
     if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', assets, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
+      run('xcrun', ['actool', assets, ...(composed ? [composed] : []), '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
         '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
         ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
