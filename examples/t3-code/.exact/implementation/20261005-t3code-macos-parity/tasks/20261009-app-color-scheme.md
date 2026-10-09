@@ -1,12 +1,12 @@
 ---
 name: 20261009-app-color-scheme
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-app-color-scheme
 pr_url: null
 verified_commit: null
 ---
@@ -88,7 +88,67 @@ with Settings › Appearance.
 | TH-7 | macOS Dark, app Light: "Expand diagram" shows a light card. macOS Light, app Dark: a dark card as the reference's dark mode. | `th7-mermaid-preview.png` | agent |
 | All | No `viewport.prefersColorScheme` remains as a palette choice outside the one resolved scheme (a Bun test that reads the `.contract` files). Mode System still follows `prefer prefers-color-scheme`. | text: grep before/after | agent |
 
+## Cause and fix
+
+- **One resolved scheme.** `app.contract` derives `scheme` once, next to `viewport`: the device setting's mode when it is
+  `light` or `dark`, else the system's `viewport.prefersColorScheme` (mode `system`, or before the setting is read, when
+  `T3WindowChrome.setAppearance` also leaves the window on the system's). This is T3 Code's `useTheme` `resolvedTheme`.
+  The root passes it to `T3Window`, and `T3Window` passes it to the nine views that drew a palette by the system fact:
+  `ChatColumn`, `RightPanels`, `PagesCover`, `RightSheets` (`app-main.contract`), `WelcomeLayer`, `WindowOverlays`
+  (`app-overlays.contract`), `SettingsWindow`, `ProjectDialogs`, `SettingsModals` (`app-settings.contract`). The
+  palette's theme page (`paletteView`) takes it too.
+- **Every site.** The 42 reads of `viewport.prefersColorScheme` in five `.contract` files are now `scheme`: the
+  Usage page, its model and prices dialogs (PG-1), the pull request list, panel and dialogs, the diff and surface
+  panels (the right panel's terminal, PA-11), the Mermaid preview (TH-7), the timeline rows and request banners, the
+  composer dock and drawer, toasts, the details panel, the device setup, the welcome wizard, the project icon dialogs,
+  the sidebar and its overlays. The terminal drawer and Settings › Providers already resolved the mode themselves
+  (`data.look.mode == "dark" or (… "system" and …)`); they take the one `scheme` now. The scheme-split subtrees (one per
+  scheme, so `light-dark()` in SVG glyphs re-resolves) now split on the app's scheme, which is the window's.
+- **PA-11, dark palette.** The drawer's top edge and the terminal toolbar's outline were `light-dark(#e4e4e7cc,
+  #ffffffcc)`: 80% white in the dark palette, a bright line over the dark drawer and toolbar, before and after the
+  scheme fix. ThreadTerminalDrawer draws both with `border-border/80` (white at 6%, at 80%); the dark value is now
+  `#ffffff0c` (`terminal.contract`). The drawer's edge now reads (22, 22, 22) over (10, 10, 10), the reference's pixel.
+
+No new declared difference.
+
+## Acceptance results
+
+Agent mode on the branch bundle (lane `app-color-scheme`, base port 16280, 1280x840, `--epoch 2026-10-10T06:00:00Z`),
+the same steps as the before build (the feature tip in `t3-code-evidence-base`, lane `app-color-scheme-before`) and
+the reference (Electron production build over CDP, the mode set by `t3code:theme-appearance-mode`; the reference
+follows the Mac's real appearance, Light). One clone session per build: Settings › Appearance mode, then `prefer
+prefers-color-scheme`, then Usage › Cost › 30 days, the gpt-5.5 dialog, Timeline extras › Expand diagram, Audit work
+thread with the terminal drawer and the right panel's Terminal surface. Each image is before | after | reference.
+
+| Id | Result | Evidence |
+| --- | --- | --- |
+| PG-1 | pass (agent mode): macOS Dark, app Light: the Codex dot, line and area, the gpt-5.5 and gpt-5.4-mini bars, Output's black segment and Cost by speed (Standard light, Fast dark) are the light palette, on the page and in the model dialog, as the reference. Before: near-white (the Codex series almost invisible) and the speed segments swapped. macOS Light, app Dark: the dark palette (white Codex series, white Output); before: near-black on black, with bright grid lines. | [pg1-light-on-dark-mac.png](https://raw.githubusercontent.com/ccheever/exact2/10346dc56eab5e3999cd3628c9f788164692890d/app-color-scheme/pg1-light-on-dark-mac.png), [pg1-dialog-light-on-dark-mac.png](https://raw.githubusercontent.com/ccheever/exact2/87164ec6601750eb008cc6c2e602ff9ec563c2f5/app-color-scheme/pg1-dialog-light-on-dark-mac.png), [pg1-dark-on-light-mac.png](https://raw.githubusercontent.com/ccheever/exact2/2dd9f36e27181caf8c4498b55df9e90451117993/app-color-scheme/pg1-dark-on-light-mac.png), [pg1-dialog-dark-on-light-mac.png](https://raw.githubusercontent.com/ccheever/exact2/fb31011385aff62f5451b02c056f059a8e200f30/app-color-scheme/pg1-dialog-dark-on-light-mac.png) |
+| PA-11 | pass (agent mode): macOS Dark, app Light: the drawer and the right panel's terminal are light (before: the panel's terminal black). macOS Light, app Dark: both dark (before: the panel's terminal white), and the drawer's edge and toolbar outline are the reference's faint border, not a white line. The drawer itself already resolved the mode under an explicit mode; the audit's dark drawer came from the unexplained agent-mode System state (see the review's "Observations not filed"), which did not reproduce here. | [pa11-light-on-dark-mac.png](https://raw.githubusercontent.com/ccheever/exact2/dd470dcf65a6fffc607810d24883fd07d061daaf/app-color-scheme/pa11-light-on-dark-mac.png), [pa11-dark-on-light-mac.png](https://raw.githubusercontent.com/ccheever/exact2/0a7334e64e519983ddbe664c4d8e8a8e1aa25216/app-color-scheme/pa11-dark-on-light-mac.png) |
+| TH-7 | pass (agent mode): macOS Dark, app Light: the expanded diagram sits on a light card (before: black). macOS Light, app Dark: a dark card as the reference's dark mode (before: white). Caption and close button unchanged. | [th7-light-on-dark-mac.png](https://raw.githubusercontent.com/ccheever/exact2/873160acc0a4999f88f855ecb6b13aef5225c4cc/app-color-scheme/th7-light-on-dark-mac.png), [th7-dark-on-light-mac.png](https://raw.githubusercontent.com/ccheever/exact2/b9058b934795ad71dd9bdae922ea3479c7db0757/app-color-scheme/th7-dark-on-light-mac.png) |
+| All | pass: `viewport.prefersColorScheme` is read once, by the derive (before: 42 reads in `app-main` 22, `app-overlays` 11, `app-settings` 4, `app-window` 4, `app` 1; after: 1 in `app.contract`, held by `app-color-scheme.test.ts`). Mode System still follows `prefer prefers-color-scheme`: with System, `prefer … dark` draws the dark Usage page and `prefer … light` the light one, the same as before. | [system-follows-mac.png](https://raw.githubusercontent.com/ccheever/exact2/f731363a15d7f8ab7a3543bae44bfa1bfc8f0666/app-color-scheme/system-follows-mac.png) |
+
+Tests: `app-color-scheme.test.ts` (new): no `.contract` file reads `viewport.prefersColorScheme` but the root's derive,
+and none resolves `data.look.mode == "system"` itself; the derive evaluated for every mode and system scheme (System
+follows, Light and Dark override, an unread mode follows the system); `T3Window` hands `scheme` to the nine views; the
+drawer, the surface panels, the Usage page and dialogs and the Mermaid preview take it; the drawer's dark border.
+`hover-layer.test.ts`: its two expected source lines take `scheme`. Checks: see the PR.
+
+## Progress
+
+2026-10-10: built (two commits; the drawer border after the first drive showed it), merged `feat(example)/t3-code`, the
+bundle built, the before build and the reference driven, the branch driven once plus one retry (after the border fix:
+every after image is from the retry), images composed and uploaded, the draft PR opened.
+
+## Not verified
+
+- The audit's agent-mode state (mode System, Mac in Dark, the window drawing light while the fact reads dark) did not
+  show in this lane: with System, `prefer prefers-color-scheme dark` drew the window dark in both builds. No repro, so
+  nothing to give the coordinator.
+
+## Real-input batch steps
+
+None: every row is agent mode.
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Build and test. Then do one batched live drive at the end for every row's
-before/after pair. Close every row in this PR, or record the blocker of a row that cannot pass.
+None: review and merge.
