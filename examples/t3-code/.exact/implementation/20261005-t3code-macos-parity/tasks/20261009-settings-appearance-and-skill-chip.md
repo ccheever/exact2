@@ -1,13 +1,13 @@
 ---
 name: 20261009-settings-appearance-and-skill-chip
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-settings-appearance-and-skill-chip
+pr_url: https://github.com/ccheever/exact2/pull/364
 verified_commit: null
 ---
 
@@ -71,8 +71,127 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | S1-6 | Dracula results show the namespaces as in the reference. Unit test on the mapping (needs Open VSX reachable for the live row). | `s1-6-open-vsx.png` | agent |
 | S1-12 | A press on the preview's chip opens the popover with the label and "No description is available for this skill."; the composer's chip does the same and shows "View instructions" for a skill with a path; the chip is named "Skill <label>". XCTest for the press report. | `s1-12-preview-chip.png`, `s1-12-composer-chip.png` | agent, then needs_real_input (a real click on the native chip) |
 
+## What was built
+
+**S1-5 (Advanced on open).** `settings-appearance-editor.ts` `opensAdvanced`: the editor opens with Advanced on for any
+source theme the guided editor did not make (ThemeEditorPanel.tsx:395-399: `sourceTheme !== null && sourceTheme.managed
+!== true`). The source is the edited theme, else the seed (a duplicate's theme, or the active theme for Create theme).
+T3 Code's stock look is no theme definition in the reference (`getThemeDefinition`), so a copy of it opens simple.
+- `CustomTheme.managed` (`settings-themes.ts`): a save from simple mode carries it, a save from Advanced does not; adding a
+  palette to a guided theme keeps it only from simple mode (handleSubmit). It is kept by the saved preferences
+  (`decodeCustomThemes`), the theme file (`serializeTheme`, `parseThemeFile`) and so imports. An edit also keeps the
+  theme's collection, as the reference's does.
+- The clone's built-in palette table has 19 roles, so Advanced showed T3 Code's values for the rest (Raised surface
+  `#fcfcfc`, Subtle surface `#fafafa`, …). `settings-theme-library.ts` holds the five built-ins' full definitions (57 roles,
+  light and the dark variant) from `packages/shared/src/themePalettes.ts`, converted with the clone's own `toHex`; the
+  editor seeds a built-in source from them. All 20 rows of a T3 Chat copy now equal the reference's hex fields. The app's
+  painting is unchanged.
+
+**S1-6 (Open VSX publisher).** `settings-appearance-import.ts`: the publisher is the extension's namespace
+(`openVsxThemes.ts:195`), not `publishedBy.loginName`.
+
+**S1-12 (the skill chip's details).** The chips are drawn by the native editor (#276: they stay the native editor's).
+- `modules/apple/T3ComposerChipPress.swift` (new): each editor's styler sees the presses the application sends (a local
+  `leftMouseDown` monitor: a hand's click and the agent's tap both go through `NSApplication.sendEvent`). A press that the
+  window gives to the text view and that lands on a skill chip opens its details (a second press on it closes them, as
+  PopoverTrigger toggles); a press elsewhere in the text, Escape, an edit, the chip going away and the editor leaving
+  close them. The press is reported on `t3.chip` with the chip's pill frame in window space, and the frame follows
+  scrolling and layout while open. The composer and the Settings prompt sample each have one; the newest open press wins.
+- Each skill chip is an accessibility button "Skill <label>. Show details" (the reference's trigger name), a child of the
+  text view, whose press opens the details.
+- `T3Module+Composer.swift`: `editorChip` (the newest press) and `editorChipClose` (the press the app saw).
+- `composer-chip-popover.ts` (new): the `chip` resource. The label is the chip's; the composer's description and path
+  come from the selected provider's skills for the workspace (`skill?.description ?? "No description is available for
+  this skill."`, View instructions when the skill has a path, ChatComposer's `openMention` = `openFileSurface`); the
+  Settings sample passes no skills (SettingsFontPreviews `EMPTY_SKILLS`). `editorlocal:chip-close` and
+  `editorlocal:chip-instructions` close it (and open the file).
+- `composer-chip-popover.contract` (new): PopoverPopup side top, align center, sideOffset 4, w-96 within the window,
+  compact padding, flipped below when there is no room above and kept 5 pt inside the window; a dialog named "Skill
+  <label>". `app-window.contract` draws it above every page (Base UI portals it) and closes it on a primary press outside
+  it; `app.contract` declares the resource (`macos/src/markdown.rs` lists `composerChip` as TypeScript-owned).
+
+## Acceptance results
+
+Lane `settings-appearance-and-skill-chip` (before: `…-before`), embedded server 16922, window 1280×840. Before: the
+evidence-base build (feature-branch tip code). After: this branch's bundle, the same steps
+([drive-ops](https://raw.githubusercontent.com/ccheever/exact2/ebba8b1eb0349bd33121ee0c824700d794e6af73/settings-appearance-and-skill-chip/drive-ops.txt), [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/ad98f2169bbc2179bd5000d9a54c1678d5b59d41/settings-appearance-and-skill-chip/drive.sh.txt)). Reference: the Electron reference on 16920/16921.
+
+| Id | Result | Proof |
+| --- | --- | --- |
+| S1-5, Duplicate T3 Chat | Pass (agent): "Create theme", "T3 Chat copy", Advanced on, Foundation, Brand & content, Context and Status with all 20 rows equal to the reference's hex fields (before: simple, Background and Accent only) | [s1-5-duplicate](https://raw.githubusercontent.com/ccheever/exact2/221fba4a7d94330edb857295c815283ed47657d5/settings-appearance-and-skill-chip/s1-5-duplicate.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt); `settings-appearance-advanced.test.ts` |
+| S1-5, Edit of the saved copy | Pass (agent): "Edit theme" opens with Advanced on (before: simple, "Two colors, rest derived") | [s1-5-edit](https://raw.githubusercontent.com/ccheever/exact2/fcfa176e6a6ac82cfb39a4bb1210a78d7c27aa0a/settings-appearance-and-skill-chip/s1-5-edit.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+| S1-5, a managed theme opens simple | Pass (unit): a theme saved from simple mode is `managed` and its Edit opens simple; a copy of T3 Code's stock look and Create theme on it open simple | `settings-appearance-advanced.test.ts`; [logic before/after](https://raw.githubusercontent.com/ccheever/exact2/0d75badd2c1bfbe43854e16b91cb122b0b043940/settings-appearance-and-skill-chip/logic-before-after.txt) |
+| S1-6 | Pass (agent, Open VSX live): dracula-theme, Dracula-2, GulajavaMinistudio, PROxZIMA, bceskavich, MateuszDrewniak, nszihan, lefd, as the reference (before: open-vsx, TimDeen, …, open-vsx, Verseth, WhiteVermouth, LEFD) | [s1-6-open-vsx](https://raw.githubusercontent.com/ccheever/exact2/c22793096d8dc306c4e23c0649db0731048b6275/settings-appearance-and-skill-chip/s1-6-open-vsx.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt); unit test on the mapping |
+| S1-12, the Settings sample's chip | Pass (agent, the agent's real mouse events at the chip): the popover above the chip, "Frontend Design" / "No description is available for this skill.", a dialog "Skill Frontend Design" (before: nothing) | [s1-12-preview-chip](https://raw.githubusercontent.com/ccheever/exact2/acc4a4d0dddfd3f8dff342ff1ab88e6aaef74df5/settings-appearance-and-skill-chip/s1-12-preview-chip.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+| S1-12, the composer's chip | Pass (agent): `$frontend-design now`, a press on the chip opens the same popover above it (before: nothing) | [s1-12-composer-chip](https://raw.githubusercontent.com/ccheever/exact2/1cabdd596ec9733a3e8e4e5f674584218d7e0d46/settings-appearance-and-skill-chip/s1-12-composer-chip.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+| S1-12, View instructions for a skill with a path | Pass (unit): the description and path come from the selected provider's skill of that name; the button closes the popover and opens the file. Not verified live: no provider in either lane lists a skill (the reference lane neither) | `composer-chip-popover.test.ts`; real-input batch step 4 |
+| S1-12, the chip is named "Skill <label>" | Pass (XCTest): the text view lists a button "Skill Frontend Design. Show details" whose press opens the details. Not verified live: the agent's scoped `tree --ax` drops an accessibility element whose parent is not an Exact view (`AgentAccessibility.swift` `axOwner`), so it lists only the text area | [xctest](https://raw.githubusercontent.com/ccheever/exact2/171c770b72b615d558d63071b31d8637a57030f4/settings-appearance-and-skill-chip/xctest-chip-press.txt); real-input batch step 3 |
+| S1-12, XCTest for the press report | Pass: four tests in `macos/tests/composer/chippress.swift` (real mouse events through `NSApplication.sendEvent`) | [xctest](https://raw.githubusercontent.com/ccheever/exact2/171c770b72b615d558d63071b31d8637a57030f4/settings-appearance-and-skill-chip/xctest-chip-press.txt) |
+| S1-12, a real click on the native chip | Open (needs real input) | Real-input batch steps 1-2 |
+
+## Tests
+
+- `settings-appearance-advanced.test.ts` (new, 6 tests): Duplicate T3 Chat opens Advanced with the reference's 20 values;
+  every built-in opens Advanced, T3 Code's look simple; managed saves and Edit; a palette added to a guided theme; the flag
+  through preferences, file and import; Open VSX publishers are namespaces.
+- `composer-chip-popover.test.ts` (new, 7 tests): the popover's content for the composer and the sample, a closed or
+  non-skill press, the resource against the provider's workspace skills and another thread's press, the close and View
+  instructions ops, and the Contract's placement, name and outside-press close.
+- `macos/tests/composer/chippress.swift` (new, 4 XCTests, registered in `main.swift`): a real click opens, toggles and
+  closes; the frame follows a moved ancestor; Escape, an edit, the app's close and the editor leaving close; the newest
+  press wins across the composer and the sample, with the provider's label; the accessibility button and its press.
+
+Checks: see the PR ("Checks").
+
+## Real-input batch steps
+
+Launch this branch's bundle normally (not agent mode) from the worktree
+`/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-appearance-and-skill-chip`:
+
+```sh
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit L=$A/lanes/settings-appearance-and-skill-chip
+T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16922 T3_LOCAL_RUNTIME_DIR=$A/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64 \
+  CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude T3CODE_TELEMETRY_ENABLED=false \
+  EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle --run
+```
+
+1. **Composer chip.** In the "New thread" composer type `$frontend-design now`. Click the "Frontend Design" chip: a popover
+   above it reads "Frontend Design" and "No description is available for this skill.". Click the chip again: it closes.
+   Click it, then click the heading "What should we build in work?": it closes. Click it, press Escape: it closes and the
+   prompt is unchanged. Click it, type a letter: it closes.
+2. **Settings sample chip.** Settings › Appearance › Typography: click the "Frontend Design" chip in the prompt sample: the
+   same popover above it. Scroll the page: it moves with the chip. Press Escape: it closes and Settings stays open.
+3. **The chip's name.** With Accessibility Inspector (or VoiceOver), inspect the composer's Message text area with a
+   `$frontend-design` chip: it has a child button "Skill Frontend Design. Show details"; its press (VO-Space) opens the
+   popover.
+4. **View instructions.** Only with a provider that lists skills (the `$` menu shows rows): insert one from the `$` menu,
+   click its chip: the popover shows its description and "View instructions"; click it: the skill's file opens in the
+   right panel and the popover closes. The lane's providers list none, so this step needs a ready provider.
+
+## Found, not in this task
+
+- The theme editor's save button reads "Save theme" with the paintbrush when editing; the reference reads "Save changes"
+  without an icon (`ThemeEditorPanel.tsx:1253-1258`; and `Merge into “…”` / `Add <appearance> palette` for a name another
+  theme has). Visible in [s1-5-edit](https://raw.githubusercontent.com/ccheever/exact2/fcfa176e6a6ac82cfb39a4bb1210a78d7c27aa0a/settings-appearance-and-skill-chip/s1-5-edit.png).
+- `decodeCustomThemes` drops a theme's `collection` when the preferences load, so an Open VSX collection card splits
+  into single cards after a relaunch.
+
+## Attempts and evidence
+
+| Attempt | Revision | Outcome | Evidence |
+| --- | --- | --- | --- |
+| Reference | Electron `1e2ecbd975` on 16920/16921 | Composer chip (after a reload, which builds the draft's chips), Duplicate, Edit, the sample's chip, Dracula | the reference column of each image |
+| Before drive 1-2 | evidence-base | Stopped at an unquoted label, then at a tap outside the viewport (`mouse at` does not scroll; the contact form does) | — |
+| Before drive 3 | evidence-base | Complete | [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+| After drive 1 (the live drive) | this branch | Complete; every row passed, but the copy's Raised and Subtle surfaces read T3 Code's values (the clone's 19-role palette) | — |
+| After drive 2 (the one retry) | this branch, the full built-in role sets and an opaque popover | Complete, every agent row passes | [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+
+## Progress
+
+2026-10-10: implemented S1-5, S1-6 and S1-12, unit- and AppKit-tested, built the bundle, drove the base and the branch
+with the same steps, shot the reference, and opened draft PR [#364](https://github.com/ccheever/exact2/pull/364).
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Build, unit-test and run the composer XCTests. Then do one batched live
-drive at the end for every row's before/after pair. Close every row in this PR, or record the blocker of a row that
-cannot pass.
+The coordinator runs the real-input batch steps, reviews the draft PR and merges it. The two items under "Found, not in
+this task" are for the plan to schedule.
