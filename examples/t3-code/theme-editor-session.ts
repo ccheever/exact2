@@ -62,10 +62,9 @@ export function sessionInputFor(kind: string, request: string, prefs: { theme: s
   custom: readonly CustomTheme[]): ThemeEditorSessionInput | null {
   // The window names a request as `<theme id>#<request number>`; theme ids never contain '#'.
   const subject = request.split('#')[0] ?? '';
-  if (kind === 'edit') {
-    const own = custom.find(theme => theme.id === subject);
-    return { editingThemeId: subject, seedThemeId: null, seedName: null, initialAppearance: own?.appearance ?? appearance };
-  }
+  // Every kind opens on the app's resolved appearance (ThemeSettings.tsx passes initialAppearance for an edit too);
+  // the draft falls back to the theme's own appearance when it has no colours for that one (sourceAppearance).
+  if (kind === 'edit') return { editingThemeId: subject, seedThemeId: null, seedName: null, initialAppearance: appearance };
   if (kind === 'duplicate') {
     const seed = themeDefinition(subject, custom);
     return { editingThemeId: null, seedThemeId: seed?.id ?? null, seedName: seed ? `${seed.label} copy` : null, initialAppearance: appearance };
@@ -75,6 +74,15 @@ export function sessionInputFor(kind: string, request: string, prefs: { theme: s
   toggleThemeEditorForTheme(store, { theme: prefs.theme, themeHalves: { light: prefs.themeLight, dark: prefs.themeDark }, initialAppearance: appearance }, custom);
   const { id: _id, ...input } = store.session!;
   return input;
+}
+
+/**
+ * ThemeEditorPanel's first appearance (ThemeEditorPanel.tsx:379-383): the session's, when the source theme has colours
+ * for it (getThemeColorsForMode), else the source's own. A built-in has both; a custom theme may have one.
+ */
+export function sourceAppearance(source: { custom: CustomTheme | null } | null, initial: ThemeAppearance): ThemeAppearance {
+  const own = source?.custom;
+  return own && own.appearance !== initial && !own[initial] ? own.appearance : initial;
 }
 
 /** ThemeEditorHost's useThemeDefinition pair: the session's themes as the library has them now (null once removed). */
