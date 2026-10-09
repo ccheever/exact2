@@ -1,0 +1,25 @@
+realinput-1010-fixes RI-1: a launcher letter under either order of the window's local key monitors (AppKit test).
+The same test (macos/tests/r8-keys/main.swift, testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder) compiled
+against the feature-branch tip's Swift (before) and this branch's (after). It stands in Exact's session monitor
+(ExactViewMac shortcutMonitor -> Presenter.routeKey, the only place a Contract key handler runs) beside the
+composer's real monitor (T3Composer.handle) and presses F with the launcher focused and D from the bare window,
+with the composer's monitor after Exact's (false) and before it (true).
+
+Why the order matters: AppKit calls local monitors in no fixed order. A probe that adds monitors A and B and sends
+one key ran them as [A, B] in 5 of 8 launches and [B, A] in 3 (and a monitor that returns nil stops the rest).
+
+== before (a3bcac354)
+Test Case '-[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder]' started.
+target/ri1-before/test/main.swift:83: error: -[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder] : XCTAssertEqual failed: ("[]") is not equal to ("["d"]") - D from the bare window, composer's monitor first: false
+target/ri1-before/test/main.swift:78: error: -[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder] : XCTAssertEqual failed: ("[]") is not equal to ("["f"]") - F reaches the launcher's key handlers once, composer's monitor first: true
+target/ri1-before/test/main.swift:83: error: -[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder] : XCTAssertEqual failed: ("[]") is not equal to ("["d"]") - D from the bare window, composer's monitor first: true
+target/ri1-before/test/main.swift:87: error: -[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder] : XCTAssertEqual failed: ("["d", "f", "d"]") is not equal to ("[]")
+Test Case '-[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder]' failed (0.124 seconds).
+R8 keys order test: 1 run, 4 failed
+exit 0
+
+== after (worktree)
+Test Case '-[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder]' started.
+Test Case '-[T3r8orderTests.R8KeysOrderTests testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder]' passed (0.123 seconds).
+R8 keys order test: 1 run, 0 failed
+exit 0
