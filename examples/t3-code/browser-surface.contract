@@ -3,10 +3,8 @@
 // PreviewEmptyState.tsx, PreviewUnreachable.tsx; index.css `.preview-loading-progress`). The chrome row
 // over the page, which is the module's `t3-browser` view (T3BrowserView.swift); the empty state for an idle
 // tab; the load-failed page. `view` is browser-surface.ts `browserView`; `local` runs `surface-browser-<op>`.
-// Annotate, Capture and Float preview are drawn disabled until part 3; the More menu's separate window waits
-// for part 3 and its profile actions for part 4. Part 2 adds the page area (browser-stage.contract: the device
-// toolbar, the fitted viewport, the rails, the zoom pill), the More menu's device toolbar, appearance and zoom
-// rows, the empty state's Recently used and Local servers, and the load-failed page's Details.
+// Annotate, Capture and Float preview are drawn disabled until part 3; the More menu's device toolbar,
+// appearance and zoom wait for part 2, its separate window for part 3 and its profile actions for part 4.
 // The reference's "Open DevTools" item is absent: Safari's Web Inspector attaches to the page in a
 // development build instead, and cannot be opened from code (EXACT2-GAPS.md X1, X2).
 use TipBubble from "./shell-tip.contract"
@@ -18,9 +16,6 @@ use kmBump from "./menu-keys.contract"
 use ShellSurface from "./shell-shapes.contract"
 use BrowserPanel from "./browser-shapes.contract"
 use BrowserProfileChoice from "./browser-shapes.contract"
-use BrowserRecent from "./browser-shapes.contract"
-use BrowserServer from "./browser-shapes.contract"
-use BrowserStage from "./browser-stage.contract"
 
 keyframes bsSpin
   from rotate=0
@@ -32,7 +27,7 @@ keyframes bsLoading
   to translate="-10% 0%"
 
 // Lucide 0.553 (ISC) glyphs the chrome draws, one path each.
-fn bsPath(name: string): string = name == "arrow-left" ? "M12 19l-7-7 7-7M19 12H5" : name == "arrow-right" ? "M5 12h14M12 5l7 7-7 7" : name == "refresh-cw" ? "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" : name == "external-link" ? "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" : name == "mouse-pointer-click" ? "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" : name == "camera" ? "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4zM9 13a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "picture-in-picture-2" ? "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" : name == "ellipsis-vertical" ? "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "minus" ? "M5 12h14" : name == "plus" ? "M5 12h14M12 5v14" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : name == "earth" ? "M21.54 15H17a2 2 0 0 0-2 2v4.54M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : name == "chevron-right" ? "M9 18l6-6-6-6" : name == "history" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2" : name == "radio-tower" ? "M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M10 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1M9.5 18h5M8 22l4-11 4 11" : name == "x" ? "M18 6 6 18M6 6l12 12" : name == "check" ? "M20 6 9 17l-5-5" : ""
+fn bsPath(name: string): string = name == "arrow-left" ? "M12 19l-7-7 7-7M19 12H5" : name == "arrow-right" ? "M5 12h14M12 5l7 7-7 7" : name == "refresh-cw" ? "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" : name == "external-link" ? "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" : name == "mouse-pointer-click" ? "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" : name == "camera" ? "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4zM9 13a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "picture-in-picture-2" ? "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" : name == "ellipsis-vertical" ? "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "minus" ? "M5 12h14" : name == "plus" ? "M5 12h14M12 5v14" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : name == "earth" ? "M21.54 15H17a2 2 0 0 0-2 2v4.54M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : name == "chevron-right" ? "M9 18l6-6-6-6" : ""
 
 component BsIcon
   props
@@ -50,12 +45,11 @@ component BrowserSurface
     scheme: string
     local: action
     urlFocus: action
-    urlFocused: bool
   view
     when scheme == "dark"
-      BrowserBody(view=view, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
+      BrowserBody(view=view, local=local, urlFocus=urlFocus)
     else
-      BrowserBody(view=view, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
+      BrowserBody(view=view, local=local, urlFocus=urlFocus)
 
 // PreviewView: the chrome row, then the page (or the empty state, or the load-failed page) below it.
 component BrowserBody
@@ -63,25 +57,16 @@ component BrowserBody
     view: BrowserPanel
     local: action
     urlFocus: action
-    urlFocused: bool
-  // The page area's size (the reference's surface rect): the layout of a fixed viewport, and the size the device
-  // toolbar opens at.
-  state pw = 0
-  state ph = 0
-  action measured(width: number, height: number)
-    pw = width
-    ph = height
   view
     column flex=1 min-height=0 width="100%" testId="browser-surface"
       // One chrome per tab: a draft typed in one tab's field never carries over to another.
       each tabKey in [view.tabId] key=tabKey
-        BrowserChrome(view=view, local=local, urlFocus=urlFocus, pw=pw, ph=ph)
-      box flex=1 min-height=0 position="relative" overflow="hidden" resize=measured
-        // The page stays mounted under the load-failed page, as the reference's slot does (its keys keep working).
-        when view.live or view.failed
-          BrowserStage(view=view, pw=pw, ph=ph, urlFocused=urlFocused, local=local)
+        BrowserChrome(view=view, local=local, urlFocus=urlFocus)
+      box flex=1 min-height=0 position="relative" overflow="hidden"
+        when view.live
+          t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment aria-label="Browser page" testId="browser-page" position="absolute" left=0 top=0 right=0 bottom=0
         when view.empty
-          BrowserEmpty(view=view, local=local)
+          BrowserEmpty()
         when view.failed
           BrowserLoadFailed(view=view, local=local)
 
@@ -94,8 +79,6 @@ component BrowserChrome
     view: BrowserPanel
     local: action
     urlFocus: action
-    pw: number
-    ph: number
   state draft = ""
   state focused = false
   state touched = false
@@ -149,7 +132,7 @@ component BrowserChrome
         BsButton(icon="mouse-pointer-click", label="Annotate preview", tip="Annotate elements, regions, and drawings (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-annotate")
         BsButton(icon="camera", label="Capture screenshot", tip="Screenshot · Shift-click to record (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-capture")
         BsButton(icon="picture-in-picture-2", label="Float preview over chat", tip="Float preview over chat (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-float")
-        BrowserMore(view=view, local=local, pw=pw, ph=ph)
+        BrowserMore(view=view, local=local)
       // The loading bar: 2pt, the primary colour, from the left edge; it stops moving with reduced motion.
       box position="absolute" left=0 right=0 bottom=0 height="0.125rem" overflow="hidden" pointer-events="none" aria-hidden=true
         box width="100%" height="100%" border-top-right-radius="624.9375rem" border-bottom-right-radius="624.9375rem" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(view.loading ? 1 : 0) translate=(view.loading ? "-10% 0%" : "0% 0%") animation=(view.loading and not still ? "bsLoading 5.3s cubic-bezier(0.1, 0.5, 0.2, 1) forwards" : "none") transition=(still ? "none" : "translate 150ms ease-out, opacity 150ms ease-out 220ms") testId="browser-loading-bar"
@@ -196,18 +179,15 @@ component BsRevealButton
         BsIcon(name="external-link", size=14, color="light-dark(#71717b, #a1a1aa)")
       TipBubble(label="Open in system browser", side="bottom", align="end", offset=28, inset=0, shown=over)
 
-// PreviewMoreMenu: "More" (aria-label "Preview menu"), the menu end-aligned 6pt under it. Hard reload, Show or
-// Hide device toolbar, Appearance (System, Light, Dark) and the Zoom row (its buttons keep the menu open) work;
-// the rest is listed where the reference lists it and enabled by its own part. The reference menu is as wide as
-// its longest row; 17.5rem holds "Open separate preview window" beside its part note.
+// PreviewMoreMenu: "More" (aria-label "Preview menu"), the menu end-aligned 6pt under it. Hard reload works
+// now; the rest is listed where the reference lists it and enabled by its own part. The reference menu is as wide
+// as its longest row; 17.5rem holds "Open separate preview window" beside its part note.
 component BrowserMore
   inject
     rem: number
   props
     view: BrowserPanel
     local: action
-    pw: number
-    ph: number
   state over = false
   state keyed = 0
   state keyArmed = false
@@ -228,20 +208,20 @@ component BrowserMore
       TipBubble(label="More", side="bottom", align="end", offset=28, inset=0, shown=over)
       column id="browser-more-menu" popover="auto" position="absolute" margin-top="0.375rem" width="17.5rem" margin-left="-16rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
-          KeyMenu(menuId="browser-more-keys", items=(view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance")] : []), keyed=keyed, gap="0px", modal=true)
+          KeyMenu(menuId="browser-more-keys", items=(view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload")] : []), keyed=keyed, gap="0px", modal=true)
             BsMenuItem(id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
             BsMenuItem(id="browser-more-window", label="Open separate preview window", note="Part 3", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
-            BsMenuItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-device-toolbar", view.tabId, `${pw}|${ph}`))
-            BrowserAppearanceItem(view=view, local=local)
+            BsMenuItem(id="browser-more-device-toolbar", label="Show device toolbar", note="Part 2", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
+            BsMenuItem(id="browser-more-appearance", label="Appearance", note="Part 2", chevron=true, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
-            // The zoom row: label, −, the level, +, reset; its buttons keep the menu open (closeOnClick false).
-            row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.25rem" box-sizing="border-box" align-items="center" justify-content="space-between" opacity=(view.hasWebContents ? 1 : 0.64) testId="browser-more-zoom"
+            // The zoom row: label, −, the level, +, reset (part 2 enables it).
+            row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.25rem" box-sizing="border-box" align-items="center" justify-content="space-between" opacity=0.64 testId="browser-more-zoom"
               text "Zoom" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
               row align-items="center" gap="0.25rem"
-                BsZoomButton(icon="minus", label="Zoom out", outlined=true, disabled=(not view.hasWebContents), press=local("surface-browser-zoom-out", view.tabId, ""), testId="browser-zoom-out")
-                text view.zoomLabel min-width="3rem" text-align="center" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId="browser-zoom-level"
-                BsZoomButton(icon="plus", label="Zoom in", outlined=true, disabled=(not view.hasWebContents), press=local("surface-browser-zoom-in", view.tabId, ""), testId="browser-zoom-in")
-                BsZoomButton(icon="rotate-ccw", label="Reset zoom", outlined=false, disabled=(not view.hasWebContents), press=local("surface-browser-zoom-reset", view.tabId, ""), testId="browser-zoom-reset")
+                BsZoomButton(icon="minus", label="Zoom out", outlined=true)
+                text "100%" min-width="3rem" text-align="center" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+                BsZoomButton(icon="plus", label="Zoom in", outlined=true)
+                BsZoomButton(icon="rotate-ccw", label="Reset zoom", outlined=false)
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
             text `Profile: ${view.profileName}` max-width="16rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)" testId="browser-more-profile"
             BsMenuItem(id="browser-more-clear-cookies", label="Clear cookies", note="Part 4", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
@@ -275,129 +255,13 @@ component BsZoomButton
     icon: string
     label: string
     outlined: bool
-    disabled: bool
-    press: action
-    testId: string
-  state over = false
-  action hover(on: bool)
-    over = on
   view
-    button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=(outlined ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button disabled=true aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=(outlined ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
       BsIcon(name=icon, size=14, color="light-dark(#71717b, #a1a1aa)")
 
-// The Appearance submenu (MenuSubTrigger, MenuRadioGroup): the row opens System, Light and Dark beside the menu
-// (to its left: the menu sits at the panel's right edge); the checked one is the scheme pages are told to prefer.
-// Choosing one keeps the menus open, as a Base UI radio item does.
-component BrowserAppearanceItem
-  props
-    view: BrowserPanel
-    local: action
-  state hovered = false
-  state lit = false
-  action hover(on: bool)
-    hovered = on
-  action focused(on: bool)
-    lit = on
-  view
-    box position="relative" width="100%"
-      button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover focus=focused(true) blur=focused(false) disabled=(not view.hasWebContents) role="menuitem" aria-haspopup="menu" testId="browser-more-appearance" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.hasWebContents ? 1 : 0.64) background-color=((hovered or lit) and view.hasWebContents ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
-        text "Appearance" flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
-      column id="browser-appearance-menu" popover="auto" position="absolute" margin-top="-1.75rem" margin-left="-10.5rem" width="10rem"
-        column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Appearance" testId="browser-appearance-popup"
-          BrowserRadioItem(id="system", label="System", checked=(view.colorScheme == "system"), press=local("surface-browser-color-scheme", view.tabId, "system"))
-          BrowserRadioItem(id="light", label="Light", checked=(view.colorScheme == "light"), press=local("surface-browser-color-scheme", view.tabId, "light"))
-          BrowserRadioItem(id="dark", label="Dark", checked=(view.colorScheme == "dark"), press=local("surface-browser-color-scheme", view.tabId, "dark"))
-
-component BrowserRadioItem
-  props
-    id: string
-    label: string
-    checked: bool
-    press: action
-  state lit = false
-  action hover(on: bool)
-    lit = on
-  view
-    button id=`browser-appearance-${id}` press=press hover=hover focus=hover(true) blur=hover(false) role="menuitemradio" aria-checked=checked testId=`browser-appearance-${id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
-      box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-        when checked
-          BsIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
-      text label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-
-// PreviewEmptyState: with nothing to recommend, the globe in the EmptyMedia icon card over its two fanned copies,
-// "No preview yet" and the hint; else "Recently used" (at most 8, each removable) and "Local servers" (the live
-// ones the server's scanner found, configured project preview URLs first), each a DiscoveryList.
+// PreviewEmptyState with nothing to recommend (recents and local servers arrive with part 2): the globe in
+// the EmptyMedia icon card over its two fanned copies, "No preview yet" and the hint.
 component BrowserEmpty
-  props
-    view: BrowserPanel
-    local: action
-  view
-    when length(view.recents) > 0 or length(view.servers) > 0
-      scroll position="absolute" left=0 top=0 right=0 bottom=0 height="100%" testId="browser-empty-lists"
-        column width="100%" max-width="36rem" padding-left="1.25rem" padding-right="1.25rem" padding-top="2rem" padding-bottom="2rem" gap="1.5rem" box-sizing="border-box" align-self="center"
-          when length(view.recents) > 0
-            column width="100%" gap="0.75rem" testId="browser-recents"
-              row align-items="center" gap="0.5rem"
-                BsIcon(name="history", size=16, color="light-dark(#71717b, #818181)")
-                text "Recently used" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=2
-              column width="100%" gap="1px" overflow="hidden" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#e4e4e799, #ffffff0f)"
-                each entry in view.recents key=entry.url
-                  BrowserRecentRow(entry=entry, open=local("surface-browser-open-url", view.tabId, entry.url), remove=local("surface-browser-remove-recent", view.tabId, entry.url))
-          when length(view.servers) > 0
-            column width="100%" gap="0.75rem" testId="browser-servers"
-              row align-items="center" gap="0.5rem"
-                BsIcon(name="radio-tower", size=16, color="light-dark(#71717b, #818181)")
-                text "Local servers" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)" role="heading" aria-level=2
-              column width="100%" gap="1px" overflow="hidden" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#e4e4e799, #ffffff0f)"
-                each server in view.servers key=server.key
-                  BrowserServerRow(server=server, open=local("surface-browser-open-url", view.tabId, server.url))
-              text "Select a live local server to open it in this browser tab." padding-left="0.25rem" padding-right="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-servers-hint"
-    else
-      BrowserNothingYet()
-
-// PreviewRecentUrlCard: the site's icon, its title (else its address) and the address with the visit's age; the
-// remove button (×) shows while the row is hovered or the button has the focus.
-component BrowserRecentRow
-  props
-    entry: BrowserRecent
-    open: action
-    remove: action
-  state over = false
-  state removeFocus = false
-  state removeOver = false
-  action hover(on: bool)
-    over = on
-  action focusRemove(on: bool)
-    removeFocus = on
-  action hoverRemove(on: bool)
-    removeOver = on
-  view
-    box position="relative" width="100%" hover=hover testId="browser-recent"
-      button press=open aria-label=entry.title testId="browser-recent-open" display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="2.5rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-radius=0 background-color=(over ? "light-dark(#f4f4f5, #171717)" : "light-dark(#fcfcfc, #0a0a0a)")
-        BrowserTabIcon(captured=entry.favicon, fallback=entry.fallback, size=16, color="light-dark(#71717b, #818181)")
-        column flex=1 min-width=0
-          text entry.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" testId="browser-recent-title"
-          text entry.subtitle white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-recent-subtitle"
-      button press=remove hover=hoverRemove focus=focusRemove(true) blur=focusRemove(false) aria-label=entry.removeLabel testId="browser-recent-remove" position="absolute" right="0.75rem" top="50%" translate="0% -50%" padding="0.25rem" border-width=0 border-radius="0.25rem" opacity=(over or removeFocus ? 1 : 0) background-color=(removeOver ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") display="flex" align-items="center" justify-content="center"
-        BsIcon(name="x", size=14, color=(removeOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-
-// PreviewLocalServerCard (DiscoveryListRow): the server's icon, its process name (else "Listening") and host:port.
-component BrowserServerRow
-  props
-    server: BrowserServer
-    open: action
-  state over = false
-  action hover(on: bool)
-    over = on
-  view
-    button press=open hover=hover aria-label=`${server.title} ${server.description}` testId=`browser-server-${server.description}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding="0.75rem" box-sizing="border-box" border-width=0 border-radius=0 background-color=(over ? "light-dark(#f4f4f5, #171717)" : "light-dark(#fcfcfc, #0a0a0a)")
-      BrowserTabIcon(captured=server.favicon, fallback=server.fallback, size=16, color="light-dark(#71717b, #818181)")
-      column flex=1 min-width=0
-        text server.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        text server.description white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-
-component BrowserNothingYet
   view
     column flex=1 width="100%" height="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" testId="browser-empty"
       box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem" flex-shrink=0
@@ -410,21 +274,14 @@ component BrowserNothingYet
         text "Type a URL above, or run a dev script. Browser-ready localhost servers will show up here automatically." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)" testId="browser-empty-text"
 
 // PreviewUnreachable (LoadFailed): the error glyph, "This site can't be reached", the host and the error's
-// words, the Details checklist (shown by the Details button, which then reads Hide details), the error's name,
-// and Reload.
+// words, its name, and Reload. Part 2 adds the "Details" checklist.
 component BrowserLoadFailed
   props
     view: BrowserPanel
     local: action
   state over = false
-  state detailsOver = false
-  state showDetails = false
   action hover(on: bool)
     over = on
-  action hoverDetails(on: bool)
-    detailsOver = on
-  action toggleDetails
-    showDetails = not showDetails
   view
     scroll position="absolute" left=0 top=0 right=0 bottom=0 height="100%" z-index=10 background-color="light-dark(#fcfcfc, #0a0a0a)" testId="browser-failed"
       column width="100%" max-width="36rem" min-height="100%" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-self="center"
@@ -434,18 +291,8 @@ component BrowserLoadFailed
           path d="M52 8 L12 56" stroke-linecap="round"
         text "This site can’t be reached" margin-bottom="0.75rem" font-size="1.5rem" line-height="1.875rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 testId="browser-failed-title"
         text `${view.failHost}: ${view.failMessage}.` font-size="0.875rem" line-height="1.4375rem" color="light-dark(#71717b, #818181)" testId="browser-failed-text"
-        when showDetails
-          column margin-top="1.5rem" padding="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f566, #ffffff0a)" testId="browser-failed-details"
-            text "Try:" margin-bottom="0.5rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            column gap="0.25rem" role="list"
-              BrowserTryRow(label="Checking your connection")
-              BrowserTryRow(label="Confirming the dev server is running")
-              BrowserTryRow(label="Checking the proxy and the firewall")
         text view.failLabel margin-top="2rem" font-size="0.75rem" line-height="1rem" letter-spacing="0.025rem" text-transform="uppercase" color="light-dark(#71717bb3, #818181b3)" testId="browser-failed-code"
-        row flex=1 min-height="2rem" align-items="flex-end" gap="0.5rem" padding-top="2rem"
-          button press=toggleDetails hover=hoverDetails aria-expanded=showDetails testId="browser-failed-details-toggle" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(detailsOver ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
-            text (showDetails ? "Hide details" : "Details") font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
-          box flex=1
+        row flex=1 min-height="2rem" align-items="flex-end" justify-content="flex-end" padding-top="2rem"
           button press=local("surface-browser-refresh", view.tabId, "") hover=hover testId="browser-failed-reload" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="inset 0 1px 0 #ffffff29" display="flex" flex-direction="row" align-items="center"
             text "Reload" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
 
@@ -515,12 +362,3 @@ component BrowserProfileItem
   view
     button id=`browser-profile-${profile.id}` press=open popovertarget="r4-add-surface" popovertargetaction="hide" hover=hover role="menuitem" testId=`browser-profile-${profile.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text profile.name flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-
-// One of the checklist's list-disc rows: the bullet in the muted colour, then the advice.
-component BrowserTryRow
-  props
-    label: string
-  view
-    row gap="0.5rem" padding-left="0.375rem" align-items="flex-start" role="listitem"
-      text "•" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" aria-hidden=true
-      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

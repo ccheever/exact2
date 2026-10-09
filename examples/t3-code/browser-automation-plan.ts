@@ -13,7 +13,6 @@ import { normalizePreviewUrl } from './browser-url';
 import { isLocalLoopbackHost, isPrivateNetworkHost } from './host-classification';
 import { pressPlan, type PressInput } from './browser-automation-keys';
 import type { ScopedThreadRef } from './terminal-ui-state';
-import { resolvePreviewViewport, type PreviewViewportResizeInput } from './browser-viewport';
 
 // ── contracts previewAutomation.ts ───────────────────────────────────────────────────────────────
 export const PREVIEW_AUTOMATION_V1_OPERATIONS = ['status', 'open', 'navigate', 'snapshot', 'click', 'type', 'press', 'scroll', 'evaluate', 'waitFor', 'recordingStart', 'recordingStop'] as const;
@@ -232,11 +231,9 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
       break;
     }
     case 'resize': {
-      // resolvePreviewViewport (part 2): a preset carries its size, swapped for the other orientation; an unknown
-      // preset or a freeform size without both sides fails the request, as the reference's throw does.
-      const input = request.input as Partial<PreviewViewportResizeInput>;
-      try { plan.viewport = resolvePreviewViewport({ ...input, mode: input.mode ?? 'fill' }); }
-      catch { return fail(operationError(errorContext)); }
+      const input = request.input as { mode?: string; width?: number; height?: number; preset?: string; orientation?: string };
+      plan.viewport = input.mode === 'freeform' ? { _tag: 'freeform', width: input.width, height: input.height }
+        : input.mode === 'preset' ? { _tag: 'preset', presetId: input.preset, ...(input.orientation ? { orientation: input.orientation } : {}) } : FILL_PREVIEW_VIEWPORT;
       break;
     }
     case 'press': plan.key = pressPlan(request.input as PressInput); break;
