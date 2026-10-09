@@ -37,6 +37,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
+- Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
 - The five checks: `cargo build --all-targets --keep-going` ·
   `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
