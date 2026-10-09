@@ -1,0 +1,55 @@
+# settings-integrations-reads.test.ts on the base's source-control-view.ts (c603c22d6) and on the fix (2026-10-09, Bun 1.4.2)
+
+## base (fails)
+settings-integrations-reads.test.ts:
+88 |     const { native, files } = await launched();
+89 |     const before = native.calls.length;
+90 |     const opened = await run(native, files, true);
+91 |     // Before the fix: every answer sent getConfig, getSettings and device.list, the inspection woke the runner, and the
+92 |     // page was asked on every turn until the limit (12 asks, 36 reads, never idle).
+93 |     expect({ asks: opened.asks, idle: opened.idle, reads: native.reads(before) }).toEqual({ asks: 1, idle: true, reads: [] });
+                                                                                       ^
+error: expect(received).toEqual(expected)
+  {
+-   "asks": 1,
+-   "idle": true,
+-   "reads": [],
++   "asks": 12,
++   "idle": false,
++   "reads": [
++   ],
+  }
+- Expected  - 3
++ Received  + 40
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-settings-integrations-loop/examples/t3-code/settings-integrations-reads.test.ts:93:83)
+(fail) Settings › Integrations reads its config, settings and device state as the reference does > opening the page answers once with no server reads, and its answer never asks it again [45.82ms]
+105 |     const start = native.calls.length;
+106 |     // subscribeServerConfig's settingsUpdated (useScopedSettings): the page shows the new settings without reading them.
+107 |     native.config.settings = { ...obj(native.config.settings), deviceHosts: [{ id: 'mini', label: 'Mini', target: 'me@mini' }] };
+108 |     native.emit('config', { type: 'settingsUpdated', payload: { settings: native.config.settings } });
+109 |     let view = await run(native, files, true);
+110 |     expect({ asks: view.asks, idle: view.idle, hosts: view.page.hosts }).toEqual({ asks: 1, idle: true, hosts: 1 });
+                                                                               ^
+error: expect(received).toEqual(expected)
+  {
+-   "asks": 1,
++   "asks": 12,
+    "hosts": 1,
+-   "idle": true,
++   "idle": false,
+  }
+- Expected  - 2
++ Received  + 2
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-settings-integrations-loop/examples/t3-code/settings-integrations-reads.test.ts:110:74)
+(fail) Settings › Integrations reads its config, settings and device state as the reference does > it changes on the events the reference listens to: settingsUpdated, a device state, and Check versions [21.79ms]
+ 0 pass
+ 2 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [136.00ms]
+
+## fix (passes)
+bun test v1.4.2 (744846f84)
+ 2 pass
+ 0 fail
+ 12 expect() calls
+Ran 2 tests across 1 file. [379.00ms]
