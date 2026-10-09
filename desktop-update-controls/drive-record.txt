@@ -34,3 +34,23 @@ desktop-settings.json (<T3 home>/userdata) after the pick:
   reference: {"mainWindowBounds":{"x":126,"y":30,"width":1100,"height":780},"updateChannel":"nightly","updateChannelConfiguredByUser":true}
   (Each app writes only the keys that differ from its defaults. Its default track follows its version, resolveDefaultDesktopUpdateChannel:
    the clone is 0.0.46-nightly.20261004.1, so Nightly; the reference build is 0.0.45, so Stable.)
+
+Review fix drive (2026-10-10, second round): this branch's bundle at d43561497 (merged with origin/feat(example)/t3-code 284254a72),
+lane desktop-update-controls, one agent-mode drive. Lane desktop-settings.json removed first (the seed has none), so the
+track starts at the version default, Nightly. Before and reference images are the first round's (unchanged builds).
+  clock +20000 real; clock +3000 real; tap connection-settings; clock +1500 real; tap setting-update-track hover; clock +1000 real
+  tap tip-settings-update hover; clock +1500 real; screenshot window            (tooltip shown)
+  tap setting-update-track hover; clock +1500 real; screenshot window           (pointer moved to Update track: tooltip hidden)
+  tap setting-update-track; clock +800 real; screenshot window                  (menu open, no tooltip)
+  tap setting-update-track-menu-latest; clock +1500 real; screenshot window; tree
+Replies: each hover answered delivery "platform", hover true; tip-settings-update at [232, 820], setting-update-track at [1095.5, 446].
+Why the first round's menu and saved shots kept the tooltip: a plain tap presses at the target without moving the
+agent's resting pointer (LLP 1012, tap: "with hover: true the pointer moves onto the box's center and stays there"), so
+the pointer stayed parked on the control. Moving it (the hover above) hides the tooltip; a real pointer leaves the
+control on its way to the select (real-input step 1 checks it).
+Tree after the pick: setting-update-track disabled false; sidebar-check-updates and settings-check-updates disabled true, no handlers.
+desktop-settings.json after the pick: {"updateChannel":"latest","updateChannelConfiguredByUser":true}
+
+Failed save (test, no screenshot: an error path). settings-a-about.test.ts, toast description:
+  before: Desktop settings write failed during replace-settings-file at <path>.
+  after:  Error invoking remote method 'desktop:update-set-channel': DesktopUpdateChannelPersistenceError: Failed to persist the latest desktop update channel.
