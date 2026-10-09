@@ -77,7 +77,7 @@ Decisions at `prepare` (2026-10-09):
   the overlay or its handler; the DOM is shared, so the overlay draws; component names need the page's world, so one
   read-only lookup of React's fiber runs there per submit (marked elements, marks removed).
 
-Declared differences: `EXACT2-GAPS.md` "Browser surface: declared differences (X1 path B)", section "Part 3 (capture)".
+Declared differences: `EXACT2-GAPS.md` "Browser surface: declared differences (X1 path B)", the "Part 3" paragraph.
 
 ## Scope and exclusions
 

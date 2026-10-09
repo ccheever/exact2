@@ -377,6 +377,16 @@ describe('planRequest (the request handler up to the page)', () => {
     expect(String(selectAll.editing)).toContain('__T3_PREVIEW_CLIPBOARD__');
     expect(planRequest(context(requestOf('r3', { operation: 'resize', input: { mode: 'freeform', width: 800, height: 600 } }), stateWith(loaded()))).plan.viewport).toEqual({ _tag: 'freeform', width: 800, height: 600 });
   });
+  it('resize resolves a preset to its size (part 2’s resolvePreviewViewport) and fails what the reference throws on', () => {
+    const resize = (input: Obj) => planRequest(context(requestOf('r1', { operation: 'resize', input }), stateWith(loaded()))).plan;
+    expect(resize({ mode: 'preset', preset: 'iphone-12-pro' }).viewport).toEqual({ _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 });
+    expect(resize({ mode: 'preset', preset: 'iphone-12-pro', orientation: 'landscape' }).viewport).toEqual({ _tag: 'preset', presetId: 'iphone-12-pro', width: 844, height: 390 });
+    expect(resize({ mode: 'preset', preset: 'nest-hub', orientation: 'landscape' }).viewport).toEqual({ _tag: 'preset', presetId: 'nest-hub', width: 1024, height: 600 });
+    expect(resize({ mode: 'fill' }).viewport).toEqual({ _tag: 'fill' });
+    expect((resize({ mode: 'preset', preset: 'no-such-device' }).failure as Obj)._tag).toBe('PreviewAutomationExecutionError');
+    expect((resize({ mode: 'freeform', width: 800 }).failure as Obj)._tag).toBe('PreviewAutomationExecutionError');
+    expect(resize({ mode: 'freeform', width: 800 }).viewport).toBeUndefined();
+  });
   it('reads stream events defensively', () => {
     expect(readStreamEvent({ type: 'connected', connectionId: ' c ' })).toEqual({ type: 'connected', connectionId: 'c' });
     expect(readStreamEvent({ type: 'request', connectionId: 'c', request: { requestId: 'r', threadId: 't', operation: 'nope', input: {}, timeoutMs: 1 } })).toBeNull();

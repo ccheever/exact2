@@ -132,7 +132,7 @@ final class T3BrowserSessions {
 
     /// The module's status (`presentation.browserTabs`, `presentation.browserLog`).
     var status: [String: Any] {
-        ["browserTabs": sessions.mapValues(\.report), "browserLog": log]
+        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // part 2: zoom, appearance
     }
 
     /// The data module's ops (T3Module+Browser.swift); nil for any other op.
