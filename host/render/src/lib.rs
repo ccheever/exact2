@@ -773,6 +773,11 @@ pub fn settle<D: DataSource>(
                 }
                 runner.fulfill_measured(ticket, outcome, elapsed_ms)?;
             }
+            // Replies that keep coming (an answer re-asked without end) still
+            // meet the deadline.
+            if Instant::now() >= deadline {
+                return Ok(Settled::Deadline);
+            }
             continue;
         }
         if runner
@@ -858,6 +863,8 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
             }
             Ok(())
         }
+        // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+        Dispatch::Again => executor.again(&r),
         Dispatch::Host(_) | Dispatch::Missing => executor.run(r, None),
     };
     if admitted.is_err() {
@@ -1332,6 +1339,70 @@ mod fence_tests {
         let rendered = render(&plan, || Burst, Default::default(), "/", &site, DEADLINE).unwrap();
         assert_eq!(BURST.load(Ordering::SeqCst), 17, "all but the seventeenth");
         assert_eq!(rendered.settled, Settled::Busy);
+    }
+
+    static AGAINS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` waits on shared work: every continuation is a re-ask
+    /// (`Dispatch::Again`). `forever` never stops waiting.
+    struct Waiting;
+    impl DataSource for Waiting {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap_or(0);
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn dispatch(&mut self, _: u64, _: &Store) -> Dispatch {
+            Dispatch::Again
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            if source == "forever" {
+                return Ok(Answer::Later(Request::continuation(9999)));
+            }
+            AGAINS.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// 150 waiting answers, past the re-ask markers' window of 128: each is
+    /// settled with no work and the render completes, not busy (LLP 1041
+    /// §8.4, amended 2026-10-09). An answer that never stops waiting keeps
+    /// the render open until its deadline: a pending re-ask is not complete.
+    #[test]
+    fn re_asks_complete_a_render_and_one_still_waiting_meets_the_deadline() {
+        let mut src = String::from("component App\n");
+        for n in 0..150 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Waiting",
+            origin: None,
+        };
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(AGAINS.load(Ordering::SeqCst), 150);
+        assert_eq!(rendered.settled, Settled::Complete);
+        let plan = contract::compile(
+            "component App\n  resource f = forever() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let short = Duration::from_millis(300);
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, short).unwrap();
+        assert_eq!(rendered.settled, Settled::Deadline);
     }
 
     /// A refusal with nothing in flight before it fences the next request:

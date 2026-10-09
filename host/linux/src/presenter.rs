@@ -807,6 +807,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }

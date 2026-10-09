@@ -102,7 +102,9 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     let Answer::Later(request) = m.answer(&mut s, "work", &a).unwrap() else {
         panic!("the compression waits on storage")
     };
-    let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+    let Dispatch::Run(Work::Now(work)) =
+        crate::runnable(m.dispatch(request.continuation.unwrap(), &s))
+    else {
         panic!("native storage work runs")
     };
     let outcome = std::thread::spawn(work).join().unwrap();
@@ -217,7 +219,9 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
         let Ok(Answer::Later(request)) = next else {
             break;
         };
-        let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+        let Dispatch::Run(Work::Now(work)) =
+            crate::runnable(m.dispatch(request.continuation.unwrap(), &s))
+        else {
             panic!("native storage work runs")
         };
         let outcome = std::thread::spawn(work).join().unwrap();
@@ -262,7 +266,9 @@ fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
     };
     // The first answer's own waiter runs, gives up and takes the right away;
     // the runner then forgets that answer and its waiter's outcome.
-    let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+    let Dispatch::Run(Work::Now(work)) =
+        crate::runnable(m.dispatch(request.continuation.unwrap(), &s))
+    else {
         panic!("native storage work runs")
     };
     let outcome = std::thread::spawn(work).join().unwrap();
@@ -274,7 +280,9 @@ fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
         let Answer::Later(request) = next else {
             break;
         };
-        let Dispatch::Run(Work::Now(work)) = m.dispatch(request.continuation.unwrap(), &s) else {
+        let Dispatch::Run(Work::Now(work)) =
+            crate::runnable(m.dispatch(request.continuation.unwrap(), &s))
+        else {
             panic!("native storage work runs")
         };
         let outcome = std::thread::spawn(work).join().unwrap();

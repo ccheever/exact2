@@ -18,3 +18,14 @@ mod render;
 mod storage;
 mod superseded;
 mod windows_lean;
+
+/// What a host runs for `dispatch`: its work, or for a re-ask
+/// (`Dispatch::Again`, LLP 1041 §8.4) the empty success a host settles it
+/// with, as a harness standing in for a host's executor needs.
+pub fn runnable(dispatch: exact_runner::Dispatch) -> exact_runner::Dispatch {
+    use exact_runner::{Dispatch, Work};
+    match dispatch {
+        Dispatch::Again => Dispatch::Run(Work::Now(Box::new(Dispatch::again_outcome))),
+        other => other,
+    }
+}

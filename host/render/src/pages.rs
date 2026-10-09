@@ -62,6 +62,8 @@ pub fn pages<D: DataSource>(
         match dispatch {
             Dispatch::Run(work) => executor.run(out, Some(work)),
             Dispatch::Held => Err("its work was held"),
+            // A source asks its answer again: it settles with no work.
+            Dispatch::Again => executor.again(&out),
             Dispatch::Host(_) | Dispatch::Missing => executor.run(out, None),
         }
         .map_err(|e| fail(e.into()))?;

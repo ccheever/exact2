@@ -63,6 +63,12 @@ impl Executor {
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
     }
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
+    }
     /// Acknowledge the coalesced wake before choosing a completion or refusal.
     pub fn begin_pump(&self) {
         self.core.begin_pump();
@@ -95,6 +101,8 @@ pub trait Io {
     fn forget(&self, held: &dyn Fn(u64) -> bool);
     /// [`Executor::run`].
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str>;
+    /// [`Executor::again`].
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str>;
     /// [`Executor::begin_pump`].
     fn begin_pump(&self);
     /// [`Executor::drain`].
@@ -120,6 +128,9 @@ impl Io for Executor {
     }
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         Executor::run(self, request, work)
+    }
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        Executor::again(self, request)
     }
     fn begin_pump(&self) {
         Executor::begin_pump(self)

@@ -899,7 +899,13 @@ impl Module {
         self.retired.remove(&call);
         if ticket == WAITING {
             if let Outcome::Failed { message, .. } = &outcome {
-                return Err(DataError::Unavailable(message.clone()));
+                // The answer ends here: its call is unlinked from the
+                // prelude's bookkeeping, so its pending fetches are dropped
+                // with it (LLP 1041 §8.4, Q5). A continuation the shared
+                // promise still runs is not cancelled by this.
+                let message = message.clone();
+                self.forget_calls(vec![call]);
+                return Err(DataError::Unavailable(message));
             }
         } else {
             self.progress += 1; // a delivery: what a waiting answer waits for

@@ -82,6 +82,8 @@ impl<D: DataSource> Host<D> {
                 std::thread::spawn(move || reply(work()));
             }
             Dispatch::Run(Work::Later(work)) => work(Reply::new(reply)),
+            // A re-ask: no work, and no admission bound here to wait on.
+            Dispatch::Again => reply(Dispatch::again_outcome()),
             Dispatch::Held => {
                 if let Some(token) = r.request.continuation {
                     self.requests.parked.insert(token, r);

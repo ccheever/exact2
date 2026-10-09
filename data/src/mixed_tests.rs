@@ -495,6 +495,7 @@ fn run(dispatch: Dispatch) -> Outcome {
             rx.recv_timeout(std::time::Duration::from_secs(5))
                 .expect("a reply")
         }
+        Dispatch::Again => Dispatch::again_outcome(),
         Dispatch::Held => panic!("held"),
         Dispatch::Host(_) => panic!("host"),
         Dispatch::Missing => panic!("missing"),

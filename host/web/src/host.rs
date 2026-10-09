@@ -1101,6 +1101,8 @@ impl<D: DataSource> Host<D> {
                 batch.request(&r);
             }
             Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            // A re-ask settles at once, as the no-op it replaces did.
+            Dispatch::Again => immediate.push((r.ticket, Dispatch::again_outcome())),
             Dispatch::Run(Work::Later(_)) => immediate.push((
                 r.ticket,
                 Outcome::Failed {

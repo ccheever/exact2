@@ -83,6 +83,12 @@ impl Executor {
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
+    }
     /// Admit work, or return a refusal without an overflow queue.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
