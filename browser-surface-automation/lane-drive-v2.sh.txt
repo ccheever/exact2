@@ -1,0 +1,68 @@
+#!/bin/zsh
+# browser-surface-automation (part 5): the live drive (agent mode, lane env). Not committed; uploaded as evidence.
+# Usage: drive.sh <run name> <branch|base>. "branch" drives this worktree's build: the end-to-end preview tools, the
+# tab menu's Mute, Settings › Integrations (held 30 s for the request-rate count), "Open links in", a chat link.
+# "base" drives the never-edited evidence-base build (no previewAutomation host): the server's no-host answer, a
+# hand-opened tab's menu, the same Settings steps, the same chat link. Lane ports 16750-16799: the embedded server on
+# 16750, the fixture on 16751. The lane server's ACP Registry instance "Lane browser agent" runs fake-acp.mjs.
+B=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-automation
+L=$B/target/bsa-lane
+P=${1:-drive}; MODE=${2:-branch}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+if [ $MODE = base ]; then W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; else W=$B; fi
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16750 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+rm -f $L/e2e-results.jsonl $L/fake-acp.log
+FIXTURE_PORT=16751 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd $W
+S=$OUT
+START=("clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window")
+SETTINGS=("tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real" "screenshot $S/20-integrations.png window"
+  "clock +30000 real" "screenshot $S/21-integrations-30s.png window" logs)
+if [ $MODE = base ]; then
+  OPS=("${START[@]}"
+    "type composer nohost http://127.0.0.1:16751/form" "clock +500 real" "tap send-message"
+    "clock +15000 real" "screenshot $S/01-nohost-reply.png window" tree
+    "tap toggle-right-panel" "clock +1500 real" "tap surface-browser" "clock +3000 real" "screenshot $S/10-tab.png window"
+    "tap panel-tab-browser:tab_1 contextmenu" "clock +1200 real" "screenshot $S/11-tab-menu.png window" tree
+    "tap tab-menu-close" "clock +1500 real"
+    "${SETTINGS[@]}"
+    'tap "Open links in"' "clock +1000 real" "screenshot $S/22-open-links-in.png window"
+    "tap settings-go-to-threads" "clock +3000 real" tree logs
+    "tap LanePageB" "clock +3000 real" "screenshot $S/30-chat-link.png window" tree logs state)
+else
+  OPS=("${START[@]}"
+    "type composer e2e http://127.0.0.1:16751/form" "clock +500 real" "tap send-message"
+    "clock +5000 real" "screenshot $S/01-agent-opened.png window"
+    "clock +5000 real" "screenshot $S/02-agent-working.png window"
+    "clock +45000 real" "screenshot $S/03-agent-done.png window" tree logs
+    "tap panel-tab-browser:tab_1 contextmenu" "clock +1200 real" "screenshot $S/11-tab-menu.png window" tree
+    "tap tab-menu-toggle-mute" "clock +2000 real" "screenshot $S/12-muted.png window" tree
+    "${SETTINGS[@]}"
+    "tap browser-link-target-row" "clock +1000 real" "screenshot $S/22-open-links-in.png window"
+    "tap browser-link-target" "clock +1000 real" "screenshot $S/23-open-links-in-menu.png window"
+    "tap browser-link-target-option-app" "clock +2000 real" "screenshot $S/24-open-links-in-app.png window" tree
+    "tap settings-go-to-threads" "clock +3000 real" tree logs
+    "tap LanePageB" "clock +5000 real" "screenshot $S/30-chat-link.png window" tree
+    "tap LanePageB modifiers Meta" "clock +3000 real" "screenshot $S/31-meta-click.png window" tree logs state)
+fi
+printf '%s\n' "${OPS[@]}" > $OUT/ops.txt
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+cp $L/e2e-results.jsonl $L/fake-acp.log $OUT/ 2>/dev/null
+cp $T3_LOCAL_HOME/userdata/logs/server.trace.ndjson* $OUT/ 2>/dev/null
+echo DRIVE-DONE
