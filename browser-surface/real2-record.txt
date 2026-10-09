@@ -1,0 +1,21 @@
+browser-surface part 1: real-input fix check (normal launch), 2026-10-09 10:52-10:54 KST
+Build: the branch with the three fixes (uncommitted at the time; committed right after), bundle rebuilt 10:47 KST; same lane copy recipe and environment as real1-record.txt; fixture adds /long (a page titled 'Pop-up test: signed in')
+Real-input lock: taken 01:52:15Z (owner 'browser-surface: real-input fix check'), released 01:53:51Z
+
+== Fixture log
+fixture on 16651
+2026-10-09T01:52:54.403Z GET /long
+2026-10-09T01:52:54.413Z GET /favicon.png
+
+== Host log
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","b597ed5b-7e25-42dc-b7e7-66ff9cb3f7ca","tab_1"]
+t3.browser: navigate http://127.0.0.1:16651/long
+t3.browser: close ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","b597ed5b-7e25-42dc-b7e7-66ff9cb3f7ca","tab_1"]
+(the close is the module's teardown at quit)
+
+== Steps and read-backs (KST)
+10:52  panel toggle, launcher Browser, click the empty field, paste "127.0.0.1:16651/long", Return -> GET /long; the tab chip reads "Pop-up test: sign…" with its start (fix 3, r2-03)
+10:53  click the field, pointer moved to the page, Tab -> More (AX), Shift-Tab -> Open in system browser (AX: "button Open in system browser"): shown with its ring (fix 1, r2-01); Tab -> More: hidden again
+10:53  a real click on More: the menu is end-aligned under More, "Open separate preview window" ends before "Part 3" (fix 2, r2-02); Escape: the menu closes, the ring on More
+10:53  the lane copy quit (its server stopped), fixture stopped, nothing on 16650-16699, its preferences domain deleted, no Keychain item
