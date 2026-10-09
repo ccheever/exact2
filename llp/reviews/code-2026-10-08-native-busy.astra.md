@@ -1,0 +1,3 @@
+NOT READY
+
+1. **MAJOR — [snapback4/README.md:185](/Users/ccheever/projects/exact2-wt-laneD/snapback4/README.md:185):** Switching to Bob closes Alice’s client while her queued `post` may still be awaiting HTTP. Its continuation then throws `Snapback4: this client is closed` before checking the write’s outcome—even if the server accepted it. Reproduced using the README’s code with an in-memory native stub. Serialize complete source operations with persona switches, or retain the client until its active operations finish; add a regression covering a switch during an in-flight post.

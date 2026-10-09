@@ -1,7 +1,7 @@
 //! One round: open, sync to the head, send the outbox, sync again.
 //!
 //! A transcription of Snapback 4's TypeScript client (`local.ts` `syncRound`
-//! and `flushOnce`, `local-receipts.ts`, 0.4.13) without its watches, media,
+//! and `flushOnce`, `local-receipts.ts`, 0.4.16) without its watches, media,
 //! following, ephemeral reads, native jobs or timers: the device keeps the
 //! protocol's state (`sync_state`), and this carries it between the device
 //! and the wire. Where this differs it says so.
@@ -445,6 +445,7 @@ async fn settle(
     id: &str,
     outcome: Json,
     revalidated: Option<&Json>,
+    dispatched: Option<&Json>,
 ) -> Result<()> {
     {
         let mut shared = shared.lock().unwrap_or_else(|p| p.into_inner());
@@ -459,6 +460,7 @@ async fn settle(
             id: id.into(),
             outcome,
             revalidated: revalidated.cloned(),
+            dispatched: dispatched.cloned(),
             kept: false,
         });
     }
@@ -488,6 +490,9 @@ async fn persist(io: &Io, shared: &Mutex<Shared>, id: &str) -> Result<()> {
         if let Some(store) = &held.revalidated {
             kept["revalidated_store"] = store.clone();
         }
+        if let Some(store) = &held.dispatched {
+            kept["store_id"] = store.clone();
+        }
         // What it carried, so a key reused with other input is refused for as
         // long as the device keeps this receipt.
         if let Some(entry) = &entry {
@@ -512,6 +517,11 @@ async fn persist(io: &Io, shared: &Mutex<Shared>, id: &str) -> Result<()> {
     // Retire the entry only if it is still the device's to retire.
     if entry.is_some() {
         let mut request = json!({"op": "settle", "id": id});
+        // A late success belongs to the store it was sent to; settled into a
+        // store adopted since, the device withdraws it instead (0.4.16).
+        if let Some(store) = &held.dispatched {
+            request["store_id"] = store.clone();
+        }
         if held.outcome["state"] == "sent" {
             request["seq"] = held.outcome["seq"].clone();
         }
@@ -557,11 +567,13 @@ pub(crate) fn success_sequence(entry: &Json) -> Option<u64> {
 
 /// A terminal receipt for `id` in the device's kept history (`meta`'s
 /// answer for [`HISTORY`]: a JSON list as text, or null).
-/// The receipt as answered: without the `input` digest it keeps.
+/// The receipt as answered: without the `input` digest or the dispatching
+/// store it keeps (`publicWrite`).
 pub(crate) fn history_receipt(history: &Json, id: &str) -> Option<Json> {
     let mut receipt = history_entry(history, id)?;
     if let Some(fields) = receipt.as_object_mut() {
         fields.remove("input");
+        fields.remove("store_id");
     }
     Some(receipt)
 }
@@ -585,8 +597,13 @@ fn history_entry(history: &Json, id: &str) -> Option<Json> {
 
 /// `recoverReceipt`: what this client already knows the server said about a
 /// queued write: an outcome held in memory, the device's evidence of
-/// success, or a receipt it kept. Such a write is settled, never resent.
-async fn recover(io: &Io, shared: &Mutex<Shared>, entry: &Json) -> Result<Option<Json>> {
+/// success, or a receipt it kept, with the store it was sent to when known.
+/// Such a write is settled, never resent.
+async fn recover(
+    io: &Io,
+    shared: &Mutex<Shared>,
+    entry: &Json,
+) -> Result<Option<(Json, Option<Json>)>> {
     let id = entry["id"].as_str().unwrap_or_default();
     if let Some(held) = shared
         .lock()
@@ -595,18 +612,21 @@ async fn recover(io: &Io, shared: &Mutex<Shared>, entry: &Json) -> Result<Option
         .iter()
         .find(|held| held.id == id)
     {
-        return Ok(Some(held.outcome.clone()));
+        return Ok(Some((held.outcome.clone(), held.dispatched.clone())));
     }
     if let Some(seq) = success_sequence(entry) {
-        return Ok(Some(
+        return Ok(Some((
             json!({"state": "sent", "id": id, "seq": seq, "replayed": true}),
-        ));
+            None,
+        )));
     }
     let history = io
         .device(json!({"op": "meta", "key": HISTORY}))
         .await
         .map_err(denied)?;
-    Ok(history_receipt(&history, id))
+    let dispatched = history_entry(&history, id)
+        .and_then(|kept| kept.get("store_id").filter(|v| v.is_string()).cloned());
+    Ok(history_receipt(&history, id).map(|known| (known, dispatched)))
 }
 
 /// `flushOnce`: send the outbox in order, one at a time, at most once each.
@@ -621,8 +641,8 @@ async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
         let Some(entry) = queued_entry(io, &id).await? else {
             continue;
         };
-        if let Some(known) = recover(io, shared, &entry).await? {
-            settle(io, shared, &id, known, None).await?;
+        if let Some((known, dispatched)) = recover(io, shared, &entry).await? {
+            settle(io, shared, &id, known, None, dispatched.as_ref()).await?;
             settled = true;
             continue;
         }
@@ -678,7 +698,7 @@ async fn flush(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
         };
         let revalidated =
             (json["replayed"] == true && json["store_id"] == binding).then_some(&binding);
-        settle(io, shared, &id, outcome, revalidated).await?;
+        settle(io, shared, &id, outcome, revalidated, Some(&binding)).await?;
         settled = true;
     }
     Ok(settled)

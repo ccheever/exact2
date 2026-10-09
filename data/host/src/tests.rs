@@ -101,10 +101,12 @@ impl Drop for Paths {
 #[derive(Clone)]
 struct Fixture {
     request: Request,
+    grants: &'static str,
 }
 impl Fixture {
     fn new() -> Self {
         Self {
+            grants: GRANTS,
             request: storage::request(
                 "fs.writeFile",
                 json!({"path":"app:/data/note","text":"hello"}),
@@ -117,7 +119,7 @@ impl DataSource for Fixture {
         "com.exact.storage-test"
     }
     fn grants(&self) -> &str {
-        GRANTS
+        self.grants
     }
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
         Ok(Value::Number(7.))
@@ -647,6 +649,194 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     );
     assert!(gone.unwrap_err().contains("no such document"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Exercise the activated Rust storage continuation, not only path resolution.
+#[test]
+#[cfg(unix)]
+fn chosen_folders_refuse_symlinks_for_every_document_operation() {
+    use std::os::unix::fs::symlink;
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside").unwrap();
+    symlink(outside.join("secret"), folder.join("link")).unwrap();
+    symlink(&outside, folder.join("dir-link")).unwrap();
+    let doc = exact_data::documents::mint(&folder, 9002).unwrap();
+    let mut host = Storage::new(Fixture {
+        grants: "fs.read doc:/\nfs.write doc:/",
+        ..Fixture::new()
+    });
+    host.activate().unwrap();
+    let mut call = |op: &str, relative: &str| {
+        run(
+            &mut host,
+            storage::request(
+                op,
+                json!({"path":format!("{doc}/{relative}"),"text":"inside"}),
+            ),
+        )
+    };
+    for path in ["link", "dir-link/secret"] {
+        for op in [
+            "fs.readFile",
+            "fs.writeFile",
+            "fs.appendFile",
+            "fs.atomicWriteFile",
+            "fs.stat",
+            "fs.readdir",
+            "fs.mkdir",
+            "fs.rm",
+        ] {
+            let error = call(op, path).unwrap_err();
+            assert!(error.contains(&doc), "{op}: {error}");
+            assert!(
+                !error.contains(root.0.to_str().unwrap()),
+                "physical path leaked: {error}"
+            );
+        }
+    }
+    assert!(call("fs.mkdir", "dir-link/new/deep").is_err());
+    assert!(!outside.join("new").exists());
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret")).unwrap(),
+        "outside"
+    );
+    call("fs.mkdir", "sub/deep").unwrap();
+    call("fs.writeFile", "sub/deep/note").unwrap();
+    call("fs.appendFile", "sub/deep/note").unwrap();
+    assert_eq!(
+        call("fs.readFile", "sub/deep/note").unwrap()["base64"],
+        exact_runner::agent::base64(b"insideinside")
+    );
+    assert!(call("fs.rm", "sub/deep").unwrap_err().contains("not empty"));
+    call("fs.atomicWriteFile", "sub/deep/note").unwrap();
+    call("fs.rm", "sub/deep/note").unwrap();
+    call("fs.rm", "sub/deep").unwrap();
+    assert_eq!(call("fs.readdir", "sub").unwrap(), json!([]));
+    // Metadata, deletion and atomic replacement require no read permission on
+    // the file being replaced; the directory's own authority is enough.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(folder.join("reference-mode"), "old").unwrap();
+    std::fs::create_dir(folder.join("reference-dir")).unwrap();
+    call("fs.writeFile", "doc-mode").unwrap();
+    let mode = |name: &str| {
+        std::fs::metadata(folder.join(name))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    };
+    assert_eq!(mode("doc-mode"), mode("reference-mode"));
+    assert_eq!(mode("sub"), mode("reference-dir"));
+    std::fs::write(folder.join("write-only"), "old").unwrap();
+    std::fs::set_permissions(
+        folder.join("write-only"),
+        std::fs::Permissions::from_mode(0o200),
+    )
+    .unwrap();
+    assert_eq!(call("fs.stat", "write-only").unwrap()["size"], 3);
+    call("fs.atomicWriteFile", "write-only").unwrap();
+    std::fs::set_permissions(
+        folder.join("write-only"),
+        std::fs::Permissions::from_mode(0o200),
+    )
+    .unwrap();
+    call("fs.rm", "write-only").unwrap();
+    // A symlink explicitly chosen by the person still selects its target.
+    let selected = exact_data::documents::mint(&folder.join("link"), 9002).unwrap();
+    assert_eq!(
+        run(
+            &mut host,
+            storage::request("fs.readFile", json!({"path":selected}))
+        )
+        .unwrap()["base64"],
+        exact_runner::agent::base64(b"outside")
+    );
+    let save = exact_data::documents::mint(&folder.join("new.txt"), 9002).unwrap();
+    run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":save,"text":"saved"})),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(folder.join("new.txt")).unwrap(),
+        "saved"
+    );
+    exact_data::documents::forget(9002);
+}
+
+#[test]
+#[cfg(unix)]
+fn document_work_stays_on_the_selected_directory_during_path_swaps() {
+    use std::os::unix::fs::symlink;
+    use std::sync::{atomic::AtomicBool, Arc};
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(folder.join("note"), "inside").unwrap();
+    std::fs::write(outside.join("note"), "outside").unwrap();
+    let doc = exact_data::documents::mint(&folder, 9003).unwrap();
+    std::fs::rename(&folder, root.0.join("moved")).unwrap();
+    symlink(&outside, &folder).unwrap();
+    let mut host = Storage::new(Fixture {
+        grants: "fs.read doc:/\nfs.write doc:/",
+        ..Fixture::new()
+    });
+    host.activate().unwrap();
+    let mut call = |op: &str, name: &str| {
+        run(
+            &mut host,
+            storage::request(op, json!({"path":format!("{doc}/{name}"),"text":"written"})),
+        )
+    };
+    assert_eq!(
+        call("fs.readFile", "note").unwrap()["base64"],
+        exact_runner::agent::base64(b"inside")
+    );
+    call("fs.writeFile", "note").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("moved/note")).unwrap(),
+        "written"
+    );
+    let moved = root.0.join("moved");
+    symlink(outside.join("note"), moved.join("race")).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let swaps = Arc::new(AtomicU64::new(0));
+    let attacker = std::thread::spawn({
+        let stop = stop.clone();
+        let swaps = swaps.clone();
+        let outside = outside.clone();
+        move || {
+            while !stop.load(Ordering::Acquire) {
+                std::fs::write(moved.join("swap"), "inside").unwrap();
+                std::fs::rename(moved.join("swap"), moved.join("race")).unwrap();
+                symlink(outside.join("note"), moved.join("swap")).unwrap();
+                std::fs::rename(moved.join("swap"), moved.join("race")).unwrap();
+                swaps.fetch_add(1, Ordering::Release);
+            }
+        }
+    });
+    for _ in 0..128 {
+        if let Ok(value) = call("fs.readFile", "race") {
+            assert_ne!(value["base64"], exact_runner::agent::base64(b"outside"));
+        }
+        let _ = call("fs.writeFile", "race");
+        let _ = call("fs.appendFile", "race");
+        let _ = call("fs.rm", "race");
+    }
+    stop.store(true, Ordering::Release);
+    attacker.join().unwrap();
+    assert!(swaps.load(Ordering::Acquire) > 0);
+    assert_eq!(
+        std::fs::read_to_string(outside.join("note")).unwrap(),
+        "outside"
+    );
+    exact_data::documents::forget(9003);
 }
 
 /// A drive that names no scratch store (trivia F7): the request is answered,

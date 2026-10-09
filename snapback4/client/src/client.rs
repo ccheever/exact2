@@ -155,6 +155,8 @@ pub(crate) struct Unpersisted {
     pub id: String,
     pub outcome: Json,
     pub revalidated: Option<Json>,
+    /// The store the write was sent to: a late success settles only there.
+    pub dispatched: Option<Json>,
     pub kept: bool,
 }
 
@@ -370,15 +372,24 @@ impl Client {
         ))
     }
 
-    /// Whether the device answers the query `name` from its partition: every
-    /// table it or its rules read is synced here. A query over an `online
-    /// only` table or view is the server's to answer (`POST /q/<name>`); the
-    /// device would answer it with unknown coverage, an empty page that only
-    /// looks like an answer.
-    pub fn answers_on_device(&mut self, core: &mut dyn Core, name: &str) -> Result<bool, String> {
+    /// Who answers the query `name`: `"server"` when it reads a table or view
+    /// the device does not sync (`online only`: the device would answer with
+    /// unknown coverage, an empty page that only looks like an answer),
+    /// `"held"` when the schema holds it to the device
+    /// (`schema.operations.<name>.held`: never ask the server), else
+    /// `"device"` (CLIENT-AND-OPERATIONS.md, "The device reply").
+    pub fn route(&mut self, core: &mut dyn Core, name: &str) -> Result<&'static str, String> {
         self.require_open(core)?;
         let backend = ok(core.call(json!({"op": "backend"})))?;
-        Ok(crate::backend::predictable(&backend, name))
+        let held = &backend["schema"]["operations"][name]["held"];
+        if !held.is_null() && *held != Json::Bool(false) {
+            return Ok("held");
+        }
+        Ok(if crate::backend::predictable(&backend, name) {
+            "device"
+        } else {
+            "server"
+        })
     }
 
     /// Admit a write: kept in the outbox and predicted in one device commit.
@@ -630,7 +641,7 @@ impl Client {
         let mut held: Vec<Json> = shared
             .unpersisted
             .iter()
-            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated}))
+            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated, "dispatched": held.dispatched}))
             .collect();
         for (id, outcome) in &shared.outcomes {
             if !shared.unpersisted.iter().any(|held| &held.id == id) {
@@ -657,6 +668,7 @@ impl Client {
                 id: id.into(),
                 outcome: item["outcome"].clone(),
                 revalidated: item.get("revalidated").filter(|v| !v.is_null()).cloned(),
+                dispatched: item.get("dispatched").filter(|v| !v.is_null()).cloned(),
                 kept: false,
             });
         }

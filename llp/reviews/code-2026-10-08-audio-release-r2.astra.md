@@ -1,0 +1,17 @@
+- **Should-fix — failed video holds still skip retries.** [VideoModule.swift:260](/private/tmp/bsky4-rv/wt-au/host/apple/Sources/ExactKit/VideoModule.swift:260). A transient activation failure leaves `holdsSession` false, but `last` already contains the attempted props. Subsequent identical updates return before retrying acquisition, potentially leaving an unmuted player or metadata claimant on `.ambient`. Reconcile pending acquisition before the props-equality guard. Test a failed acquisition followed by a successful update with identical props. **Astra/Grok’s acquisition finding is only partially resolved:** stale tokens are fixed; retry remains broken.
+
+- **Should-fix — the new test cannot detect premature or missing deactivation.** [AudioSessionIOSTests.swift:34](/private/tmp/bsky4-rv/wt-au/host/apple/tests/ExactKitTests/AudioSessionIOSTests.swift:34). Its “player” is an empty `Holder`, and every assertion reads `category`. Reintroducing deactivation during playback—or deleting deactivation entirely—still passes. Add a running-player test asserting time advances across re-mute, and verify deactivation waits for the last player. Cover failed acquisition and muted/source-less metadata claimants. Register cleanup before throwing calls: a failure after `playerCame` currently leaks membership because `tearDown` only restores the configured category. tvOS remains excluded. **Round-1’s test finding remains unresolved.**
+
+- **Nit — AVKit’s mute control still bypasses accounting.** [VideoModule.swift:266](/private/tmp/bsky4-rv/wt-au/host/apple/Sources/ExactKit/VideoModule.swift:266). Muting through fullscreen controls changes `AVPlayer.isMuted`, while the hold follows authored props. Playback ownership therefore survives native mute; native unmute can likewise miss acquisition. Forward actual mute changes to session accounting, preserving the metadata override. **Grok’s fullscreen nit remains unresolved.**
+
+The earlier blockers are otherwise addressed:
+
+- **Astra’s live-player deactivation blocker: resolved.** Re-mute reaches the player before release; the live-player set prevents deactivation until teardown has paused and cleared the player. Grok’s demand for automatic podcast resumption on re-mute is reasonably superseded by the explicitly revised behavior.
+- **Active category changes: reasonably supported.** Apple permits them and documents an immediate route change. That supports this approach, though playback continuity still needs the test above. [Apple’s API contract](https://developer.apple.com/documentation/avfaudio/avaudiosession/setcategory(_:)).
+- **Astra’s Now Playing blocker: resolved.** `mediaTitle` independently preserves the hold across mute, pause and source removal, matching the coordinator’s claimant lifetime.
+- **Accounting:** successful creation registers once; missing modules/handles acquire nothing; agent mode registers neither players nor holders; repeated invalidation is harmless. The permanent sound/canvas token matches the stated design.
+- **Grok’s threading nit:** unchanged, but reasonably nonblocking because current callers serialize on main.
+
+Host tests were reviewed, not run under the read-only restriction.
+
+**Landing should wait for the failed-retry fix and its regression test.**

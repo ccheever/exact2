@@ -133,6 +133,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
+  The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile
+  host-dev -p llp-terminal`, then `./target/host-dev/llp [llp/ or a document]`.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

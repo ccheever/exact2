@@ -81,7 +81,12 @@ export interface Status {
 export interface Device { call(request: Request): Promise<Request>; close?(): Promise<boolean | void>; healthy?(): boolean }
 
 /** Exact's native module, when the app links `exact_snapback4::Module`. */
-export interface NativeModule { call(request: Request): unknown }
+export interface NativeModule {
+  call(request: Request): unknown;
+  /** False at bake (and on a host that configured no module): the device's
+   * fact, not the build's. */
+  readonly available?: boolean;
+}
 
 export interface Options {
   /** The app's id: the web partition's identity (natively, the baked one). */
@@ -135,13 +140,15 @@ interface Partition {
   clients: number;
   /** The rounds, one after another: a `sync()` while one runs waits its turn. */
   rounds: Promise<unknown>;
+  /** The exchange of a round that stopped and could not be cancelled then. */
+  abandoned?: string;
   refreshing?: Promise<Refreshed>;
   /** The change poll in flight: a second `poll()` shares it (a second poll
    * would supersede the first, whose reply the client then refuses). */
   polling?: Promise<boolean>;
   /** Which queries the server answers, by name; forgotten after each round
    * (a round can adopt a new backend). */
-  routes: Map<string, 'device' | 'server'>;
+  routes: Map<string, 'device' | 'server' | 'held'>;
   /** Its entry in `partitions`, while it is there. */
   entry?: Promise<Partition>;
   /** The last client closed it: a new `open` makes another. */
@@ -168,6 +175,12 @@ function refusal(code: string, message: string, extra: Partial<Refusal> = {}): E
 }
 
 async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
+  // At bake there is no module (and no storage): refused as storage is then,
+  // `kind: 'Unavailable'`, `code: 'bake'`, so the bake leaves the answer to
+  // the device and an app needs one check for it on every executor.
+  if (options.native && options.native.available === false) {
+    throw Object.assign(new Error('Snapback4: the native module is not available: at bake the device answers when the app runs; at run time, link exact_snapback4::Module (README)'), { kind: 'Unavailable', code: 'bake' });
+  }
   await page.closing.get(path)?.catch(() => undefined);
   const device = options.native
     ? nativeDevice(options.native)
@@ -259,20 +272,27 @@ export class Snapback {
     await this.ready();
     let route = this.partition.routes.get(name);
     if (!route) {
-      route = ok<'device' | 'server'>(await this.call({ op: 'route', name }));
+      route = ok<'device' | 'server' | 'held'>(await this.call({ op: 'route', name }));
       this.partition.routes.set(name, route);
     }
     if (route === 'server') return this.serverRead<T>(name, args);
     const local = ok<Read<T>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
-    // A read the device cannot vouch for (a total past its sync horizon, a
-    // point it has not acquired) asks the server, as Snapback's own client
-    // does, unless a write here is still unsent: then the device's
-    // prediction stands until a round settles it.
-    if (local.loading !== true && local.speculative !== true) return local;
-    const queued = (await this.status()).queued ?? [];
-    if (queued.length) return local;
+    // Whose answer (CLIENT-AND-OPERATIONS.md, "The device reply"): the
+    // device's when it is not `unknown`, when it is `retained` history, or
+    // when the schema holds the query to the device; otherwise the server's.
+    // `E_PREDICT`/`E_NATIVE` with `unknown` mean evaluation never began.
+    if (route === 'held' || local.unknown !== true || local.retained === true) return local;
+    // The prediction fence, coarse: while any write is queued, the device's
+    // answer (with its predicted rows) stands; a speculative one is not an
+    // answer, so it shows as loading. Checked again when the server replies.
+    const placeholder = (extra: Partial<Read<T>>): Read<T> =>
+      local.speculative === true || local.loading === true
+        ? { loading: true, unknown: true, ...extra }
+        : { ...local, ...extra };
+    if (((await this.status()).queued ?? []).length) return placeholder({});
     const served = await this.serverRead<T>(name, args);
-    if (served.denied?.code === 'E_OFFLINE') return { ...local, offline: true };
+    if (served.denied?.code === 'E_OFFLINE') return placeholder({ offline: true });
+    if (((await this.status()).queued ?? []).length) return placeholder({});
     return served;
   }
 
@@ -361,19 +381,31 @@ export class Snapback {
   }
 
   private async round(): Promise<Round> {
+    const partition = this.partition;
+    // A round an earlier answer could neither finish nor cancel is cancelled
+    // first. Natively that is a superseded answer's round: its reply still
+    // comes, but the device refuses calls once its answer has ended, and
+    // left there the client would answer `busy` to every round after it.
+    const abandoned = partition.abandoned;
+    if (abandoned !== undefined) {
+      await this.call({ op: 'cancel', exchange: abandoned });
+      if (partition.abandoned === abandoned) partition.abandoned = undefined;
+    }
     let step = ok<{ fetch?: Request; done?: Round }>(await this.call({ op: 'sync' }));
     try {
       while (step.fetch) {
-        const exchange = step.fetch.exchange;
-        const reply = await this.exchange(step.fetch);
-        try { step = ok(await this.call({ op: 'deliver', exchange, reply })); }
-        catch (error) {
-          // Only this round's own exchange can be cancelled.
-          await this.call({ op: 'cancel', exchange }).catch(() => undefined);
+        const exchange = step.fetch.exchange as string;
+        try {
+          const reply = await this.exchange(step.fetch);
+          step = ok(await this.call({ op: 'deliver', exchange, reply }));
+        } catch (error) {
+          // Only this round's own exchange can be cancelled; one that cannot
+          // be now is cancelled by the next round.
+          await this.call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
           throw error;
         }
       }
-    } finally { this.partition.routes.clear(); }
+    } finally { partition.routes.clear(); }
     const done = step.done ?? { ok: false };
     if (done.ok) this.partition.opened = true;
     return done;

@@ -512,8 +512,9 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
     );
     live.data().load().unwrap();
     let error = live.data_ready().unwrap_err();
+    // A storage refusal fails with the `storage` failure code (LLP 1109 D3).
     assert!(
-        format!("{error:?}").contains("Unavailable"),
+        format!("{error:?}").contains("Failed(Storage"),
         "runtime storage refusal remains a failure: {error:?}"
     );
     f.write(

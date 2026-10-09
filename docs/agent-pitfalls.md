@@ -55,6 +55,13 @@ guide's rules don't make obvious.
   `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
   (Fresh-agent README trial, 2026-10-04.)
 
+- **A list of buttons is ragged: each is only as wide as its text.** A `button`
+  directly in a `scroll` or another block container shrinks to fit, so a row's
+  `flex-grow` title never grows and its trailing columns sit right after it.
+  Cause: as on the web, a button is `inline-block`; only a flex item, or one given
+  a width, fills its line. Fix: `width="100%"` on the button, or put the rows in
+  a `column`. (The LLP terminal reader's document tree, 2026-10-08.)
+
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
   beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
@@ -133,6 +140,19 @@ guide's rules don't make obvious.
   `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
   that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **An "on return" task also runs at every launch.** Cause: a gated task arms
+  when its gate becomes true and at boot when it is already true (LLP 1092 D8),
+  and the page is `visible` at launch: `task returned when page.visibilityState
+  == "visible"` with `after(1, onVisible)` runs `onVisible` once at launch and
+  once after each return from the background. A gate follows a state; it is not
+  an event. Fix: have the action skip its own first run (`if launched` … then
+  `launched = true`); it then hears every return. To keep the run out of the
+  launch as well, latch the hide (`task hid when page.visibilityState ==
+  "hidden"` with `after(1, markHidden)` setting `wasHidden`) and gate the return
+  on `wasHidden and page.visibilityState == "visible"`, clearing `wasHidden` in
+  its action: that misses a return which lands before the hide's timer has fired
+  (`prefer visibility-state hidden` then `visible` with no clock step between).
+  (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -255,14 +275,6 @@ guide's rules don't make obvious.
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
 
-- **An empty date input can still show a date on iOS.** `input type="date" value=""`
-  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
-  the last date in one whose value was cleared (`time` and `datetime-local` share the
-  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
-  show the field's emptiness yourself (a "Not set" label beside it), and validate
-  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
-  2026-10-05.)
-
 ## Actions
 
 - **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
@@ -356,6 +368,14 @@ guide's rules don't make obvious.
   1098 D8.)
 
 ## Input
+
+- **A keyboard shortcut does nothing.** Two causes, both as on the web.
+  `aria-keyshortcuts` belongs to a node that must be on the screen: a button with
+  `display="none"` (a "hidden" shortcut holder) is not, so its key never fires; give
+  the key a visible control (a status line of keys, as the LLP reader's) or handle
+  it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
+  key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
+  a terminal too, where a typed capital is reported as `Shift+N`).
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no
@@ -482,8 +502,20 @@ guide's rules don't make obvious.
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+- **`showPicker("x")` names the input's `id`, not its `testId`.** With only
+  `testId="x"` the press opens no picker, and a drive's `type @x photo.jpg`
+  answers `no held device request … (held: none)`. Fix: give the
+  `input type="file"` both, `id="x" testId="x"`. (Interview's profile photo,
+  LLP 1108, 2026-10-08.)
 
 ## Driving and testing
+
+- **Asserting a boot loading state against a live backend is a race.** The
+  real reply lands on real time, and under load it can arrive before the first
+  `expect`, so `expect tree has "loading"` passes once and fails once. Assert
+  loading against a stand-in server that answers late, never by racing the real
+  one; `fail fetch` (LLP 1103) tests the error state and its retry, not loading.
+  (Authoring bench, LLP 1087, t3-recipes, Studio, 2026-10-08.)
 
 - **On the web, a save still in flight when the tab closes is lost.** A
   `storage.fs` write is one IndexedDB transaction, and the browser drops a

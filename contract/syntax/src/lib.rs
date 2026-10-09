@@ -130,6 +130,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     "showSaveFilePicker",
     // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
     "scrollIntoView",
+    // @ref LLP 1101.004 R3 — `Element.scrollBy(x, y)` by the scroller's
+    // `id`, in pixels: a reader's `j` and `k`.
+    "scrollBy",
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",

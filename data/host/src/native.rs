@@ -259,7 +259,7 @@ fn documents(path: &str) -> Result<fs::Document, String> {
     use exact_data::documents::{resolve, Resolved};
     Ok(match resolve(path)? {
         Resolved::Root(name) => fs::Document::Root(name),
-        Resolved::Real(real) => fs::Document::Real(real),
+        Resolved::Real { directory, path } => fs::Document::Real { directory, path },
     })
 }
 /// A scripted drive's answer when it names no scratch store: the web's

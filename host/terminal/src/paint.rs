@@ -31,6 +31,9 @@ pub struct Painted {
     pub images: Vec<(ViewId, CellRect)>,
     /// The open top layer's cells, when one is painted.
     pub layer: Option<CellRect>,
+    /// Inline runs a click reaches (a `text` inside a paragraph, as an
+    /// HTML `a` or `span` is): the run's node and its cells on one line.
+    pub runs: Vec<(ViewId, CellRect)>,
 }
 
 /// What the walk needs from the host.
@@ -64,6 +67,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         scrollers: Vec::new(),
         images: Vec::new(),
         layer: None,
+        runs: Vec::new(),
     };
     let clip = out.grid.bounds();
     let dy = top as f32 * ROW;
@@ -75,6 +79,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         out.grid.dim();
         out.hits.clear();
         out.scrollers.clear();
+        out.runs.clear();
         let (dx, ldy) = placement(scene, layer, cols, rows, dy);
         if let Some(n) = scene.kernel.node(layer) {
             let f = n.frame;
@@ -580,11 +585,33 @@ fn text(
                 exact_kernel::TextAlign::Center => slack / 2,
                 _ => 0,
             };
+        let mut reach: Option<(ViewId, CellRect)> = None;
         for glyph in &line.glyphs {
             let style = styles.get(glyph.run).copied().unwrap_or_default();
             out.grid.put(x, y, &glyph.text, glyph.cols, style, inner);
+            // The run's own node, where it has one (not the paragraph's):
+            // its cells on this line, for a click.
+            let leaf = ids
+                .get(glyph.run)
+                .filter(|id| ids.len() == runs.len() && **id != n.id);
+            match (leaf, &mut reach) {
+                (Some(id), Some((at, r))) if at == id => r.w += glyph.cols as i32,
+                (Some(id), _) => {
+                    out.runs.extend(reach.take());
+                    let r = CellRect {
+                        x,
+                        y,
+                        w: glyph.cols as i32,
+                        h: 1,
+                    };
+                    reach = Some((*id, r));
+                }
+                (None, _) => out.runs.extend(reach.take()),
+            }
             x += glyph.cols as i32;
         }
+        out.runs
+            .extend(reach.take().map(|(id, r)| (id, r.intersect(inner))));
     }
 }
 

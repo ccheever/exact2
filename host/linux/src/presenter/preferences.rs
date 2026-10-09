@@ -114,6 +114,16 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// The safe-area insets (top, right, bottom, left; points) the window's
+    /// edges reserve: a host drawing under a status bar reports them here.
+    pub fn set_safe_area(&mut self, insets: [f32; 4]) -> Option<String> {
+        match self.host.set_safe_area(insets) {
+            Ok(true) => self.after_commit(),
+            Ok(false) => None,
+            Err(e) => Some(e),
+        }
+    }
+
     /// The system's appearance, which `setScheme("system")` follows.
     pub fn set_system_scheme(&mut self, dark: bool) {
         self.scheme.1 = dark;

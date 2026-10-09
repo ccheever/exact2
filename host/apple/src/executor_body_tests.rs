@@ -84,10 +84,18 @@ fn upload(path: &str) -> Request {
     request
 }
 
+/// Every file body counts against the process's `MAX_READERS`, so the tests
+/// that send them take turns rather than refuse each other.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 const GRANTS: &str = "net.fetch https://example.test\nfs.read app:/tmp";
 
 #[test]
 fn a_body_from_an_app_file_reaches_the_transport_byte_for_byte() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     let bytes: Vec<u8> = (0..300_000u32).map(|i| (i * 7 + i / 255) as u8).collect();
     std::fs::write(files.0.join("tmp/photo.jpg"), &bytes).unwrap();
@@ -126,6 +134,7 @@ fn a_body_from_an_app_file_reaches_the_transport_byte_for_byte() {
 
 #[test]
 fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_body() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"photo").unwrap();
     std::fs::write(files.0.join("data/note"), b"note").unwrap();
@@ -166,28 +175,121 @@ fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_bod
     assert!(sent.lock().unwrap().is_empty(), "a refused body was sent");
 }
 
-/// The app's directories are opened when the host names them and pinned: a
-/// root replaced later by a symlink to another tree is not followed, as
-/// storage's own handles do not follow it.
+/// The app's directories are opened at the first request whose body is one
+/// of the app's files (not at boot: a cold boot opens no app storage) and
+/// pinned from then on: a root replaced later by a symlink to another tree is
+/// not followed, as storage's own handles do not follow it.
 #[cfg(unix)]
 #[test]
-fn a_root_replaced_after_the_host_named_it_is_not_followed() {
+fn a_root_replaced_after_the_first_file_body_is_not_followed() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     let other = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
     std::fs::write(other.0.join("tmp/photo.jpg"), b"another's").unwrap();
     let (core, sent, woke) = recording(GRANTS);
     core.set_app_roots(files.roots());
+    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    collect(&core, &woke, 1);
     std::fs::rename(files.0.join("tmp"), files.0.join("tmp-moved")).unwrap();
     std::os::unix::fs::symlink(other.0.join("tmp"), files.0.join("tmp")).unwrap();
-    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+    core.run(job(2, upload("app:/tmp/photo.jpg")), None)
         .unwrap();
     let outcomes = collect(&core, &woke, 1);
     assert!(
         matches!(&outcomes[0].1, Outcome::Response(_)),
         "{outcomes:?}"
     );
-    assert_eq!(sent.lock().unwrap()[0].0, b"the app's");
+    let sent = sent.lock().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].0, b"the app's", "the replaced root was followed");
+}
+
+/// Naming the app's directories opens nothing, nor does a request without a
+/// file body: a host whose app never sends one leaves them uncreated (a cold
+/// boot opens no app storage).
+#[test]
+fn naming_the_roots_does_not_make_them() {
+    let base = std::env::temp_dir().join(format!(
+        "exact-roots-{}-{}",
+        std::process::id(),
+        ibex2::stdlib::crypto::random_uuid().unwrap()
+    ));
+    let roots = ["data", "cache", "tmp"].map(|d| base.join(d));
+    let (core, _sent, woke) = recording(GRANTS);
+    core.set_app_roots(roots);
+    core.run(job(1, Request::get("https://example.test/read")), None)
+        .unwrap();
+    collect(&core, &woke, 1);
+    assert!(
+        !base.exists(),
+        "naming the roots, or a plain request, made them"
+    );
+}
+
+/// A root that is already a symbolic link when the first file body opens
+/// the roots is refused, not pinned; nothing is sent or made, and the
+/// refusal stands once the link is gone (Grok, Astra: review).
+#[cfg(unix)]
+#[test]
+fn a_root_that_is_a_symlink_at_the_first_file_body_is_refused() {
+    let _turn = one_at_a_time();
+    let files = Files::new();
+    let other = Files::new();
+    std::fs::write(other.0.join("tmp/photo.jpg"), b"another's").unwrap();
+    std::fs::remove_dir(files.0.join("data")).unwrap();
+    std::fs::remove_dir(files.0.join("tmp")).unwrap();
+    std::os::unix::fs::symlink(other.0.join("tmp"), files.0.join("tmp")).unwrap();
+    let (core, sent, woke) = recording(GRANTS);
+    core.set_app_roots(files.roots());
+    let refused = |outcomes: &[(u64, Outcome)]| {
+        matches!(&outcomes[0].1, Outcome::Failed { kind: FailureKind::Refused, message }
+            if message.contains("is a symbolic link"))
+    };
+    core.run(job(1, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(refused(&outcomes), "{outcomes:?}");
+    assert!(!files.0.join("data").exists(), "a refused open made a root");
+    std::fs::remove_file(files.0.join("tmp")).unwrap();
+    std::fs::create_dir(files.0.join("tmp")).unwrap();
+    std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
+    core.run(job(2, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(refused(&outcomes), "{outcomes:?}");
+    assert!(
+        sent.lock().unwrap().is_empty(),
+        "the symlinked root was followed"
+    );
+}
+
+/// A stream's body read from an app file opens the roots when it is the
+/// first file body, as a worker's request does (Astra, Grok: review).
+#[test]
+fn a_stream_whose_body_is_the_first_app_file_opens_the_roots() {
+    let _turn = one_at_a_time();
+    let files = Files::new();
+    std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
+    let (core, sent, _woke) = recording(GRANTS);
+    let streamed = sent.clone();
+    let core = core.streams_on(move || {
+        ibex2::host::Host::with_transport(Box::new(Recorder(streamed.clone())))
+    });
+    core.set_app_roots(files.roots());
+    let mut request = upload("app:/tmp/photo.jpg");
+    request.stream = true;
+    request.http = HttpScheduling::Independent {
+        max_response_bytes: 1 << 20,
+    };
+    core.run(job(1, request), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while sent.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let sent = sent.lock().unwrap();
+    assert_eq!(sent.first().map(|s| &s.0[..]), Some(&b"the app's"[..]));
 }
 
 /// A read that outlasts the request's deadline does not hold it: the worker

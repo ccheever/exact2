@@ -112,6 +112,24 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  if (op === "doc-link") {
+    const steps = [
+      () => storage.fs.readFile(value),
+      () => storage.fs.writeFile(value, bytes("written")),
+      () => storage.fs.appendFile(value, bytes("appended")),
+      () => storage.fs.atomicWriteFile(value, bytes("atomic")),
+      () => storage.fs.stat(value),
+      () => storage.fs.readdir(value),
+      () => storage.fs.mkdir(value),
+      () => storage.fs.rm(value),
+    ];
+    const out: string[] = [];
+    for (const step of steps) {
+      try { await step(); out.push("allowed"); }
+      catch (error: any) { out.push(error.message.includes("doc:/") ? "refused" : "wrong namespace"); }
+    }
+    return {text: out.join(" ")};
+  }
   // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
   // listed, read, written beside, and refused past what it holds.
   if (op === "doc") {

@@ -55,9 +55,9 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.4.13**: the CLI is pinned in `bun.lock`;
+Snapback4 consumers use release **0.4.16**: the CLI is pinned in `bun.lock`;
 Cargo pins the device and its client to the matching release source commit
-`67b2ce28a3823f3dd1728dc4a2421995e1b12ac8`. `snapback4/` is one client for an
+`468d3aa5be3eee914883e37f3ab0424030ac882d`. `snapback4/` is one client for an
 app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
 the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
@@ -628,7 +628,13 @@ each voice ended is the same on every host and under the driver's clock
 Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
 root `audio_session` is the Apple audio session every sound, video and canvas
 shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
-audio keeps playing) or `"playback"`. WebKit's Audio Session API takes it too;
+audio keeps playing) or `"playback"`. Under `"playback"` the session is held
+only while something has sound: the sound arm and a canvas's audio once they
+start, a `video` or `audio` while it has a source and is not muted, and a
+media-session claimant (`metadata=`, which Now Playing needs). When the last
+of those is muted or gone, the session goes back to ambient, which mixes with
+other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
+paused podcast resumes, once no player is left. WebKit's Audio Session API takes it too;
 the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
@@ -730,7 +736,11 @@ for (const name of await storage.fs.readdir(folder)) {
 | `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
-refused. A document needs no app storage: a drive without `--storage` reaches
+refused. Native folder handles retain the selected directory even if its
+pathname moves. Descendant symlinks and Windows reparse points are refused,
+including in intermediate folders; explicitly choosing a file through a
+symlink still selects its target. A native selection whose filename is not
+valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
 it. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
