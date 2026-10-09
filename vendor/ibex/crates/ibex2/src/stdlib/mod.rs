@@ -10,6 +10,8 @@ pub mod crypto;
 pub mod events;
 pub mod fetch;
 pub mod fs;
+// Exact patch 9: `fs.compressImage`.
+mod fs_image;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]
 pub(crate) mod intl;
 #[cfg(all(feature = "intl", any(target_os = "linux", windows)))]

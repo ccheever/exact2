@@ -204,7 +204,7 @@ extension Agent {
     /// offset — every enclosing scroll node's offset folded in — with the
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
+    package func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport
@@ -423,21 +423,34 @@ extension Agent {
     /// view whose middle is out of view is scrolled to the middle of each
     /// enclosing scroll view it is outside of, innermost first, then the
     /// page's — as the web's `scrollIntoView` does there (block centre,
-    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
-    /// as far as each one's range allows; their delegates tell the app, as a
-    /// finger's scroll does.
+    /// inline only as far as it takes) — unanimated, as far as each one's
+    /// range allows; their delegates tell the app, as a finger's scroll does.
+    /// In view is what a person sees: inside the scroll view's insets, as the
+    /// presenter's own reveal of a focused field measures it, so the bars and,
+    /// under the default `interactive-widget`, the keyboard (the viewport's
+    /// bottom inset) are out of view. `overlays-content` insets nothing, so
+    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
+        // The keyboard's top in the window, as the presenter last applied it.
+        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
         var scrolled = false
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
+            var port = sv.bounds.inset(by: i)
+            if let keyboard { port.size.height = max(0, min(port.maxY, sv.convert(CGPoint(x: 0, y: keyboard), from: nil).y) - port.minY) }
             if port.contains(mid) { continue }
-            var rect = port
-            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
-            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
-            sv.scrollRectToVisible(rect, animated: false)
-            scrolled = true
+            var o = sv.contentOffset
+            if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
+            // Inline, only as far as it takes from the side its middle is on; a
+            // target wider than the port is centred, so its middle comes in.
+            if mid.x < port.minX || mid.x >= port.maxX {
+                o.x += frame.width > port.width ? mid.x - port.midX : mid.x < port.minX ? frame.minX - port.minX : frame.maxX - port.maxX
+            }
+            o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
+            o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+            if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
         presenter.settlePump()
@@ -491,7 +504,7 @@ extension Agent {
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.menus.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
-                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
+                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active; `clock settle` first waits out a push or sheet still moving"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -590,7 +603,7 @@ extension Agent {
             }
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let point = handle.convert(offset, to: clip)
-            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            if let error = DragLink.installed?.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
             return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
         }
         if req["hover"] as? Bool == true {
@@ -633,7 +646,7 @@ extension Agent {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
             if cur.canBecomeFirstResponder {
                 // Under `retainFocus` the press takes nothing (`touchesEnded`).
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { if let node = cur as? NodeView { node.takeTouchFocus() } else { _ = cur.becomeFirstResponder() } }; took = true }
                 break
             }
             // A pressed node handles touchesEnded without forwarding it to
@@ -817,24 +830,32 @@ extension Agent {
             guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
             let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
-            if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-            else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-            else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            // A release focuses nothing: a Tab's down has already moved the
+            // focus, which its up must not take back.
+            let phase = req["phase"] as? String
+            if phase != "up" {
+                if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
             // The release's `keyup` handlers at the focus (#140): after the
             // down, or when a held key comes up. A modifier's own keydown
             // holds it and its keyup no longer does, as DOM's.
-            let phase = req["phase"] as? String, code = device.code, lone = KeyCodes.modifier(code)
+            let code = device.code, lone = KeyCodes.modifier(code)
             let downHeld = lone ? KeyCodes.held(held, name, true) : held, upHeld = lone ? KeyCodes.held(held, name, false) : held
             // A chord's modifiers are their own keys around it, as a keyboard's
             // (KeyCodes.modifierPresses; Charlie, 2026-10-07): down in order
             // before the shortcuts and the key, up in reverse after its keyup,
             // each keyup without its own bit.
             let presses = KeyCodes.modifierPresses(key)
+            // Tab's release, its modifiers' too, reaches where its down left
+            // the focus, as a keyboard's keyup reaches the focused element.
             let heardUp = { [weak presenter, weak focus] in
-                _ = presenter?.keyUp(at: focus, name, held: upHeld, code: code)
+                let at = name == "Tab" ? presenter?.focusedNode : focus
+                _ = presenter?.keyUp(at: at, name, held: upHeld, code: code)
                 for (i, m) in presses.enumerated().reversed() {
-                    _ = presenter?.keyUp(at: focus, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
+                    _ = presenter?.keyUp(at: at, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
                 }
             }
             defer {
@@ -850,7 +871,15 @@ extension Agent {
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
-            if phase != "up", !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true), let focus {
+            let unprevented = phase != "up" && !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true)
+            // Tab's default moves the focus through the sequential order, as a
+            // hardware keyboard's Tab does (`NodeView.tabCommands`), from a field
+            // or textarea too, ending its editing (blur, and change if edited);
+            // Shift goes back. From no focus it takes the first stop. The web and
+            // Linux do the same (LLP 1088 D7.3); bench t9-profile, 2026-10-08.
+            if unprevented, name == "Tab", ["Control+", "Meta+", "Alt+"].allSatisfy({ !held.contains($0) }) {
+                presenter.moveFocus(backward: held.contains("Shift+"))
+            } else if unprevented, let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }

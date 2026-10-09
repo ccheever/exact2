@@ -5,7 +5,7 @@ import { basename } from 'node:path';
 
 /** The capabilities with a Swift half, by name, and the product of
  * `Package.swift` (its `capabilities` table) each is. */
-const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists'], ['markdown', 'ExactMarkdown']];
+const SWIFT_CAPABILITIES = [['grouped_lists', 'ExactGroupedLists'], ['markdown', 'ExactMarkdown'], ['surfaces', 'ExactSurfaces'], ['drag', 'ExactDrag']];
 
 /** What the archive links (LLP 1047.001 D2, D4, D6; LLP 1047 D8): for a
  * production build, the plan's use-set, as the bake's graph names it, and the
@@ -20,6 +20,14 @@ export function appleComposition(graph, production, ahead = []) {
   const link = production && Array.isArray(uses) ? [...new Set([...uses, ...ahead])].join(',') || 'none' : 'all';
   const products = SWIFT_CAPABILITIES.filter(([name]) => link === 'all' || link.split(',').includes(name)).map(([, product]) => product);
   return { link, products };
+}
+
+/** Whether a build links by its plan (LLP 1047.001 D6): production always;
+ * a development build with `--link plan`, so a smoke runs what ships
+ * (development otherwise links everything, for the agent's whole vocabulary
+ * and plan restarts). */
+export function linksByPlan(production, args) {
+  return production || (args.includes('--link') && args[args.indexOf('--link') + 1] === 'plan');
 }
 
 /** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the

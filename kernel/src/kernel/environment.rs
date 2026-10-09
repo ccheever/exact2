@@ -8,7 +8,7 @@ impl Kernel {
         self.arena.env().clone()
     }
 
-    /// Layouts published by the kernel using any provisional native chrome.
+    /// Layouts published by the kernel using any provisional native field or button measure.
     /// Hosts count presented batches separately; relayouts can remain silent.
     pub fn provisional_layouts(&self) -> u64 {
         self.provisional_layouts
@@ -20,7 +20,7 @@ impl Kernel {
     /// Every node whose style holds an `env()` length gets its engine style
     /// re-derived and is marked dirty; returns whether any did (a layout is
     /// owed then). Changed control fonts immediately re-resolve `em` rows and
-    /// invalidate the fields that read them. Non-finite/nonpositive font sizes
+    /// invalidate the controls that read them. Non-finite/nonpositive font sizes
     /// and non-finite insets are refused. A `reset` keeps the
     /// environment: it is the host's.
     pub fn set_env(&mut self, env: Env) -> Result<bool, KernelError> {
@@ -33,6 +33,8 @@ impl Kernel {
             .with_insets(env.top, env.right, env.bottom, env.left);
         let next = Env {
             control_text_styles: env.control_text_styles,
+            button_fonts: env.button_fonts,
+            screen: env.screen,
             ..next
         };
         self.replace_env(next)
@@ -69,11 +71,12 @@ impl Kernel {
         if *self.arena.env() == env {
             return Ok(false);
         }
-        let control_changed = self.arena.env().control_text_styles != env.control_text_styles;
+        let control_changed = self.arena.env().control_text_styles != env.control_text_styles
+            || self.arena.env().button_fonts != env.button_fonts;
         let before: Vec<_> = if control_changed {
             self.arena
                 .iter_live()
-                .filter(|&s| self.arena.is_native_text_control(s))
+                .filter(|&s| self.arena.is_native_text_control(s) || self.arena.is_native_button(s))
                 .map(|s| {
                     (
                         s,

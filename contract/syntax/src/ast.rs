@@ -215,10 +215,10 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `epoch "2026-09-21T12:00:00Z"` (or Unix milliseconds): the date at
-    /// the session clock's zero, the driver's `--epoch` (habits F7).
+    /// `epoch "2026-09-21T12:00:00Z"` (or Unix milliseconds, or `now`): the
+    /// date at the session clock's zero, the driver's `--epoch` (habits F7).
     Epoch {
-        /// An ISO date or whole milliseconds, as the driver takes it.
+        /// An ISO date, whole milliseconds or `now`, as the driver takes it.
         value: String,
         /// Where.
         span: Span,

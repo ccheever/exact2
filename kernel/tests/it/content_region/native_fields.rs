@@ -324,3 +324,82 @@ fn candidate_and_retained_field_chrome_stay_provisional_until_exact_publication(
     assert!(pass(&mut k, 400.0, 1).current);
     assert_eq!(k.provisional_layouts(), settled);
 }
+
+#[test]
+fn native_button_padding_uses_the_published_region_and_shell_bases() {
+    let mut k = fixture();
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::Width, &StyleValue::Number(80.0))
+        .unwrap();
+    style
+        .set_dynamic(StyleId::Height, &StyleValue::Number(50.0))
+        .unwrap();
+    style
+        .set_dynamic(StyleId::PaddingTop, &StyleValue::Percent(10.0))
+        .unwrap();
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 7,
+                node_type: NodeType::Control,
+            },
+            Op::CreateView {
+                id: 8,
+                node_type: NodeType::Control,
+            },
+            Op::SetProp {
+                id: 7,
+                prop: PropId::Type,
+                value: "button".into(),
+            },
+            Op::SetProp {
+                id: 8,
+                prop: PropId::Type,
+                value: "button".into(),
+            },
+            Op::SetStyle {
+                id: 7,
+                patch: Box::new(style.clone()),
+            },
+            Op::SetStyle {
+                id: 8,
+                patch: Box::new(style),
+            },
+            Op::SetChildren {
+                id: 3,
+                children: vec![4, 7],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 6, 8],
+            },
+        ],
+    )
+    .unwrap();
+    register(&mut k);
+    ready(&mut k, 400.0, 1);
+    for id in [7, 8] {
+        assert_eq!(
+            k.button_face_style(id).unwrap().button.padding_top,
+            Dimension::Points(40.0)
+        );
+    }
+    let retained = pass(&mut k, 300.0, 1);
+    assert!(!retained.current);
+    assert_eq!(
+        k.button_face_style(7).unwrap().button.padding_top,
+        Dimension::Points(40.0)
+    );
+    assert_eq!(
+        k.button_face_style(8).unwrap().button.padding_top,
+        Dimension::Points(30.0)
+    );
+    ready(&mut k, 300.0, 1);
+    assert_eq!(
+        k.button_face_style(7).unwrap().button.padding_top,
+        Dimension::Points(30.0)
+    );
+}

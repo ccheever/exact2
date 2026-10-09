@@ -336,6 +336,8 @@ pub enum LayoutError {
     InvalidTextMetrics(ViewId),
     /// A host returned non-finite or negative field chrome.
     InvalidFieldChrome(ViewId),
+    /// A host returned non-finite or negative native button geometry.
+    InvalidButtonMeasure(ViewId),
     /// A sampled CSS height is non-finite or negative.
     InvalidPresentedHeight,
     /// More than one sample supplies the same generational node.

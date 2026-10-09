@@ -3,10 +3,12 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// LLP 1057.001 on UIKit: the web's `dblclick` order. Recognizer phases are set
 /// by the test (UIKit synthesizes no touches for a unit test), as elsewhere.
 final class GesturePrecedenceIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A pan whose movement the test sets.

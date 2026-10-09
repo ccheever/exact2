@@ -1,10 +1,12 @@
 // Native ordered HTTP defaults to 64 MiB; independent requests may lower it.
+// A body over it is the host refusing the response (kind `Refused`, `failure(x)`'s
+// `refused`, LLP 1109 D3), on every host and executor, as a stream's event over its ceiling is.
 export async function boundedHttpBody(response, limit) {
   if (limit == null) limit = 64 * 1024 * 1024;
   if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
   if (!response.body) return new Uint8Array();
   const reader=response.body.getReader(), chunks=[]; let size=0;
-  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Error("HTTP response exceeds limit"); if(value.length) chunks.push(value); } }
+  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Object.assign(Error("HTTP response exceeds limit"), {kind:'Refused'}); if(value.length) chunks.push(value); } }
   catch(error) { await reader.cancel().catch(()=>{}); throw error; } finally { reader.releaseLock(); }
   const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
 }
@@ -133,12 +135,12 @@ export async function waitForInflight(waiting, deadline) {
   return true;
 }
 
-import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { admitsNetwork, coversPath, grantError, scopedGrantSet } from './grant-admission.js';
 import { faultMessage, takeFault } from './faults.js';
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {} }) {
+export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {}, bodyFile }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -164,24 +166,57 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   }
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
+  if (socket && op.bodyFrom != null) return failed(2, 'exactBodyFrom: a WebSocket sends no body');
   if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
   // A deadline for the whole exchange (Request::timeout_ms): kind 10 when it
-  // passes (9 is an auth session's delivery, glue.js).
+  // passes (9 is an auth session's delivery, glue.js). A body read from a file
+  // counts against it.
   if (op.timeoutMs !== undefined && (!Number.isInteger(op.timeoutMs) || op.timeoutMs < 1 || op.timeoutMs > 3600000)) return failed(2, 'a request timeout must be 1 to 3600000 ms');
   const deadline = op.timeoutMs === undefined ? null : AbortSignal.timeout(op.timeoutMs);
+  // The same deadline as an instant, checked by the clock just before the request goes out:
+  // a body read or grant work that held the event loop past it fires no timer first.
+  const expires = op.timeoutMs === undefined ? Infinity : performance.now() + op.timeoutMs;
+  const expired = () => deadline && !controller.signal.aborted && (deadline.aborted || performance.now() >= expires);
   controllers.add(controller);
   const signal = deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal;
+  // `exactBodyFrom` (LLP 1108 D6 R2): the app file, read now under the
+  // request's `fs.read` grant into a Blob body (a picked file is its own
+  // File, never copied into a string), or refused before anything is sent.
+  let fileBody;
+  if (op.bodyFrom != null) {
+    if (!bodyFile) return failed(3, `exactBodyFrom ${op.bodyFrom}: this host has no app files (no storage here)`);
+    if (body) return failed(2, 'fetch: a request has one body: body or exactBodyFrom');
+    if (/^(GET|HEAD)$/i.test(method)) return failed(2, 'fetch: a GET or HEAD request cannot have a body');
+    if (typeof op.bodyFrom !== 'string' || !op.bodyFrom.startsWith('app:/')) return failed(2, 'exactBodyFrom must be an app:/ path');
+    if (new TextEncoder().encode(op.bodyFrom).length > 4096 || /(^|\/)\.\.?(\/|$)|\0/.test(op.bodyFrom.slice(5))) return failed(2, `exactBodyFrom ${op.bodyFrom.slice(0, 256)}: an app:/ path has no . or .. segment, and is at most 4096 bytes`);
+    // Refused before the storage adapters load, which an app without file grants does not ship.
+    if (!coversPath(effective, 'fs.read', op.bodyFrom))
+      return failed(2, `exactBodyFrom ${op.bodyFrom}: denied: fs.read ${op.bodyFrom}: no grant covers it; grant \`fs.read ${op.bodyFrom}\``);
+    // The read yields to the deadline and to letting go: nothing is sent once either has ended it.
+    if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (signal.aborted) return failed(4, 'request aborted');
+    const stopped = new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    const reading = bodyFile(op.bodyFrom, effective);
+    reading.catch(() => {}); // a read that loses the race is nobody's
+    try { fileBody = await Promise.race([reading, stopped]); }
+    catch (error) { return failed(error?.code === 'agent' ? 3 : 2, error); }
+    if (expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
+    if (signal.aborted) return failed(4, 'request aborted');
+    if (!active()) return failed(4, 'request source unloaded');
+  }
   const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal };
   if (decodedBody) init.body = decodedBody;
+  else if (fileBody) init.body = fileBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const early = !asset && moduleLoader?.claim?.(url, init);
     // @ref LLP 1103 D1, D2 — a driver fault is a refused connection, never sent; a GET
     // `fetchEarly` already sent (before the fault was armed) is not one it decides.
     if (!early && !asset && !op.stream && takeFault(url)) return failed(1, faultMessage(url));
+    if (!early && expired()) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
     const response = await (early || fetch(asset ? localAssetURL(url) : url, init));
     // A redirect that left the grants names where it led (podcast F5): the
     // browser followed it, and the response's URL is the last hop's.
@@ -195,7 +230,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   } catch (error) {
     // Whichever ended it first: the combined signal keeps the first reason.
     if (deadline && signal.aborted && signal.reason === deadline.reason) return failed(10, `the request timed out after ${op.timeoutMs} ms`);
-    return failed(controller.signal.aborted ? 4 : 1, error);
+    return failed(controller.signal.aborted ? 4 : error?.kind === 'Refused' ? 2 : 1, error);
   }
   finally { controllers.delete(controller); }
 }
@@ -203,11 +238,11 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
 // A stream on the JS target (host/web-js: rust-data.js, ts-data.js): `request`
 // over a source's request, as the wasm host runs it, so a stream is admitted,
 // read, coalesced and ended the same on both web targets (LLP 1016.000).
-export function streamed(req, grantSet, message, controller) {
+export function streamed(req, grantSet, message, controller, bodyFile) {
   let body = '';
   for (const b of req.raw ?? []) body += String.fromCharCode(b);
-  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
-    { grantSet, controllers: new Set(), controller, message, localAssetURL: url => new URL(url, location.href).href,
+  return request({ method: req.method ?? 'GET', url: req.url, headers: req.headers ?? [], body: body && btoa(body), bodyFrom: req.bodyFrom, stream: true, maxResponseBytes: req.maxResponseBytes, scope: req.scope },
+    { grantSet, controllers: new Set(), controller, message, bodyFile, localAssetURL: url => new URL(url, location.href).href,
       loadPageNative: () => Promise.reject(new Error('a stream is not a page-module request')) });
 }
 

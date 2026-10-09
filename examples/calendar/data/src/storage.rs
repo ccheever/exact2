@@ -1002,7 +1002,7 @@ fn intent(source: &str, args: &[Value]) -> Result<Intent, String> {
 }
 
 fn epoch(args: &[Value], at: usize) -> Result<i64, String> {
-    // exactTime + now() may carry fractional milliseconds on native hosts.
+    // exactTime + performanceNow() may carry fractional milliseconds on native hosts.
     let value = number(args, at)?.floor();
     if value <= 0.0 || value > 9_007_199_254_740_991.0 {
         return Err("The todo needs a valid creation or completion time.".into());

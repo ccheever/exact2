@@ -308,8 +308,17 @@ component A
   state n = 1
   action tick
     n = n + 1
-  task t when now() < 1000
+  task t when performanceNow() < 1000
     every(60, tick)
+  view
+    text "a"
+---
+== type-now-renamed
+# LLP 1109 D1: `now()` reads as `Date.now()`; the clock is `performanceNow()`.
+component A
+  state at = 0
+  action stamp
+    at = now() + 7 * 86400000
   view
     text "a"
 ---

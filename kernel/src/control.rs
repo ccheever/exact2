@@ -232,9 +232,13 @@ pub struct Choice {
 /// native one (`ControlKind::Button`) alike.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PressFace {
-    /// Its one `text` child's text, white space collapsed; a blank title is
+    /// Its first `text` child's text, white space collapsed; a blank title is
     /// none.
     pub title: Option<String>,
+    /// The second text, the platform's semantic subtitle (LLP 1069.011.001 D3).
+    pub subtitle: Option<String>,
+    /// Axis and child order resolved to the platform's image placement.
+    pub placement: crate::ButtonImagePlacement,
     /// Its one `image` child's symbol (`send`, or `sf/paperplane` for an SF
     /// Symbol by name), without `symbol:`.
     pub symbol: Option<String>,
@@ -245,8 +249,9 @@ pub struct PressFace {
     pub leading: bool,
     /// Its `aria-label`.
     pub label: Option<String>,
-    /// Whether its direct children are at most one `text` and one `image` and
-    /// nothing else; a native button always fits (LLP 1069.011 D5).
+    /// Whether projections can show its direct children: at most one `text`
+    /// and one `image`, with nothing else (LLP 1069.011.000 D1). A native
+    /// button can additionally carry `subtitle` without fitting a projection.
     pub fits: bool,
 }
 
@@ -356,48 +361,15 @@ impl Kernel {
     /// stand (a `when` between them included); `None` for a node that is not
     /// a custom or native button.
     pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
-        let button = self.node(view)?;
-        let native = ControlKind::of(button.node_type, button.props) == Some(ControlKind::Button);
-        if !native && button.node_type != NodeType::Pressable {
-            return None;
-        }
-        let mut face = PressFace {
-            label: button
-                .props
-                .str(PropId::AccessibilityLabel)
-                .map(str::to_owned),
-            fits: true,
-            ..PressFace::default()
-        };
-        let (mut texts, mut images) = (0, 0);
-        for child in button.children().into_iter().filter_map(|id| self.node(id)) {
-            match child.node_type {
-                NodeType::Text => {
-                    texts += 1;
-                    if texts == 1 {
-                        let text: String = child.text_runs().iter().map(|r| &*r.text).collect();
-                        let title = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                        // A blank title shows nothing: it is no title.
-                        face.title = (!title.is_empty()).then_some(title);
-                    }
-                }
-                NodeType::Image => {
-                    images += 1;
-                    if images == 1 {
-                        let source = child.props.str(PropId::ImageSource);
-                        match source.and_then(|s| s.strip_prefix("symbol:")) {
-                            Some(symbol) => face.symbol = Some(symbol.to_owned()),
-                            None => face.raster = source.is_some_and(|s| !s.is_empty()),
-                        }
-                        // After a blank title it still leads: nothing is shown before it.
-                        face.leading = face.title.is_none();
-                    }
-                }
-                _ => face.fits = false,
-            }
-        }
-        face.fits &= texts <= 1 && images <= 1;
-        Some(face)
+        let slot = self.arena().slot_of(view)?;
+        self.arena().press_face(slot)
+    }
+
+    /// Computed native face rows, with masks recording only authored rows.
+    /// A live query beside `press_face`, shared with measurement, avoids a
+    /// second style snapshot that a host could read from a different epoch.
+    pub fn button_face_style(&self, view: ViewId) -> Option<crate::ButtonFaceStyle> {
+        self.arena().button_face_style(self.arena().slot_of(view)?)
     }
 
     /// The option a select shows: the one whose value its `value` names;

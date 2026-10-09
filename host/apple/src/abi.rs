@@ -68,6 +68,8 @@ pub struct Bridge<D: DataSource> {
     fonts: Option<FontsFn>,
     control_text: Option<crate::control_text::ControlTextFn>,
     field_chrome: Option<crate::control_text::FieldChromeFn>,
+    button_measure: Option<crate::control_text::ButtonMeasureFn>,
+    measure_revision: Option<Rc<std::cell::Cell<u64>>>,
     fonts_ctx: *mut c_void,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
@@ -81,6 +83,9 @@ pub struct Bridge<D: DataSource> {
     /// D3): released after a later commit, by token.
     parked: std::collections::BTreeMap<u64, exact_runner::RequestOut>,
     launch: Option<String>,
+    /// Whether motion an author's commit begins waits for the first presented
+    /// frame (LLP 1003.001 D7): every host booted here takes it.
+    start_on_frame: bool,
     /// The session's app module (LLP 1067.000 Q6): installed into each
     /// activated source's native slot, so it outlives activations.
     app_module: Option<exact_runner::NativeHandler>,
@@ -128,11 +133,14 @@ impl<D: DataSource> Bridge<D> {
             fonts: None,
             control_text: None,
             field_chrome: None,
+            button_measure: None,
+            measure_revision: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
             parked: std::collections::BTreeMap::new(),
             launch: None,
+            start_on_frame: false,
             app_module: None,
             app_call: None,
             pan: crate::pan_velocity::PanVelocity::new(),
@@ -463,7 +471,13 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_field_chrome(self.field_chrome),
+                    .with_field_chrome(self.field_chrome)
+                    .with_button_measure(self.button_measure)
+                    .with_measure_revision(
+                        self.measure_revision
+                            .get_or_insert_with(|| Rc::new(std::cell::Cell::new(0)))
+                            .clone(),
+                    ),
             ),
             None => Box::new(MonospaceMeasurer::default()),
         };
@@ -499,6 +513,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             None,
             self.launch.as_deref().unwrap_or("/"),
+            self.start_on_frame,
             self.region,
             self.links.clone(),
             move |runner| {
@@ -521,6 +536,9 @@ impl<D: DataSource> Bridge<D> {
                     )
                 });
                 if let Some(executor) = &executor {
+                    if let Some(roots) = host.app_roots() {
+                        executor.set_app_roots(roots);
+                    }
                     host.listen(executor.waker());
                 }
                 self.canvas_hooks(&mut host, &hooks);
@@ -750,7 +768,13 @@ impl<D: DataSource> Bridge<D> {
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
             Some(f) => Box::new(
                 CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
-                    .with_field_chrome(self.field_chrome),
+                    .with_field_chrome(self.field_chrome)
+                    .with_button_measure(self.button_measure)
+                    .with_measure_revision(
+                        self.measure_revision
+                            .get_or_insert_with(|| Rc::new(std::cell::Cell::new(0)))
+                            .clone(),
+                    ),
             ),
             None => Box::new(MonospaceMeasurer::default()),
         };
@@ -782,6 +806,7 @@ impl<D: DataSource> Bridge<D> {
             self.delivery,
             delivery,
             self.launch.as_deref().unwrap_or("/"),
+            self.start_on_frame,
             self.region,
             self.links.clone(),
             move |runner| {
@@ -862,6 +887,9 @@ impl<D: DataSource> Bridge<D> {
             )
         });
         if let Some(executor) = &executor {
+            if let Some(roots) = candidate.host.app_roots() {
+                executor.set_app_roots(roots);
+            }
             candidate.host.listen(executor.waker());
         }
         self.canvas_hooks(&mut candidate.host, &candidate.hooks);
@@ -1154,6 +1182,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// [`Bridge::frame`] at the target `now_ms`, the wall at `wall_ms`
+    /// stopping the engine's input clock (LLP 1003.001 D5).
+    pub fn frame_at(&mut self, now_ms: f64, wall_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.frame_at(now_ms, wall_ms));
+        self.emit(out)
+    }
+
     /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
     pub fn surface_record(&mut self, len: usize) -> u32 {
         let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -1309,6 +1347,32 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.tick(now_ms));
+        self.emit(out)
+    }
+
+    /// A motion frame for the display frame presented at `frame_ms`
+    /// (LLP 1003.001 D5).
+    pub fn tick_at(&mut self, now_ms: f64, frame_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.tick_at(now_ms, frame_ms));
+        self.emit(out)
+    }
+
+    /// Turn the first-frame rule on or off (LLP 1003.001 D7): every host
+    /// booted after takes it; off, the live host starts what waits at
+    /// `at_ms`, in the batch returned, and a prepared one at its commit.
+    pub fn start_on_frame(&mut self, on: bool, at_ms: f64) -> u32 {
+        self.start_on_frame = on;
+        if let Some(candidate) = self.prepared.as_mut() {
+            let set = candidate.host.set_start_on_frame(on, at_ms);
+            debug_assert!(set.is_ok(), "a takeover instant is finite");
+        }
+        let out = self.host.as_mut().map_or_else(
+            || "{\"ops\":[],\"timers\":false,\"motion\":false}".to_string(),
+            |h| h.start_on_frame(on, at_ms),
+        );
         self.emit(out)
     }
 

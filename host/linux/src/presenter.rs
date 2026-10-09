@@ -102,6 +102,9 @@ pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
+    /// Scrolled lists whose collection turn waits for the frame (see
+    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
+    deferred_collections: Option<Vec<ViewId>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -402,6 +405,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: Vec::new(),
             boxes_serial: 0,
             dirty: true,
+            deferred_collections: None,
             scheme: (None, false),
             segments: Vec::new(),
             surfaces: Default::default(),
@@ -596,6 +600,11 @@ impl<D: DataSource> Presenter<D> {
     /// The focused input.
     pub fn focus(&self) -> Option<ViewId> {
         self.focus
+    }
+
+    /// Paint again at the next frame (a host whose surface came back).
+    pub fn repaint(&mut self) {
+        self.dirty = true;
     }
 
     /// Whether the picture is stale.
@@ -1214,7 +1223,7 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.insert(id, (nx, ny));
                     self.last_wheel = Some(id);
                     self.dirty = true;
-                    self.collection_scrolled(id);
+                    self.collection_scrolled_or_deferred(id);
                     if let Some(error) = self.refresh_transform_geometry() {
                         self.host.log(error);
                     }

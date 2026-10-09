@@ -132,7 +132,7 @@ extension NodeView {
     /// The used `translate`: its lengths, and its percentages of the border
     /// box resolved against the box as it stands now, as CSS resolves them,
     /// so a box that changes size stays where `-50% -50%` puts it.
-    var translate: CGPoint {
+    package var translate: CGPoint {
         CGPoint(x: translatePx.x + translatePercent.x / 100 * bounds.width, y: translatePx.y + translatePercent.y / 100 * bounds.height)
     }
 
@@ -225,7 +225,7 @@ extension NodeView {
     }
 
     #if os(iOS) || os(tvOS)
-    func applyTransform() {
+    package func applyTransform() {
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the
         // flight's scale only.
         if flightLook != nil { stopPressEase() }
@@ -262,7 +262,7 @@ extension NodeView {
         return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
     }
     #else
-    func applyTransform() {
+    package func applyTransform() {
         // A backdrop mirrors its box as the transform moves and scales it.
         defer { if !backdropOperations.isEmpty { applyBackdrop() } }
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the flight's

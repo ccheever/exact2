@@ -65,7 +65,7 @@ component App
   action refreshValue
     refresh value
   action tick
-    elapsedMs = now()
+    elapsedMs = performanceNow()
   action reseed(v: number)
     seed = v
   action ambient

@@ -23,6 +23,8 @@ final class NativeButtonIOS: UIButton {
         var selected: Bool
         var expanded: String?
         var pressed: String?
+        var traits: FieldChromeCache.Traits
+        var interactive: Bool
     }
     var written: Written?
     /// Its natural size, kept for what it was measured with: UIKit lays the
@@ -41,7 +43,26 @@ final class NativeButtonIOS: UIButton {
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
     var drawn = "bordered"
-    override var canBecomeFocused: Bool { false }
+    override var canBecomeFocused: Bool {
+        #if os(tvOS)
+        return isEnabled && isUserInteractionEnabled && owner?.inert != true && owner?.cssVisibilityHidden != true
+            && (owner?.explicitTabIndex ?? 0) >= 0
+        #else
+        return false
+        #endif
+    }
+    #if os(tvOS)
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        guard let owner, let presenter = owner.presenter else { return }
+        if context.nextFocusedItem === self {
+            presenter.focusKey = owner.props["testId"]
+            presenter.focusGuides.focused(owner)
+            if owner.handlers.contains("focus") { presenter.focus(owner.id) }
+        }
+        if context.previouslyFocusedItem === self, owner.handlers.contains("blur") { presenter.blur(owner.id) }
+    }
+    #endif
 }
 
 extension NodeView {
@@ -77,7 +98,7 @@ extension NodeView {
         while let view = at, view !== presenter.viewport {
             if let node = view as? NodeView {
                 if node.canBecomeFirstResponder, !node.isFirstResponder, presenter.contextRetainsFocus(node) != true {
-                    _ = node.becomeFirstResponder()
+                    node.takeTouchFocus()
                 }
                 if node === target { break }
             }
@@ -94,6 +115,11 @@ extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> UIControl {
         let button = NativeButtonIOS(configuration: .bordered())
         button.owner = node
+        // The node is not an element. UIKit leaves this default false until
+        // assistive technology loads its runtime, so expose the control's
+        // identity and explicit name from its first frame as on a bare button.
+        button.isAccessibilityElement = true
+        button.accessibilityTraits.insert(.button)
         button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative() }, for: .primaryActionTriggered)
         return button
     }
@@ -134,23 +160,19 @@ extension ControlHost {
         let face = self.face(owner.id)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
-            pressed: owner.pressedState)
+            pressed: owner.pressedState, traits: .init(button.traitCollection),
+            interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
         }
         button.written = written
-        var (config, drawn, glass) = Self.configuration(face)
-        config.title = face.title
-        config.image = face.symbol.flatMap { UIImage(systemName: $0) }
-        config.imagePlacement = face.leading ? .leading : .trailing
-        config.titleLineBreakMode = .byTruncatingTail
-        button.configuration = config
-        button.titleLabel?.numberOfLines = 1
-        button.tintColor = accent
+        let (_, drawn, glass) = Self.configuration(face)
         button.isEnabled = written.enabled
+        button.isUserInteractionEnabled = written.interactive
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent)
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
@@ -170,6 +192,9 @@ extension ControlHost {
         let face = button.written?.face ?? ButtonFace()
         return ["view": "UIButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
+                "subtitle": face.subtitle as Any, "imagePlacement": face.placement ?? (face.leading ? "leading" : "trailing"),
+                "pointerEvents": button.isUserInteractionEnabled ? "auto" : "none",
+                "rows": ButtonConfigurationIOS.observation(face, button: button),
                 "size": [Agent.r2(button.bounds.width), Agent.r2(button.bounds.height)]]
     }
 }

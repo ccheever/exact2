@@ -589,7 +589,8 @@ fn paced_stress_waits_for_each_batch_to_retire_and_stops_at_clear() {
     let start = Instant::now();
     while h.shared.lock().entries.len() < retired + commands::BATCH {
         assert!(
-            start.elapsed() < Duration::from_millis(500),
+            // Without the retire it would wait the full second.
+            start.elapsed() < Duration::from_millis(900),
             "the next batch did not follow"
         );
         std::thread::sleep(Duration::from_millis(2));

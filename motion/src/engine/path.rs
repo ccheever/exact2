@@ -49,6 +49,10 @@ impl Engine {
     /// the path and stops its transition. Otherwise CSS Transitions §3, as
     /// [`Engine::observe`] for a value.
     pub fn observe_path(&mut self, node: u64, path: Option<PathValue>) {
+        (self.links.observe_path)(self, node, path)
+    }
+
+    pub(super) fn observe_path_full(&mut self, node: u64, path: Option<PathValue>) {
         let key = (node, Property::D);
         let Some(path) = path.filter(PathValue::is_finite) else {
             if self.paths.remove(&node).is_some() {
@@ -65,7 +69,7 @@ impl Engine {
         if *track.target == path {
             return;
         }
-        let now = self.now;
+        let now = self.sample_time();
         let running = self.slots.get(&key).and_then(Slot::running).cloned();
         let current = match &running {
             Some(r) => Arc::new(track.from.lerp(&track.target, r.sample(now).value.x)),
@@ -103,7 +107,7 @@ impl Engine {
             ),
             None => (current.clone(), 1.0),
         };
-        let curve = Running::start(
+        let mut curve = Running::start(
             &declaration,
             Value::scalar(0.0),
             Value::scalar(1.0),
@@ -120,8 +124,12 @@ impl Engine {
                 reversing_adjusted_start: adjusted,
             },
         );
+        curve.pending = self.start_on_frame.then_some(now);
+        if curve.pending.is_some() {
+            self.pending.insert(key);
+        }
         let presented = curve.sample(now).value;
-        self.slots.insert(
+        self.keep(
             key,
             Slot {
                 target: Value::scalar(1.0),

@@ -10,6 +10,7 @@ use exact_web::{AnimationsLink, Linked};
 pub const fn link(mut linked: Linked) -> Linked {
     linked.animations = Some(AnimationsLink {
         grammars: exact_kernel::style::link_animations,
+        keyframes: exact_runner::bridge::KeyframesTable::resolve,
         list: exact_web::css::animations_css,
         name: exact_web::css::keyframes_name,
         body: exact_web::css::keyframes_css,

@@ -405,3 +405,108 @@ fn a_control_a_dialog_covered_is_armed_when_it_closes() {
         vt.text(false)
     );
 }
+
+#[test]
+fn native_buttons_measure_and_paint_faces_and_activate_once_per_key() {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    let plan = contract::compile(
+        r#"component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    column align-items="flex-start"
+      text `pressed ${n}`
+      button appearance="auto" press=go testId="native"
+        image "symbol:send"
+        text "Send 界"
+      button appearance="auto" aria-label="Close" testId="symbol"
+        image "symbol:sf/xmark"
+      button appearance="auto" disabled=true press=go testId="disabled"
+        text "Off"
+      button appearance="none" press=go testId="bare"
+        text "Bare"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 12).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let native = host.by_test_id("native").unwrap();
+    let symbol = host.by_test_id("symbol").unwrap();
+    let disabled = host.by_test_id("disabled").unwrap();
+    for (id, width) in [(native, 9.), (symbol, 7.), (disabled, 5.)] {
+        let f = host.kernel().node(id).unwrap().frame;
+        assert_eq!((f.width, f.height), (width * COLUMN, ROW));
+    }
+    assert_eq!(host.kernel().provisional_layouts(), 0);
+    let screen = vt.text(false);
+    assert!(
+        screen.contains(" Send 界") && screen.contains(" Close"),
+        "{screen}"
+    );
+    let (x, y) = find(&vt, "Send");
+    let style = host.frame().grid.cell(x as usize, y as usize).style;
+    assert!(style.reverse && !style.bold && !style.faint);
+    // The wide glyph keeps its continuation cell; both padding cells reverse.
+    assert!(
+        host.frame()
+            .grid
+            .cell(x as usize - 1, y as usize)
+            .style
+            .reverse
+    );
+    assert!(
+        host.frame()
+            .grid
+            .cell(x as usize + 7, y as usize)
+            .style
+            .reverse
+    );
+    host.focus(Some(native));
+    vt.render(&mut host);
+    assert!(host.frame().grid.cell(x as usize, y as usize).style.bold);
+    read(&mut host, &mut vt, &[Key::Named("Enter")]);
+    assert!(vt.text(false).contains("pressed 1"));
+    read(&mut host, &mut vt, &[Key::Char(' ')]);
+    assert!(vt.text(false).contains("pressed 2"));
+    let (x, y) = find(&vt, "Off");
+    assert!(host.frame().grid.cell(x as usize, y as usize).style.faint);
+    // Disabled buttons are skipped in keyboard traversal.
+    read(
+        &mut host,
+        &mut vt,
+        &[Key::Named("Tab"), Key::Named("Tab"), Key::Named("Enter")],
+    );
+    assert!(vt.text(false).contains("pressed 3"));
+    let (x, y) = find(&vt, "Bare");
+    assert!(host.frame().grid.cell(x as usize, y as usize).style.reverse);
+}
+
+#[test]
+fn native_button_wrap_and_bound_title_remeasure_the_painted_face() {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    let plan = contract::compile(
+        r#"component App
+  state title = "First title"
+  action change
+    title = "界"
+  view
+    column align-items="flex-start"
+      button appearance="auto" width="7ch" press=change testId="button"
+        text title
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 30, 12).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let id = host.by_test_id("button").unwrap();
+    assert_eq!(host.kernel().node(id).unwrap().frame.height, 2. * ROW);
+    assert!(vt.text(false).contains("First") && vt.text(false).contains("title"));
+    host.act("change");
+    vt.render(&mut host);
+    let f = host.kernel().node(id).unwrap().frame;
+    assert_eq!((f.width, f.height), (7. * COLUMN, ROW));
+    assert!(vt.text(false).contains('界') && !vt.text(false).contains("First"));
+}

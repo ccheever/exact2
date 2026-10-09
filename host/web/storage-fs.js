@@ -4,7 +4,7 @@
 // Modification times come from the platform's clock, captured when this
 // module evaluates: a realm that later refuses ambient time to app code (the
 // module Worker, LLP 1027.002 D2) still stamps files with the real one.
-import { directories as roots, now } from './storage-environment.js';
+import { agentStorageRefusal, directories as roots, now, storageKey } from './storage-environment.js';
 import { coversPath } from './grant-admission.js';
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks still reject
@@ -35,9 +35,17 @@ export function normalizePath(path) {
 export function authorize(grants, operation, path) {
   const normalized = normalizePath(path);
   if (coversPath(grants, operation, normalized)) return normalized;
-  const error = new Error(`denied: ${operation}`);
+  const error = new Error(deniedPath(operation, normalized));
   error.kind = 'Unavailable';
   throw error;
+}
+
+/** A path refusal names the path and the grant lines that would admit it (app farm round 2: a bare
+ * `denied: sqlite.open` left builds guessing which per-persona file it wanted). As js/src/prelude.js says it natively. */
+export function deniedPath(operation, path) {
+  const dir = path.slice(0, path.lastIndexOf('/'));
+  const directory = /^[a-z]+:\/[^/]/.test(dir) ? `, or \`${operation} ${dir}\` for every file there` : '';
+  return `denied: ${operation} ${path}: no grant covers it; grant \`${operation} ${path}\`${directory} (a grant covers its path and what is below it, by whole names)`;
 }
 
 function parentOf(path) { return path.slice(0, path.lastIndexOf('/')); }
@@ -210,9 +218,11 @@ export function createFileStore(appId) {
     },
     // Trusted host only: a file as a Blob, for an `image` or `video` source
     // (LLP 1069.002 D7), and when it last changed. A picked entry is its File.
-    async blob(path, type) {
+    async blob(path, type, maxBytes = Infinity, label = 'compressImage') {
       path = normalizePath(path);
       const { contents, modifiedMs } = await run(false, records => file(records, path), path);
+      const size = contents.byteLength ?? contents.size;
+      if (size > maxBytes) throw failure(`${label}: too-large: ${size} bytes is over ${maxBytes}`, 'too-large');
       return { blob: contents instanceof Blob ? contents : new Blob([contents], { type }), modifiedMs };
     },
     // Trusted host only: a picked file's entry, backed by the browser's File
@@ -365,5 +375,52 @@ export function createFileSystem(appId, grants) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
+  // `compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002 A1):
+  // both grants are checked and the options too before anything is read;
+  // the codec runs outside the mutation lock, and only the write takes it.
+  fs.compressImage = async (from, to, options) => {
+    if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
+      throw failure('compressImage: needs app:/ paths', 'failed');
+    const image = await import('./storage-image.js');
+    const { maxDimension, maxBytes } = image.limits(options);
+    from = authorize(grants, 'fs.read', from);
+    to = authorize(grants, 'fs.write', to);
+    requireBelowRoot(to);
+    // An entry is one IndexedDB record, read whole by any operation (`stat`
+    // too); its size is checked before it becomes a Blob or is decoded.
+    const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
+    const out = await image.compress(blob, maxDimension, maxBytes);
+    const size = out.bytes.byteLength;
+    await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
+    return { path: to, type: 'image/jpeg', size, width: out.width, height: out.height };
+  };
   return Object.freeze(fs);
+}
+
+/** `fetch(url, {exactBodyFrom})` (LLP 1108 D6 R2): the app file at `path` as
+ * a request body, read by the host that sends it, under `fs.read`, at most
+ * 64 MiB. A Blob, never bytes handed to app code: a picked file's entry is
+ * its own `File` (LLP 1069.002 D5), sliced with no type so the browser adds
+ * no Content-Type (the author's header is the only one); a byte entry is the
+ * record IndexedDB already read, wrapped. Every refusal names the path and
+ * why, as the native executor's does. Trusted host only. */
+export const MAX_BODY_FROM_BYTES = 64 * 1024 * 1024;
+export async function requestBody(appId, grants, path) {
+  const named = (why, code) => Object.assign(new Error(`exactBodyFrom ${path}: ${why}`), { kind: 'Unavailable', code });
+  if (typeof path !== 'string' || !path.startsWith('app:/')) throw named('exactBodyFrom needs an app:/ path');
+  let normalized;
+  try { normalized = authorize(grants, 'fs.read', path); }
+  catch (error) { throw named(String(error.message).replace(/^filesystem: /, ''), /^denied: /.test(error.message) ? 'denied' : 'failed'); }
+  const key = typeof appId === 'string' && appId ? storageKey(appId) : null;
+  if (key == null) throw named(appId ? agentStorageRefusal : 'this host has no app files (no storage here)', 'agent');
+  const store = createFileStore(key);
+  try {
+    // The size is checked before a Blob is made; a byte entry's record is
+    // read whole by IndexedDB first, as for any operation on it.
+    const { blob } = await store.blob(normalized, '', MAX_BODY_FROM_BYTES, 'exactBodyFrom').catch(error => {
+      const why = String(error.message).replace(/^filesystem: (exactBodyFrom: )?/, '');
+      throw named(error.code === 'EISDIR' ? 'not a file' : why, error.code);
+    });
+    return blob.type ? blob.slice(0, blob.size, '') : blob;
+  } finally { store.close(); }
 }

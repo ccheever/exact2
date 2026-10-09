@@ -179,6 +179,16 @@ pub struct Env {
     pub cell_borders: bool,
     /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
     pub control_text_styles: Option<crate::ControlTextStyles>,
+    /// Optional per-size button fonts. Separate from `ControlTextStyles` so
+    /// existing hosts' control-font struct literals remain source compatible.
+    pub button_fonts: Option<crate::ButtonFonts>,
+    /// The window's own size, whatever is presented in it, on a host that
+    /// lays the page out in a smaller viewport while a sheet is up (iOS,
+    /// LLP 1075.003 §9.11): every viewport unit resolves against it
+    /// everywhere, root and every sheet, as CSS's resolve against the
+    /// viewport and never a dialog, so no length follows a sheet's size.
+    /// `None`: the layout viewport.
+    pub screen: Option<(f32, f32)>,
 }
 
 impl Default for Env {
@@ -202,6 +212,8 @@ impl Env {
             viewport_height: 0.0,
             cell_borders: false,
             control_text_styles: None,
+            button_fonts: None,
+            screen: None,
         }
     }
 
@@ -217,8 +229,14 @@ impl Env {
 
     /// Whether every inset and every segment side is a finite number.
     pub fn is_finite(&self) -> bool {
-        Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
+        self.button_fonts
+            .as_ref()
+            .is_none_or(crate::ButtonFonts::is_valid)
+            && Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
+            && self
+                .screen
+                .is_none_or(|(w, h)| w.is_finite() && h.is_finite() && w >= 0.0 && h >= 0.0)
             && self
                 .control_text_styles
                 .as_ref()
@@ -263,6 +281,15 @@ impl Env {
     pub fn with_cell_borders(&self, on: bool) -> Env {
         Env {
             cell_borders: on,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with the window's size the viewport units resolve
+    /// against (`None`: the layout viewport).
+    pub fn with_screen(&self, screen: Option<(f32, f32)>) -> Env {
+        Env {
+            screen,
             ..self.clone()
         }
     }

@@ -934,6 +934,34 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
+    // @ref LLP 1075.003 §9.11 — a sheet's resting heights: UIKit's two named
+    // detents, CSS's `fit-content`, or a positive point height.
+    if prop == PropId::NavigationDetent {
+        if let Expr::Str(s, _) = value {
+            if let Some(word) = s.split(' ').filter(|w| !w.is_empty()).find(|w| {
+                !matches!(*w, "large" | "medium" | "fit-content")
+                    && !w.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+            }) {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent` takes space-separated \"large\", \"medium\", \"fit-content\" or a positive point height; given \"{word}\""),
+                    span,
+                );
+            }
+            // UIKit's detents go from shortest to tallest; the content's
+            // height changes, so only `large` is always above it.
+            let words: Vec<&str> = s.split(' ').filter(|w| !w.is_empty()).collect();
+            if words.contains(&"fit-content")
+                && !matches!(words[..], ["fit-content"] | ["fit-content", "large"])
+            {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    span,
+                );
+            }
+        }
+    }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }

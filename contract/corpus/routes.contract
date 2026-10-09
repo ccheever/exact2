@@ -63,15 +63,15 @@ component Interview
               text "Prompts"
             button role="tab" aria-selected=(nav.tab == "search") press=selectTab("search") testId=`select-search-${e.id}`
               text "Search"
-          button id="back" press=back testId=`back-${e.id}` padding=8
+          button appearance="none" id="back" press=back testId=`back-${e.id}` padding=8
             text "Back"
-          button press=push("/post/42") testId=`push-post-${e.id}` padding=8
+          button appearance="none" press=push("/post/42") testId=`push-post-${e.id}` padding=8
             text "Push post"
-          button press=push("/people/7") testId=`push-person-${e.id}` padding=8
+          button appearance="none" press=push("/people/7") testId=`push-person-${e.id}` padding=8
             text "Push person"
-          button press=open("/prompt/5/write") testId=`open-write-${e.id}` padding=8
+          button appearance="none" press=open("/prompt/5/write") testId=`open-write-${e.id}` padding=8
             text "Open write"
-          button press=push("/prompts/new") testId=`push-modal-${e.id}` padding=8
+          button appearance="none" press=push("/prompts/new") testId=`push-modal-${e.id}` padding=8
             text "Push modal"
           when e.name == "home"
             text "Home"
@@ -86,7 +86,7 @@ component Interview
             each p in posts key=p.id
               when p.id == e.params.post
                 text p.title testId=`post-title-${e.id}` font-size=28
-                button press=push(path("person", p.person)) testId=`post-person-${e.id}` padding=16
+                button appearance="none" press=push(path("person", p.person)) testId=`post-person-${e.id}` padding=16
                   text "Read author"
           when e.name == "prompts"
             text "Prompts"
@@ -108,7 +108,7 @@ component Interview
             each p in people key=p.id
               when p.id == e.params.person
                 text p.name testId=`person-name-${e.id}` font-size=28
-                button press=openPost(p.post) testId=`person-post-${e.id}` padding=16
+                button appearance="none" press=openPost(p.post) testId=`person-post-${e.id}` padding=16
                   text "Read another post"
           when e.name == "notfound"
             text "Not found"

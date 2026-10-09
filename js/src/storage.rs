@@ -4,7 +4,10 @@ use exact_runner::{FailureKind, Outcome, Response};
 use ibex2::{
     bindings::Context,
     grant::GrantSet,
-    stdlib::{app_fs::AppDirectories, fs::Document},
+    stdlib::{
+        app_fs::AppDirectories,
+        fs::{Abandoned, CompressedImage, Document},
+    },
 };
 use std::{
     path::PathBuf,
@@ -22,16 +25,25 @@ pub(crate) struct Directories {
     pub temporary: PathBuf,
 }
 
+/// What a waiter that took a compression's right to write away fails with
+/// (LLP 1069.002 A1.5); the prelude settles that operation on it.
+pub(crate) const IMAGE_ABANDONED: &str =
+    "compressImage: timeout: the storage wait ran out; nothing was written";
+
+/// How long a storage step is waited for before its answer fails.
+pub(crate) const WAIT: Duration = Duration::from_secs(30);
+
 pub(crate) struct Session {
     pub context: Arc<Context>,
     alive: Arc<AtomicBool>,
+    wait: Duration,
 }
 
 impl Session {
     /// A storage session under `grants`: the app's directories where the
     /// host configured them, and always the documents the person chose
     /// (`doc:`, LLP 1069.010 D1), which need none, as a Rust source's do.
-    pub fn open(grants: &str) -> Result<Self, String> {
+    pub fn open(grants: &str, wait: Duration) -> Result<Self, String> {
         let grants = GrantSet::parse(grants).map_err(|e| e.to_string())?;
         let context = Context::new(grants);
         context
@@ -40,9 +52,17 @@ impl Session {
         context
             .set_documents(Arc::new(documents))
             .map_err(|e| e.to_string())?;
+        // Only where there is a codec: elsewhere ibex2 refuses the call as
+        // unsupported before reading the source (LLP 1069.002 A1.3).
+        if cfg!(target_vendor = "apple") {
+            context
+                .set_image_codec(Arc::new(image_codec))
+                .map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             context: Arc::new(context),
             alive: Arc::new(AtomicBool::new(true)),
+            wait,
         })
     }
 
@@ -77,10 +97,21 @@ impl Session {
     }
 
     pub fn continuation(&self) -> Box<dyn FnOnce() -> Outcome + Send> {
+        self.continuation_for(None)
+    }
+
+    /// A waiter for an answer's step, which gives up without taking any
+    /// compression's right once `retired` is set (its call was let go, and
+    /// another waiter now watches the work: LLP 1069.002 A1.5).
+    pub fn continuation_for(
+        &self,
+        retired: Option<Arc<AtomicBool>>,
+    ) -> Box<dyn FnOnce() -> Outcome + Send> {
         let context = self.context.clone();
         let alive = self.alive.clone();
+        let wait = self.wait;
         Box::new(move || {
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut deadline = Instant::now() + wait;
             loop {
                 if !alive.load(Ordering::Acquire) {
                     return Outcome::Failed {
@@ -97,10 +128,39 @@ impl Session {
                         body: vec![],
                     });
                 }
+                let live = || retired.as_ref().is_none_or(|r| !r.load(Ordering::Acquire));
+                let retired_outcome = || Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "storage continuation retired: its call was let go".into(),
+                };
+                if !live() {
+                    return retired_outcome();
+                }
                 if Instant::now() >= deadline {
+                    // Giving up: an `fs.compressImage` that has not written
+                    // loses the right to, so nothing lands after this failure
+                    // and the queue moves on safely; one that has written is
+                    // waited for (LLP 1069.002 A1.5).
+                    // Asked under the registry's lock: once retired, no call
+                    // issued after is this waiter's to abandon.
+                    let abandoned = context.abandon_image_work_if(&live);
+                    if !live() {
+                        return retired_outcome();
+                    }
+                    // A completion that arrived after the last look is a
+                    // result, not a failure: one written is kept until the
+                    // owner takes its completion, so it is seen either way.
+                    if abandoned == Abandoned::Written || context.wait(Duration::ZERO) {
+                        deadline = Instant::now() + Duration::from_secs(5);
+                        continue;
+                    }
+                    let message = match abandoned {
+                        Abandoned::Abandoned => IMAGE_ABANDONED,
+                        _ => "storage continuation timed out",
+                    };
                     return Outcome::Failed {
                         kind: FailureKind::Aborted,
-                        message: "storage continuation timed out".into(),
+                        message: message.into(),
                     };
                 }
             }
@@ -124,7 +184,25 @@ fn documents(path: &str) -> Result<Document, String> {
     use exact_data::documents::{resolve, Resolved};
     Ok(match resolve(path)? {
         Resolved::Root(name) => Document::Root(name),
-        Resolved::Real(real) => Document::Real(real),
+        Resolved::Real { directory, path } => Document::Real { directory, path },
+    })
+}
+
+/// The platform's image codec ([`exact_data::image`]), as ibex2's
+/// (`fs.compressImage`, LLP 1069.002 A1): the one a Rust source's storage
+/// requests run too.
+pub(crate) fn image_codec(
+    bytes: &[u8],
+    max_dimension: u32,
+    max_bytes: u64,
+    deadline: Instant,
+) -> Result<CompressedImage, String> {
+    exact_data::image::compress(bytes, max_dimension, max_bytes, deadline).map(|c| {
+        CompressedImage {
+            bytes: c.bytes,
+            width: c.width,
+            height: c.height,
+        }
     })
 }
 
@@ -141,5 +219,8 @@ pub(crate) fn reaches_documents(grants: &str) -> bool {
 impl Drop for Session {
     fn drop(&mut self) {
         self.alive.store(false, Ordering::Release);
+        // An `fs.compressImage` still running when its module is unloaded
+        // writes nothing; one mid-write is let finish (LLP 1069.002 A1.5).
+        let _ = self.context.abandon_image_work();
     }
 }

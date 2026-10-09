@@ -107,7 +107,7 @@ final class ControlHost: NSObject {
                 control.setAccessibilityIdentifier(owner.props["testId"])
             }
             let natural = naturalSize(control)
-            let box = owner.contentBox()
+            let box = control is NativeButtonMac ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size, centred.
@@ -116,12 +116,16 @@ final class ControlHost: NSObject {
                 // is; its bezel's shadow and insets fall outside it.
                 let frame = control.frame(forAlignmentRect: box)
                 if control.frame != frame { control.frame = frame }
+                if let button = control as? NativeButtonMac, let face = button.written?.face {
+                    ButtonConfigurationMac.corners(face, to: button, size: box.size)
+                }
             } else {
                 let width = control is NSSlider ? box.width : natural.width
                 control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
                                        width: width, height: natural.height)
             }
-            if reported[owner.id] != natural {
+            // Buttons already received their fitting answer before publication (D11).
+            if !(control is NativeButtonMac), reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
             }

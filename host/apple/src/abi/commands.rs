@@ -151,63 +151,19 @@ impl<D: DataSource> Bridge<D> {
     /// names it, the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
-        let quote = exact_runner::agent::quote;
-        let (face, style) = self
-            .host
-            .as_ref()
-            .map(|h| {
+        let json = self.host.as_ref().map_or_else(
+            || "{\"button\":false}".into(),
+            |h| {
                 let kernel = h.runner().kernel();
+                let face = kernel.press_face(view);
+                let rows = kernel.button_face_style(view);
                 let style = kernel
                     .node(view)
-                    .and_then(|n| {
-                        n.props
-                            .str(exact_kernel::PropId::ButtonStyle)
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| "bordered".into());
-                (kernel.press_face(view), style)
-            })
-            .unwrap_or_default();
-        let button = face.is_some();
-        let face = face.unwrap_or_default();
-        let row = exact_kernel::generated::button_style(&style);
-        let drawn = row.or_else(|| exact_kernel::generated::button_style("bordered"));
-        let mut json = format!("{{\"button\":{button},\"title\":");
-        match &face.title {
-            Some(t) => quote(t, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(",\"symbol\":");
-        // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000);
-        // a role with none is "", as `symbolName` is: a symbol that draws no
-        // image, not no symbol (grok's code review).
-        match face.symbol.as_deref().map(|r| {
-            r.strip_prefix("sf/")
-                .or_else(|| exact_kernel::generated::symbol(r).map(|s| s.0))
-                .unwrap_or("")
-        }) {
-            Some(apple) => quote(apple, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(&format!(
-            ",\"raster\":{},\"leading\":{},\"fits\":{},\"label\":",
-            face.raster, face.leading, face.fits
-        ));
-        match &face.label {
-            Some(l) => quote(l, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(",\"style\":");
-        quote(&style, &mut json);
-        if let Some(d) = drawn {
-            json.push_str(",\"ios\":");
-            quote(d.ios, &mut json);
-            json.push_str(",\"iosBefore26\":");
-            quote(d.ios_before_26, &mut json);
-            json.push_str(",\"macos\":");
-            quote(d.macos, &mut json);
-        }
-        json.push_str(&format!(",\"known\":{}}}", row.is_some()));
+                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
+                    .unwrap_or("bordered");
+                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
+            },
+        );
         self.output = json.into_bytes();
         self.output.len() as u32
     }

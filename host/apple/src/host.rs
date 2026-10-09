@@ -44,6 +44,11 @@ mod content_region_host;
 mod control_text_tests;
 #[path = "covers.rs"]
 mod covers;
+#[path = "first_frame.rs"]
+mod first_frame;
+#[cfg(test)]
+#[path = "first_frame_tests.rs"]
+mod first_frame_tests;
 #[path = "flights.rs"]
 mod flights;
 #[path = "fold.rs"]
@@ -80,6 +85,7 @@ mod activation_tests;
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
+use layout::content_size;
 #[path = "resize.rs"]
 mod resize;
 #[cfg(test)]
@@ -159,6 +165,10 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
+    /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
+    /// §9.11), each with its width, resolved padding, border and bottom
+    /// cover when last measured.
+    fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
@@ -302,6 +312,7 @@ impl<D: DataSource> Host<D> {
             None,
             None,
             "/",
+            false,
             None,
             crate::link::Links::ALL,
             |_| Ok(()),
@@ -326,6 +337,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
+        start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         links: crate::link::Links<D>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
@@ -342,6 +354,7 @@ impl<D: DataSource> Host<D> {
             delivery,
             candidate_delivery,
             launch,
+            start_on_frame,
             region,
             None,
             links,
@@ -362,6 +375,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
+        start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
         links: crate::link::Links<D>,
@@ -453,13 +467,16 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
+            fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
-                let mut engine = Engine::new();
+                // Settled values only when the plan animates nothing (LLP 1047.001).
+                let mut engine = Engine::linked(links.engine);
+                let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
                     target_os = "tvos"
@@ -710,6 +727,16 @@ impl<D: DataSource> Host<D> {
         self.runner.data().grants().to_string()
     }
 
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
+    }
+
     /// What the last commit kept or forgot, into the platform's store (LLP
     /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
     /// login; kept answers queued for their writer thread (`store.rs`). A
@@ -855,7 +882,7 @@ impl<D: DataSource> Host<D> {
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
@@ -871,6 +898,9 @@ impl<D: DataSource> Host<D> {
     /// the batch, the refusal in `error`, and `clock` says where the runner
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
+        if self.engine.starts_on_frame() {
+            self.now_ms = now_ms.max(self.now_ms);
+        }
         let a = self.runner.advance_timed(now_ms);
         self.advanced(a)
     }
@@ -905,7 +935,11 @@ impl<D: DataSource> Host<D> {
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
-        self.now_ms = a.now_ms.max(self.now_ms);
+        // A frame task puts the runner at the display's target; with the
+        // first-frame rule the host's clock stays the wall's (LLP 1003.001 D5).
+        if !self.engine.starts_on_frame() {
+            self.now_ms = a.now_ms.max(self.now_ms);
+        }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)
@@ -1092,30 +1126,6 @@ impl<D: DataSource> Host<D> {
         self.engine.trim();
     }
 
-    /// A motion frame: seek the engine to `now_ms` and report every
-    /// presentation value that changed. Nothing else moves.
-    pub fn tick(&mut self, now_ms: f64) -> String {
-        self.now_ms = now_ms.max(self.now_ms);
-        let mut batch = Batch::new();
-        let seek = self.engine.advance(self.now_ms / 1000.0);
-        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        if self.arrange_settled() {
-            return self.arrange_settle();
-        }
-        let error = self.height_layout_if_needed(&mut batch).err();
-        self.runner.canvas_frame();
-        // A tick is never waited for where draws are deferred (LLP 1072
-        // §9): it draws in its own turn.
-        self.canvas_draw_turn(&mut batch);
-        // Only suspended ancestor mappings need a settle recheck. Normal
-        // photo Translate/Scale frames keep the existing cheap tick path.
-        if self.transform_drags.mapping_pending {
-            self.emit_transform_drags(&mut batch);
-        }
-        self.present(&mut batch, false);
-        self.finish(batch, error)
-    }
-
     /// The active head's title and edited mark, when a plan with a head may
     /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
     /// the window or scene shows them.
@@ -1254,9 +1264,7 @@ impl<D: DataSource> Host<D> {
         // frame/hold. Match Web's floor at the engine's current presentation
         // time, not this batch's final time. No timer work enters pointer moves.
         for t in receipts {
-            let seek = self
-                .engine
-                .advance((t.at_ms / 1000.0).max(self.engine.now()));
+            let seek = self.engine.advance(self.engine_time(t.at_ms));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let mut sync = self.runner.kernel().motion_sync(&t.receipt);
             self.spare_exits(&mut sync);
@@ -1288,7 +1296,7 @@ impl<D: DataSource> Host<D> {
             self.cancel_invalid_height_drag();
             self.reconcile_transform_drags(&mut batch);
         }
-        let seek = self.engine.advance(self.now_ms / 1000.0);
+        let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let layout_error = if height_target_error.is_some() {
             height_target_error
@@ -1347,37 +1355,6 @@ fn relative(frame: Frame, parent: Option<Frame>) -> (f32, f32, f32, f32) {
         Some(p) => (frame.x - p.x, frame.y - p.y, frame.width, frame.height),
         None => (frame.x, frame.y, frame.width, frame.height),
     }
-}
-
-/// Natural scrollable overflow, including padding and descendants. The
-/// presenter applies the CSS client-size minimum against its actual viewport;
-/// flooring here loses the extent a native container needs under its own insets.
-fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    // Taffy's block containers do not always count end-edge padding in
-    // `content_size` (its flex containers do); CSS's `scrollHeight` does.
-    // Floor with the direct children's extent plus the end padding.
-    let env = kernel.env();
-    let pad = |d: exact_kernel::Dimension, against: f32| match d.resolve(&env) {
-        exact_kernel::Dimension::Points(p) => p,
-        exact_kernel::Dimension::Percent(p) => against * p / 100.0,
-        exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
-        exact_kernel::Dimension::Auto
-        | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..)
-        | exact_kernel::Dimension::Viewport(..)
-        | exact_kernel::Dimension::Compare(..) => 0.0,
-    };
-    let pad_right = pad(node.style.padding_right, node.frame.width);
-    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
-    let mut w = node.content.0;
-    let mut h = node.content.1;
-    for child in node.children() {
-        if let Some(c) = kernel.node(child) {
-            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
-            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
-        }
-    }
-    (w, h)
 }
 
 /// The presenter's kind for a node: its type, in the schema's names.

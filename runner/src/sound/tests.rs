@@ -28,15 +28,15 @@ component Kit
   action list
     playSounds(hits)
   action past
-    playSound("assets/kick.wav", at=now() - 10)
+    playSound("assets/kick.wav", at=performanceNow() - 10)
   action computed(s: string, a: number, g: number)
     playSound(s, at=a == -1 ? 0 / 0 : a, gain=g == -2 ? 1 / 0 : g)
   action count(k: number)
     n = k
   action hat(ms: number)
-    playSound("assets/hat.wav", at=now() + ms, group="hat")
+    playSound("assets/hat.wav", at=performanceNow() + ms, group="hat")
   action open(ms: number)
-    playSound("assets/kick.wav", at=now() + ms, group="hat")
+    playSound("assets/kick.wav", at=performanceNow() + ms, group="hat")
   action stop
     stopSounds()
   action stopHats
@@ -48,7 +48,7 @@ component Kit
     reload()
   action window
     playSounds(hits)
-    ahead = now() + 100
+    ahead = performanceNow() + 100
   task clock mount
     every(25, window)
   view

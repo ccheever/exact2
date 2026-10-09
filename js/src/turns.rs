@@ -55,6 +55,13 @@ impl Module {
             return;
         };
         let (mut owed, mut rejected) = (false, false);
+        for call in &calls {
+            // Its waiter, if one is still running, now gives up without
+            // taking any compression's right (LLP 1069.002 A1.5).
+            if let Some(retired) = self.retired.remove(call) {
+                retired.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
         for call in calls {
             if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
                 owed |= said.starts_with("storage");
@@ -149,7 +156,17 @@ impl Module {
             .is_ok_and(|r| r == "storage")
         {
             if let Outcome::Failed { message, .. } = session.continuation()() {
-                let _ = engine.call("__exact_let_go", ["failed", &message, ""]);
+                // A compression so failed is settled and what was queued
+                // behind it issued (LLP 1069.002 A1.5): a progress, and the
+                // chain's other storage is delivered on.
+                if engine
+                    .call("__exact_let_go", ["failed", &message, ""])
+                    .is_ok_and(|r| r == "settled")
+                    && engine.drain().is_ok()
+                {
+                    delivered = true;
+                    continue;
+                }
                 break;
             }
             if engine.deliver_storage_one().is_err() || engine.drain().is_err() {

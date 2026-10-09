@@ -20,6 +20,7 @@ use crate::tree::{
 use crate::util::debug::{debug_log, debug_log_node};
 use crate::util::sys::{new_vec_with_capacity, ChildrenVec, Vec};
 
+use super::memo::{Event, Kid, Memo, Recorder, NONE};
 use crate::compute::{
     compute_cached_layout, compute_hidden_layout, compute_leaf_layout, compute_root_layout, round_layout,
 };
@@ -116,6 +117,10 @@ struct NodeData {
     /// so the layout and invalidation paths skip the map for every other.
     pub(crate) replay_tracked: bool,
 
+    /// EXACT PATCH 29: whether this box's layout is remembered by what its
+    /// subtree's algorithms read (`tree/memo.rs`).
+    pub(crate) memo_root: bool,
+
     /// The cached results of the layout computation
     pub(crate) cache: Cache,
 
@@ -135,6 +140,7 @@ impl NodeData {
             final_layout: Layout::new(),
             has_context: false,
             replay_tracked: false,
+            memo_root: false,
             #[cfg(feature = "detailed_layout_info")]
             detailed_layout_info: DetailedLayoutInfo::None,
         }
@@ -183,6 +189,9 @@ pub struct TaffyTree<NodeContext = ()> {
     // not its children (the caller's record), and the static position each one's parent kept.
     hoisted_absolutes: SecondaryMap<DefaultKey, Vec<NodeId>>,
     static_positions: SecondaryMap<DefaultKey, StaticPosition>,
+
+    // EXACT PATCH 29: the layouts of marked roots, by what they read.
+    memo: Memo,
 
     /// Layout mode configuration
     config: TaffyConfig,
@@ -335,6 +344,23 @@ where
     pub(crate) taffy: &'t mut TaffyTree<NodeContext>,
     /// The context provided for passing to measure functions if layout is run over this struct
     pub(crate) measure_function: MeasureFunction,
+    /// EXACT PATCH 29: the marked root's layout being recorded, if one is.
+    pub(crate) rec: Option<Box<Recorder>>,
+    /// A recorded layout read what its trace cannot hold.
+    pub(crate) poison: core::cell::Cell<bool>,
+    /// A marked root is being replayed or recorded: one inside it is an
+    /// ordinary box.
+    pub(crate) memoizing: bool,
+}
+
+impl<'t, NodeContext, MeasureFunction> TaffyView<'t, NodeContext, MeasureFunction>
+where
+    MeasureFunction: FnMut(LayoutInput, NodeId, Option<&mut NodeContext>, &Style) -> LayoutOutput,
+{
+    /// A view of `taffy` whose leaves `measure_function` measures.
+    pub(crate) fn over(taffy: &'t mut TaffyTree<NodeContext>, measure_function: MeasureFunction) -> Self {
+        TaffyView { taffy, measure_function, rec: None, poison: core::cell::Cell::new(false), memoizing: false }
+    }
 }
 
 impl<NodeContext, MeasureFunction> TaffyView<'_, NodeContext, MeasureFunction>
@@ -350,6 +376,10 @@ where
         inputs: LayoutInput,
         #[cfg(feature = "block_layout")] block_ctx: Option<&mut BlockContext<'_>>,
     ) -> LayoutOutput {
+        #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+        if self.rec.is_some() {
+            return self.recorded_child_layout(node_id, inputs, block_ctx);
+        }
         // If RunMode is PerformHiddenLayout then this indicates that an ancestor node is `Display::None`
         // and thus that we should lay out this node using hidden layout regardless of it's own display style.
         if inputs.run_mode == RunMode::PerformHiddenLayout {
@@ -399,6 +429,18 @@ where
                 return LayoutOutput { scrollable_overflow_rect: children.scrollable_overflow_rect, ..leaf };
             }
 
+            // EXACT PATCH 29: a marked root that establishes its own formatting
+            // context (so nothing of its parent's reaches its algorithm).
+            #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+            if tree.taffy.nodes[node_key].memo_root
+                && has_children
+                && !tree.memoizing
+                && !tree.taffy.memo.off
+                && matches!(display_mode, Display::Flex | Display::Grid)
+            {
+                return tree.memo_layout(node_id, inputs);
+            }
+
             // Dispatch to a layout algorithm based on the node's display style and whether the node has children or not.
             match (display_mode, has_children) {
                 (Display::None, _) => compute_hidden_layout(tree, node_id),
@@ -420,6 +462,328 @@ where
             }
         })
     }
+
+    /// EXACT PATCH 29: note that a recorded layout read `node`'s style or
+    /// child count. A trace holds those of a visited box and of its
+    /// children; anything else it could not prove again, so it is dropped.
+    #[inline(always)]
+    fn reads(&self, node: NodeId) {
+        if let Some(rec) = &self.rec {
+            if !rec.read(node) {
+                self.poison.set(true);
+            }
+        }
+    }
+
+    /// The same for `node`'s children: a trace holds a visited box's.
+    #[inline(always)]
+    fn reads_children(&self, node: NodeId) {
+        if let Some(rec) = &self.rec {
+            if !rec.visited(node) {
+                self.poison.set(true);
+            }
+        }
+    }
+
+    /// Whether `node` under `inputs` is computed by a container algorithm
+    /// (so a recorded layout visits it) rather than answered whole.
+    fn computes(&self, node_id: NodeId, inputs: &LayoutInput) -> bool {
+        let node = &self.taffy.nodes[node_id.into()];
+        self.taffy.child_count(node_id) > 0
+            && node.style.display != Display::None
+            && inputs.run_mode != RunMode::PerformHiddenLayout
+            && !(node.style.item_is_replaced && node.has_context)
+    }
+
+    /// A box's layout computed outside the trace being recorded: the trace
+    /// holds its answer only.
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn outside(&mut self, node_id: NodeId, inputs: LayoutInput, block_ctx: Option<&mut BlockContext<'_>>) -> LayoutOutput {
+        let rec = self.rec.take();
+        let output = self.compute_child_layout(node_id, inputs, block_ctx);
+        self.rec = rec;
+        output
+    }
+
+    /// [`Self::compute_child_layout`] inside a recorded layout.
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn recorded_child_layout(
+        &mut self,
+        node_id: NodeId,
+        inputs: LayoutInput,
+        block_ctx: Option<&mut BlockContext<'_>>,
+    ) -> LayoutOutput {
+        let Some(node) = self.rec.as_mut().and_then(|rec| rec.index(node_id)) else {
+            self.poison.set(true);
+            return self.outside(node_id, inputs, block_ctx);
+        };
+        // A leaf, a hidden or replaced box, or an answer its cache holds.
+        let cached = inputs.run_mode != RunMode::PerformHiddenLayout
+            && self.taffy.nodes[node_id.into()].cache.get(&inputs).is_some();
+        if cached || !self.computes(node_id, &inputs) {
+            let output = self.outside(node_id, inputs, block_ctx);
+            if let Some(rec) = self.rec.as_mut() {
+                // Asked before in this layout: the same answer, whether its
+                // cache still holds it or it was measured again.
+                if inputs.run_mode == RunMode::PerformHiddenLayout || !rec.repeats(node, &inputs) {
+                    rec.answered(node, &inputs, &output);
+                    rec.events.push(Event::Query { node, input: inputs, output });
+                }
+            }
+            return output;
+        }
+        let output = self.visit(node_id, node, inputs, block_ctx);
+        self.taffy.cache_store(node_id, &inputs, output);
+        if let Some(rec) = self.rec.as_mut() {
+            rec.answered(node, &inputs, &output);
+            rec.events.push(Event::Store { node, input: inputs, output });
+        }
+        output
+    }
+
+    /// Compute a container inside a recorded layout: what its algorithm
+    /// reads of it and of its children first, then the algorithm.
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn visit(
+        &mut self,
+        node_id: NodeId,
+        node: u32,
+        inputs: LayoutInput,
+        block_ctx: Option<&mut BlockContext<'_>>,
+    ) -> LayoutOutput {
+        let taffy = &*self.taffy;
+        let style = taffy.nodes[node_id.into()].style.clone();
+        let display = style.display;
+        if let Some(rec) = self.rec.as_mut() {
+            let first = rec.visit(node_id);
+            let kids: Rc<[Kid]> = match first {
+                Some(_) => taffy.children[node_id.into()]
+                    .iter()
+                    .map(|&child| {
+                        rec.child(child);
+                        Kid {
+                            style: taffy.nodes[child.into()].style.clone(),
+                            children: taffy.child_count(child) as u32,
+                        }
+                    })
+                    .collect(),
+                None => Rc::from([]),
+            };
+            rec.events.push(Event::Visit { node, input: inputs, style, first: first.unwrap_or(NONE), kids });
+        }
+        match display {
+            Display::Flex => compute_flexbox_layout(self, node_id, inputs),
+            Display::Grid => compute_grid_layout(self, node_id, inputs),
+            Display::Block => compute_block_layout(self, node_id, inputs, block_ctx),
+            _ => compute_block_layout(self, node_id, inputs, None),
+        }
+    }
+
+    /// The layout of a marked root whose cache has no answer: a replay of a
+    /// trace it matches step for step, else its algorithm, recorded.
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn memo_layout(&mut self, root: NodeId, inputs: LayoutInput) -> LayoutOutput {
+        let mut memo = core::mem::take(&mut self.taffy.memo);
+        self.memoizing = true;
+        let attempt = memo.attempt();
+        let replayed = if attempt { self.replay(&mut memo, root, inputs) } else { None };
+        let output = match replayed {
+            Some(output) => {
+                memo.hit();
+                output
+            }
+            None if attempt => {
+                self.poison.set(false);
+                self.rec = Some(Box::new(Recorder::new(root)));
+                let output = self.visit(root, 0, inputs, None);
+                if let Some(mut rec) = self.rec.take() {
+                    if !rec.poisoned && !self.poison.get() {
+                        rec.events.push(Event::End { output });
+                        memo.insert(core::mem::take(&mut rec.events));
+                    }
+                }
+                output
+            }
+            None if self.taffy.nodes[root.into()].style.display == Display::Grid => {
+                compute_grid_layout(self, root, inputs)
+            }
+            None => compute_flexbox_layout(self, root, inputs),
+        };
+        self.memoizing = false;
+        self.taffy.memo = memo;
+        output
+    }
+
+    /// Walk the traces from their start, proving each step on `root`'s
+    /// subtree and making its writes; the root's output where a trace ends.
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn replay(&mut self, memo: &mut Memo, root: NodeId, inputs: LayoutInput) -> Option<LayoutOutput> {
+        let mut nodes = core::mem::take(&mut memo.nodes);
+        let mut overflows = core::mem::take(&mut memo.overflows);
+        nodes.clear();
+        nodes.push(root);
+        overflows.clear();
+        let mut stored = core::mem::take(&mut memo.stored);
+        stored.clear();
+        let mut at = memo.first;
+        let output = loop {
+            if at == NONE {
+                break None;
+            }
+            match &memo.steps[at as usize].event {
+                Event::Store { node, input, output } => {
+                    self.taffy.cache_store(nodes[*node as usize], input, *output);
+                    stored.push(nodes[*node as usize]);
+                    if input.run_mode == RunMode::PerformLayout {
+                        if let Some(overflow) = overflows.get_mut(*node as usize) {
+                            *overflow = None;
+                        }
+                    }
+                }
+                Event::Layout { node, layout } => {
+                    // The overflow the box gave this time, where it was asked.
+                    let mut layout = *layout;
+                    if let Some(Some(overflow)) = overflows.get(*node as usize) {
+                        layout.scrollable_overflow_rect = *overflow;
+                    }
+                    self.set_unrounded_layout(nodes[*node as usize], &layout);
+                }
+                Event::Static { node, position } => self.set_static_position(nodes[*node as usize], *position),
+                Event::End { output } => break Some(*output),
+                Event::Visit { .. } | Event::Query { .. } => {
+                    let root = (at == memo.first).then_some(inputs);
+                    match self.outcome(memo, at, &mut nodes, root) {
+                        Some((step, answer)) => {
+                            at = step;
+                            if let (Some(answer), Some((node, input))) = (answer, memo.steps[at as usize].event.call()) {
+                                if input.run_mode == RunMode::PerformLayout {
+                                    if overflows.len() <= node as usize {
+                                        overflows.resize(node as usize + 1, None);
+                                    }
+                                    overflows[node as usize] = Some(answer.scrollable_overflow_rect);
+                                }
+                            }
+                        }
+                        None => break None,
+                    }
+                }
+            }
+            at = memo.steps[at as usize].next;
+        };
+        // The layout that follows a replay that stopped is recorded as it
+        // would be had no replay run: the containers the replay finished
+        // are computed again, not found in their caches (each is stored
+        // again as that layout passes it: what the replay did, it does).
+        if output.is_none() {
+            for &node in &stored {
+                self.taffy.nodes[node.into()].cache.clear();
+            }
+        }
+        memo.nodes = nodes;
+        memo.overflows = overflows;
+        memo.stored = stored;
+        output
+    }
+
+    /// The outcome, among those recorded at `head`'s place, that this tree
+    /// gives: a visit whose box and children have the recorded styles, or
+    /// the answer the box gives when asked (returned with it). `root`: the
+    /// place is the root's (its outcomes differ in their inputs too).
+    #[cfg(all(feature = "flexbox", feature = "grid", feature = "block_layout"))]
+    fn outcome(
+        &mut self,
+        memo: &Memo,
+        head: u32,
+        nodes: &mut Vec<NodeId>,
+        root: Option<LayoutInput>,
+    ) -> Option<(u32, Option<LayoutOutput>)> {
+        let (node, input) = match root {
+            Some(inputs) => (0, inputs),
+            None => memo.steps[head as usize].event.call().map(|(node, input)| (node, *input))?,
+        };
+        let id = *nodes.get(node as usize)?;
+        let computes = self.computes(id, &input);
+        // Asked for real where the box answers without its algorithm
+        // running here, as the layout this replays would ask it.
+        let held = match (computes, root) {
+            (true, None) => self.taffy.nodes[id.into()].cache.get(&input),
+            _ => None,
+        };
+        let cached = held.is_some();
+        let mut answer = if computes { held } else { Some(self.compute_child_layout(id, input, None)) };
+        // An answer the box gives is the outcome where one recorded equals
+        // it; a box with none (a container its cache does not answer) is
+        // visited.
+        let find = |view: &Self, answer: Option<LayoutOutput>, nodes: &mut Vec<NodeId>| {
+            let mut at = head;
+            while at != NONE {
+                let step = &memo.steps[at as usize];
+                match &step.event {
+                    Event::Query { node: n, input: i, output } => {
+                        if *n == node && *i == input && answer.is_some_and(|a| super::memo::same_answer(&input, &a, output)) {
+                            return Some((at, answer));
+                        }
+                    }
+                    Event::Visit { node: n, input: i, style, first, kids } => {
+                        if answer.is_none()
+                            && computes
+                            && *n == node
+                            && *i == input
+                            && view.visits(id, style, *first, kids, nodes)
+                        {
+                            return Some((at, None));
+                        }
+                    }
+                    _ => {}
+                }
+                at = step.alt;
+            }
+            None
+        };
+        if let Some(found) = find(self, answer, nodes) {
+            return Some(found);
+        }
+        // A container its cache answered, unlike any answer recorded: as
+        // one visited, where one like it was.
+        if cached {
+            return find(self, None, nodes);
+        }
+        let mut asked = false;
+        let mut at = head;
+        while at != NONE {
+            asked |= matches!(memo.steps[at as usize].event, Event::Query { .. });
+            at = memo.steps[at as usize].alt;
+        }
+        if asked && answer.is_none() && root.is_none() && self.taffy.nodes[id.into()].style.display != Display::Block {
+            answer = Some(self.compute_child_layout(id, input, None));
+            return find(self, answer, nodes);
+        }
+        None
+    }
+
+    /// Whether `id` and its children are what a recorded visit read; its
+    /// children then take their indices.
+    fn visits(&self, id: NodeId, style: &Rc<Style>, first: u32, kids: &[Kid], nodes: &mut Vec<NodeId>) -> bool {
+        let taffy = &*self.taffy;
+        if !super::memo::same_style(&taffy.nodes[id.into()].style, style) {
+            return false;
+        }
+        if first == NONE {
+            return true;
+        }
+        let children = &taffy.children[id.into()];
+        if nodes.len() != first as usize
+            || children.len() != kids.len()
+            || !children.iter().zip(kids).all(|(&child, kid)| {
+                taffy.child_count(child) as u32 == kid.children
+                    && super::memo::same_style(&taffy.nodes[child.into()].style, &kid.style)
+            })
+        {
+            return false;
+        }
+        nodes.extend(children.iter().copied());
+        true
+    }
 }
 
 // TraversePartialTree impl for TaffyView
@@ -434,16 +798,19 @@ where
 
     #[inline(always)]
     fn child_ids(&self, parent_node_id: NodeId) -> Self::ChildIter<'_> {
+        self.reads_children(parent_node_id);
         self.taffy.child_ids(parent_node_id)
     }
 
     #[inline(always)]
     fn child_count(&self, parent_node_id: NodeId) -> usize {
+        self.reads(parent_node_id);
         self.taffy.child_count(parent_node_id)
     }
 
     #[inline(always)]
     fn get_child_id(&self, parent_node_id: NodeId, child_index: usize) -> NodeId {
+        self.reads_children(parent_node_id);
         self.taffy.get_child_id(parent_node_id, child_index)
     }
 }
@@ -468,11 +835,17 @@ where
 
     #[inline(always)]
     fn get_core_container_style(&self, node_id: NodeId) -> Self::CoreContainerStyle<'_> {
+        self.reads(node_id);
         &self.taffy.nodes[node_id.into()].style
     }
 
     #[inline(always)]
     fn set_unrounded_layout(&mut self, node_id: NodeId, layout: &Layout) {
+        if let Some(rec) = self.rec.as_mut() {
+            if let Some(node) = rec.index(node_id) {
+                rec.wrote(node, layout);
+            }
+        }
         let old = &mut self.taffy.nodes[node_id.into()].unrounded_layout;
         if *old != *layout {
             *old = *layout;
@@ -501,12 +874,23 @@ where
 
     #[inline(always)]
     fn set_static_position(&mut self, node_id: NodeId, position: StaticPosition) {
+        if let Some(rec) = self.rec.as_mut() {
+            if let Some(node) = rec.index(node_id) {
+                rec.events.push(Event::Static { node, position });
+            }
+        }
         self.taffy.static_positions.insert(node_id.into(), position);
     }
 
     #[inline(always)]
     fn hoisted_absolute_count(&self, node_id: NodeId) -> usize {
-        self.taffy.hoisted_absolutes.get(node_id.into()).map_or(0, Vec::len)
+        let count = self.taffy.hoisted_absolutes.get(node_id.into()).map_or(0, Vec::len);
+        // A box laid out by an ancestor that is not its parent is read
+        // through the tree, not through a call a trace holds.
+        if count > 0 && self.rec.is_some() {
+            self.poison.set(true);
+        }
+        count
     }
 
     fn hoisted_absolute(&self, node_id: NodeId, index: usize) -> Option<(NodeId, StaticPosition, Point<f32>)> {
@@ -599,11 +983,13 @@ where
 
     #[inline(always)]
     fn get_flexbox_container_style(&self, node_id: NodeId) -> Self::FlexboxContainerStyle<'_> {
+        self.reads(node_id);
         &self.taffy.nodes[node_id.into()].style
     }
 
     #[inline(always)]
     fn get_flexbox_child_style(&self, child_node_id: NodeId) -> Self::FlexboxItemStyle<'_> {
+        self.reads(child_node_id);
         &self.taffy.nodes[child_node_id.into()].style
     }
 }
@@ -624,11 +1010,13 @@ where
 
     #[inline(always)]
     fn get_grid_container_style(&self, node_id: NodeId) -> Self::GridContainerStyle<'_> {
+        self.reads(node_id);
         &self.taffy.nodes[node_id.into()].style
     }
 
     #[inline(always)]
     fn get_grid_child_style(&self, child_node_id: NodeId) -> Self::GridItemStyle<'_> {
+        self.reads(child_node_id);
         &self.taffy.nodes[child_node_id.into()].style
     }
 
@@ -682,6 +1070,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
             calc_resolver: |_, _| 0.0,
             hoisted_absolutes: SecondaryMap::new(),
             static_positions: SecondaryMap::new(),
+            memo: Memo::default(),
         }
     }
 
@@ -1110,6 +1499,28 @@ impl<NodeContext> TaffyTree<NodeContext> {
         core::mem::take(&mut self.changed_layouts)
     }
 
+    /// EXACT PATCH 29: remember `node`'s layout by what its subtree's
+    /// algorithms read (`tree/memo.rs`), or stop. Only a flex or grid
+    /// container is remembered; marking any other box does nothing.
+    pub fn set_memo_root(&mut self, node: NodeId, on: bool) {
+        self.nodes[node.into()].memo_root = on;
+    }
+
+    /// Remember marked roots' layouts (the default) or lay them out as any
+    /// other box; turning it off forgets those held.
+    pub fn enable_memo(&mut self, on: bool) {
+        self.memo.off = !on;
+        if !on {
+            self.memo.clear();
+        }
+    }
+
+    /// Marked roots whose layout was a replay, and those computed and
+    /// recorded, since the tree was made.
+    pub fn memo_counts(&self) -> (usize, usize) {
+        (self.memo.hits, self.memo.records)
+    }
+
     /// Retain final layout inputs only for a caller-proven containment candidate.
     pub fn track_layout_input(&mut self, node: NodeId, track: bool) {
         let key = node.into();
@@ -1153,7 +1564,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     where
         MeasureFunction: FnMut(LayoutInput, NodeId, Option<&mut NodeContext>, &Style) -> LayoutOutput,
     {
-        let mut view = TaffyView { taffy: self, measure_function };
+        let mut view = TaffyView::over(self, measure_function);
         let output = LayoutPartialTree::compute_child_layout(&mut view, node, inputs);
         let mut layout = view.taffy.nodes[node.into()].unrounded_layout;
         layout.size = output.size;
@@ -1180,7 +1591,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         MeasureFunction: FnMut(LayoutInput, NodeId, Option<&mut NodeContext>, &Style) -> LayoutOutput,
     {
         let use_rounding = self.config.use_rounding;
-        let mut taffy_view = TaffyView { taffy: self, measure_function };
+        let mut taffy_view = TaffyView::over(self, measure_function);
         compute_root_layout(&mut taffy_view, node_id, available_space);
         if use_rounding {
             round_layout(&mut taffy_view, node_id);
@@ -1204,10 +1615,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Returns an instance of LayoutTree representing the TaffyTree
     #[cfg(test)]
     pub(crate) fn as_layout_tree(&mut self) -> impl LayoutPartialTree + CacheTree + '_ {
-        TaffyView {
-            taffy: self,
-            measure_function: |inputs, _, _, style| compute_leaf_layout(inputs, style, |_, _| 0.0, |_, _| Size::ZERO),
-        }
+        TaffyView::over(self, |inputs, _, _, style| compute_leaf_layout(inputs, style, |_, _| 0.0, |_, _| Size::ZERO))
     }
 }
 

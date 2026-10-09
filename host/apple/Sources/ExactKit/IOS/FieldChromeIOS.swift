@@ -9,10 +9,14 @@ final class FieldChromeCache: @unchecked Sendable {
         let category: String
         let legibility: Int
         let scale: CGFloat
+        let appearance: Int
+        let contrast: Int
         init(_ traits: UITraitCollection) {
             category = traits.preferredContentSizeCategory.rawValue
             legibility = traits.legibilityWeight.rawValue
             scale = max(1, traits.displayScale)
+            appearance = traits.userInterfaceStyle.rawValue
+            contrast = traits.accessibilityContrast.rawValue
         }
     }
     struct Key: Hashable {
@@ -156,17 +160,20 @@ extension TextEngine {
         let weight = traits?[.weight] as? CGFloat ?? 0
         return weight >= UIFont.Weight.bold.rawValue ? 700 : weight >= UIFont.Weight.semibold.rawValue ? 600 : 400
     }
-    static let controlText: ExactControlTextFn = { ctx in
+    static let controlText: ExactControlTextFn = { ctx, kind in
         guard let ctx else { return ExactControlFont() }
         let engine = Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue()
         guard let cache = engine.fieldChrome else { return ExactControlFont() }
-        let font = Owner.shared.callMain { cache.body }
-        let id = engine.registerControlFont(font)
+        let font = Owner.shared.callMain {
+            if kind == 0 { return cache.body }
+            return engine.buttonMeasurements?.font(kind) ?? cache.body
+        }
+        let id = kind == 0 ? engine.registerControlFont(font) : engine.platformControlID ?? engine.registerControlFont(font)
         let weight = UInt16(controlWeight(font)), italic = font.fontDescriptor.symbolicTraits.contains(.traitItalic)
-        Owner.shared.callMain {
+        if kind == 0 { Owner.shared.callMain {
             if let painter = engine.painter { _ = painter.registerControlFont(font) }
             cache.prefill(family: id, font: font, weight: weight, italic: italic)
-        }
+        } }
         return ExactControlFont(family: engine.platformControlName.bytes.assumingMemoryBound(to: UInt8.self), family_len: engine.platformControlName.length,
                                 family_id: id, size: Float(font.pointSize), weight: weight, italic: italic ? 1 : 0)
     }

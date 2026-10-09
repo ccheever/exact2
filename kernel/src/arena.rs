@@ -12,7 +12,8 @@ use crate::id::IdMap;
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
-mod control_text;
+pub(crate) mod button;
+pub(crate) mod control_text;
 
 use taffy::NodeId;
 
@@ -85,8 +86,9 @@ pub struct NodeArena {
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
-    control_styles: Option<Box<[StyleProps; 2]>>,
+    control_styles: Option<Box<[StyleProps; 10]>>,
     pub(crate) field_content: IdMap<u32, Frame>,
+    pub(crate) button_bases: IdMap<u32, Option<f32>>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,
     // Current metadata only: O(arena slot high-water), never revision history.
@@ -134,6 +136,7 @@ impl Clone for NodeArena {
             env: self.env.clone(),
             control_styles: self.control_styles.clone(),
             field_content: self.field_content.clone(),
+            button_bases: self.button_bases.clone(),
             document_language: self.document_language.clone(),
             document_style: self.document_style.clone(),
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
@@ -182,6 +185,7 @@ impl NodeArena {
     pub(crate) fn reset(&mut self) {
         self.renew_text_namespace();
         self.field_content.clear();
+        self.button_bases.clear();
         self.flow.clear();
         self.exclusion_slots.clear();
         self.frag = Default::default();
@@ -816,6 +820,7 @@ impl NodeArena {
         self.exclusion_slots.remove(slot);
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.button_bases.remove(&slot);
         self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);

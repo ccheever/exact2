@@ -499,6 +499,97 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 });
 
 
+test('lockDrift names what exact2 added and moved under a captured lock, never what the game chose', async () => {
+  const {lockDrift,lockChanges}=await import('./app/shells.mjs');
+  const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
+  // exact2's text crate moved to parley, which brings fontique and a newer harfrust;
+  // another shell's rand 0.8 is in the SDK lock, and this game chose rand 0.9.
+  const sdk=lock([['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.8.5','ff']]);
+  const captured=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','harfrust']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['harfrust','0.5.2','gg'],['rand','0.9.1','hh']]);
+  assert.deepEqual(lockDrift(captured,sdk),{added:['fontique','parley'],updated:['harfrust 0.5.2 → 0.12.0']});
+  assert.deepEqual(lockDrift(sdk,sdk),{added:[],updated:[]});
+  // Two versions of one name: only the one exact2's crates reach is named (the game's own foo 2 is its choice).
+  const two=lock([['x-logic','0.1.0',null,['exact-game','foo 2.0.0']],['exact-game','0.1.0',null,['foo 1.0.0']],['foo','1.0.0','ii'],['foo','2.0.0','jj']]);
+  assert.deepEqual(lockDrift(two,lock([['exact-game','0.1.0',null,['foo']],['foo','1.1.0','kk']])).updated,['foo 1.0.0 → 1.1.0']);
+  // A moved version is paired with the SDK's in its series, not every series the SDK lock holds.
+  const series=lock([['exact-game','0.1.0',null,['glam 0.33.7']],['glam','0.30.10','mm'],['glam','0.33.7','nn']]);
+  assert.deepEqual(lockDrift(lock([['exact-game','0.1.0',null,['glam']],['glam','0.33.6','oo']]),series).updated,['glam 0.33.6 → 0.33.7']);
+  // Two sources of one name and version: the walk follows the source each dependency names, so
+  // the git fork's libm, which only the game reaches, is not named.
+  const crates='registry+https://github.com/rust-lang/crates.io-index', fork='git+https://example.com/foo#aaa';
+  const sourced=`version = 4\n\n[[package]]\nname = "exact-game"\nversion = "0.1.0"\ndependencies = [\n "foo 1.0.0 (${crates})",\n]\n\n[[package]]\nname = "x-logic"\nversion = "0.1.0"\ndependencies = [\n "exact-game",\n "foo 1.0.0 (${fork})",\n]\n\n[[package]]\nname = "foo"\nversion = "1.0.0"\nsource = "${crates}"\nchecksum = "pp"\ndependencies = [\n "libm 0.2.16",\n]\n\n[[package]]\nname = "libm"\nversion = "0.2.16"\nsource = "${crates}"\nchecksum = "qq"\n\n[[package]]\nname = "libm"\nversion = "0.1.4"\nsource = "${crates}"\nchecksum = "rr"\n\n[[package]]\nname = "foo"\nversion = "1.0.0"\nsource = "${fork}"\ndependencies = [\n "libm 0.1.4",\n]\n`;
+  assert.deepEqual(lockDrift(sourced,lock([['exact-game','0.1.0',null,['foo']],['foo','1.0.0','pp',['libm']],['libm','0.2.16','qq']])),{added:[],updated:[]});
+  const refreshed=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.9.1','hh']]);
+  assert.deepEqual(lockChanges(captured,refreshed),['harfrust 0.5.2 → 0.12.0','added parley 0.6.0','added fontique 0.5.0']);
+  assert.deepEqual(lockChanges(refreshed,captured),['harfrust 0.12.0 → 0.5.2','removed parley 0.6.0','removed fontique 0.5.0']);
+  // A git package that moved revision at the same version is a change too.
+  const git=(rev)=>`version = 4\n\n[[package]]\nname = "tool"\nversion = "1.0.0"\nsource = "git+https://example.com/tool#${rev}"\n`;
+  assert.deepEqual(lockChanges(git('aaa'),git('bbb')),['tool 1.0.0 (git+https://example.com/tool#aaa) → 1.0.0 (git+https://example.com/tool#bbb)']);
+  // So is a path package becoming crates.io's at the same version.
+  assert.deepEqual(lockChanges(lock([['helper','1.0.0']]),lock([['helper','1.0.0','ll']])),['helper 1.0.0 (path) → 1.0.0']);
+});
+
+test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {
+  const {lockSeed,staleLock}=await import('./app/shells.mjs');
+  const block=(name,version,source)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "${source}"\n`:''}`;
+  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
+  const crates='registry+https://github.com/rust-lang/crates.io-index';
+  const sdk=lock(block('foo','0.12.1',crates),block('exact-game','0.1.0'));
+  const own=lock(block('foo','0.12.0',crates),block('rand','0.9.1',crates),block('tool','1.0.0','git+https://example.com/tool#aaa'),block('x-logic','0.1.0'));
+  // foo 0.12.0 → the SDK's 0.12.1 (one graph holds one version per series), not crates.io's newest.
+  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,own)).package.map(p=>`${p.name} ${p.version}`),['foo 0.12.1','exact-game 0.1.0','rand 0.9.1','tool 1.0.0','x-logic 0.1.0']);
+  assert.equal(lockSeed(sdk,sdk),sdk);
+  // A git fork of an SDK crate, same name and series, is another package: kept at its revision.
+  const fork=lock(block('foo','0.12.0','git+https://example.com/foo?branch=main#aaa'));
+  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,fork)).package.map(p=>`${p.name} ${p.version} ${p.source??''}`),['foo 0.12.1 '+crates,'exact-game 0.1.0 ','foo 0.12.0 git+https://example.com/foo?branch=main#aaa']);
+  // Only a lock that needs updating is stale; a crate missing from the cache is not.
+  assert.ok(staleLock('error: cannot update the lock file /g/.shells/Cargo.lock because --locked was passed to prevent this'));
+  assert.ok(staleLock('error: the lock file /g/.shells/Cargo.lock needs to be updated but --locked was passed to prevent this'));
+  assert.ok(!staleLock('error: failed to download `rustix v1.1.5`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified'));
+});
+
+test('a captured lock exact2 moved past is named at a build, at generation and at update, and left alone', async () => {
+  const {prepareGame,gameDefaults,capturedLockDrift}=await import('./app/shells.mjs');
+  const {createApp}=await import('./new.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'lock-drift-'))), dir=resolve(root,'drift-game');
+  try {
+    createGame(dir);
+    prepareGame(dir,gameDefaults(dir).game,undefined,{updateLock:true});
+    // A current lock and a crate missing from Cargo's cache is not drift: the refusal says fetch.
+    const home=process.env.CARGO_HOME;
+    try {
+      process.env.CARGO_HOME=resolve(root,'empty-cargo-home');mkdirSync(process.env.CARGO_HOME);
+      assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/^game Cargo graph: /.test(error.message)&&/cargo fetch --manifest-path/.test(error.message));
+    } finally {if(home===undefined) delete process.env.CARGO_HOME;else process.env.CARGO_HOME=home;}
+    const captured=Bun.TOML.parse(readFileSync(resolve(dir,'Cargo.lock'),'utf8')).package;
+    // As if captured before exact2's move: exact-game's first registry dependency
+    // (and its edge) absent, and another registry package an older version.
+    const crate=captured.find(p=>p.name==='exact-game'), registry=n=>captured.filter(p=>p.name===n&&p.source).length===1;
+    const [gone,older]=crate.dependencies.map(d=>d.split(' ')[0]).filter(registry);
+    assert.ok(gone&&older,'exact-game has two registry dependencies to stand for the move');
+    const text=readFileSync(resolve(dir,'Cargo.lock'),'utf8').split(/\n(?=\[\[package\]\]\n)/).filter(b=>!b.startsWith(`[[package]]\nname = "${gone}"\n`))
+      .map(b=>b.startsWith('[[package]]\nname = "exact-game"\n')?b.replace(new RegExp(`\\n "${gone}( [^"]*)?",`),''):b)
+      .map(b=>b.startsWith(`[[package]]\nname = "${older}"\n`)?b.replace(/^version = "[^"]*"$/m,'version = "0.0.1"'):b).join('\n');
+    writeFileSync(resolve(dir,'Cargo.lock'),text);
+    rmSync(resolve(dir,'.shells'),{recursive:true,force:true});
+    const named=message=>message.startsWith("exact2 moved since this game's Cargo.lock was captured (added: ")
+      &&message.includes(gone)&&message.includes(`updated: ${older} 0.0.1 → `)&&message.includes(`\`bun exact.mjs lock\` in ${dir}`);
+    assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>named(error.message)&&/cargo fetch --manifest-path/.test(error.message));
+    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text,'a build never changes a captured lock');
+    assert.ok(named(capturedLockDrift(dir)));
+    const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{encoding:'utf8'});
+    assert.equal(generated.status,0,generated.stderr);
+    assert.ok(named(generated.stderr.replace(/^warning: /,'')),generated.stderr);
+    // A runner generated before the verb existed is told to update first.
+    const runner=resolve(dir,'exact.mjs');
+    writeFileSync(runner,readFileSync(runner,'utf8').replace(/^\s*lock: \[.*\n/m,''));
+    assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`));
+    assert.match(createApp(dir,{update:true}),/exact2 moved since this game's Cargo.lock was captured/);
+    assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/lock: \['game\/app\/shells\.mjs', import\.meta\.dir, '--lock'\]/);
+    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text);
+  } finally {rmSync(root,{recursive:true,force:true});}
+}, 180000);
+
 test('a new game names its Rust type after the game, everywhere the template does', async () => {
   const {gameDefaults}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'game-new-type-'))), app=resolve(parent,'my-2d-game');

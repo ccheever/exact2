@@ -32,6 +32,7 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 mod backend;
 pub mod border;
+pub(crate) mod button;
 mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
@@ -1001,7 +1002,6 @@ impl Painter {
         }
         let outer = geometry.outer;
         let content = geometry.content;
-        let s = node.style;
         match node.node_type {
             NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
             // The rest is this element's own paint (its picture, field, or control).
@@ -1025,18 +1025,9 @@ impl Painter {
                 {
                     self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
                 } else {
+                    self.row_slot(node.id, content, outer, ts);
                     self.backend.slot_begin(node.id);
-                    if let Some(img) = walk.scene.images.get(&node.id) {
-                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                            self.backend.image(
-                                img,
-                                dst,
-                                &[Shape::rect(content), outer],
-                                ts,
-                                image_tint(node, &shown, self.dark),
-                            );
-                        }
-                    }
+                    self.picture(walk, node, content, outer, ts);
                     self.backend.slot_end();
                 }
             }
@@ -1104,7 +1095,18 @@ impl Painter {
                     value,
                     masked: node.props.str(PropId::Type) == Some("password"),
                     origin: (content.0, oy),
+                    width: content.2,
+                    multiline,
                 };
+                // A single line is shaped unconstrained, so `text-align` places
+                // it here; a textarea's paragraph is laid out at the field's
+                // width and aligns its own lines.
+                let ox = content.0
+                    + if multiline {
+                        0.0
+                    } else {
+                        caret::line_left(&computed, content.2, paragraph.width)
+                    };
                 let focused = walk.scene.focus == Some(node.id);
                 let selection = walk.scene.selection.filter(|_| focused);
                 if let Some(s) = selection {
@@ -1119,7 +1121,7 @@ impl Painter {
                             color: ink,
                             source: node.id,
                         }],
-                        (content.0, oy),
+                        (ox, oy),
                         ts,
                     );
                 }
@@ -1163,8 +1165,20 @@ impl Painter {
                 control::progress(self.backend.as_mut(), node, content, ts, self.dark)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
-                let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
-                self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
+                let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
+                let rows = walk
+                    .scene
+                    .kernel
+                    .button_face_style(node.id)
+                    .expect("button");
+                self.button_control(
+                    node,
+                    surface.outer.rect,
+                    ts,
+                    &face,
+                    &rows,
+                    walk.scene.focus == Some(node.id),
+                );
             }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
@@ -1204,6 +1218,17 @@ impl Painter {
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
+        }
+        // LLP 1104 D6: native buttons ring their own chrome; a bare
+        // button rings its outer box even without a press handler.
+        if paints_self
+            && node.node_type == NodeType::Pressable
+            && node.props.str(PropId::Href).is_none()
+            && walk.scene.focus == Some(node.id)
+            && node.props.bool(PropId::Disabled) != Some(true)
+        {
+            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            self.field_ring(&outer, accent, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
         // node's own paint and its descendants, clipped to its border box.

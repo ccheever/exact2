@@ -496,17 +496,19 @@ package final class TextEngine {
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
     var catalog: [Int: [RegisteredFace]] = [:]
     var fieldChrome: FieldChromeCache?
+    var buttonMeasurements: ButtonMeasureCache?
     var platformControlID: UInt16?
     var platformControlFont: PlatformFont?
     var platformControlName = NSData()
     /// Declared family names to their plan stacks, for Canvas 2D's `font`
     /// (LLP 1056 D8).
     private var familyStacks: [String: Int] = [:]
-    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8).
-    private(set) lazy var canvasText = CanvasText(engine: self)
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8), which the
+    /// Surfaces module makes at first use (LLP 1047.001 D4).
+    package var canvasTextCache: AnyObject?
 
     /// A declared family's stack, by name.
-    func stack(named name: String) -> Int? { familyStacks[name] }
+    package func stack(named name: String) -> Int? { familyStacks[name] }
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
@@ -590,7 +592,7 @@ package final class TextEngine {
             engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.familyStacks = familyStacks
-            engine.canvasText = CanvasText(engine: engine)
+            engine.canvasTextCache = nil
             engine.dropMeasuredBreaks()
             if let measurer, let m = engine.measurer { Owner.shared.sync { measurer.restore(into: m) } }
         }
@@ -613,7 +615,7 @@ package final class TextEngine {
         platformControlID = nil
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
-        canvasText = CanvasText(engine: self)
+        canvasTextCache = nil
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
         var staged: [Int: [RegisteredFace]] = [:]
@@ -1210,31 +1212,27 @@ package final class TextEngine {
             residency.putMinimum(identity, width: CSSLineBox.layoutWidth(widest))
             return CSSLineBox.layoutWidth(widest)
         }
-        // Repeated words previously reused entire cached Paragraphs. Keep that
-        // benefit with probe-local scalars, bounded by the same logical-payload
-        // target; unique words beyond it are measured normally, never omitted.
-        var words: [Run: CGFloat] = [:]
-        var wordBytes = 0
-        // CSS `text-indent` is part of the first line, so of its first word's
-        // piece; a list item's indent of each of its words, its marker hung.
+        // Each piece is measured as a line of the paragraph's typesetter, so
+        // the paragraph is shaped once. A resident shape is used if there is
+        // one; this measure does not make one resident.
+        // `text-indent` applies to the first line only (CSS Text 3 §8.1), so
+        // only to the first piece. A run's own indent (a list item's) applies to
+        // each of its pieces.
+        let resident = residency.shape(TextShapeKey(identity: identity, paint: TextPaint(spec)))
+        let source = resident?.attributed ?? attributed(spec)
+        let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
-        for r in spec.runs where !r.hang {
-            for word in unbreakablePieces(r.text) {
-                var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
-                let key = one.runs[0]
-                defer { indent = 0 }
-                let inset = indent + r.indent
-                if let width = words[key] { widest = max(widest, width + inset); continue }
-                // This probe needs one scalar, never a cached width-specific
-                // Paragraph or a historical per-word CTTypesetter.
-                let line = CTLineCreateWithAttributedString(attributed(one))
-                let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width + inset)
-                let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
-                if bytes <= residency.softTargetBytes - wordBytes {
-                    words[key] = width; wordBytes += bytes
-                }
+        var offset = 0
+        for r in spec.runs {
+            let text = r.text as NSString
+            defer { offset += text.length }
+            guard !r.hang else { continue }
+            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+                let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
+                var line = CTTypesetterCreateLine(typesetter, range)
+                if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
+                widest = max(widest, CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) + indent + r.indent)
+                indent = 0
             }
         }
         residency.putMinimum(identity, width: widest)

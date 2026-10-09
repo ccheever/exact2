@@ -107,7 +107,7 @@ impl Derived {
         offer: Offer,
     ) -> Result<(), LayoutError> {
         self.tree
-            .compute_mapped(self.root, offer, arena, m, |s| self.nodes.get(&s).copied())
+            .compute_mapped(self.root, offer, arena, m, &|s| self.nodes.get(&s).copied())
     }
     pub fn provisional_chrome(&self) -> bool {
         self.tree.provisional_chrome()
@@ -153,6 +153,7 @@ impl Derived {
         let mut frames = Vec::with_capacity(self.slots.len());
         let mut offsets = Vec::with_capacity(self.slots.len());
         let mut field_content = IdMap::default();
+        let mut button_bases = IdMap::default();
         let mut stack = vec![(root, 0., 0., OWNER, false)];
         while let Some((s, x, y, parent, hidden)) = stack.pop() {
             let hidden = hidden || arena.style(s).display == crate::Display::None;
@@ -200,6 +201,13 @@ impl Derived {
                 {
                     field_content.insert(arena.key(s), content);
                 }
+                if let Some(basis) = self
+                    .tree
+                    .button_containing_width(self.nodes[&s])
+                    .filter(|_| !hidden)
+                {
+                    button_bases.insert(arena.key(s), basis);
+                }
                 frames.push(RegionFrame {
                     node: arena.key(s),
                     frame,
@@ -231,6 +239,7 @@ impl Derived {
             frames,
             offsets,
             field_content,
+            button_bases,
             provisional_chrome: self.provisional_chrome(),
         })
     }
@@ -239,6 +248,7 @@ impl Derived {
 pub(super) struct ShellGeometry {
     pub frames: Vec<RegionFrame>,
     pub field_content: IdMap<NodeKey, Frame>,
+    pub button_bases: IdMap<NodeKey, Option<f32>>,
 }
 
 /// Compute using the existing shell tree, staging frames without arena writes.
@@ -261,6 +271,7 @@ pub(super) fn shell(
     tree.compute(engine_root, offer, arena, measurer)?;
     let mut frames = Vec::new();
     let mut field_content = IdMap::default();
+    let mut button_bases = IdMap::default();
     let mut stack = vec![(root, 0., 0., false)];
     while let Some((s, x, y, hidden)) = stack.pop() {
         let hidden = hidden || arena.style(s).display == crate::Display::None;
@@ -294,6 +305,9 @@ pub(super) fn shell(
         if let Some(content) = tree.field_content_rect(arena, s, n).filter(|_| !hidden) {
             field_content.insert(arena.key(s), content);
         }
+        if let Some(basis) = tree.button_containing_width(n).filter(|_| !hidden) {
+            button_bases.insert(arena.key(s), basis);
+        }
         frames.push(RegionFrame {
             node: arena.key(s),
             frame,
@@ -312,6 +326,7 @@ pub(super) fn shell(
     Ok(ShellGeometry {
         frames,
         field_content,
+        button_bases,
     })
 }
 

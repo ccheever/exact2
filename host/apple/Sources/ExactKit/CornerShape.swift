@@ -6,7 +6,7 @@ import CExact
 import CoreGraphics
 import QuartzCore
 
-struct CornerShape: Equatable {
+package struct CornerShape: Equatable {
     /// Each corner's superellipse K, top-left first; NaN is
     /// `-exact-continuous`.
     let k: [Float]
@@ -24,7 +24,7 @@ struct CornerShape: Equatable {
         }
     }
 
-    static func == (a: CornerShape, b: CornerShape) -> Bool {
+    package static func == (a: CornerShape, b: CornerShape) -> Bool {
         zip(a.k, b.k).allSatisfy { $0 == $1 || ($0.isNaN && $1.isNaN) }
     }
 

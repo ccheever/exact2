@@ -269,9 +269,9 @@ component Content
               row gap=(tv ? 12 : 6)
                 // A TV has no light and dark scheme for the app to choose.
                 when not tv
-                  button press=setScheme("light") aria-label="Light" testId="scheme-light"
+                  button appearance="none" press=setScheme("light") aria-label="Light" testId="scheme-light"
                     text "Light" font-size="0.75em"
-                  button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
+                  button appearance="none" press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
                     text "Dark" font-size="0.75em"
                 button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle" padding=8 border-radius=8
                   when sky
@@ -344,7 +344,7 @@ component Content
                 text "Matches" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
                 each s in matches key=s.id
                   StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-            button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
+            button appearance="none" press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
               text "Back" font-size="0.8125em"
 
 // The departures' half: on a TV its own scroll, the full height, so the

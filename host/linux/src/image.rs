@@ -65,6 +65,12 @@ pub struct Images {
     pub loaded: Vec<(String, (u32, u32))>,
     decode_enabled: bool,
     deferred: usize,
+    /// The last [`Images::sync_visible`] met a picture (an image that is not
+    /// a symbol), and the kernel epoch at which one met none and reported
+    /// nothing: until a commit, another has nothing to find (a symbol asks
+    /// no file and is the same shown or not).
+    pictures: bool,
+    pub(crate) settled: Option<u64>,
     /// The image nodes in preorder, as of a kernel epoch: the walk
     /// [`Images::sync_visible`] needs, redone only after a commit.
     pub(crate) order: Option<(u64, Vec<ViewId>)>,
@@ -95,6 +101,8 @@ impl Images {
             loaded: Vec::new(),
             decode_enabled: true,
             deferred: 0,
+            pictures: false,
+            settled: None,
             order: None,
             box_index: None,
         }
@@ -143,6 +151,11 @@ impl Images {
     pub fn sync(&mut self, kernel: &Kernel, live: &[ViewId]) -> Vec<Report> {
         self.sync_visible(kernel, live, 1., |_| true)
     }
+    /// [`Images::settled`] after a sync at `epoch`.
+    pub(crate) fn settled_at(&self, epoch: u64, quiet: bool) -> Option<u64> {
+        (quiet && !self.pictures && self.deferred == 0).then_some(epoch)
+    }
+
     pub(crate) fn sync_visible(
         &mut self,
         kernel: &Kernel,
@@ -153,6 +166,7 @@ impl Images {
         let mut reports = Vec::new();
         let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
+        self.pictures = false;
         for id in live {
             let Some(node) = kernel.node(*id) else {
                 continue;
@@ -212,6 +226,7 @@ impl Images {
                 continue;
             }
             // Only a picture loads by whether it shows: a symbol's never asked.
+            self.pictures = true;
             view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
@@ -549,6 +564,7 @@ impl Images {
         self.bitmaps.clear();
         self.loaded.clear();
         self.generation = self.backend.generation();
+        self.settled = None;
     }
     #[cfg(unix)]
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {

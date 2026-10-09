@@ -68,6 +68,11 @@ macro_rules! host {
         pub extern "C" fn exact_set_control_text(rt: u32, text: Option<$crate::control_text::ControlTextFn>, chrome: Option<$crate::control_text::FieldChromeFn>) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_control_text(text, chrome));
         }
+        /// Native button height-for-width, with the registered text context.
+        #[no_mangle]
+        pub extern "C" fn exact_set_button_measure(rt: u32, measure: Option<$crate::control_text::ButtonMeasureFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_button_measure(measure));
+        }
         /// Remeasure the controls after a trait change, through set_env.
         #[no_mangle]
         pub extern "C" fn exact_control_text_changed(rt: u32) -> u32 {
@@ -435,6 +440,22 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame(now_ms), |n| n)
         }
 
+        /// `exact_frame` at the target `now_ms`, the wall at `wall_ms`
+        /// stopping the motion engine's input clock (LLP 1003.001 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_frame_at(rt: u32, now_ms: f64, wall_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.frame_at(now_ms, wall_ms), |n| n)
+        }
+
+        /// Nonzero: motion an author's commit begins waits for the first
+        /// presented frame (LLP 1003.001 D7), in every host booted after;
+        /// zero at the agent's takeover, where what waits starts at `at_ms`.
+        /// Returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_start_on_frame(rt: u32, on: u32, at_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.start_on_frame(on != 0, at_ms), |n| n)
+        }
+
         /// Nonzero: the display drives frame tasks (`exact_frame` turns it
         /// on); zero when the agent's clock takes over (LLP 1073 D4).
         #[no_mangle]
@@ -516,6 +537,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_insets(rt: u32, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
+        }
+
+        /// The window's size, which every viewport unit resolves
+        /// against everywhere, or none (a nonpositive size), LLP 1075.003
+        /// §9.11; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_screen(rt: u32, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height), |n| n)
         }
 
         /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
@@ -602,6 +631,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_tick(rt: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick(now_ms), |n| n)
+        }
+
+        /// A motion frame for the display frame presented at `frame_ms`
+        /// (LLP 1003.001 D5); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_tick_at(rt: u32, now_ms: f64, frame_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.tick_at(now_ms, frame_ms), |n| n)
         }
 
         /// An agent request from the input buffer; returns the reply's length.

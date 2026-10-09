@@ -10,7 +10,7 @@ final class NativeFieldsIOSTests: XCTestCase {
     // component Fieldless / view / box testId="fieldless" width=100 height=100
     // Compiled fixture has no data/module dependencies: preparation must still
     // supply a valid control environment even when no control is in the plan.
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABec1gbX/94wciEXD2am5WIGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")! }
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABnZf+ljAD4K0FuZh8Xnef/GA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -116,12 +116,12 @@ final class NativeFieldsIOSTests: XCTestCase {
         engine.fieldChrome = cache
         Owner.shared.sync { engine.measuring.fieldChrome = cache }
         cache.configure(.init(preferredContentSizeCategory: .large))
-        let first = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque) }
+        let first = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque, 0) }
         let drawn = engine.font(size: CGFloat(first.size), weight: Int(first.weight), family: Int(first.family_id), italic: first.italic != 0)
         XCTAssertEqual(drawn, cache.body)
         XCTAssertEqual(drawn.fontName, cache.body.fontName)
         cache.configure(.init(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge))
-        let large = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque) }
+        let large = Owner.shared.sync { TextEngine.controlText(engine.measuring.opaque, 0) }
         XCTAssertGreaterThan(large.size, first.size)
         XCTAssertEqual(engine.font(size: CGFloat(large.size), weight: Int(large.weight), family: Int(large.family_id), italic: false), cache.body)
     }

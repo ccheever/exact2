@@ -30,12 +30,26 @@ pub struct AnimationPlay {
     /// The appearance its `light-dark()` keyframes took when it started, as
     /// a browser resolves a rule once (LLP 1062 D9).
     pub dark: bool,
+    /// While it waits for the first presented frame (LLP 1003.001 D1), the
+    /// engine time it began: it holds the local time it had then, and the
+    /// frame moves its start by the wait.
+    pub pending: Option<f64>,
+    /// While pending, whether it joined a clock origin that waits for the
+    /// frame too: then the frame gives it the origin's phase (LLP 1003.001
+    /// D8), not a start of its own.
+    pub(crate) clock_wait: bool,
 }
 
 impl AnimationPlay {
     /// Local time at engine time `now`: seconds since start, delay included.
     pub fn local(&self, now: f64) -> f64 {
-        self.hold.unwrap_or(now - self.start)
+        self.hold
+            .unwrap_or(self.pending.unwrap_or(now) - self.start)
+    }
+
+    /// When it ends if the frame at `now` starts it (LLP 1003.001 D1).
+    pub fn end_at(&self, now: f64) -> f64 {
+        self.start + self.animation.end_time() + self.pending.map_or(0.0, |b| (now - b).max(0.0))
     }
 
     fn live(&self, now: f64) -> bool {
@@ -69,10 +83,19 @@ impl Engine {
         node: u64,
         animations: &Animations,
     ) -> Result<(), EngineError> {
+        (self.links.set_animations)(self, node, animations)
+    }
+
+    pub(super) fn set_animations_full(
+        &mut self,
+        node: u64,
+        animations: &Animations,
+    ) -> Result<(), EngineError> {
         animations
             .validate()
             .map_err(|_| EngineError::InvalidAnimation)?;
-        let now = self.now;
+        let now = self.sample_time();
+        let pend = self.start_on_frame.then_some(now);
         // A timeline-bound play keeps its held time: the timeline, not the
         // row's play state, holds it (LLP 1057.003 D2).
         let bound = self.timeline_bound(node);
@@ -100,13 +123,17 @@ impl Engine {
                 Some(i) => {
                     used[i] = true;
                     let prior = &old[i];
-                    let (start, hold) = match (prior.hold, a.paused) {
-                        (hold, _) if bound => (prior.start, hold),
-                        (None, true) => (prior.start, Some(now - prior.start)),
+                    // A pending play keeps waiting; a pause takes the
+                    // local time it waits at; a resume waits at its held one
+                    // (LLP 1003.001 D3). A clock's join decides for its own.
+                    let (start, hold, pending) = match (prior.hold, a.paused) {
+                        (hold, _) if bound => (prior.start, hold, None),
+                        (None, true) => (prior.start, Some(prior.local(now)), None),
                         // A play on a clock timeline rejoins its phase
                         // (LLP 1055.002 D6); any other continues.
-                        (Some(held), false) => (now - if on_clock { 0.0 } else { held }, None),
-                        (hold, _) => (prior.start, hold),
+                        (Some(_), false) if on_clock => (now, None, None),
+                        (Some(held), false) => (now - held, None, pend),
+                        (hold, _) => (prior.start, hold, prior.pending),
                     };
                     let resumed = on_clock && !bound && prior.hold.is_some() && !a.paused;
                     joins.push(resumed.then_some(Join::Resumed));
@@ -115,6 +142,8 @@ impl Engine {
                         start,
                         hold,
                         dark: prior.dark,
+                        clock_wait: prior.clock_wait && pending.is_some(),
+                        pending,
                     }
                 }
                 None => {
@@ -124,6 +153,8 @@ impl Engine {
                         start: now,
                         hold: a.paused.then_some(0.0),
                         dark: self.dark_of(node),
+                        pending: pend.filter(|_| !a.paused && !bound && !on_clock),
+                        clock_wait: false,
                     }
                 }
             };
@@ -174,11 +205,17 @@ impl Engine {
     /// Keep the clock running for `node` while a play of it is live and
     /// sampled, after its plays or their starts change.
     pub(super) fn schedule_animations(&mut self, node: u64) {
-        let (now, lowered, forced) = (self.now, self.lowered, self.forced.contains(&node));
+        let (now, lowered, forced) = (
+            self.sample_time(),
+            self.lowered,
+            self.forced.contains(&node),
+        );
         let plays = self.animations.get(&node).map_or(&[][..], Vec::as_slice);
+        // A pending play keeps the clock until the frame starts it, lowered
+        // or not (LLP 1003.001 D1).
         if plays
             .iter()
-            .any(|p| p.live(now) && p.sampled(&lowered, forced))
+            .any(|p| p.pending.is_some() || (p.live(now) && p.sampled(&lowered, forced)))
         {
             self.animating.insert(node);
         } else {
@@ -241,7 +278,7 @@ impl Engine {
         if !changed {
             return;
         }
-        let now = self.now;
+        let now = self.sample_time();
         if let Some(plays) = self.animations.get(&node) {
             for play in plays {
                 for p in play.animation.keyframes.properties() {
@@ -250,7 +287,7 @@ impl Engine {
             }
             if plays
                 .iter()
-                .any(|p| p.live(now) && p.sampled(&self.lowered, sampled))
+                .any(|p| p.pending.is_some() || (p.live(now) && p.sampled(&self.lowered, sampled)))
             {
                 self.animating.insert(node);
             } else {
@@ -263,7 +300,16 @@ impl Engine {
     /// that applies wins (CSS's composite order, replace); one outside its
     /// interval with no fill contributes nothing. `None` when none applies.
     pub fn animated(&self, node: u64, property: Property, underlying: Value) -> Option<Value> {
-        let now = self.now;
+        (self.links.animated)(self, node, property, underlying)
+    }
+
+    pub(super) fn animated_full(
+        &self,
+        node: u64,
+        property: Property,
+        underlying: Value,
+    ) -> Option<Value> {
+        let now = self.sample_time();
         self.animations.get(&node)?.iter().rev().find_map(|play| {
             play.animation
                 .sample_in(play.local(now), property, underlying, play.dark)
@@ -277,9 +323,18 @@ impl Engine {
     /// the node already plays starts again, as a second entry of that name
     /// does. Returns the clock time the last exit animation ends.
     pub fn play_exit(&mut self, node: u64, exit: &Animations) -> Result<f64, EngineError> {
+        (self.links.play_exit)(self, node, exit)
+    }
+
+    pub(super) fn play_exit_full(
+        &mut self,
+        node: u64,
+        exit: &Animations,
+    ) -> Result<f64, EngineError> {
         exit.validate_ending()
             .map_err(|_| EngineError::InvalidAnimation)?;
-        let (now, dark) = (self.now, self.dark_of(node));
+        let (now, dark) = (self.sample_time(), self.dark_of(node));
+        let pending = self.start_on_frame.then_some(now);
         for a in &exit.0 {
             for p in a.keyframes.properties() {
                 self.dirty.insert((node, p));
@@ -291,6 +346,8 @@ impl Engine {
             start: now,
             hold: None,
             dark,
+            pending,
+            clock_wait: false,
         }));
         self.animating.insert(node);
         Ok(now + exit.end_time())
@@ -352,7 +409,7 @@ impl Engine {
     /// Mark every property of every live sampled animation dirty, and retire
     /// nodes whose animations have all ended or paused (after this frame).
     pub(super) fn advance_animations(&mut self) {
-        let now = self.now;
+        let now = self.sample_time();
         let lowered = self.lowered;
         let mut ended = Vec::new();
         for node in &self.animating {
@@ -367,7 +424,7 @@ impl Engine {
             }
             if !plays
                 .iter()
-                .any(|p| p.live(now) && p.sampled(&lowered, forced))
+                .any(|p| p.pending.is_some() || (p.live(now) && p.sampled(&lowered, forced)))
             {
                 ended.push(*node);
             }
@@ -384,8 +441,8 @@ impl Engine {
             .values()
             .flatten()
             .filter(|p| p.hold.is_none() && p.animation.end_time().is_finite())
-            .map(|p| p.start + p.animation.end_time())
-            .filter(|t| *t > self.now)
+            .map(|p| p.end_at(self.sample_time()))
+            .filter(|t| *t > self.sample_time())
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
 }

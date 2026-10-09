@@ -4,10 +4,11 @@
 // and its wasm-bindgen glue, which `ts/web.ts` imports (`ts/generated/`,
 // never committed). With no output it writes only the glue, which every
 // host's bake type-checks. Runs under Node or Bun, and from an app's build.rs. Size first (profile `wasm`), then `wasm-opt -Oz` when
-// binaryen is on PATH and it transfers smaller. Files are rewritten only when their bytes change.
+// binaryen is on PATH or in Exact's cache and it transfers smaller. Files are rewritten only when their bytes change.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { delimiter, dirname, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const out = process.argv[2];
@@ -33,10 +34,19 @@ if (bindgen.status !== 0) {
 }
 const built = resolve(glue, 'device_bg.wasm');
 const optimized = resolve(glue, 'device_bg.opt.wasm');
+// The binaryen `exact setup` installs (scripts/app.mjs puts it on PATH for
+// Exact's own builds; this script also runs on its own and from build.rs).
+const cached = resolve(homedir(), '.cache/exact/binaryen');
+const optEnv = { ...process.env };
+if (existsSync(cached)) {
+  const bins = readdirSync(cached).sort().reverse().map(version => resolve(cached, version, 'bin'))
+    .filter(bin => existsSync(resolve(bin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt')));
+  if (bins.length) optEnv.PATH = `${bins[0]}${delimiter}${optEnv.PATH ?? ''}`;
+}
 const opt = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', built, '-o', optimized],
-  { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', env: optEnv });
 if (opt.status !== 0) {
-  console.error(`snapback4 web: ${opt.error?.code === 'ENOENT' ? 'wasm-opt not on PATH (brew install binaryen)' : `wasm-opt failed: ${opt.stderr.trim().split('\n').at(-1)}`}; unoptimized`);
+  console.error(`snapback4 web: ${opt.error?.code === 'ENOENT' ? 'wasm-opt not found (`bun scripts/exact.mjs setup` installs it)' : `wasm-opt failed: ${opt.stderr.trim().split('\n').at(-1)}`}; unoptimized`);
 }
 // Keep whichever transfers smaller: -Oz shrinks this module raw but can grow
 // it gzipped (as Snapback's own build-wasm.sh finds and compares).

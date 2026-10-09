@@ -44,10 +44,21 @@ pub(super) struct Timelines {
     bound: Vec<(u64, NamedTimeline, [f64; 2])>,
 }
 
+impl Timelines {
+    /// Whether `node` is a timeline's source or follows one.
+    pub(super) fn names(&self, node: u64) -> bool {
+        self.sources.iter().any(|s| s.0 == node) || self.bound.iter().any(|b| b.0 == node)
+    }
+}
+
 impl Engine {
     /// Declare (or with `None`, retract) the timeline `node`'s presented
     /// translate drives, and whether it reads the `x` axis.
     pub fn set_drag_timeline(&mut self, node: u64, x: Option<bool>) {
+        (self.links.set_drag_timeline)(self, node, x)
+    }
+
+    pub(super) fn set_drag_timeline_full(&mut self, node: u64, x: Option<bool>) {
         let at = self.timelines.sources.iter().position(|s| s.0 == node);
         match (x, at) {
             (Some(x), Some(i)) => self.timelines.sources[i].1 = x,
@@ -72,6 +83,14 @@ impl Engine {
         node: u64,
         binding: Option<(NamedTimeline, [f64; 2])>,
     ) {
+        (self.links.set_animation_timeline)(self, node, binding)
+    }
+
+    pub(super) fn set_animation_timeline_full(
+        &mut self,
+        node: u64,
+        binding: Option<(NamedTimeline, [f64; 2])>,
+    ) {
         let at = self.timelines.bound.iter().position(|b| b.0 == node);
         match (binding, at) {
             (Some((timeline, range)), Some(i)) => {
@@ -86,13 +105,21 @@ impl Engine {
                 self.timelines.bound.remove(i);
                 // Back on the clock from where the timeline left it; from
                 // an inactive one, from its start.
-                let now = self.now;
+                // With the first-frame rule on, that resume waits for the
+                // frame (LLP 1003.001 D3); a clock's join below decides for
+                // its own.
+                let now = self.sample_time();
+                let pending = self.start_on_frame.then_some(now);
                 for play in self.animations.get_mut(&node).into_iter().flatten() {
                     if !play.animation.paused {
                         if let Some(held) = play.hold.take() {
                             play.start = now - if held.is_nan() { 0.0 } else { held };
+                            play.pending = pending;
                         }
                     }
+                }
+                if pending.is_some() {
+                    self.schedule_animations(node);
                 }
                 // Onto a clock timeline: in its phase (LLP 1055.002).
                 self.join_clock_node(node);
@@ -113,6 +140,10 @@ impl Engine {
 
     /// Hold every bound consumer's plays at the time its timeline gives.
     pub(super) fn seek_timelines(&mut self) {
+        (self.links.seek_timelines)(self)
+    }
+
+    pub(super) fn seek_timelines_full(&mut self) {
         for i in 0..self.timelines.bound.len() {
             self.seek_timeline(i);
         }
@@ -169,6 +200,8 @@ impl Engine {
                 Some(_) => play.animation.delay.max(0.0),
                 None => play.hold.unwrap_or(0.0),
             };
+            // The source owns its time: nothing waits for a frame.
+            play.pending = None;
             moved |= play.hold.replace(local).map(f64::to_bits) != Some(local.to_bits());
         }
         self.animating.remove(&node);

@@ -62,7 +62,7 @@ public struct Batch {
 /// name, never a trap.
 package final class Runtime {
     package let rt: ExactRuntime
-    private(set) var destroyed = false
+    private(set) package var destroyed = false
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
     // Release builds have neither the callback nor a copy of the wire bytes.
@@ -207,7 +207,7 @@ package final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { on { read(exact_pump(rt, now)) } }
-    func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
+    package func requestActive(_ ticket: UInt64) -> Bool { on(busy: false) { exact_request_active(rt, ticket) != 0 } }
     func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
         return on {
             let n = write(body)
@@ -230,45 +230,45 @@ package final class Runtime {
             return (start, batch)
         }
     }
-    func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
+    package func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
         return on(busy: (nil, Runtime.busy)) {
             let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
             return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)
         }
     }
-    func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
+    package func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
         return on {
             read(exact_height_drag_update(rt, token, height, now))
         }
     }
-    func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
+    package func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
         return on {
             read(exact_height_drag_release(rt, token, height, now))
         }
     }
-    func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
+    package func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
         return on {
             read(exact_reorder_begin(rt, handle, scrollTop, now))
         }
     }
-    func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
+    package func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
         return on {
             read(exact_reorder_move(rt, token, dy, scrollTop, inside ? 1 : 0, now))
         }
     }
-    func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch {
+    package func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch {
         return on {
             read(exact_reorder_end(rt, token, drop ? 1 : 0, dy, scrollTop, inside ? 1 : 0, velocity, now))
         }
     }
-    func hasHold(_ token: UInt64) -> Bool { on(busy: false) { !destroyed && exact_has_hold(rt, token) != 0 } }
+    package func hasHold(_ token: UInt64) -> Bool { on(busy: false) { !destroyed && exact_has_hold(rt, token) != 0 } }
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         return on {
             read(exact_hold_update(rt, token, x, y, now))
         }
     }
     /// `measured`: release at the engine's own velocity estimate (LLP 1057.001 §3).
-    func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+    package func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
         return on {
             read(exact_hold_end(rt, token, cancel ? 1 : measured ? 2 : 0, vx, vy, now))
         }
@@ -330,11 +330,12 @@ package final class Runtime {
             done(read(exact_canvas_draw(rt)))
         }
     }
-    /// A frame's tick on the owner, not waited for (LLP 1072 §7.1).
-    func tickAsync(now: Double, done: @escaping (Batch) -> Void) {
+    /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
+    /// is the display frame it is for (LLP 1003.001 D5).
+    func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
-            done(read(exact_tick(rt, now)))
+            done(read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)))
         }
     }
     /// Actual viewport/row observations using the runner's versioned LE wire.
@@ -466,7 +467,10 @@ package final class Runtime {
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
-    func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
+    func frame(now: Double, wall: Double? = nil) -> Batch { on { read(wall.map { exact_frame_at(rt, now, $0) } ?? exact_frame(rt, now)) } }
+    /// Whether motion a commit begins waits for the first presented frame
+    /// (LLP 1003.001 D7); off, what waits starts at `at`.
+    func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
@@ -490,6 +494,8 @@ package final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
+    /// The window's size, which every viewport unit resolves against everywhere; zero clears it (LLP 1075.003 §9.11).
+    func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {
@@ -499,7 +505,7 @@ package final class Runtime {
             return read(exact_segments(rt, fold.posture == "folded" ? 1 : 0, UInt32(fold.cols), UInt32(fold.rows), UInt32(fold.rects.count)))
         }
     }
-    func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
+    func tick(now: Double, frame: Double? = nil) -> Batch { on { read(frame.map { exact_tick_at(rt, now, $0) } ?? exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }
     /// @ref LLP 1095 D1 — every colour reference the kernel resolves itself

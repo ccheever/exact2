@@ -265,6 +265,25 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
+            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
+            (StyleId::ControlSize, RowValue::Enum(size)) => {
+                let size = match *size {
+                    "mini" => "x-small",
+                    "small" => "small",
+                    "large" => "large",
+                    _ => "medium",
+                };
+                push_text!(&mut out, "--exact-control-font-size:{};", size);
+            }
+            (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
+                out.push_str("--exact-control-radius:");
+                out.push_str(if *corner == "capsule" {
+                    "calc(infinity * 1px)"
+                } else {
+                    "revert"
+                });
+                out.push(';');
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It

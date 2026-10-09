@@ -4,6 +4,8 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+#[path = "button_css.rs"]
+mod button_css;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
@@ -217,6 +219,7 @@ pub fn host_css_of(
     {
         css.push_str("display:block;");
     }
+    css = button_css::face(node, css);
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");
@@ -1051,6 +1054,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // A native button's look, its default named too (LLP 1069.011 D8).
     if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
         out.get_or_insert_with("data-button-style".into(), || "bordered".into());
+        out.insert("data-native".into(), String::new());
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node
@@ -1143,6 +1147,9 @@ mod name_tests {
             }
             if selectors.split(',').any(|selector| {
                 let selector = selector.trim();
+                if selector.contains("::") || selector.contains(" > ") {
+                    return false;
+                }
                 selector.contains("input")
                     || selector.contains("textarea")
                     || selector.contains("select")
