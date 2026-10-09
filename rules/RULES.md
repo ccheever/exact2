@@ -48,9 +48,9 @@ Tracked every commit. A regression is a P0 with a name on it.
   and taking something off, or Charlie's waiver. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
-- **Web is the standard and the dev loop; native is swept.** One Contract source targets
-  all four surfaces; a semantic that could follow CSS follows CSS. Verify on the
-  seconds-loop and let the minutes-loop run behind you. **[review]**
+- **No tells, then the web.** iPhone apps feel hand-built in UIKit/SwiftUI per Apple's
+  guidelines (James; Charlie, 2026-10-09): where CSS would leave a tell, the platform
+  default wins. Otherwise CSS; the web is the dev loop. **[review]**
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
