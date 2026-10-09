@@ -8,7 +8,9 @@ import ImageIO
 /// requestPermissions reach them (reference getMediaAccessStatus,
 /// isTrustedAccessibilityClient, desktopCapturer.getSources, shell.openExternal).
 /// The defaults are the real system; the snapshot AppKit test replaces every one,
-/// so it never reaches TCC.
+/// so it never reaches TCC. The setup rows (snapshotState) and the helper's grant
+/// poll read the same two checks, as the reference's currentMacPermissions and
+/// permissionGranted read the same Electron calls.
 struct T3SnapshotPermissionSystem {
     var screenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
     var accessibility: () -> Bool = { AXIsProcessTrusted() }
@@ -202,7 +204,7 @@ final class T3SnapShot {
         guard !closing else { throw T3Failure(kind: "SnapShot", message: "Window capture is closed.") }
         wanted = enabled
         if !enabled { verified = false }
-        if enabled, let permissionError = Self.permissionMessage(screenRecording: CGPreflightScreenCaptureAccess(), accessibility: AXIsProcessTrusted(), includeAccessibility: includeAccessibility) {
+        if enabled, let permissionError = Self.permissionMessage(screenRecording: permissions.screenRecording(), accessibility: permissions.accessibility(), includeAccessibility: includeAccessibility) {
             if self.enabled { feedback.destroy() }
             self.enabled = false; self.includeAccessibility = includeAccessibility; verified = false; removeMonitors(); stopActive(); lastError = permissionError
             return
@@ -275,7 +277,7 @@ final class T3SnapShot {
             if nextScope != scope { shortcut.cancel(); scope = nextScope }
             do { try configure(enabled: request["enabled"] as? Bool ?? false, includeAccessibility: request["includeAccessibility"] as? Bool ?? true); complete(["enabled": enabled]) } catch { fail((error as? T3Failure)?.message ?? "Could not configure window capture.") }
         case "snapshotState":
-            complete(["enabled": enabled, "wanted": wanted, "verified": verified, "flights": feedback.flights.keys.sorted(), "error": lastError, "recording": shortcut.recording, "candidate": shortcut.candidate, "shortcut": shortcutText, "mode": "direct", "screenRecording": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted(), "captures": pending.map { ["id": $0.key, "owner": $0.value.owner] }, "pending": pending.filter { $0.value.owner == (request["owner"] as? String ?? "") }.keys.sorted(), "capturing": children.filter { $0.value.lifetime.owner == (request["owner"] as? String ?? "") }.keys.sorted()])
+            complete(["enabled": enabled, "wanted": wanted, "verified": verified, "flights": feedback.flights.keys.sorted(), "error": lastError, "recording": shortcut.recording, "candidate": shortcut.candidate, "shortcut": shortcutText, "mode": "direct", "screenRecording": permissions.screenRecording(), "accessibility": permissions.accessibility(), "captures": pending.map { ["id": $0.key, "owner": $0.value.owner] }, "pending": pending.filter { $0.value.owner == (request["owner"] as? String ?? "") }.keys.sorted(), "capturing": children.filter { $0.value.lifetime.owner == (request["owner"] as? String ?? "") }.keys.sorted()])
         case "snapshotDraftSave":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available in that draft."); return }
             do {
