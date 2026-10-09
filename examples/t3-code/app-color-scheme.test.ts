@@ -65,6 +65,11 @@ describe('one resolved colour scheme', () => {
     expect(main).toContain('          when scheme == "dark"\n            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", ');
     expect(main).toContain('      when scheme == "dark"\n        UsageModelLayer(page=usage, scheme="dark", ');
     expect(main).toContain('UsagePricesLayer(page=usage, scheme=scheme, ');
+    // PA-11, dark: the drawer's top edge and the terminal toolbar are ThreadTerminalDrawer's border-border/80 (white at
+    // 6%, at 80%), not 80% white, which drew a bright line over a dark drawer.
+    const terminal = await source('terminal.contract');
+    expect(terminal).not.toContain('#ffffffcc');
+    expect(terminal.match(/border-color="light-dark\(#e4e4e7cc, #ffffff0c\)"/g)?.length).toBe(2);
     // TH-7: the expanded Mermaid diagram's card.
     expect(await source('app-overlays.contract')).toContain('DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)');
   });
