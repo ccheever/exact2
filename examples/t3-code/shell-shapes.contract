@@ -49,6 +49,7 @@ shape ShellSurface
   label: string
   icon: string
   shortcut: string
+  letter: string
   available: bool
   reason: string
 shape ShellMenuItem

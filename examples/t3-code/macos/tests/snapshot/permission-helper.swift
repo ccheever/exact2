@@ -112,6 +112,17 @@ func runPermissionHelperChecks() {
     expect(!row.grabbing && !row.dragging && helper.panel === panel && revealed.isEmpty, "a drag that ends without a grant releases the press (open hand over the row again) and reveals nothing")
     expect(content.appRow.accessibilityPerformPress() && revealed == [bundle], "a click on T3 Code reveals the running app bundle in Finder")
     expect(helper.panel === panel, "revealing in Finder keeps the helper open")
+    // realinput-1010-fixes RI-2: the reveal runs as the reference's does, from the active app (its helper's click
+    // activates T3 Code): the non-activating panel's click activates T3 Code, which yields activation to Finder, asks
+    // for the reveal, then asks Finder to activate. The order only; Finder coming front is a real-input batch row.
+    var steps: [String] = []
+    var finderReveal = T3FinderReveal()
+    finderReveal.activateSelf = { steps.append("activate T3 Code") }
+    finderReveal.yield = { steps.append("yield \($0)") }
+    finderReveal.select = { steps.append("select \($0.path)") }
+    finderReveal.activate = { steps.append("activate \($0)") }
+    finderReveal.reveal(bundle)
+    expect(steps == ["activate T3 Code", "yield com.apple.finder", "select /Applications/T3 Code (Exact).app", "activate com.apple.finder"], "a reveal activates T3 Code, yields to Finder, selects the bundle, then asks Finder to activate: \(steps)")
     let mask = T3PermissionHelperAppRow.operations(.outsideApplication)
     expect(mask.contains(.copy) && !mask.contains(.move) && !mask.contains(.delete) && T3PermissionHelperAppRow.operations(.withinApplication).isEmpty, "the drag offers the bundle to copy or link, never to move or trash")
     expect((bundle as NSURL).writableTypes(for: NSPasteboard(name: .drag)).contains(.fileURL), "the drag carries the bundle as a file URL")

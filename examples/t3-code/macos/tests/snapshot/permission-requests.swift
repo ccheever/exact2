@@ -57,6 +57,26 @@ func runPermissionRequestChecks() {
     expect(setup("allow-accessibility", screen: false, accessibility: true) && opened.isEmpty && helpers.count == 1 && helpers[0].isGranted(), "Allow with Accessibility present opens no pane; the helper sees the grant and opens nothing")
     expect(setup("allow-screen-recording", screen: true, accessibility: false) && calls.isEmpty && opened.isEmpty && helpers.count == 1 && helpers[0].isGranted(), "Allow with Screen Recording present neither prompts nor opens a pane; the helper sees the grant and opens nothing")
 
+    // realinput-1010-fixes RI-3: the setup rows (snapshotState) and the helper's grant poll read the same check (reference
+    // currentMacPermissions and permissionGranted: getMediaAccessStatus("screen") and isTrustedAccessibilityClient(false)
+    // on both sides), so the helper cannot close on a grant the Screen Recording row does not show.
+    func rows() -> (screen: Bool, accessibility: Bool) {
+        var reply: [String: Any] = [:]
+        snap.perform(["op": "snapshotState", "owner": ""]) { reply = $0 }
+        let value = reply["value"] as? [String: Any] ?? [:]
+        return (value["screenRecording"] as? Bool ?? false, value["accessibility"] as? Bool ?? false)
+    }
+    _ = setup("allow-screen-recording", screen: false, accessibility: false)
+    let poll = helpers[0].isGranted
+    expect(!poll() && rows().screen == false, "Screen Recording missing: the helper keeps polling and the row reads Allow")
+    screen = true
+    expect(poll() && rows().screen == true, "the grant the helper's poll sees is the grant the row shows")
+    _ = setup("allow-accessibility", screen: true, accessibility: false)
+    let accessibilityPoll = helpers[0].isGranted
+    expect(!accessibilityPoll() && rows().accessibility == false, "Accessibility missing on both")
+    accessibility = true
+    expect(accessibilityPoll() && rows().accessibility == true, "and granted on both")
+
     snap.destroy()
     print("\(passed) snapshot permission request checks passed (fake grants, no TCC prompt)")
 }

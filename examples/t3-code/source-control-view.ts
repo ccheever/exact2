@@ -16,6 +16,8 @@ import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportR
 import { letGo } from './let-go';
 import { linkTargetPreference } from './browser-links';
 import { formatSettingValue as formatValue } from './settings-core'; // SettingInheritance formatValue, one for every page
+import { providerBadge } from './presentation';
+import { triggerModelName } from './r3-composer-controls-model';
 import { deviceStateOf, watchDevice } from './r4-surfaces-device'; // useDeviceState
 
 type Choice = { value: string; label: string; selected: boolean };
@@ -25,7 +27,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** ScopedSwitch's mixed state (D15): the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
   mixed: boolean;
   /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
-  control: string; resetLabel: string };
+  control: string; resetLabel: string;
+  /** A model row's picker trigger mark (model-picker-parity S2-4): the instance's driver and ProviderInstanceIcon badge. */
+  driver: string; badge: string; accent: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
@@ -61,7 +65,7 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', ...info, ...partial };
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', ...info, ...partial };
 }
 
 /** Source-control route rows: Repositories and Text generation. */
@@ -85,7 +89,13 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const mode = str(value.branchNamingMode, 'static'), writing = str(style.mode, 'repo_conventions');
   const writerOn = value.sourceControlWriterModelSelection !== null && value.sourceControlWriterModelSelection !== undefined;
   const writer = obj(value.sourceControlWriterModelSelection);
-  const models = providers.filter(provider => providerAvailable(provider)).flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => ({ value: `${provider.instanceId}:${model.slug}`, label: str(model.name, str(model.slug)), selected: provider.instanceId === writer.instanceId && model.slug === writer.model })));
+  // ProviderModelPicker's trigger (model-picker-parity S2-4): the writer's instance mark and model name, its slug when the
+  // instance does not list it; the picker itself is the window's (settings-model-picker.ts).
+  const textProviders = providers.filter(provider => provider.supportsTextGeneration !== false);
+  const writerProvider = textProviders.find(provider => provider.instanceId === writer.instanceId);
+  const writerModel = arr(writerProvider?.models).find(model => model.slug === writer.model);
+  const writerBadge = providerBadge(writerProvider, providers);
+  const available = textProviders.some(provider => providerAvailable(provider) && arr(provider.models).some(model => model.isUnavailable !== true));
   const text = [
     row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
       description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static') }),
@@ -102,8 +112,9 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
     row(settings, projectId, environmentLabel, 'sourceControlWriterModelSelection', { kind: 'model', title: 'Source control writer model', checked: writerOn, disabled: !writable,
       description: "Model for source control text and branch or bookmark names. Off uses the environment's text generation model.",
-      value: writerOn ? `${str(writer.instanceId)}:${str(writer.model)}` : '', valueLabel: writerOn ? (models.find(model => model.selected)?.label || str(writer.model)) : '', options: models,
-      status: writerOn && !models.length ? 'No text generation providers available.' : '' }),
+      value: writerOn ? `${str(writer.instanceId)}:${str(writer.model)}` : '', valueLabel: writerOn ? (writerModel ? triggerModelName(writerModel) : str(writer.model)) || 'Choose model' : '',
+      driver: writerOn ? str(writerProvider?.driver) : '', badge: writerBadge.providerBadge, accent: writerBadge.providerBadgeColor,
+      status: writerOn && !available ? 'No text generation providers available.' : '' }),
   ];
   return { repositories, text: text.map((entry, index) => ({ ...entry, first: index === 0 })) };
 }
@@ -276,5 +287,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '' };
 }
