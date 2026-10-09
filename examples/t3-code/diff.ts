@@ -10,6 +10,8 @@ import { arr, obj, str, num, type Obj } from './domain';
 import { diffFileTreeEntries, diffTreeRows, collectDirectoryPaths, allDirectoriesExpanded } from './diff-tree';
 import { diffSource, lazyPatches, settledFileCount, fileState, type DiffSource, type LazyPatches, type FileContents, type Expansion } from './diff-lazy';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from './diff-comments';
+import { AUTOMATIC_BASE_REF, baseRefView, emptyBaseRefPicker, normalizeBaseRef, type BaseRefPicker } from './diff-base-ref';
+import { compactCount } from './timeline-tree';
 import { ClientError } from './protocol';
 import { peekVcsStatus } from './shell-vcs';
 import type { T3Client } from './client';
@@ -17,7 +19,8 @@ import { messageTime } from './timeline-presentation';
 import { lineTokens, overlay } from './timeline-diff-syntax';
 import type { Token } from './timeline-highlight';
 
-export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string };
+/** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). */
+export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null };
 /** View preferences mirror the reference defaults: stacked, wrapped, whitespace ignored, tree hidden, files collapsed. */
 export class DiffState {
   selections: Record<string, DiffSelection> = {};
@@ -43,9 +46,17 @@ export class DiffState {
   selection: { scope: string; path: string; range: SelectedLineRange } | null = null;
   draft: { scope: string; path: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
+  /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it
+   * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
+   * on that thread and while the draft's card is drawn (draftHoldsCommandEnter). */
+  draftFocus = '';
+  /** diffPanelStore branchBaseRefByThreadKey: each thread's comparison target, kept while another scope shows. */
+  branchBaseRefs: Record<string, string | null> = {};
+  /** The comparison target picker's ref lists (diff-base-ref.ts). */
+  baseRefs: BaseRefPicker = emptyBaseRefPicker();
 }
 /** UI-only operations never touch the server and never mark a pending write uncertain. */
-export const DIFF_LOCAL_OPS = ['diff-view', 'diffreview'];
+export const DIFF_LOCAL_OPS = ['diff-view', 'diffreview', 'diffbase'];
 export const ROW_LIMIT = 4000;
 
 export type Line = { kind: 'context' | 'addition' | 'deletion'; text: string; old: number; next: number };
@@ -67,7 +78,7 @@ export function turnSummaries(projection: Obj): { runId: string; count: number; 
 }
 export function currentSelection(client: T3Client): DiffSelection {
   // "branch" is the Changes view: everything this checkout changed since its base (upstream d1034d62b2).
-  const saved = client.diffState.selections[threadKey(client)] ?? { kind: 'branch', runId: '', filePath: '' };
+  const saved = client.diffState.selections[threadKey(client)] ?? { kind: 'branch', runId: '', filePath: '', baseRef: client.diffState.branchBaseRefs[threadKey(client)] ?? null };
   if (saved.kind !== 'turn') return saved;
   const turns = turnSummaries(client.projection);
   // reconcileTurnSelection: a vanished turn falls back to the latest one.
@@ -79,20 +90,33 @@ function select(client: T3Client, next: DiffSelection): void { client.diffState.
 export function selectCheckpoint(client: T3Client, ordinal: number, filePath = ''): void {
   const turn = turnSummaries(client.projection).find(entry => entry.count === ordinal);
   if (!turn) throw new ClientError('No completed checkpoint is available for this thread.');
-  select(client, { kind: 'turn', runId: turn.runId, filePath });
+  select(client, { kind: 'turn', runId: turn.runId, filePath, baseRef: null });
 }
 /** onOpenTurnDiff(runId, filePath): a file change's Open diff in the work-log inspector (timeline-work-rows TH-5). */
 export function selectTurn(client: T3Client, runId: string, filePath = ''): void {
   if (!runId) throw new ClientError('That turn is no longer available.');
-  select(client, { kind: 'turn', runId, filePath });
+  select(client, { kind: 'turn', runId, filePath, baseRef: null });
 }
+/** selectGitScope: Changes takes back the thread's comparison target; leaving Changes keeps it for later. */
 export function selectScope(client: T3Client, value: string): void {
   client.diffState.menu = '';
-  if (value === 'unstaged' || value === 'branch') return select(client, { kind: value, runId: '', filePath: '' });
+  if (value === 'unstaged' || value === 'branch') {
+    const key = threadKey(client), previous = client.diffState.selections[key];
+    if (previous?.kind === 'branch') client.diffState.branchBaseRefs[key] = previous.baseRef;
+    const baseRef = previous?.kind === 'branch' ? previous.baseRef : client.diffState.branchBaseRefs[key] ?? null;
+    return select(client, { kind: value, runId: '', filePath: '', baseRef: value === 'branch' ? baseRef : null });
+  }
   const turns = turnSummaries(client.projection);
   const runId = value === 'latest' ? turns[0]?.runId : value.startsWith('turn:') ? value.slice(5) : undefined;
   if (!runId || !turns.some(turn => turn.runId === runId)) throw new ClientError('That turn is no longer available.');
-  select(client, { kind: 'turn', runId, filePath: '' });
+  select(client, { kind: 'turn', runId, filePath: '', baseRef: null });
+}
+/** selectBranchBaseRef: the comparison target (blank or Automatic is null) selects Changes and is kept for the thread. */
+export function selectBaseRef(client: T3Client, value: string): void {
+  const baseRef = value === AUTOMATIC_BASE_REF ? null : normalizeBaseRef(value), key = threadKey(client);
+  client.diffState.menu = '';
+  client.diffState.branchBaseRefs[key] = baseRef;
+  select(client, { kind: 'branch', runId: '', filePath: '', baseRef });
 }
 function workspace(client: T3Client): string {
   const thread = obj(client.projection.thread);
@@ -118,7 +142,7 @@ export function diffRequest(client: T3Client): { method: string; payload: Obj; s
   const cwd = workspace(client);
   if (!cwd) throw new ClientError('Choose a project with a workspace to inspect its changes.');
   return { method: 'review.getDiffPreview', scope: scopeKey(selection), source: selection.kind === 'unstaged' ? 'working-tree' : 'branch-range',
-    payload: { cwd, ignoreWhitespace: state.ignoreWhitespace } };
+    payload: { cwd, ...(selection.kind === 'branch' && selection.baseRef ? { baseRef: selection.baseRef } : {}), ignoreWhitespace: state.ignoreWhitespace } };
 }
 /** Adopts the server's answer for the scope that asked for it. */
 export function adoptDiff(client: T3Client, request: { scope: string; source: string }, result: Obj): string {
@@ -241,7 +265,10 @@ type DiffItemView = { id: string; kind: string; path: string; name: string; stat
   /** File headers: Retry, the partial mark, a header whose patch is not there (chevron off). Gaps: a press opens hidden lines. */
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean;
   /** Comment items (`note`, `draft`): the entry's id (a saved one's context id) and text. */
-  entry: string; text: string };
+  entry: string; text: string;
+  /** File headers' counts: Pierre's own ("-d" then "+a", each shown when it is not zero or the other is) or, for a
+   * large source read file by file, DiffPanel's DiffStatLabel (additions first, both always, compact, 4ch columns). */
+  statAligned: boolean; addText: string; delText: string };
 type FileView = DiffFileModel & { pending: boolean };
 
 /** The files the panel lists: the parsed patch, or a large source's per-file stats with each patch once it answered. */
@@ -292,7 +319,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   let rows = 0;
   const base = { tone: '', number: '', segments: [] as Segment[], leftTone: '', leftNumber: '', leftSegments: [] as Segment[], rightTone: '', rightNumber: '', rightSegments: [] as Segment[],
     label: '', gutter: 33.3, name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-    leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '' };
+    leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
   // A draft or the selected lines belong to the scope they were made in; saved comments stay while their chip is in the prompt.
   const draft = state.draft?.scope === scope ? state.draft : null, picked = state.selection?.scope === scope ? state.selection : null;
   const saved = state.saved.filter(entry => entry.scope === scope && client.draft.includes(`review-comment/${entry.contextId})`));
@@ -306,7 +333,7 @@ export function diffSnapshot(client: T3Client, now: number) {
     // Numbers sit right-aligned after a 2ch inset, 1ch + 2pt before the code (measured 33.3pt for one digit).
     const gutter = Math.round((digits * 7.8267 + 15.6533 + 9.83) * 10) / 10;
     items.push({ ...base, id: `file:${file.path}`, kind: 'file', path: file.path, name: file.path, status: file.status, letter: statusLetter[file.status] ?? 'M',
-      additions: file.additions, deletions: file.deletions, expanded, markdown: /\.(md|mdx|markdown)$/i.test(file.path), error: status.error, partial: status.truncated, unavailable });
+      additions: file.additions, deletions: file.deletions, expanded, markdown: /\.(md|mdx|markdown)$/i.test(file.path), error: status.error, partial: status.truncated, unavailable, ...headerStat(file, lazy !== null) });
     if (!expanded) continue;
     if (file.binary) { items.push({ ...base, id: `binary:${file.path}`, kind: 'gap', path: file.path, expanded, label: 'Binary file not shown' }); continue; }
     const contents = state.contents[contentsKey(state, file.path)];
@@ -381,7 +408,13 @@ export function diffSnapshot(client: T3Client, now: number) {
   const totals = selection.kind !== 'turn' && state.source?.files ? state.source.files : files;
   const entries = diffFileTreeEntries(files.map(file => ({ path: file.path, status: file.status })));
   const closed = new Set(state.treeCollapsed[scope] ?? []);
+  const additions = totals.reduce((sum, file) => sum + file.additions, 0), deletions = totals.reduce((sum, file) => sum + file.deletions, 0);
+  // The Changes header's "<head> → <base>" and its picker, for the branch source that answered (DiffPanel selectedGitSource).
+  const branchSource = selection.kind === 'branch' && !notGit && state.source?.kind === 'branch-range' ? state.source : null;
+  const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? '', branchSource?.headRef ?? null, selection.kind === 'branch' ? selection.baseRef : null);
   return {
+    diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
+    diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
     diffScopeLabel: scopeLabel, diffMenu: client.diffOpen ? state.menu : '', diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind,
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
@@ -390,7 +423,7 @@ export function diffSnapshot(client: T3Client, now: number) {
     // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
     diffTruncated: (state.truncated && !lazy) || rows > ROW_LIMIT, diffEmpty: notGit || (!client.diffLoading && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
     diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
-    diffAdditions: totals.reduce((sum, file) => sum + file.additions, 0), diffDeletions: totals.reduce((sum, file) => sum + file.deletions, 0),
+    diffAdditions: additions, diffDeletions: deletions, diffAdditionsText: `+${compactCount(additions)}`, diffDeletionsText: `-${compactCount(deletions)}`,
     diffAllCollapsed: files.every(file => (state.expanded[`${scope}::${file.path}`] ?? state.defaultExpanded) !== true),
     diffFiles: files.map(file => ({ id: file.path, name: file.path.split('/').pop() ?? file.path, path: file.path, status: file.status, letter: statusLetter[file.status] ?? 'M',
       additions: file.additions, deletions: file.deletions, markdown: /\.(md|mdx|markdown)$/i.test(file.path) })),
@@ -399,6 +432,33 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffItems: items, diffCommentOpen: draft !== null,
     diffLoadingLabel: selection.kind === 'turn' ? 'Loading checkpoint diff...' : selection.kind === 'unstaged' ? 'Loading uncommitted changes...' : 'Loading changes...',
   };
+}
+/** A file header's counts (see DiffItemView). */
+export function headerStat(file: { additions: number; deletions: number }, aligned: boolean): { statAligned: boolean; addText: string; delText: string } {
+  const { additions, deletions } = file;
+  if (aligned) return { statAligned: true, addText: `+${compactCount(additions)}`, delText: `-${compactCount(deletions)}` };
+  return { statAligned: false, addText: additions > 0 || deletions === 0 ? `+${additions}` : '', delText: deletions > 0 || additions === 0 ? `-${deletions}` : '' };
+}
+/** The open draft's textarea took the focus (true) or let it go (false), on the thread that shows. */
+export function noteDraftFocus(client: T3Client, focused: boolean): void {
+  client.diffState.draftFocus = focused && client.diffState.draft !== null ? threadKey(client) : '';
+}
+/** diffSnapshot draws the draft's card: its scope shows, its file is listed with its patch in and expanded, and its end line is one the file numbers. */
+function draftDrawn(client: T3Client): boolean {
+  const state = client.diffState, draft = state.draft;
+  if (!client.diffOpen || !draft || draft.scope !== state.scopeKey || diffNotGit(client)) return false;
+  const file = diffFiles(client).find(entry => entry.path === draft.path);
+  if (!file || file.pending || file.binary || (state.lazy !== null && state.lazy.patches.get(file.path)?.state !== 'loaded')) return false;
+  if ((state.expanded[`${state.scopeKey}::${file.path}`] ?? state.defaultExpanded) !== true) return false;
+  return lineIndex(reviewLinesOf(state, file)).has(sideKey(draft.range.endSide, draft.range.end));
+}
+/**
+ * A Diff comment draft on show holds the focus, so ⌘↩ is its own (composer-presentation.ts gives the Send button no chords
+ * then). A draft that is no longer drawn (another thread, a diff without its line, its file collapsed) holds nothing, though
+ * no blur said so.
+ */
+export function draftHoldsCommandEnter(client: T3Client): boolean {
+  return client.diffState.draftFocus !== '' && client.diffState.draftFocus === threadKey(client) && draftDrawn(client);
 }
 export function diffPaths(client: T3Client): string[] { return diffFiles(client).map(file => file.path); }
 export function turnNumber(projection: Obj, ordinal: number): boolean { return turnSummaries(projection).some(turn => turn.count === num(ordinal, -1)); }
