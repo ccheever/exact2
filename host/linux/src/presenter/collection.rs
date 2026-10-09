@@ -9,6 +9,10 @@ use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
 
+/// Whether a led window leans ([`CollectionFill::lean`]): off unless asked.
+static LEAN: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_LEAN").is_ok_and(|v| v == "1"));
+
 /// One future model position, not the acknowledged picture's input position.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct ModelScroll {
@@ -994,10 +998,11 @@ impl<D: DataSource> Presenter<D> {
             let fill = CollectionFill {
                 velocity,
                 limit: self.collection.limit,
-                // A window this host leads keeps little behind: its lead
-                // ends, and the window has a viewport each side again, before
-                // its travel turns (crypto rested 4 MB lower after a fling).
-                lean: velocity != 0.0,
+                // `EXACT_LEAN=1`: a window this host leads keeps half a
+                // viewport behind it (crypto rests 4 MB lower after a fling;
+                // a turn back at 24,000 dp/s shows up to 58% of its view
+                // blank for one to four frames, against 35% for two).
+                lean: velocity != 0.0 && *LEAN,
                 ..CollectionFill::default()
             };
             match self.host.collection_feedback_filled(feedback, fill) {
