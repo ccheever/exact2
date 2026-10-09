@@ -1,0 +1,111 @@
+# settings-pages-subscribed-config: server reads per Settings page, before vs after vs reference (2026-10-10, agent mode / CDP)
+
+Lanes (target/t3-audit, base port 16200): clone = the app's embedded server on 127.0.0.1:16202 (A/clone-drive.sh, --storage audit-<lane>),
+reference = T3 Code 1e2ecbd975 Electron (A/ref-app.sh, backend 16200, CDP 16201). Before = the never-edited evidence-base build at 950e8e2e5
+(lane settings-pages-subscribed-config-before); after = this branch (lane settings-pages-subscribed-config). Same steps on all three: open
+Settings, then each page for 3 s + 30 s while renamer.sh renames the lane project every 7 s through `t3 project rename` (a shell
+stream event: the clone's `data` drains, data.revision moves and every open page is asked again). count.mjs counts the lane server's
+ws.rpc spans (userdata/logs/server.trace.ndjson) that start inside each window (the screenshots' write times). server.reportClientActivity
+(the app's own activity report) is left out of the read columns. The diagnostics process/trace/resource-history reads are not traced as
+ws.rpc spans by this server, on either app.
+
+## While open: 30 s, 4-5 renames each
+
+| Page | before | after | reference |
+| --- | --- | --- | --- |
+| Source control | getConfig 4, getSettings 4 (30.1 s, 4 renames) | 0 (30.1 s, 5 renames) | 0 (30.1 s, 4 renames) |
+| Storage | getConfig 5, getSettings 5 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) |
+| Archive | orchestration.getArchivedShellSnapshot 6 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) |
+| Diagnostics | 0 (61.0 s, 9 renames) | 0 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) |
+| Scheduled tasks | 0 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) | 0 (30.1 s, 4 renames) |
+| Scheduled tasks › New task editor | vcs.listRefs 13 (30.1 s, 4 renames) | 0 (30.1 s, 5 renames) | 0 (30.1 s, 4 renames) |
+| Keybindings | getConfig 4 (30.1 s, 4 renames) | 0 (30.3 s, 4 renames) | 0 (30.1 s, 4 renames) |
+
+## Opening the page: its tap and 3 s
+
+| Page | before | after | reference |
+| --- | --- | --- | --- |
+| Source control | server.getConfig 1, server.getSettings 1, server.discoverSourceControl 1 | server.discoverSourceControl 1 | 0 |
+| Storage | server.getConfig 3, server.getSettings 3 | 0 | 0 |
+| Archive | orchestration.getArchivedShellSnapshot 1 | orchestration.getArchivedShellSnapshot 1 | orchestration.getArchivedShellSnapshot 1 |
+| Diagnostics | 0 | server.getResourceTelemetryHistory 2, subscribeResourceTelemetry 1 | server.getResourceTelemetryHistory 1, subscribeResourceTelemetry 1 |
+| Scheduled tasks | 0 | 0 | scheduledTasks.subscribe 1 |
+| Scheduled tasks › New task editor | vcs.listRefs 2 | vcs.listRefs 2 | vcs.listRefs 2 |
+| Keybindings | server.getConfig 1 | 0 | 0 |
+
+Before's Diagnostics is the evidence-base build's (950e8e2e5): it predates #357 (settings-diagnostics-and-scope), so its page stays
+empty and its "clock +3000 real" took 40.2 s and its 30-s hold 60.9 s (the window above is 61 s); its one resource-history read came at
+the tap, 40 s before the window.
+
+## count.mjs output, before
+
+```
+01-source-control: 2026-10-09T16:33:42.749Z → 2026-10-09T16:34:12.856Z (30.1 s, 4 renames)
+       4  ws.rpc.server.getConfig
+       4  ws.rpc.server.getSettings
+       1  ws.rpc.server.reportClientActivity
+02-storage: 2026-10-09T16:34:16.006Z → 2026-10-09T16:34:46.126Z (30.1 s, 4 renames)
+       5  ws.rpc.server.getConfig
+       5  ws.rpc.server.getSettings
+       1  ws.rpc.server.reportClientActivity
+03-archived: 2026-10-09T16:34:49.282Z → 2026-10-09T16:35:19.390Z (30.1 s, 4 renames)
+       6  ws.rpc.orchestration.getArchivedShellSnapshot
+       1  ws.rpc.server.reportClientActivity
+04-diagnostics: 2026-10-09T16:36:01.572Z → 2026-10-09T16:37:02.618Z (61.0 s, 9 renames)
+       3  ws.rpc.server.reportClientActivity
+05-scheduled-tasks: 2026-10-09T16:37:05.748Z → 2026-10-09T16:37:35.862Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+07-keybindings: 2026-10-09T16:37:39.021Z → 2026-10-09T16:38:09.139Z (30.1 s, 4 renames)
+       4  ws.rpc.server.getConfig
+       1  ws.rpc.server.reportClientActivity
+06-scheduled-editor: 2026-10-09T16:38:15.902Z → 2026-10-09T16:38:46.017Z (30.1 s, 4 renames)
+      13  ws.rpc.vcs.listRefs
+       2  ws.rpc.server.reportClientActivity
+
+TABLE [{"page":"source-control","seconds":"30.1","wakes":4,"config":4,"settings":4,"all":9,"other":""},{"page":"storage","seconds":"30.1","wakes":4,"config":5,"settings":5,"all":11,"other":""},{"page":"archived","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":7,"other":"orchestration.getArchivedShellSnapshot 6"},{"page":"diagnostics","seconds":"61.0","wakes":9,"config":0,"settings":0,"all":3,"other":""},{"page":"scheduled-tasks","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"keybindings","seconds":"30.1","wakes":4,"config":4,"settings":0,"all":5,"other":""},{"page":"scheduled-editor","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":15,"other":"vcs.listRefs 13"}]
+OPEN [{"page":"source-control","seconds":"4.9","reads":"server.getConfig 1, server.getSettings 1, server.discoverSourceControl 1"},{"page":"storage","seconds":"3.1","reads":"server.getConfig 3, server.getSettings 3"},{"page":"archived","seconds":"3.2","reads":"orchestration.getArchivedShellSnapshot 1"},{"page":"diagnostics","seconds":"5.0","reads":""},{"page":"scheduled-tasks","seconds":"3.1","reads":""},{"page":"keybindings","seconds":"3.2","reads":"server.getConfig 1"},{"page":"scheduled-editor","seconds":"5.0","reads":"vcs.listRefs 2"}]
+```
+
+## count.mjs output, after
+
+```
+01-source-control: 2026-10-09T16:39:33.433Z → 2026-10-09T16:40:03.544Z (30.1 s, 5 renames)
+       1  ws.rpc.server.reportClientActivity
+02-storage: 2026-10-09T16:40:06.688Z → 2026-10-09T16:40:36.796Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+03-archived: 2026-10-09T16:40:39.922Z → 2026-10-09T16:41:10.048Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+04-diagnostics: 2026-10-09T16:41:14.987Z → 2026-10-09T16:41:45.099Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+05-scheduled-tasks: 2026-10-09T16:41:48.270Z → 2026-10-09T16:42:18.370Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+07-keybindings: 2026-10-09T16:42:21.631Z → 2026-10-09T16:42:51.962Z (30.3 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+06-scheduled-editor: 2026-10-09T16:42:58.702Z → 2026-10-09T16:43:28.802Z (30.1 s, 5 renames)
+       1  ws.rpc.server.reportClientActivity
+
+TABLE [{"page":"source-control","seconds":"30.1","wakes":5,"config":0,"settings":0,"all":1,"other":""},{"page":"storage","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"archived","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"diagnostics","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"scheduled-tasks","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"keybindings","seconds":"30.3","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"scheduled-editor","seconds":"30.1","wakes":5,"config":0,"settings":0,"all":1,"other":""}]
+OPEN [{"page":"source-control","seconds":"5.0","reads":"server.discoverSourceControl 1"},{"page":"storage","seconds":"3.1","reads":""},{"page":"archived","seconds":"3.1","reads":"orchestration.getArchivedShellSnapshot 1"},{"page":"diagnostics","seconds":"4.9","reads":"server.getResourceTelemetryHistory 2, subscribeResourceTelemetry 1"},{"page":"scheduled-tasks","seconds":"3.2","reads":""},{"page":"keybindings","seconds":"3.3","reads":""},{"page":"scheduled-editor","seconds":"5.0","reads":"vcs.listRefs 2"}]
+```
+
+## count.mjs output, ref
+
+```
+01-source-control: 2026-10-09T16:13:31.834Z → 2026-10-09T16:14:01.946Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+02-storage: 2026-10-09T16:14:05.078Z → 2026-10-09T16:14:35.160Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+03-archived: 2026-10-09T16:14:38.262Z → 2026-10-09T16:15:08.352Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+04-diagnostics: 2026-10-09T16:15:13.057Z → 2026-10-09T16:15:43.174Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+05-scheduled-tasks: 2026-10-09T16:15:46.304Z → 2026-10-09T16:16:16.382Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+06-scheduled-editor: 2026-10-09T16:17:56.786Z → 2026-10-09T16:18:26.849Z (30.1 s, 4 renames)
+       1  ws.rpc.server.reportClientActivity
+07-keybindings: 2026-10-09T16:18:31.034Z → 2026-10-09T16:19:01.140Z (30.1 s, 4 renames)
+       2  ws.rpc.server.reportClientActivity
+
+TABLE [{"page":"source-control","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"storage","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"archived","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"diagnostics","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"scheduled-tasks","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"scheduled-editor","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":1,"other":""},{"page":"keybindings","seconds":"30.1","wakes":4,"config":0,"settings":0,"all":2,"other":""}]
+OPEN [{"page":"source-control","seconds":"5.0","reads":""},{"page":"storage","seconds":"3.1","reads":""},{"page":"archived","seconds":"3.1","reads":"orchestration.getArchivedShellSnapshot 1"},{"page":"diagnostics","seconds":"4.7","reads":"server.getResourceTelemetryHistory 1, subscribeResourceTelemetry 1"},{"page":"scheduled-tasks","seconds":"3.1","reads":"scheduledTasks.subscribe 1"},{"page":"scheduled-editor","seconds":"5.0","reads":"vcs.listRefs 2"},{"page":"keybindings","seconds":"4.2","reads":""}]
+```
