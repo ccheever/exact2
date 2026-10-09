@@ -318,9 +318,11 @@ extension Presenter {
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
             // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took,
-            // nor is a button's: it takes the focus on a touch (PointerIOS), where WebKit's never does, so the
-            // button that opened a sheet would otherwise keep the sheet's field from its autofocus.
-            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && (view as? NodeView)?.isButton != true && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
+            // nor is a button's that came from a touch (Safari's buttons take none from a tap): the button that
+            // opened a sheet must not keep the sheet's field from its autofocus. A button reached by Tab or
+            // `focus(id)` keeps it, and a canvas HUD button's hand-back to the canvas still holds it pending.
+            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch && !$0.returnsPointerFocusToCanvas } == true }
+            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !touchFocused(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
             if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard let window = node.window, !hasFocus(window) else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))

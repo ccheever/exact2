@@ -98,7 +98,7 @@ extension NodeView {
         while let view = at, view !== presenter.viewport {
             if let node = view as? NodeView {
                 if node.canBecomeFirstResponder, !node.isFirstResponder, presenter.contextRetainsFocus(node) != true {
-                    _ = node.becomeFirstResponder()
+                    node.focusedByTouch = node.becomeFirstResponder()
                 }
                 if node === target { break }
             }

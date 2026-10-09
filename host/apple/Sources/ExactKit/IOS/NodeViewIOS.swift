@@ -274,6 +274,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    /// The focus came from a touch's press (PointerIOS, NativeButtonsIOS),
+    /// focus WebKit never gives a button on a tap: a button holding it does
+    /// not keep a later autofocus off (Accessibility). Tab and `focus(id)`
+    /// clear it (PresenterIOS); UIKit handing the focus back when the view
+    /// moves (into a presented sheet) keeps it.
+    package var focusedByTouch = false
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
