@@ -209,8 +209,9 @@ opening. (4) Where the Author submenu puts the focus was checked on the referenc
 first row), a press to the search; the clone did not match on the keyboard path (it focused the search), now does, and
 the drive checked both. (5) The PG-4 note claimed `tree --ax` shows the title; the drive's `tree` props do, and the note
 says so. Reference re-shot over CDP; the base and this branch driven once each with `target/usage-and-pr-pages/drive2.sh`.
-Merged `origin/feat(example)/t3-code` twice (`ba0af7967`, then `2dc9b0043`; one conflict on the T3Window call in
-`app.contract`, both sides kept).
+Merged `origin/feat(example)/t3-code` three times (`ba0af7967`, `2dc9b0043`, `256c189d8`; conflicts only on the
+T3Window call in `app.contract` and the PagesCover call in `app-window.contract`, both sides kept). The live drive ran
+on `e74a541ad`; the final head adds only the `256c189d8` merge (#371, Markdown links and the Files preview).
 
 ## Attempts and evidence
 
