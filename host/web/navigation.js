@@ -524,9 +524,19 @@ export function navigableURL(href, base = document.baseURI) {
   } catch { return null; }
 }
 export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
+// A sandbox (the attribute, null when absent) without `allow-same-origin`
+// gives its frame an opaque origin. The browser splits it on ASCII
+// whitespace and reads its tokens case-insensitively.
+export const opaqueSandbox = sandbox => sandbox != null && !sandbox.toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin");
+export function dataURL(src, base = document.baseURI) {
+  try { return src != null && new URL(src, base).protocol === "data:"; } catch { return false; }
+}
+/** Whether an iframe in `sandbox` shows `src`: a `navigableURL`, or a `data:`
+ * document in an opaque sandbox, whose script cannot reach this page (LLP 1020 §10). */
+export const frameURL = (src, sandbox, base = document.baseURI) => navigableURL(src, base) !== null || (opaqueSandbox(sandbox) && dataURL(src, base));
 /** A refused URL is never written: a link loses its `href`, an iframe shows about:blank. */
 export function refuseURL(el, name, value) {
-  console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
+  console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
 // A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the
@@ -888,8 +898,7 @@ export function reportPlace() {
 // committed (an opaque sandbox posts as "null"), which a `message` from it must match.
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 export function commitGuestOrigin(el) {
-  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
-  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
+  const opaque = opaqueSandbox(el.getAttribute("sandbox"));
   let origin = null;
   if (!opaque) {
     const src = el.getAttribute("src");

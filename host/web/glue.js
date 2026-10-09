@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -423,7 +423,7 @@ function applyProps(el, set, clear) {
   syncMedia(el, set, clear); if (set && "data-scrolldocument" in set) scrollDocs.add(el);
   let sandboxChanged = false;
   for (const name of clear || []) {
-    if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
+    if (el instanceof HTMLIFrameElement && name === "src") { iframeLoading.set(el, true); el.exactSource = undefined; }
     if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
     if (name === "scrollFollowEnd") followScroll(el, false);
     else if (name === "scrollTop" || name === "scrollLeft") {
@@ -458,9 +458,9 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled" || name === "readonly" || name === "multiple" || (el instanceof HTMLMediaElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
     } else {
-      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
-      if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
-      if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same && v !== null) el.setAttribute(name, v);
+      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && !(el instanceof HTMLIFrameElement) && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      if (el instanceof HTMLIFrameElement && name === "src") { el.exactSource = value; if (!same) iframeLoading.set(el, true); } // kept: the sandbox decides a `data:` one
+      if (navigates(el, name) && !(name === "src" ? frameURL(value, "sandbox" in set ? set.sandbox : el.getAttribute("sandbox")) : navigableURL(value))) refuseURL(el, name, value); else if (!same && v !== null) el.setAttribute(name, v);
     }
   }
   if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
@@ -471,7 +471,7 @@ function applyProps(el, set, clear) {
   }
   if (el instanceof HTMLIFrameElement && sandboxChanged) {
     iframeLoading.set(el, true);
-    const source = el.getAttribute("src");
+    const source = dataURL(el.exactSource) ? (frameURL(el.exactSource, el.getAttribute("sandbox")) ? el.exactSource : "about:blank") : el.getAttribute("src"); // the new sandbox decides a `data:` source again
     el.setAttribute("src", source ?? "about:blank");
     if (source === null) el.removeAttribute("src");
   }

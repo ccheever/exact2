@@ -534,6 +534,11 @@ impl Em<'_> {
                 let _ = write!(self.out, "{p}({e},\"{name}\",()=>{v});");
             }
         }
+        if let Some(v) = sandboxed_source(tag, props) {
+            let p = self.uses.rt("P");
+            let v = serde_json::to_string(v).unwrap();
+            let _ = write!(self.out, "{p}({e},\"src\",()=>{v});");
+        }
         if tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
@@ -628,13 +633,37 @@ pub(super) fn attributes(
                 }
             }
             "href" if !exact_web::host::document::navigable(value) => {}
-            "src" if element == "iframe" && !exact_web::host::document::navigable(value) => {
+            "src" if sandboxed_source(element, props).is_some() => {}
+            "src"
+                if element == "iframe"
+                    && !exact_web::host::document::frame_navigable(
+                        value,
+                        props.get("sandbox").map(String::as_str),
+                    ) =>
+            {
                 attrs.push((name.clone(), "about:blank".into()));
             }
             _ => attrs.push((name.clone(), value.clone())),
         }
     }
     (attrs, content, css)
+}
+
+/// A frame's literal `data:` source (refused alone, shown in an opaque
+/// sandbox) with no literal `sandbox`: a bound one decides it, so it is no
+/// attribute (the frame shows about:blank) and rt.js `P` writes it
+/// (`element_extras`), keeping it to decide again as the sandbox changes.
+fn sandboxed_source<'a>(
+    element: &str,
+    props: &'a exact_kernel::SortedMap<String, String>,
+) -> Option<&'a String> {
+    use exact_web::host::document::{frame_navigable, navigable};
+    props.get("src").filter(|v| {
+        element == "iframe"
+            && !props.contains_key("sandbox")
+            && !navigable(v)
+            && frame_navigable(v, Some(""))
+    })
 }
 
 /// A pressed node's computed `transition`: an author's entries
@@ -663,6 +692,43 @@ mod tests {
         .unwrap();
         let js = crate::emit::emit(&plan, false, false).unwrap().js;
         assert!(js.contains("v=>v===\"none\"?\"none\":\"grid\""), "{js}");
+    }
+
+    #[test]
+    fn a_literal_data_frame_is_shown_by_its_sandbox() {
+        // A literal opaque sandbox decides here; a bound one, in rt.js `P`,
+        // which is handed the source (no attribute until then); a
+        // same-origin one refuses it.
+        let attrs = |sandbox: Option<&str>| {
+            let mut props = exact_kernel::SortedMap::default();
+            props.insert("src".to_string(), "data:text/html,hi".to_string());
+            if let Some(s) = sandbox {
+                props.insert("sandbox".to_string(), s.to_string());
+            }
+            let (attrs, _, _) = super::attributes("iframe", &props);
+            attrs.into_iter().find(|(k, _)| k == "src").map(|a| a.1)
+        };
+        assert_eq!(attrs(Some("allow-scripts")).unwrap(), "data:text/html,hi");
+        assert_eq!(
+            attrs(Some("allow-scripts allow-same-origin")).unwrap(),
+            "about:blank"
+        );
+        assert_eq!(attrs(None), None);
+        let plan = contract::compile(
+            r#"component App
+  state sandbox = "allow-scripts"
+  view
+    column
+      iframe "data:text/html,a" sandbox=sandbox
+      iframe "data:text/html,b" sandbox="allow-scripts allow-same-origin"
+      iframe "https://e.dev/c"
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        assert!(js.contains(",\"src\",()=>\"data:text/html,a\")"), "{js}");
+        assert!(!js.contains("()=>\"data:text/html,b\""), "{js}");
+        assert!(!js.contains("()=>\"https://e.dev/c\""), "{js}");
     }
 
     #[test]

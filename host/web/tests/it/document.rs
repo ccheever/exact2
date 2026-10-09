@@ -184,6 +184,56 @@ component App
 }
 
 #[test]
+fn a_data_frame_shows_only_in_an_opaque_sandbox() {
+    // `frameURL`'s rule (LLP 1020 §10): a `data:` document's origin is
+    // opaque in a sandbox without `allow-same-origin`; nowhere else does
+    // the page show one. The browser folds the sandbox's case and the
+    // scheme's, and strips what surrounds the URL.
+    let src = r#"
+component App
+  resource said = say() as shape string
+  view
+    column
+      iframe src="data:text/html,hi" sandbox="allow-scripts" testId="shown"
+      iframe src="data:text/html,hi" sandbox="" testId="empty"
+      iframe src=said sandbox="Allow-Scripts" testId="bound"
+      iframe src="data:text/html,hi" testId="bare"
+      iframe src="data:text/html,hi" sandbox="allow-scripts ALLOW-SAME-ORIGIN" testId="same"
+      iframe src="javascript:alert(1)" sandbox="allow-scripts" testId="script"
+      link href="data:text/html,hi" testId="link" width=10 height=10
+"#;
+    let doc = host(src, Says(" DA\tTA:text/html,hi"), "/")
+        .document()
+        .unwrap()
+        .root;
+    let tag = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap()].to_owned()
+    };
+    for shown in ["shown", "empty"] {
+        assert!(
+            tag(shown).contains(" src=\"data:text/html,hi\""),
+            "{}",
+            tag(shown)
+        );
+    }
+    assert!(
+        tag("bound").contains(" src=\" DA\tTA:text/html,hi\""),
+        "{}",
+        tag("bound")
+    );
+    for refused in ["bare", "same", "script"] {
+        assert!(
+            tag(refused).contains(" src=\"about:blank\""),
+            "{}",
+            tag(refused)
+        );
+    }
+    assert!(!tag("link").contains("href"), "{}", tag("link"));
+}
+
+#[test]
 fn properties_become_the_attributes_and_text_the_glue_gives_them() {
     let src = r#"
 component App

@@ -1,0 +1,57 @@
+// Synthetic conformance plan: the `iframe` sources the web shows (LLP 1020
+// §10). A `data:` document shows in a `sandbox` that withholds
+// `allow-same-origin` and nowhere else, and a script URL never; a shown one
+// posts, which the app hears from the opaque origin "null". A bound sandbox
+// decides a literal and a bound `data:` source again as it opens and closes.
+// The frames mount at a press: a post at boot can come before the wasm host
+// hears input, which drops it. One count per frame: the order frames load in
+// is the browser's.
+component Iframes
+  state open = false
+  state sandbox = "allow-same-origin"
+  state doc = "data:text/html,<script>parent.postMessage('b','*')</script>"
+  state shown = 0
+  state script = 0
+  state literal = 0
+  state bound = 0
+  action show
+    open = true
+  action flip
+    sandbox = sandbox == "allow-scripts" ? "allow-same-origin" : "allow-scripts"
+  action heardShown(m)
+    shown = shown + 1
+  action heardScript(m)
+    script = script + 1
+  action heardLiteral(m)
+    literal = literal + 1
+  action heardBound(m)
+    bound = bound + 1
+  view
+    column testId="root" gap=4 padding=8
+      text `shown ${shown} script ${script} literal ${literal} bound ${bound}` testId="heard"
+      button press=show testId="show"
+        text "show"
+      button press=flip testId="flip"
+        text "flip"
+      when open
+        iframe "data:text/html,<script>parent.postMessage('s','*')</script>" sandbox="allow-scripts"
+          message=heardShown
+          testId="shown"
+          width=60
+          height=20
+        iframe "data:text/html,<p>bare</p>" testId="bare" width=60 height=20
+        iframe "data:text/html,<p>same</p>" sandbox="allow-scripts allow-same-origin"
+          testId="same"
+          width=60
+          height=20
+        iframe "javascript:parent.postMessage('j','*')" sandbox="allow-scripts"
+          message=heardScript
+          testId="script"
+          width=60
+          height=20
+        iframe "data:text/html,<script>parent.postMessage('l','*')</script>" sandbox=sandbox
+          message=heardLiteral
+          testId="literal"
+          width=60
+          height=20
+        iframe doc sandbox=sandbox message=heardBound testId="bound" width=60 height=20

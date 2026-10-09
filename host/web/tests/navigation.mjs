@@ -216,6 +216,23 @@ try {
     assert.equal(await evaluate('location.pathname'), '/');
     const row = {name:'script URLs refused', ...attrs, probe:0}; rows.push(row); console.log(JSON.stringify(row));
   });
+  await run('a data: frame shows only in a sandbox without allow-same-origin', async () => {
+    await fresh();
+    const key = (await state()).navigation.route;
+    const srcs = () => evaluate(`Object.fromEntries(['frame','bare','same','literal','bound'].map(id=>[id,document.querySelector('[data-testid="data-'+id+'-${key}"]').getAttribute('src')]))`);
+    const heard = letters => until(`(async()=>{const s=await exact.agent({op:'state'});return ${JSON.stringify([...letters])}.every(l=>s.slots.frameHeard.includes(l));})()`);
+    const doc = letter => `data:text/html,<script>parent.postMessage('${letter}','*')</script>`;
+    const closed = {frame:'data:text/html,<p>s</p>',bare:'about:blank',same:'about:blank',literal:'about:blank',bound:'about:blank'};
+    assert.deepEqual(await srcs(), closed, 'a literal opaque sandbox shows its document; bare and same-origin frames do not');
+    // Its document loaded: an opaque origin's, which the page cannot read.
+    await until(`document.querySelector('[data-testid="data-frame-${key}"]').contentDocument === null`);
+    await tap('flip-frame'); await until(`document.querySelector('[data-testid="data-bound-${key}"]').getAttribute('src')!=='about:blank'`);
+    assert.deepEqual(await srcs(), {...closed, literal:doc('l'), bound:doc('b')}, 'a bound sandbox that turns opaque admits both sources');
+    await heard('lb');
+    await tap('flip-frame'); await until(`document.querySelector('[data-testid="data-bound-${key}"]').getAttribute('src')==='about:blank'`);
+    assert.deepEqual(await srcs(), closed, 'a bound sandbox that grants allow-same-origin refuses them again');
+    const row = {name:'data: frames', heard:[...new Set((await state()).slots.frameHeard)].sort().join('')}; rows.push(row); console.log(JSON.stringify(row));
+  });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
     // The JS target has no URL event: its route leaves by the browser's Back

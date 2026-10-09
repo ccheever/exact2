@@ -660,17 +660,16 @@ const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
-const navigable = v => { try { return ["http:", "https:", "mailto:", "tel:"].includes(new URL(v, document.baseURI).protocol); } catch { return false; } };
+const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 export function P(e, name, f) {
   if (name === "aria-keyshortcuts") input();
   if (name === "data-scrolldocument") Docs.add(e);
   effect(() => {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
-    // A URL that navigates is written only if the web host's policy takes it
-    // (navigation.js `navigableURL`: http, https, mailto, tel): a refused
-    // link loses its `href`, an iframe shows about:blank.
-    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
+    // A URL that navigates is written only if the web host's policy takes it (navigation.js `navigableURL`,
+    // `frameURL`): a refused link loses its `href`, an iframe shows about:blank and keeps its source for its sandbox to decide.
+    if (name === "src" && e.localName === "iframe") { e.$src = v; if (v != null && !navigable(v, e)) v = "about:blank"; } else if (name === "href" && v != null && !navigable(v)) v = null;
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
@@ -680,6 +679,7 @@ export function P(e, name, f) {
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
+    if (name === "sandbox" && e.$src != null && e.localName === "iframe") { const s = navigable(e.$src, e) ? e.$src : "about:blank"; if (e.getAttribute("src") !== s) e.setAttribute("src", s); } // the frame's `data:` source, decided again
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
@@ -871,7 +871,7 @@ export function Sm(e, prop, unit, f) {
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
 function guestOrigin(e) {
-  if (e.hasAttribute("sandbox") && !e.getAttribute("sandbox").split(/\s+/).includes("allow-same-origin")) return "null";
+  if (opaque(e)) return "null";
   const src = e.getAttribute("src");
   let o; try { o = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch { return undefined; }
   return o === "null" ? undefined : o;
