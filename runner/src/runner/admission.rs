@@ -10,6 +10,11 @@ impl<D: DataSource> Runner<D> {
     pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
         if let Some(pending) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
             pending.refusal = Some((reason, ordered));
+        } else if self.is_background(ticket) {
+            // The module's background round: settled through its own
+            // completion, so its ticket is let go and, if ordered, the host's
+            // fence lifts once it has (a host would otherwise wait on it).
+            self.background.refusal = Some((ticket, reason, ordered));
         }
     }
 
@@ -23,10 +28,24 @@ impl<D: DataSource> Runner<D> {
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
         }
-        let pending = self.pending.iter_mut().find(|p| {
+        let at = self.pending.iter().position(|p| {
             p.refusal
                 .is_some_and(|(_, ordered)| !ordered || allow_ordered)
-        })?;
+        });
+        // The background round's refusal, in its turn among the others.
+        if let Some((ticket, reason)) = self.background_refusal(allow_ordered) {
+            if at.is_none_or(|at| ticket < self.pending[at].ticket) {
+                self.background.refusal = None;
+                return Some((
+                    ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Refused,
+                        message: reason.into(),
+                    },
+                ));
+            }
+        }
+        let pending = &mut self.pending[at?];
         let (reason, ordered) = pending.refusal.take().unwrap();
         pending.refused = ordered;
         Some((
@@ -89,14 +108,19 @@ impl<D: DataSource> Runner<D> {
 
     /// The host must keep later ordered admissions behind these refusals.
     pub fn has_ordered_request_refusals(&self) -> bool {
-        self.pending
-            .iter()
-            .any(|p| p.refusal.is_some_and(|(_, ordered)| ordered))
+        self.background
+            .refusal
+            .is_some_and(|(ticket, _, ordered)| ordered && self.is_background(ticket))
+            || self
+                .pending
+                .iter()
+                .any(|p| p.refusal.is_some_and(|(_, ordered)| ordered))
     }
 
     /// More refused admissions need a future host pump.
     pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
         self.auth.has_settled_for(|t| self.holds(t))
+            || self.background_refusal(allow_ordered).is_some()
             || self.pending.iter().any(|p| {
                 p.refusal
                     .is_some_and(|(_, ordered)| !ordered || allow_ordered)

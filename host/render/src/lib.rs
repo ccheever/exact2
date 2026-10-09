@@ -828,23 +828,23 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
             run(executor, held, r, dispatch);
         }
     }
-    // Again for what this batch put behind a refusal: with nothing earlier
-    // in flight, no completion would come to lift it.
+    // Again for what this batch put behind a refusal with nothing earlier
+    // in flight: no completion would come to lift it.
     lift(executor, held);
 }
 
-/// The runner holds no refusals in a render, so the ordered fence lifts at
-/// each hand-out: what it held is admitted, or the render is busy. A refusal
-/// with nothing in flight lifts again, until something runs or none is held.
+/// The runner holds no refusals in a render, so the ordered fence lifts once
+/// the work admitted before it has drained, as a refusal settles on a host:
+/// what it held is admitted, or the render is busy. A refusal with nothing
+/// in flight lifts again, until something runs or none is held.
 fn lift(executor: &Executor, held: &mut Held) {
-    loop {
+    while executor.ordered_idle() {
         let refused = executor.resume_ordered();
-        let again = !refused.is_empty() && executor.ordered_idle();
-        held.busy
-            .extend(refused.into_iter().map(|(ticket, _)| ticket));
-        if !again {
+        if refused.is_empty() {
             return;
         }
+        held.busy
+            .extend(refused.into_iter().map(|(ticket, _)| ticket));
     }
 }
 
@@ -1279,6 +1279,59 @@ mod fence_tests {
             GOOD.fetch_add(1, Ordering::SeqCst);
             Ok(Answer::Now(Value::Number(1.)))
         }
+    }
+
+    static BURST: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` asks for work it runs at once.
+    struct Burst;
+    impl DataSource for Burst {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap();
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            BURST.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// Eighteen asks with room for sixteen: the seventeenth is refused (the
+    /// render is busy) and the eighteenth, held behind it, runs once a
+    /// completion has made room, not refused at once against the full lane
+    /// (Astra, round 2).
+    #[test]
+    fn a_burst_past_the_limit_refuses_one_and_runs_the_rest() {
+        let mut src = String::from("component App\n");
+        for n in 0..18 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Burst",
+            origin: None,
+        };
+        let rendered = render(&plan, || Burst, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(BURST.load(Ordering::SeqCst), 17, "all but the seventeenth");
+        assert_eq!(rendered.settled, Settled::Busy);
     }
 
     /// A refusal with nothing in flight before it fences the next request:

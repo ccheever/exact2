@@ -462,8 +462,9 @@ held behind the refusal, not refused with it (on current tickets, capped at 128
 and 64 MiB of request buffers), and admitted in order once it settles; one over
 a limit then is refused alone and the rest wait again. A request refused while
 others are held (invalid, or past those caps) keeps its place among them, so its
-refusal settles after the held work before it; held work let go or retired is
-destroyed by a worker, as queued work is. (The Bluesky clone: a
+refusal settles after the held work before it, a module's background round
+(LLP 1097 D5) included, whose refusal settles through its own completion; held
+work let go or retired is destroyed by a worker, as queued work is. (The Bluesky clone: a
 seventeenth answer at boot was refused and so was every later ordered request,
 and the app stayed on skeletons.) The request over the limit is still refused,
 not queued: D2 leaves durable queues to the application. Refusals occupy existing current runner tickets,

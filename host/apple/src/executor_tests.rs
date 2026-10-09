@@ -1154,13 +1154,16 @@ fn forgotten_held_work_is_destroyed_by_a_worker_unrun() {
     assert!(settled(&core));
 }
 
-/// Retiring the executor destroys held work on a retiring worker.
+/// Retiring the executor destroys held work on a retiring worker, while
+/// something else (a native module's waker) still keeps its state alive.
 #[test]
 fn retirement_destroys_held_work_on_a_worker() {
     let (core, _fixture, _woke) = fenced_core();
     let dropped = held_work(&core, 17);
+    let waker = core.waker();
     drop(core);
     dropped_off_this_thread(&dropped);
+    drop(waker);
 }
 
 #[test]
