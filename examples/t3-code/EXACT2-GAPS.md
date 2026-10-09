@@ -499,7 +499,9 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
 - **Mute.** WebKit has no public page mute (`_setPageMuted:` and `_isPlayingAudio` are SPI). Mute silences the document's
   `<audio>` and `<video>` elements and keeps them silent; Unmute gives back each element's own muted state. Audible means a
   media element plays with sound the page asked for, muted or not, as Chromium's tab audio state. Web Audio is neither
-  muted nor heard, and media in subframes are not covered.
+  muted nor heard, and media in subframes are not covered. WebKit pauses a muted element while its page is out of the
+  window (another tab shown, Settings open) and plays it again when the page is shown, so a muted tab's media does not
+  advance meanwhile (Chromium's muted background tab plays on); the tab still shows muted.
 - **Agent cursor.** Drawn as a layer of the page's view (so the screenshot, which is the page's own paint, leaves it out,
   as the reference's DOM overlay is left out of `capturePage`), with the reference's timings.
 

@@ -432,6 +432,40 @@ final class BrowserAutomationTests: XCTestCase {
         spin(until: { tabState()["audible"] as? Bool == false }, timeout: 3)
         XCTAssertEqual(tabState()["audible"] as? Bool, false)
         XCTAssertFalse(automation.setMuted("missing", true))
+        // An inactive tab's view leaves the window (T3BrowserView); its audio goes on, as a background tab's does.
+        _ = js(session.web, "document.getElementById('tone').play(); 'ok'")
+        spin(until: { tabState()["audible"] as? Bool == true }, timeout: 5)
+        session.web.removeFromSuperview()
+        spin(until: { false }, timeout: 1.5)
+        XCTAssertEqual(js(session.web, "document.getElementById('tone').paused") as? Bool, false, "a page out of the window keeps playing")
+        XCTAssertEqual(tabState()["audible"] as? Bool, true, "and stays audible")
+        // Another tab takes the view (a link opened in the app): the first keeps playing and stays audible.
+        let other = page("/form", id: "[\"env-1\",\"thread-1\",\"epoch-1\",\"tab-2\"]")
+        spin(until: { false }, timeout: 1.5)
+        XCTAssertEqual(js(session.web, "document.getElementById('tone').paused") as? Bool, false, "the first tab plays on behind another")
+        XCTAssertEqual(tabState()["audible"] as? Bool, true, "\(other.id)")
+        // Muted behind another tab (Mute, then a link opened in the app: the live drive of 2026-10-09). WebKit pauses
+        // a muted element while its page is out of the window and plays it again when the page is shown; the tab
+        // stays audible (shown muted) meanwhile, as a muted background tab in Chromium.
+        XCTAssertTrue(automation.setMuted(Self.runtime, true))
+        window.contentView!.addSubview(session.web)
+        spin(until: { false }, timeout: 0.5)
+        session.web.removeFromSuperview()
+        spin(until: { false }, timeout: 1.5)
+        XCTAssertEqual(tabState()["audible"] as? Bool, true, "a muted tab out of the window stays audible (\(js(session.web, "document.getElementById('tone').paused") ?? "") paused)")
+        XCTAssertEqual(tabState()["muted"] as? Bool, true)
+        window.contentView!.addSubview(session.web)
+        spin(until: { (self.js(session.web, "document.getElementById('tone').paused") as? Bool) == false }, timeout: 3)
+        XCTAssertEqual(js(session.web, "document.getElementById('tone').paused") as? Bool, false, "shown again, it plays")
+        spin(until: { false }, timeout: 2)
+        XCTAssertEqual(tabState()["audible"] as? Bool, true)
+        // Paused by the page while hidden and still paused once shown: no longer audible.
+        session.web.removeFromSuperview()
+        spin(until: { false }, timeout: 1)
+        _ = js(session.web, "document.getElementById('tone').pause(); 'ok'")
+        window.contentView!.addSubview(session.web)
+        spin(until: { tabState()["audible"] as? Bool == false }, timeout: 4)
+        XCTAssertEqual(tabState()["audible"] as? Bool, false, "an element the page paused is not audible once the page is shown")
     }
 }
 

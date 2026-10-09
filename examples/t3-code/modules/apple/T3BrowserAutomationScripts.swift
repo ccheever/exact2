@@ -329,16 +329,19 @@ enum T3BrowserAutomationScripts {
     /// WebKit has no public page mute (`_setPageMuted:` is SPI) and no audible signal (`_isPlayingAudio` is SPI):
     /// this mutes and listens to the document's media elements (Web Audio is not covered: X1 path B). Audible as
     /// Chromium's tab audio state: a media element playing with sound the page asked for, muted by us or not.
+    /// WebKit pauses a muted element while its page is out of the window (it cannot be heard) and plays it again
+    /// when the page is shown; such an element still counts, as a muted background tab still plays in Chromium.
     static let media = #"""
         (() => {
           if (globalThis.__t3PreviewMedia) return;
           const handler = globalThis.webkit?.messageHandlers?.t3PreviewMedia;
-          const wanted = new WeakMap();
+          const wanted = new WeakMap(), suspended = new Set();
           let muted = false, last = null;
           const media = () => Array.from(document.querySelectorAll("audio, video"));
           const pageMuted = (element) => wanted.has(element) ? wanted.get(element) : element.muted;
+          const playing = (element) => (!element.paused || suspended.has(element)) && !element.ended;
           const report = () => {
-            const audible = media().some((element) => !element.paused && !element.ended && !pageMuted(element) && element.volume > 0);
+            const audible = media().some((element) => playing(element) && !pageMuted(element) && element.volume > 0);
             if (audible === last) return;
             last = audible;
             try { handler?.postMessage({ audible }); } catch {}
@@ -353,11 +356,18 @@ enum T3BrowserAutomationScripts {
               if (!(element instanceof HTMLMediaElement)) return;
               if (type === "volumechange" && muted && wanted.has(element) && !element.muted) { wanted.set(element, false); element.muted = true; }
               else apply(element);
+              if (type === "pause" && muted && wanted.has(element) && document.visibilityState === "hidden") suspended.add(element);
+              else if (type !== "volumechange") suspended.delete(element);
               report();
             }, true);
           }
+          // Shown again: WebKit plays what it paused; anything still paused was paused by the page.
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState !== "visible" || suspended.size === 0) return;
+            setTimeout(() => { for (const element of suspended) if (element.paused) suspended.delete(element); report(); }, 1500);
+          });
           globalThis.__t3PreviewMedia = {
-            setMuted(next) { muted = next; for (const element of media()) apply(element); report(); return muted; },
+            setMuted(next) { muted = next; if (!muted) suspended.clear(); for (const element of media()) apply(element); report(); return muted; },
             report() { last = null; report(); },
           };
         })();
