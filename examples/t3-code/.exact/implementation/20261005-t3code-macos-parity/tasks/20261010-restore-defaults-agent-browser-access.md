@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-restore-defaults-agent-browser-access
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/379
 verified_commit: null
 ---
 
@@ -75,6 +75,11 @@ at missing lane paths (`providers.*.binaryPath`), so no provider-update toast co
 Tests: `settings-core.test.ts` "restore lists and re-grants Agent browser access after the browser rows (RD-1;
 useSettingsRestore)" (new).
 
+Checks on `946270efb` (the merge of `e4647764f`, then the record), each exit 0: `bun test examples/t3-code` (4186 pass,
+1 skip, 0 fail), strict `tsc`, `contract build` of `app.contract` (6209 slots, 48 resources, 106296 nodes), caps, `cargo
+build --all-targets`, `cargo test --lib --bins --tests` (3521 pass), clippy `-D warnings`, `cargo fmt --check`, boot.
+No Rust or Swift changed (no `t3-code-macos` or AppKit runs). `app.contract`: 1327 lines.
+
 ## Found during this task (not this task; for the coordinator)
 
 - Restore defaults' list ignores the scope: `settings-core-view.ts` passes the focused environment's
@@ -94,7 +99,7 @@ None: every row is agent mode.
 button disabled with only the one key changed, then two startup toasts over the switch: the provider-update toast
 removed by pointing the lane CLIs away, the Nightly notice dismissed as a step); built (one commit, its Bun test fails
 on the old `settings-core.ts`); merged `origin/feat(example)/t3-code` at `e4647764f` (clean); the bundle built and the
-branch driven once; the image composed and uploaded.
+branch driven once; the image composed and uploaded; the final checks on `946270efb`; draft PR #379 opened.
 
 ## Next action
 
