@@ -519,6 +519,9 @@ world.
   union (plus 20 px), written as a draft image (`preview-annotation-<id>.png`, its own UUID rather than the annotation's
   id) and linked from the record by `screenshotContextId`. Number-field spinners in the style panel show (the page-level
   rule that hides them in the reference cannot reach the closed shadow root). ⌘Return sends through the window's Send.
+  The window's shortcuts come before the page (Electron's guest page has its keys first), so while Annotate is on in a
+  Browser tab of the open thread the send button leaves `Meta+Enter` out and the key reaches the editor; a ⌘Return typed
+  in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`).
 - **Screenshots.** At most 1,280 pixels wide (the record's rule; the reference applies MAX_SCREENSHOT_WIDTH to the
   automation snapshot and saves capturePage's own size).
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
