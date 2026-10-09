@@ -1,10 +1,20 @@
 import { expect, test } from 'bun:test';
-import { mobileCacheClear, mobileCacheClearKind, mobileCacheInspect, mobileCacheList, mobileCacheRead, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite } from './mobile-client-cache';
+import { mobileCacheClear, mobileCacheClearKind, mobileCacheDisplayRevision, mobileCacheInspect, mobileCacheList, mobileCacheRead, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite } from './mobile-client-cache';
 import { ClientError, type Native } from './shared/protocol';
 const key = { environmentId: 'env-a', kind: 'shell' as const, key: 'snapshot' };
 function native(value: unknown, calls: unknown[] = []): Native {
   return { available: true, watch() {}, async later(input) { calls.push(input); return { ok: true, generation: 0, value }; } };
 }
+test('internal VCS invalidation keeps rendered data while retiring pending disk reads and writes', async () => {
+  const environmentId = 'vcs-display', calls: unknown[] = [];
+  const read = mobileCacheReadRevision(environmentId, 'vcs-refs'), display = mobileCacheDisplayRevision(environmentId, 'vcs-refs');
+  await mobileCacheClear(native({ removed: 0 }, calls), { environmentId, kind: 'vcs-refs' }, { retainDisplay: true });
+  expect(mobileCacheReadRevision(environmentId, 'vcs-refs')).not.toBe(read);
+  expect(mobileCacheDisplayRevision(environmentId, 'vcs-refs')).toBe(display);
+  expect(calls).toEqual([{ op: 'mobileClientCache', action: 'clear', environmentId, kind: 'vcs-refs' }]);
+  await expect(mobileCacheClear(native({}), { environmentId, kind: 'vcs-refs' })).rejects.toThrow('invalid reply');
+  expect(mobileCacheDisplayRevision(environmentId, 'vcs-refs')).not.toBe(display);
+});
 test('cache requests carry only the dedicated local operation and exact scope', async () => {
   const calls: unknown[] = [];
   expect(await mobileCacheTicket(native({ ticket: 'opaque' }, calls), key)).toBe('opaque');
@@ -121,4 +131,16 @@ test('lost corrupt-cleanup answer propagates and conditional removal cannot clea
   expect(await mobileCacheRemove(native({ removed: 1 }), key)).toBe(1);
   expect(mobileCacheReadRevision(key.environmentId)).not.toBe(initial);
   await expect(mobileCacheRemove(native({ removed: 2 }), key)).rejects.toThrow('invalid reply');
+});
+
+test('favicon authoritative absence retains sibling scope revisions while sending unconditional native key invalidation', async () => {
+  const { mobileCacheRemove } = await import('./mobile-client-cache');
+  const icon = { environmentId: 'missing-favicon-scope', kind: 'project-favicon' as const, key: 'resource' }, calls: unknown[] = [];
+  const read = mobileCacheReadRevision(icon.environmentId), display = mobileCacheDisplayRevision(icon.environmentId);
+  expect(await mobileCacheRemove(native({ removed: 1 }, calls), icon, undefined, { retainFaviconScope: true })).toBe(1);
+  expect(calls).toEqual([{ op: 'mobileClientCache', action: 'remove', ...icon }]);
+  expect(mobileCacheReadRevision(icon.environmentId)).toBe(read); expect(mobileCacheDisplayRevision(icon.environmentId)).toBe(display);
+  await mobileCacheRemove(native({ removed: 0 }), icon);
+  expect(mobileCacheReadRevision(icon.environmentId)).not.toBe(read); expect(mobileCacheDisplayRevision(icon.environmentId)).not.toBe(display);
+  await expect(mobileCacheRemove(native({ removed: 0 }), key, undefined, { retainFaviconScope: true })).rejects.toThrow('invalid reply');
 });

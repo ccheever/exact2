@@ -1,3 +1,4 @@
+use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 // @ref llp/1109.004-home-projection.decision.md#decision
 // Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
@@ -50,6 +51,7 @@ shape HomeItem
   id: string
   environmentId: string
   threadId: string
+  projectId: string
   section: string
   title: string
   projectTitle: string
@@ -71,6 +73,7 @@ shape HomeItem
   trailingDivider: bool
   selected: bool
   favicon: string
+  faviconTarget: ProjectFaviconTarget
   iconKind: string
   iconText: string
   iconColor: string
@@ -103,6 +106,8 @@ component Home
     showMore: action
     addConnection: action
     colors: HomeColors
+  provide
+    projectFaviconSurface = listId
   derive swipeOwner = `${routeId}:${listId}`
   state stateOwner = ""
   state openToken = ""
@@ -421,6 +426,8 @@ component HomeListItem
 
 
 component HomeProjectIcon
+  inject
+    projectFaviconSurface: string
   props
     item: HomeItem
     colors: HomeColors
@@ -431,7 +438,5 @@ component HomeProjectIcon
       else when item.iconKind == "monogram"
         column width=15 height=15 border-radius=3.75 background-color=item.iconSurface align-items="center" justify-content="center"
           text item.iconText font-family="Menlo" font-size=item.iconSize line-height="15px" font-weight=700 color=item.iconColor text-align="center" line-clamp=1
-      else when length(item.favicon) > 0
-        image item.favicon width=15 height=15 object-fit="contain" border-radius=2.4 aria-label=`${item.projectTitle} favicon`
       else
-        t3-symbol symbol-name="folder.fill" point-size=15 symbol-weight="regular" symbol-tint=colors.iconSubtle width=15 height=15
+        ProjectFavicon(mountId=`${projectFaviconSurface}:${item.key}`, target=item.faviconTarget, title=item.projectTitle, size=15, tint=colors.iconSubtle)

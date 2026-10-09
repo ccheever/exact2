@@ -1,3 +1,4 @@
+import { mobileFaviconQueries } from './mobile-favicon-query';
 import { watchLive } from './shared/live-streams';
 import { mobileThreadSelection } from './thread-selection';
 import { mobileThreadHeaderEvents } from './thread-header';
@@ -148,7 +149,7 @@ export async function mobileSnapshot(nativeInput: Native | null | undefined, sup
     };
   });
   return {
-    nativeAvailable: native?.available === true, revision: mobileClient.revision,
+    nativeAvailable: native?.available === true, revision: mobileClient.revision, faviconRevision: mobileFaviconQueries.version,
     connection: mobileClient.connection, statusMessage: mobileClient.statusMessage, error: mobileClient.error,
     ready: mobileClient.ready, writable: mobileClient.writable, busy: mobileClient.busy,
     environmentId: mobileClient.environmentId, environmentLabel: str(obj(mobileClient.config.environment).label),

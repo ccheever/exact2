@@ -4,7 +4,7 @@ import { obj, type Obj } from './shared/domain';
 import { environmentSources } from './shared/connections';
 import { fleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import type { Native } from './shared/protocol';
-import { mobileProjectGlyph, mobileProjectIdentity, mobileProjectMembers, mobileProjectProjection, mobileProjectRename } from './settings-project';
+import { mobileProjectOverview, mobileProjectGlyph, mobileProjectIdentity, mobileProjectMembers, mobileProjectProjection, mobileProjectRename } from './settings-project';
 const scope={environmentIds:['a','b'],members:[{environmentId:'a',id:'p'},{environmentId:'b',id:'p'}],projectLabel:'Group'};
 function source(id:string){return environmentSources({environmentId:id,origin:`https://${id}.test`,connection:'connected',statusMessage:'',scopes:[],config:{}},[{environmentId:id,origin:`https://${id}.test`}],new Map())[0]!;}
 const projects=(name='repo')=>[{id:'p',title:name,workspaceRoot:'/work/repo',repositoryIdentity:{name:'repo',displayName:'owner/repo'}}];
@@ -42,4 +42,21 @@ test('rename writes real qualified members and refreshes canonical shells after 
 });
 test('partial rename keeps failure visible and adopts only actual server records',async()=>{
  const f=transport({failB:true});const result=await mobileProjectRename(JSON.stringify(scope),f.identity,'Changed',f.native);expect(result.saved).toBe(false);expect(result.message).toContain('B rename refused');expect(mobileClient.shell.projects[0]!.title).toBe('Changed');expect(fleet.entries.get(environmentKey('https://b.test','b'))!.shell.projects[0]!.title).toBe('repo');
+});
+
+
+test('overview icon targets the first filtered checkout and does not request signed URLs or extra shells', async () => {
+ const f=transport();
+ const priorLoaded=mobileClient.shellLoaded;mobileClient.shellLoaded=true;
+ try {
+  const data=await mobileProjectOverview(JSON.stringify(scope),f.native);
+  expect(data.faviconTarget).toMatchObject({environmentId:'a',cwd:'/work/repo',faviconPath:'',key:'["a","/work/repo",null]'});
+  expect(data.icon.src).toBe('');expect(data.checkouts).toHaveLength(2);
+  expect(f.calls.filter(c=>c.path==='/api/auth/session')).toHaveLength(2);
+  expect(f.calls.some(c=>c.method==='assets.createUrl'||c.path==='/api/orchestration/shell')).toBe(false);
+  const members=mobileProjectMembers(scope,[{...source('a'),phase:'disconnected' as const},source('b')],[{environmentId:'b',shell:{projects:projects()}}]);
+  expect(mobileProjectProjection(scope,[source('b')],members,new Set()).faviconTarget.environmentId).toBe('b');
+  members[0]!.project.projectIcon={kind:'emoji',emoji:'🌲'};
+  expect(mobileProjectProjection(scope,[source('b')],members,new Set()).faviconTarget.key).toBe('');
+ } finally {mobileClient.shellLoaded=priorLoaded;}
 });

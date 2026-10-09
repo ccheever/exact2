@@ -1,3 +1,4 @@
+import { mobileRootFaviconAdmission, mobileRootFavicons, mobileRootFaviconImages, mobileRootFaviconEvent } from './mobile-favicon-root';
 import { mobileIncomingShareRead, mobileIncomingSharePresentation } from './incoming-share-inbox';
 import { mobileOutboxThread } from './mobile-outbox-presentation';
 import { mobileOutboxRootSnapshot, mobileOutboxRootAction, mobileOutboxRootEdit } from './mobile-outbox-root';
@@ -63,7 +64,7 @@ import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchive, mobileArchiveCommand } from './archive';
 import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
-import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare } from './new-task';
+import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare, mobileNewTaskCachedPrepare } from './new-task';
 import { mobileThread, mobileThreadPrepare } from './thread';
 import { mobileLayoutFacts, mobileScheduledHeader, homeChromeEvent, homeChromeView, settingsRoot, settingsScopeEvent } from './root-presentation';
 import { connectionView } from './presentation';
@@ -86,6 +87,10 @@ function storageEnvironments() {
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  projectFaviconDemand: args => mobileRootFaviconAdmission(args),
+  projectFavicons: (args, _store, _storage, native) => mobileRootFavicons(Number(args[0]), Number(args[1]), native),
+  projectImages: () => mobileRootFaviconImages(),
+  projectImageEvent: args => mobileRootFaviconEvent(str(args[0]), str(args[1]), str(args[2]), str(args[3])),
   incomingShareInbox: (_args, _store, _storage, native) => mobileIncomingShareRead(mobileClient, native),
   incomingSharePresentation: args => mobileIncomingSharePresentation(mobileClient, str(args[0]), args[1] === true, str(args[2])),
   outboxView: args => {
@@ -559,10 +564,19 @@ const sources: Sources = {
     const native = sourceNative('newTaskView', args, nativeInput);
     return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''));
   },
+  newTaskCachedPrepare: (args, _store, storage, nativeInput) => {
+    const current = newTaskGuard('newTaskCachedPrepare', args) ?? (() => true);
+    if (!current()) return { revision: mobileClient.revision, loaded: false };
+    const native = sourceNative('newTaskCachedPrepare', args, nativeInput);
+    return args[1] === true ? mobileNewTaskCachedPrepare(String(args[0] ?? ''), native, mobileClient, current)
+      : { revision: mobileClient.revision, loaded: false };
+  },
   newTaskPrepare: (args, _store, storage, nativeInput) => {
-    if (newTaskGuard('newTaskPrepare', args)?.() === false) return { revision: mobileClient.revision, loaded: false };
+    const current = newTaskGuard('newTaskPrepare', args) ?? (() => true);
+    if (!current()) return { revision: mobileClient.revision, loaded: false };
     const native = sourceNative('newTaskPrepare', args, nativeInput);
-    return args[1] === true ? mobileNewTaskPrepare(String(args[0] ?? ''), native) : {revision: mobileClient.revision, loaded: false};
+    return args[1] === true ? mobileNewTaskPrepare(String(args[0] ?? ''), native, mobileClient, current)
+      : { revision: mobileClient.revision, loaded: false };
   },
   threadColors: (args, _store, storage, nativeInput) => {
     const native = sourceNative('threadColors', args, nativeInput);
@@ -608,6 +622,7 @@ const sources: Sources = {
   },
   snapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('snapshot', args, nativeInput);
+    noteNow(mobileClient, Number(args[2]));
     return mobileSnapshot(native, storage!).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
   },
   cameraPermission: (args, _store, storage, nativeInput) => {
@@ -664,7 +679,7 @@ function sourceNative(source: string, args: unknown[], nativeInput?: Native | nu
 
 const taskGuardIndices: Record<string, number> = { filePrepare: 5, command: 4, composerAction: 3, composerSettings: 4,
   attachmentAction: 2, composerAttachments: 1, voiceFocus: 3, voiceAction: 3,
-  mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, newTaskPrepare: 8 };
+  mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, newTaskPrepare: 8, newTaskCachedPrepare: 8 };
 function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
   // Existing recordings retain their captured draft and cleanup owner offscreen.
   if (source === 'voiceAction' && args[0] !== 'start') return null;

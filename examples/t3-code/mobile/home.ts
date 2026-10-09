@@ -17,7 +17,7 @@ import { machineKind } from './shared/connections';
 import { groupLabel, logicalKey } from './shared/r6-polish-groups';
 import { serverMatches, searchMatch } from './shared/sidebar-presentation';
 import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
-import { faviconSrc } from './shared/r3-sidebar-glyph';
+import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { capabilities, effectiveSnoozed, isWorkingThread, lastVisited, unseenCompletion,
   sidebarStatus, sidebarVisible, snoozeWakeLabel, sortActive, sortByReturn, sortPinned,
@@ -43,17 +43,17 @@ export interface HomeOptions {
 export interface HomeSource { environmentId: string; label: string; machine: string; config: Obj; shell: Shell; focused: boolean; origin?: string; connected?: boolean }
 export interface HomeProject { key: string; title: string; projectKeys: string[]; environmentId: string; projectId: string }
 export interface HomeItem {
-  key: string; kind: string; draftKey: string; queuedOwner: string; showPendingDivider: boolean; id: string; environmentId: string; threadId: string; section: string; title: string;
+  key: string; kind: string; draftKey: string; queuedOwner: string; showPendingDivider: boolean; id: string; environmentId: string; projectId: string; threadId: string; section: string; title: string;
   projectTitle: string; projectPresent: boolean; branch: string; environmentLabel: string; machineSymbol: string;
   status: string; statusTone: string; time: string; error: string; card: boolean; pinned: boolean; queued: boolean;
   expanded: boolean; disabled: boolean; count: number; last: boolean; trailingDivider: boolean; selected: boolean;
-  favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
+  faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
   searchExcerpt: string; swipe: HomeSwipeData; menuItems: HomeMenuItem[]; nativeMenu: string;
 }
-const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '', queuedOwner: '', showPendingDivider: false, id: '', environmentId: '', threadId: '', section: '', title: '',
+const blankItem = (key: string): HomeItem => ({ key, kind: 'thread', draftKey: '', queuedOwner: '', showPendingDivider: false, id: '', environmentId: '', projectId: '', threadId: '', section: '', title: '',
   projectTitle: '', projectPresent: false, branch: '', environmentLabel: '', machineSymbol: '', status: '', statusTone: '',
   time: '', error: '', card: false, pinned: false, queued: false, expanded: false, disabled: false, count: 0,
-  last: false, trailingDivider: false, selected: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
+  last: false, trailingDivider: false, selected: false, faviconTarget: mobileProjectFaviconTarget(''), favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0, searchExcerpt: '', swipe: blankHomeSwipe(), menuItems: [], nativeMenu: '' });
 const scoped = (environmentId: string, id: unknown) => `${environmentId}:${str(id)}`;
 const timestamp = (value: unknown) => { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? stamp : -Infinity; };
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
@@ -175,7 +175,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     const glyphCount = Array.from(iconText.replace(/\p{M}/gu, '')).length;
     items.push({ ...blankItem(key), id: source.focused ? str(thread.id) : fleetThreadId(source.environmentId, str(thread.id)),
-      environmentId: source.environmentId, threadId: str(thread.id), section, title: str(thread.title),
+      environmentId: source.environmentId, projectId: str(thread.projectId), faviconTarget: mobileProjectFaviconTarget(source.environmentId, project), threadId: str(thread.id), section, title: str(thread.title),
       projectTitle: titles.get(scoped(source.environmentId, thread.projectId)) ?? str(project?.title), projectPresent: !!project,
       branch: str(thread.branch), environmentLabel: sources.length > 1 ? source.label : '', machineSymbol: machineSymbols[source.machine] ?? machineSymbols.server!,
       status: statusLabel, statusTone: unread ? 'done' : status,
@@ -219,7 +219,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     items.push({ ...blankItem(draft.key), kind: 'draft', draftKey: draft.draftKey, showPendingDivider: draft.showPendingDivider,
-      environmentId: draft.environmentId, section: 'unsent', title: draft.title, projectTitle: draft.projectTitle,
+      environmentId: draft.environmentId, projectId: draft.projectId, faviconTarget: mobileProjectFaviconTarget(draft.environmentId, project), section: 'unsent', title: draft.title, projectTitle: draft.projectTitle,
       projectPresent: draft.projectPresent, branch: draft.branch, environmentLabel: draft.environmentLabel, machineSymbol: draft.machineSymbol,
       status: draft.status, statusTone: 'draft', card: true, menuItems: draft.menuItems, iconKind, iconText, iconColor,
       iconSurface: iconColor ? `${iconColor}26` : '', iconSize: 15 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? 0.6 : 0.515625) });
@@ -233,7 +233,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     items.push({ ...blankItem(`pending-task:${record.environmentId}:${record.messageId}`), kind: 'pending', queuedOwner: pending.owner,
-      environmentId: record.environmentId, threadId: record.threadId, section: 'unsent', queued: true, card: true,
+      environmentId: record.environmentId, projectId: creation.projectId, faviconTarget: mobileProjectFaviconTarget(record.environmentId, project), threadId: record.threadId, section: 'unsent', queued: true, card: true,
       showPendingDivider: !items.some(item => item.kind === 'draft' || item.kind === 'pending'), title: pendingTitle(pending),
       projectTitle: titles.get(scoped(record.environmentId, creation.projectId)) ?? str(project?.title, creation.projectTitle ?? ''),
       projectPresent: !!project, branch: creation.branch ?? '', status: mobileOutboxStatus(pending.status), statusTone: 'pending',
@@ -278,14 +278,6 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
   const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
   const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, { ...options, observeReturns: true });
   const projection = projectMobileHome(sources, now, { ...options, returnedAt: order.returnedAt, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
-  projection.items.forEach(item => {
-    if (!['thread', 'draft', 'pending'].includes(item.kind) || item.environmentId !== client.environmentId) return;
-    const raw = client.shell.threads.find(thread => thread.id === item.threadId);
-    const projectId = item.kind === 'draft' ? options.drafts?.find(draft => draft.key === item.draftKey)?.projectId
-      : item.kind === 'pending' ? options.pendingTasks?.find(task => task.owner === item.queuedOwner)?.record.creation?.projectId : raw?.projectId;
-    const project = client.shell.projects.find(project => project.id === projectId);
-    if (project) item.favicon = faviconSrc(client, project);
-  });
   const entries = [...background.entries.values()], state = client.connection === 'disconnected' ? 'available' : client.connection;
   const catalog: HomeCatalogState = { loading: options.catalogLoaded === false,
     hasConnections: background.saved.length > 0 || !!client.environmentId, hasReadyEnvironment: client.ready || sources.some(source => !source.focused),

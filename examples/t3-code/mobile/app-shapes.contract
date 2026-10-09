@@ -87,6 +87,7 @@ shape Camera
 shape Notice
   choice: string
 shape Snapshot
+  faviconRevision: number
   nativeAvailable: bool
   revision: number
   ready: bool

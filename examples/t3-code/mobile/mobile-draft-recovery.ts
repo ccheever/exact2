@@ -1,4 +1,6 @@
+import { mobileObserveFaviconRpc } from './mobile-favicon-runtime';
 import { mobileIncomingShareImportsHydrate, mobileIncomingShareImportsPersisted } from './incoming-share-imports';
+import { mobileVcsFocusedScope, mobileVcsRequest, mobileVcsRetireFocusedPages, MOBILE_VCS_INVALIDATING_METHODS } from './mobile-vcs-consumers';
 import { mobileNewTaskRestoredContext, mobileNewTaskRestoredProject } from './new-task-restored-context';
 import { mobileOutboxRecoveryDraftApplyChoices } from './mobile-outbox-recovery-draft';
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
@@ -208,6 +210,14 @@ function pruneRetiredMarkers(client: T3Client) {
 export class MobileDraftClient extends T3Client {
   private cacheRefresh = 0;
   constructor() { super(); mobileCacheObserveAdoption(this); }
+  override async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false): Promise<Obj> {
+    const scope = mobileVcsFocusedScope(this);
+    try { return await mobileVcsRequest(scope, native, method, payload, () => super.request(native, method, payload, expected, write)); }
+    finally { if (MOBILE_VCS_INVALIDATING_METHODS.has(method)) mobileVcsRetireFocusedPages(this, scope.environmentId); }
+  }
+  override rpc(...args: Parameters<T3Client['rpc']>): Promise<Obj> {
+    return mobileObserveFaviconRpc(this, args[1], args[2], () => super.rpc(...args));
+  }
   override adoptStatus(value: Obj, generation: number): void {
     mobileCacheBeforeStatus(this, value, generation);
     super.adoptStatus(value, generation);

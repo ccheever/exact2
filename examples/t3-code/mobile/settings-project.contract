@@ -1,3 +1,4 @@
+use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 // @ref llp/1109.009-mobile-settings.decision.md#scoped-server-settings
 // GAP005: workspace-path selection still requires a reusable native selectable text owner.
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
@@ -25,6 +26,7 @@ shape SettingsProjectData
   checkoutsLabel: string
   writable: bool
   icon: SettingsProjectIcon
+  faviconTarget: ProjectFaviconTarget
   checkouts: list<SettingsProjectCheckout>
 component SettingsProjectOverview
   props
@@ -62,9 +64,7 @@ component SettingsProjectOverview
               when data.icon.kind == "emoji" or data.icon.kind == "monogram"
                 text data.icon.text font-size=data.icon.fontSize line-height="48px" font-weight=700 font-family=(data.icon.kind == "monogram" ? "monospace" : "DM Sans") color=data.icon.color
               else
-                t3-symbol symbol-name="folder" point-size=48 symbol-tint=colors.muted width=48 height=48
-                when data.icon.src != ""
-                  image data.icon.src width=48 height=48 position="absolute" inset=0 border-radius=7.68 object-fit="contain" aria-label=`${data.name} favicon`
+                ProjectFavicon(mountId="settings-project", target=data.faviconTarget, title=data.name, size=48, tint=colors.muted)
             column flex=1 min-width=0
               text data.name line-clamp=2 font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=600 color=colors.foreground
               text data.checkoutsLabel font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted

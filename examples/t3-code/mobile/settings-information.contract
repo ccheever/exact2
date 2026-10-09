@@ -161,10 +161,10 @@ component SettingsClientStorage
           else when length(data.environments) > 0
             each item in data.environments key=item.id
               row gap=10.5 padding=14 border-top-width=(item.first ? 0 : 1) border-top-style="solid" border-top-color=colors.border align-items="center" testId=`client-storage-${item.id}`
-                t3-symbol symbol-name=item.machine point-size=22 symbol-tint=colors.icon width=22 height=22 flex-shrink=0 aria-label=item.machineLabel
+                t3-symbol symbol-name=item.machine point-size=17 symbol-tint=colors.icon width=22 height=22 flex-shrink=0 aria-label=item.machineLabel
                 text item.label flex=1 min-width=0 font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground line-clamp=1 text-overflow="ellipsis"
                 button press=command("clear-cache-environment", item.id) disabled=data.clearing padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-radius=999 opacity=(data.clearing ? 0.4 : 1) aria-label=`Clear cache for ${item.label}` testId=`client-storage-clear-${item.id}`
-                  text item.action font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500 font-variant-numeric="tabular-nums" color=data.danger line-clamp=1
+                  text item.action font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500 font-variant-numeric="tabular-nums" color=data.danger line-clamp=1
           else
             column gap=7 padding-left=21 padding-right=21 padding-top=28 padding-bottom=28 align-items="center" testId="client-storage-empty-or-error"
               t3-symbol symbol-name=(data.available ? "checkmark.circle" : "exclamationmark.triangle") point-size=28 symbol-tint=(data.available ? colors.icon : data.danger) width=28 height=28
@@ -176,10 +176,10 @@ component SettingsClientStorage
           column border-radius=24 overflow="hidden" background-color=colors.grouped
             button press=command("clear-cache-all", "") disabled=data.disabled padding=0 aria-label=data.action testId="client-storage-clear-all"
               row gap=14 padding=14 align-items="center" opacity=(data.disabled ? 0.4 : 1)
-                t3-symbol symbol-name="trash" point-size=22 symbol-tint=data.danger width=22 height=22 flex-shrink=0
+                t3-symbol symbol-name="trash" point-size=17 symbol-tint=data.danger width=22 height=22 flex-shrink=0
                 text data.action flex=1 text-align="left" font-size=roles.headline.size line-height=`${roles.headline.line}px` font-variant-numeric="tabular-nums" color=data.danger
                 when data.clearing
                   t3-archive-spinner spinner-tint=data.danger width=20 height=20
-        text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+        text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px` color=colors.muted
         when length(data.error) > 0
           text data.error padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=data.danger role="alert" testId="client-storage-error"

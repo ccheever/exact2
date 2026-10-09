@@ -8,7 +8,9 @@ import { mobileNewTaskTransferBusy } from './new-task-transfer';
 import { mobileNewTaskLaunchPendingOwned } from './mobile-new-task-launch';
 import { mobileNewTaskCloneSnapshot } from './new-task-clone';
 import { mobileClient, mobileCommand, mobileNative } from './client';
-import { mobileHomeProjects, mobileHomeSources } from './home';
+import { mobileHomeProjects, mobileHomeSources, type HomeProject, type HomeSource } from './home';
+import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
+import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileThreadComposer, type ThreadComposerState } from './thread';
 import type { T3Client } from './shared/client';
@@ -24,8 +26,12 @@ import { mobileDraftChanged } from './draft';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
 import { mobileOpenScratch, mobileScratchTarget } from './new-task-scratch';
 import { threadOps } from './shared/client-ops-threads';
+import { mobileVcsCachedRead, mobileVcsDisplayOwner, mobileVcsFocusedScope } from './mobile-vcs-consumers';
+import type { MobileVcsRefsInput } from './mobile-vcs-cache';
+import { refBadge } from './shared/composer-controls-branch';
 
-export interface NewTaskProject { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
+export interface NewTaskProjectIcon { faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number }
+export interface NewTaskProject extends NewTaskProjectIcon { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskEnvironment { id: string; label: string; machine: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskBranch { id: string; label: string; badge: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskSnapshot { pendingEditor: boolean; revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
@@ -34,7 +40,8 @@ export interface NewTaskSnapshot { pendingEditor: boolean; revision: number; env
   canSelect: boolean; canAddProject: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
   composer: ThreadComposerState; }
 export interface NewTaskResult { revision: number; message: string; submitted: boolean; environmentId: string; projectId: string; threadId: string }
-interface TaskState { owner: string; prepare: number; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string; }
+interface TaskState { owner: string; prepare: number; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string;
+  branchCache?: { owner: string; input: MobileVcsRefsInput; context: string }; }
 const states = new WeakMap<T3Client, TaskState>();
 const owner = (client: T3Client) => JSON.stringify([client.generation, client.origin, client.environmentId, client.projectId, client.threadId,
   client.draftKey, client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot]);
@@ -52,12 +59,16 @@ const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: '
 export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
   const state = stateFor(client), sources = mobileHomeSources(client, background), needle = query.trim().toLocaleLowerCase();
   const context = draftContext(client), pendingDraft = mobileNewTaskLaunchPendingOwned(client), pendingEditor = mobileNewTaskPendingContext(client);
+  if (state.branchCache && (state.branchCache.context !== JSON.stringify(context)
+    || state.branchCache.owner !== mobileVcsDisplayOwner(mobileVcsFocusedScope(client, () => background.saved), state.branchCache.input))) {
+    state.branchCache = undefined; state.branches = []; state.branchLoaded = false; state.branchHasMore = false; state.canWriteGit = false;
+  }
   const restored = mobileNewTaskRestoredContext(client);
   const canSelect = !state.busy && ((!client.busy && !client.pending) || pendingDraft);
   const projects = sources.flatMap(source => source.shell.projects.filter(project => project.archivedAt == null && !isScratch(project, scratchRootOf(true, source.config)))
     .filter(project => !needle || [str(project.title), str(project.workspaceRoot)].some(value => value.toLocaleLowerCase().includes(needle)))
     .map(project => ({ id: projectKey(source.environmentId, str(project.id)), environmentId: source.environmentId, projectId: str(project.id), title: str(project.title),
-      subtitle: str(project.workspaceRoot), path: str(project.workspaceRoot), selected: source.environmentId === client.environmentId && project.id === client.projectId,
+      ...newTaskProjectIcon(source.environmentId, project), subtitle: str(project.workspaceRoot), path: str(project.workspaceRoot), selected: source.environmentId === client.environmentId && project.id === client.projectId,
       disabled: !canSelect || pendingDraft && !source.focused || source.focused && !client.ready, last: false })));
   projects.forEach((row, index) => { row.last = index === projects.length - 1; });
   const currentProject = client.shell.projects.find(project => project.id === client.projectId) ?? null;
@@ -113,6 +124,19 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
 }
 
+function newTaskProjectIcon(environmentId: string, project?: Obj, title = str(project?.title)): NewTaskProjectIcon {
+  const icon = obj(project?.projectIcon), iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
+  const iconText = icon.kind === 'lucide' ? projectIdentity(title.normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
+  const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
+  return { faviconTarget: mobileProjectFaviconTarget(environmentId, project), favicon: '', iconKind, iconText, iconColor,
+    iconSurface: iconColor ? `${iconColor}26` : '', iconSize: 20 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? .6 : .515625) };
+}
+/** The grouped icon uses the representative even when selection prefers another environment. */
+export function mobileNewTaskProjectIcon(scope: HomeProject, sources: HomeSource[]): NewTaskProjectIcon {
+  const project = sources.find(source => source.environmentId === scope.environmentId)?.shell.projects.find(project => project.id === scope.projectId);
+  return newTaskProjectIcon(scope.environmentId, project, scope.title);
+}
+
 /** Choose-project scopes reuse the same repository grouping and updated-at order
  * as Home. Selection still carries one actual environment/project pair. */
 export function mobileNewTaskChooser(query = '', groupingMode = 'repository', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
@@ -127,7 +151,7 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
     const target = members.find(member => member.source.environmentId === client.environmentId) ?? members[0];
     if (!target) return [];
     const row = data.projects.find(project => project.environmentId === target.source.environmentId && project.projectId === target.project.id);
-    return row ? [{ ...row, title: scope.title, subtitle: members.length > 1 ? `${members.length} workspaces` : str(target.project.workspaceRoot), last: false }] : [];
+    return row ? [{ ...row, ...mobileNewTaskProjectIcon(scope, sources), title: scope.title, subtitle: members.length > 1 ? `${members.length} workspaces` : str(target.project.workspaceRoot), last: false }] : [];
   });
   projects.forEach((row, index) => { row.last = index === projects.length - 1; });
   return { ...data, projects, query, hasProjects: scopes.length > 0,
@@ -135,13 +159,47 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
     emptyDetail: needle && scopes.length ? 'Try a different project name or workspace path.' : data.emptyDetail };
 }
 
-/** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
-export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
+/** A separate root resource publishes disk presentation before the live resource.
+ * Cached refs never enter the shared pager, choose a default, or grant checkout. */
+export async function mobileNewTaskCachedPrepare(branchQuery: string, nativeInput: Native | null | undefined,
+  client: T3Client = mobileClient, routeCurrent: () => boolean = () => true, background: EnvironmentFleet = fleet) {
   const state = stateFor(client), expected = owner(client), request = ++state.prepare;
-  if (mobileNewTaskPendingContext(client) || mobileNewTaskRestoredContext(client) && !client.shell.projects.some(project => project.id === client.projectId) || !nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
+  const context = draftContext(client), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
+  const input = { cwd: context.worktreePath || root, limit: 100 };
+  const contextKey = JSON.stringify(context), query = branchQuery.trim();
+  const current = () => routeCurrent() && owner(client) === expected && state.prepare === request && JSON.stringify(draftContext(client)) === contextKey;
+  // Route/query changes must not retain the preceding cache projection.
+  if (state.branchCache || state.branchQuery.trim() !== query) {
+    state.branchCache = undefined; state.branches = []; state.branchLoaded = false; state.branchHasMore = false;
+  }
+  if (!routeCurrent() || mobileNewTaskPendingContext(client) || !nativeInput?.available || client.threadId || !root
+    || query || mobileNewTask('', client, background).scratch) return { revision: request, loaded: false };
+  const focused = mobileVcsFocusedScope(client, () => background.saved), scope = { ...focused, current: () => focused.current() && current() };
+  const native = letGoAware(mobileNative(nativeInput));
+  try {
+    const result = await mobileVcsCachedRead(scope, native, input);
+    if (!current() || !result) return { revision: request, loaded: false };
+    const cacheOwner = mobileVcsDisplayOwner(scope, input); if (!cacheOwner) return { revision: request, loaded: false };
+    state.branchQuery = ''; state.branchLoaded = true; state.branchHasMore = false; state.canWriteGit = false; state.error = '';
+    const refs = result.refs.isRepo ? result.refs.refs : [];
+    state.branches = refs.map((ref, index) => ({ id: str(ref.name), label: str(ref.name), badge: refBadge(ref, input.cwd),
+      selected: context.branch === ref.name, disabled: true, last: index === refs.length - 1 }));
+    state.branchCache = { owner: cacheOwner, input, context: contextKey };
+    return { revision: request, loaded: true };
+  } catch (error) {
+    if (letGo(error)) throw error;
+    return { revision: request, loaded: false };
+  }
+}
+
+/** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
+export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient,
+  routeCurrent: () => boolean = () => true) {
+  const state = stateFor(client), expected = owner(client), request = ++state.prepare;
+  if (!routeCurrent() || mobileNewTaskPendingContext(client) || mobileNewTaskRestoredContext(client) && !client.shell.projects.some(project => project.id === client.projectId) || !nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: request, loaded: false };
   const native = letGoAware(mobileNative(nativeInput)), context = draftContext(client);
   const stamp = () => JSON.stringify([draftContext(client), mobileNewTaskDraftLookup(client, client.draftKey)?.branchChoice]);
-  const captured = stamp(), current = () => owner(client) === expected && state.prepare === request && stamp() === captured;
+  const captured = stamp(), current = () => routeCurrent() && owner(client) === expected && state.prepare === request && stamp() === captured;
   const root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot), cwd = context.worktreePath || root;
   try {
     const session = await client.http(native, '/api/auth/session');
@@ -154,6 +212,7 @@ export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Nat
     // The shared pager first marks loading; this awaited mobile resource owns the ensuing read.
     if (branch.refs?.loadingMore) view = await cardBranchView(client, native, cwd, root, strip.show, current);
     if (!current()) return { revision: client.revision, loaded: false };
+    state.branchCache = undefined;
     state.branchQuery = branchQuery; state.branchLoaded = !view.disabled; state.error = view.disabled && strip.show ? 'Could not load branches.' : '';
     state.branchHasMore = branch.refs?.nextCursor != null;
     const isBase = context.envMode === 'worktree' && !context.worktreePath;
@@ -171,7 +230,7 @@ export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Nat
     if (letGo(error)) throw error;
     if (current()) { state.error = error instanceof Error ? error.message : 'Could not load branches.'; state.branchLoaded = true; }
   }
-  return { revision: client.revision, loaded: state.branchLoaded };
+  return { revision: request, loaded: state.branchLoaded };
 }
 
 /** Mobile route adapter; all server writes and draft dispatch remain the shared client's. */
