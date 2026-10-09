@@ -105,7 +105,8 @@ run was branch-1, at `d6b8b05ec`.
 
 - **End to end, passed.** The lane agent called 22 `preview_*` tools through the lane server's MCP endpoint, and the
   app's host answered each one.
-  - All but the three expected errors returned ok: freeform resize (part 2) and the two recording calls (part 3).
+  - All but the three expected errors returned ok: freeform resize (part 2; wired since by part 2, #348) and the two
+    recording calls (part 3).
   - In the server trace: `previewAutomation.respond` 34; broker invoke 31 ok + 3 failed; `preview.open` 2.
 - **"Open links in", Mute, chat link and ⌘-click, passed in agent mode.** Before/after images were taken.
 - **No-host text captured.** The base build has no host, so the server answered the agent with the
@@ -115,6 +116,20 @@ run was branch-1, at `d6b8b05ec`.
 - **Found and fixed.** A muted tab lost its indicator once another tab was shown: WebKit pauses muted media in a page
   that is out of the window. Fixed in `b6b3e417e` with an AppKit case that failed before the fix; the pause is declared.
   Not re-driven live, because of the session limit.
+
+2026-10-09, part 2's viewport (browser-surface-navigation, [#348](https://github.com/ccheever/exact2/pull/348), after
+#346 merged as `5f0ae7dca`):
+
+- **Resize.** The plan resolves a preset to its size and orientation (`resolvePreviewViewport`; an unknown preset or a
+  freeform size without both sides is the execution error), and `T3BrowserViewport` renders every fixed size: a page
+  the panel shows is sized by part 2's stage, a page no stage holds is sized by the host at its zoom.
+- **The agent default.** A tab `preview_open` creates on Fill is resized to 1280×800 before the data module adopts it.
+- **Rollback.** A size not rendered in time goes back to the tab's previous one (declared: without the latest-setting
+  and epoch checks).
+- **Appearance.** `preview_set_appearance` uses part 2's `setColorScheme`, and the host's status reads the page's own
+  appearance, so the More menu and the agent agree.
+- **Tests.** Bun `resize resolves a preset to its size…`; AppKit `browser-automation` 20/20 (three new: a fixed viewport
+  where no stage holds the page, the rollback, the new tab's default).
 
 ## Attempts and evidence
 
@@ -147,7 +162,8 @@ version of the same steps ([copy](https://raw.githubusercontent.com/ccheever/exa
 
 ## Next action
 
-The rows left are the real-input batch (steps 1-4; STATUS lists them) and the parts that wait on part 2 (freeform and
-preset resize, the 1280×800 agent default) and part 3 (recording, the floating preview). The settings request loop is
+The rows left are the real-input batch (steps 1-4; STATUS lists them) and the parts that wait on part 3 (recording, the
+floating preview). Part 2 (browser-surface-navigation, #348) wired freeform and preset resize and the 1280×800 agent
+default into this host after #346 merged (Progress, "part 2's viewport"). The settings request loop is
 pre-existing and recorded in STATUS "Found, not in scope" for the coordinator to schedule. The PR stays a draft until
 the coordinator flips it.

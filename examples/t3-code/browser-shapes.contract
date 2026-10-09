@@ -4,6 +4,28 @@ shape BrowserProfileChoice
   id: string
   name: string
 
+// browser-surface part 2 (browser-navigation.ts): the empty state's rows and the device toolbar's presets.
+shape BrowserRecent
+  url: string
+  title: string
+  subtitle: string
+  favicon: string
+  fallback: string
+  removeLabel: string
+
+shape BrowserServer
+  key: string
+  title: string
+  description: string
+  url: string
+  favicon: string
+  fallback: string
+
+shape BrowserPresetChoice
+  id: string
+  label: string
+  detail: string
+
 shape BrowserPanel
   tabId: string
   runtimeId: string
@@ -24,3 +46,20 @@ shape BrowserPanel
   failLabel: string
   live: bool
   profiles: list<BrowserProfileChoice>
+  // part 2: zoom, appearance, the viewport, the preview's chords, the empty state's lists
+  zoomFactor: number
+  zoomLabel: string
+  zoomSerial: number
+  colorScheme: string
+  viewportMode: string
+  viewportWidth: number
+  viewportHeight: number
+  viewportKey: string
+  viewportSerial: number
+  presetId: string
+  presetLabel: string
+  aspectLocked: bool
+  presets: list<BrowserPresetChoice>
+  keys: string
+  recents: list<BrowserRecent>
+  servers: list<BrowserServer>

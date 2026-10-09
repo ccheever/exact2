@@ -8,7 +8,7 @@ import XCTest
 // it, evaluate, the snapshot (Playwright's ARIA snapshot, the screenshot, console and network diagnostics), click
 // by locator and by point (native in a window, DOM events out of one), type, press (native keys and the macOS
 // editing commands), scroll, wait for, status, open and navigate readiness, the host's error answers, the colour
-// scheme and Mute. T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) is the reference for the expected answers.
+// scheme and Mute, and part 2's viewport for the host (fixed sizes, the agent default, the rollback). T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) is the reference for the expected answers.
 // `T3_APP_DIR` names the example (the vendored Playwright script); `T3_BROWSER_TEST_DIR` receives screenshots.
 final class Fixture {
     private let listener: NWListener
@@ -94,6 +94,12 @@ final class BrowserAutomationTests: XCTestCase {
             self.calls.append((method, payload))
             if method == "previewAutomation.respond", let id = payload["requestId"] as? String { self.responses[id] = payload; return done(["ok": true]) }
             if method == "preview.open" { return done(["ok": true, "value": self.openSnapshot]) }
+            if method == "preview.resize" { // the server's answer: the tab's snapshot at the new size
+                var value = self.openSnapshot
+                value["tabId"] = payload["tabId"]
+                value["viewport"] = payload["viewport"]
+                return done(["ok": true, "value": value])
+            }
             done(["ok": true, "value": [:]])
         }
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
@@ -367,6 +373,7 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(status["title"] as? String, "Page B")
         XCTAssertEqual(session.web.url?.path, "/b")
         XCTAssertFalse(calls.contains { $0.0 == "preview.open" }, "a reused tab opens no session")
+        XCTAssertFalse(calls.contains { $0.0 == "preview.resize" }, "a reused tab keeps its size (previewAutomationDefaultViewport)")
     }
 
     // MARK: Errors
@@ -386,11 +393,74 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(start["_tag"] as? String, "PreviewAutomationExecutionError", "recording is part 3's: capture unavailable")
         let planned = error(run(plan("navigate", extra: ["failure": ["_tag": "PreviewAutomationTabNotFoundError", "message": "planned", "detail": ["requestId": "x"]]])))
         XCTAssertEqual(planned["message"] as? String, "planned", "a failure the data module planned is answered as it is")
-        let fixed = error(run(plan("resize", ["mode": "freeform", "width": 800, "height": 600], extra: ["viewport": ["_tag": "freeform", "width": 800, "height": 600]])))
-        XCTAssertEqual(fixed["_tag"] as? String, "PreviewAutomationExecutionError", "a fixed viewport is part 2's")
+        let unsized = error(run(plan("resize", ["mode": "preset", "preset": "iphone-se"], extra: ["viewport": ["_tag": "preset", "presetId": "iphone-se"]])))
+        XCTAssertEqual(unsized["_tag"] as? String, "PreviewAutomationExecutionError", "a fixed viewport without its size (the data module resolves a preset's)")
         let fill = result(run(plan("resize", ["mode": "fill"], extra: ["viewport": ["_tag": "fill"]])))
         XCTAssertEqual((fill["viewport"] as? [String: Any])?["width"] as? Int, 900)
         XCTAssertEqual(calls.last { $0.0 == "preview.resize" }?.1["tabId"] as? String, "tab-1")
+    }
+
+    // MARK: Viewport (part 2: freeform and presets, the agent default, the rollback)
+
+    private static let freeform800: [String: Any] = ["_tag": "freeform", "width": 800, "height": 600]
+    private func resizes() -> [Int] { calls.filter { $0.0 == "preview.resize" }.compactMap { ($0.1["viewport"] as? [String: Any])?["width"] as? Int } }
+    /// A stage (T3BrowserView.Host) holding the page at 500 × 400, as the panel would.
+    private func stage(_ session: T3BrowserSession) -> T3BrowserView.Host {
+        let host = T3BrowserView.Host(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView!.addSubview(host)
+        host.addSubview(session.web)
+        host.applyScale()
+        return host
+    }
+
+    func testAFixedViewportIsThePagesCSSViewportWhereNoStageHoldsIt() {
+        let session = page(visible: false)
+        let freeform = result(run(plan("resize", ["mode": "freeform", "width": 800, "height": 600], extra: ["viewport": Self.freeform800, "viewportSetting": ["_tag": "fill"]])))
+        XCTAssertEqual(freeform["viewport"] as? [String: Int], ["width": 800, "height": 600], "measured in the page")
+        XCTAssertEqual(resizes(), [800], "the server holds the setting (preview.resize)")
+        session.setZoom(1.5)
+        let preset: [String: Any] = ["_tag": "preset", "presetId": "iphone-12-pro", "width": 844, "height": 390]
+        let landscape = result(run(plan("resize", ["mode": "preset", "preset": "iphone-12-pro", "orientation": "landscape"], extra: ["viewport": preset, "viewportSetting": Self.freeform800])))
+        XCTAssertEqual(landscape["viewport"] as? [String: Int], ["width": 844, "height": 390])
+        XCTAssertEqual(session.web.frame.size, NSSize(width: 1266, height: 585), "the size at the page's zoom, as the stage sizes it")
+        session.setZoom(1)
+        XCTAssertEqual(run(plan("evaluate", ["expression": "innerWidth"], extra: ["viewportSetting": preset]))["result"] as? Int, 844, "an operation on the tab keeps its size after a zoom change")
+        let host = stage(session)
+        defer { session.web.removeFromSuperview(); host.removeFromSuperview() }
+        T3BrowserViewport.hold(preset, session)
+        XCTAssertEqual(session.web.frame.size, NSSize(width: 500, height: 400), "a page in a stage is the stage's (it follows the tab's snapshot)")
+    }
+
+    func testAResizeNotRenderedInTimeGoesBackToThePreviousSize() {
+        let session = page(visible: false)
+        let host = stage(session) // a stage that never receives the new size
+        defer { session.web.removeFromSuperview(); host.removeFromSuperview() }
+        let previous: [String: Any] = ["_tag": "freeform", "width": 1024, "height": 768]
+        let late = error(run(plan("resize", ["mode": "freeform", "width": 800, "height": 600, "timeoutMs": 600], extra: ["viewport": Self.freeform800, "viewportSetting": previous])))
+        XCTAssertEqual(late["_tag"] as? String, "PreviewAutomationTimeoutError")
+        XCTAssertEqual(resizes(), [800, 1024], "shouldRollbackPreviewViewport: back to the previous size")
+        calls.removeAll()
+        _ = error(run(plan("resize", ["mode": "freeform", "width": 800, "height": 600, "timeoutMs": 600], extra: ["viewport": Self.freeform800, "viewportSetting": Self.freeform800])))
+        XCTAssertEqual(resizes(), [800], "the same size asked again has nothing to go back to")
+    }
+
+    func testANewTabTakesTheAgentDefaultViewport() {
+        openSnapshot = ["threadId": "thread-1", "tabId": "tab-7", "navStatus": ["_tag": "Loading", "url": "\(fixture.base)/b", "title": ""], "viewport": ["_tag": "fill"], "canGoBack": false, "canGoForward": false, "updatedAt": "2026-10-09T00:00:00.000Z"]
+        let runtime7 = T3BrowserAutomation.runtimeId(environment: "env-1", thread: "thread-1", epoch: "epoch-1", tab: "tab-7")
+        let open: [String: Any] = ["create": ["threadId": "thread-1", "url": "\(fixture.base)/b", "viewport": ["_tag": "fill"], "profileId": "default"], "epoch": "epoch-1", "present": false,
+                                   "defaultViewport": ["_tag": "freeform", "width": 1280, "height": 800]]
+        let request = plan("open", ["url": "\(fixture.base)/b"], extra: ["open": open], runtimeId: nil, tabId: nil)
+        XCTAssertEqual(automation.perform(request)["accepted"] as? Bool, true)
+        spin(until: { (self.automation.status["browserAutomation"] as? [String: Any]).flatMap { $0["opened"] as? [[String: Any]] }?.isEmpty == false })
+        let opened = ((automation.status["browserAutomation"] as? [String: Any])?["opened"] as? [[String: Any]])?.last
+        XCTAssertEqual(((opened?["snapshot"] as? [String: Any])?["viewport"] as? [String: Any])?["width"] as? Int, 1280, "the data module adopts the tab at the default size")
+        XCTAssertEqual(calls.first { $0.0 == "preview.resize" }?.1["tabId"] as? String, "tab-7")
+        let session = page("/b", visible: false, id: runtime7)
+        spin(until: { self.responses[request["requestId"] as! String] != nil })
+        let status = result(responses[request["requestId"] as! String] ?? [:])
+        XCTAssertEqual((status["viewportSetting"] as? [String: Any])?["height"] as? Int, 800)
+        XCTAssertEqual(session.web.frame.size, NSSize(width: 1280, height: 800), "a page no stage holds takes it")
+        XCTAssertEqual(js(session.web, "innerWidth") as? Int, 1280)
     }
 
     // MARK: Appearance and Mute
@@ -403,6 +473,9 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(js(session.web, "matchMedia('(prefers-color-scheme: dark)').matches") as? Bool, false)
         let status = (automation.status["browserAutomation"] as? [String: Any])?["tabs"] as? [String: Any]
         XCTAssertEqual((status?[Self.runtime] as? [String: Any])?["colorScheme"] as? String, "light")
+        session.setColorScheme("dark") // part 2's Appearance menu: one mechanism, so the host reports it too
+        let after = (automation.status["browserAutomation"] as? [String: Any])?["tabs"] as? [String: Any]
+        XCTAssertEqual((after?[Self.runtime] as? [String: Any])?["colorScheme"] as? String, "dark")
     }
 
     func testMuteSilencesTheDocumentsMediaAndTheAudibleStateFollowsPlayback() {
