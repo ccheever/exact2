@@ -6,7 +6,7 @@ import { terminalMetadataEvent } from './shared/terminal-drawer-view';
 import { terminalDraftRecords } from './shared/terminal-integrations';
 import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalCapture, mobileTerminalAttachOutput, mobileTerminalEvent, mobileTerminalColors } from './terminal-mobile';
 function fixture() {
-  const client = new T3Client(); client.environmentId = 'env'; client.threadId = 'thread'; client.projectId = 'p';
+  const client = new T3Client(); client.origin = 'https://terminal.test'; client.environmentId = 'env'; client.threadId = 'thread'; client.projectId = 'p';
   client.connection = 'connected'; client.configLive = true; client.shellLive = true; client.threadLive = true;
   client.config = { environment: { platform: { os: 'darwin' } } };
   client.shell.projects = [{ id: 'p', title: 'Repo', workspaceRoot: '/repo' }];

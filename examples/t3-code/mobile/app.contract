@@ -1,4 +1,5 @@
 use changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
+use TerminalAttachChange from "./app-shapes.contract"
 use TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
 use IncomingShareInbox, IncomingSharePresentation from "./incoming-share-shapes.contract"
 use MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult from "./mobile-keyboard.contract"
@@ -686,7 +687,7 @@ component App
   resource terminalCapture = terminalCapture(terminalSelection.text, terminalSelection.start, terminalSelection.end) as shape MobileTerminalCapture
   mutation terminalChanged as shape MobileTerminalResult refreshes terminalData, data then didTerminalChange
   mutation terminalReceived as shape MobileTerminalEvent then didTerminalEvent
-  mutation terminalAttached as shape Change refreshes data then didTerminalAttach
+  mutation terminalAttached as shape TerminalAttachChange refreshes data then didTerminalAttach
   action terminalAction(op: string, value: string)
     if workspaceRouteReady
       send terminalChanged = terminalAction(op, terminalData.terminalId, value)
@@ -727,15 +728,19 @@ component App
   action selectTerminalLine(index: number)
     terminalSelection = terminalCaptureSelect(terminalSelection, index)
   action attachTerminalOutput
-    send terminalAttached = terminalAttach(terminalSelection.key, terminalSelection.text, terminalSelection.start, terminalSelection.end, wallTime.epochAtZero + now())
+    if not pending(terminalAttached)
+      send terminalAttached = terminalAttach(terminalSelection.key, terminalSelection.text, terminalSelection.start, terminalSelection.end, wallTime.epochAtZero + now(), `${top(nav).id}`)
   action didTerminalAttach
     match terminalAttached
       case some(result)
-        if result.message != ""
+        if result.accepted
+          if result.message != ""
+            send notice = alert("info", "Draft not saved", result.message)
+          if top(nav).name == "threadTerminalCapture" and `${top(nav).id}` == result.routeVisit and terminalSelection.key == result.key and terminalSelection.text == result.text and terminalSelection.start == result.start and terminalSelection.end == result.end
+            terminalSelection = terminalCaptureAttached(terminalSelection)
+            nav = back(back(nav))
+        else if result.message != ""
           send notice = alert("info", "Could not attach output", result.message)
-        else if top(nav).name == "threadTerminalCapture"
-          terminalSelection = terminalCaptureAttached(terminalSelection)
-          nav = back(back(nav))
       case none
         terminalSelection = terminalSelection
   resource gitLook = gitColors(appearance.scheme, appearance.themeId) as shape GitColors

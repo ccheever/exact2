@@ -1,5 +1,7 @@
 import { mobileComposerTarget, mobileComposerTargetText, mobileComposerEditContext, mobileComposerNewTaskContext } from './composer-target';
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
+import { mobileExternalContextCapture, mobileExternalContextInsert, mobileExternalContextPersist, mobileExternalContextPreflight } from './composer-external-context';
+import { mobileEditorDocumentMembership } from './composer-editor-persistence';
 import { contextLink } from './shared/composer-editor-menu';
 // T3 Code365aa87982 ReviewSheet/useReviewSections/useReviewDiffData.
 // @ref llp/1109.006-review-and-files.decision.md#ownership
@@ -195,6 +197,9 @@ export async function mobileReviewRead(nativeInput: Native | null | undefined, s
 /** The caller sends the snapshot owner with every action, including delayed modal Save. */
 export async function mobileReviewAction(owner: string, op: string, id: string, value: string, n: number,
   nativeInput: Native | null | undefined, suppliedStorage: Files, dark = false, client: T3Client = mobileClient, routeId = '') {
+  // Refuse before target/snapshot readers can default malformed cleanup metadata.
+  if ((op === 'save' || op === 'delete-comment') && !mobileExternalContextPreflight(client))
+    throw new ClientError('The saved draft cleanup metadata is unavailable. Keep the original draft.', 'retained');
   let message = '', navigation = ''; const actionState = stateOf(client);
   let navigationSerial = actionState.navigationSerial, navigationSection = actionState.selected;
   // Native viewport reports are read-side selection, never a navigation or retry.
@@ -251,7 +256,13 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${id.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
         const text = (mobileComposerTargetText(client, target) ?? '').replace(link, '');
         await mobileComposerNewTaskContext(client, target, text, undefined, id, native, storage);
-      } else await removeReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), id);
+      } else {
+        // Pinned mobile removes an exact selected chip occurrence from its inspector.
+        // The desktop helper deletes every matching ID and cannot publish owned files.
+        if (mobileEditorDocumentMembership(client, target) !== 'unenrolled')
+          throw new ClientError('Removing saved context from Review is not available yet. Edit the context in the composer.');
+        await removeReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), id);
+      }
       assertReviewComposerOwner(client, target.owner);
       state.comments = state.comments.filter(row => row !== entry);
     } else if (op === 'save') {
@@ -267,7 +278,19 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
       } else if (mobileNewTaskDraftIsKey(target.key)) {
         const text = `${mobileComposerTargetText(client, target) ?? ''}${contextLink('review-comment', str(record.contextId), str(record.label))} `;
         await mobileComposerNewTaskContext(client, target, text, record, '', native, storage);
-      } else await addReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), record);
+      } else {
+        const insertion = mobileExternalContextCapture(client, target, 'review', owner);
+        if (insertion?.kind === 'owned') {
+          mobileExternalContextInsert(client, insertion, contextLink('review-comment', str(record.contextId), str(record.label)), record, reviewOwner(client));
+          // Acceptance is synchronous. A failed or abandoned save must not leave Submit
+          // available for the same comment, or add a card to a later route on resumption.
+          state.comments.push({ composerOwner: target.owner, contextId: record.contextId, comment });
+          state.pick = null; state.ranging = false; state.commentOpen = false; state.version++;
+          message = await mobileExternalContextPersist(client, storage);
+          return { message, navigation: '', data: mobileReviewSnapshot(dark, client) };
+        }
+        await addReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), record);
+      }
       assertReviewComposerOwner(client, target.owner);
       state.comments.push({ composerOwner: target.owner, contextId: record.contextId, comment }); state.pick = null; state.ranging = false; state.commentOpen = false;
     } else {
