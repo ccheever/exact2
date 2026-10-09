@@ -55,6 +55,10 @@ shape ChatBlock
   markdown: string
   csv: string
   closedFence: bool
+  // A GFM task item (markdown_links.rs task_items): "open", "done" or "", and its `[`'s offset in the file's text,
+  // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
+  task: string
+  taskOffset: number
 shape ChatDocument
   id: string
   blocks: list<ChatBlock>
@@ -332,11 +336,14 @@ component BlockBody
     else
       when block.kind == "item"
         row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
-          when block.marker == "•"
-            box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
-              box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
+          when block.task != ""
+            TaskCheckbox(block=block, local=local)
           else
-            text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+            when block.marker == "•"
+              box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
+                box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
+            else
+              text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
           when block.flow
             FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
           else
@@ -376,6 +383,39 @@ component BlockBody
                   else
                     text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
                       ChatRuns(runs=block.runs, size=14, weight=400)
+
+// markdown-links-and-files-preview PA-3: GFM's task checkbox in place of the list marker (`li.task-list-item`:
+// list-style none, the checkbox in the 1.25rem gutter with 0.35em after it), as Electron draws an `input` checkbox on
+// macOS (13pt, 12pt tall with a 1pt shade, white or the accent blue with a white tick). In a file preview
+// (taskOffset >= 0) a press toggles the task and saves the file (RenderedMarkdownSurface onTaskListChange,
+// r4-surfaces-files.ts toggleTask); elsewhere it is GFM's disabled checkbox (MarkdownInput without onTaskListChange).
+component TaskCheckbox
+  props
+    block: ChatBlock
+    local: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    box width="1.11875rem" height="1.421875rem" flex-shrink=0 padding-top="0.33125rem" box-sizing="border-box"
+      when block.taskOffset >= 0
+        button press=local("surface-files-task", block.id, `${block.taskOffset}\t${block.task == "done" ? "false" : "true"}`) hover=hover role="checkbox" aria-checked=(block.task == "done") aria-label="Toggle task" testId=`task-${block.id}` width=13 height=13 padding=0 border-width=0 background-color="#00000000" cursor="default"
+          TaskBox(done=(block.task == "done"), disabled=false, hovered=hovered)
+      else
+        box role="checkbox" aria-checked=(block.task == "done") aria-label="Task" testId=`task-${block.id}` width=13 height=13
+          TaskBox(done=(block.task == "done"), disabled=true, hovered=false)
+
+component TaskBox
+  props
+    done: bool
+    disabled: bool
+    hovered: bool
+  view
+    box width=13 height=13 position="relative" opacity=(disabled ? 0.5 : 1)
+      box position="absolute" left=0 top=0 width=13 height=12 box-sizing="border-box" border-radius=3 border-width=(done ? 0 : 1) border-style="solid" border-color=(hovered ? "light-dark(#5c5c5c, #a3a3a3)" : "light-dark(#767676, #8a8a8a)") background-color=(done ? (hovered ? "light-dark(#255fd6, #3b82f6)" : "light-dark(#3273f6, #3b82f6)") : "light-dark(#ffffff, #ffffff1f)") box-shadow="0 1px 0 light-dark(#00000026, #00000066)"
+        when done
+          box position="absolute" left=2 top=1.5 width=9 height=9
+            TimelineIcon(name="check-mark", size=9, color="#ffffff")
 
 // Inline runs in one text node; only a web link keeps its href (a chip's
 // href is how its ChipView finds it, not a destination).

@@ -3,7 +3,8 @@
 // ```mermaid fence draws as a diagram) and chat/MermaidDiagram.tsx (render queue,
 // errors and retry). The app module lays diagrams out with the reference's own
 // Mermaid build (T3TimelineMermaid.swift) and answers flattened paths and text
-// runs in both themes; the transcript draws them (markdown.contract CodeBlock).
+// runs in both themes; the transcript and a rendered Markdown file in Files draw
+// them (markdown.contract CodeBlock).
 import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -53,13 +54,15 @@ export function transcriptMermaid(client: T3Client): string[] {
 /**
  * Asks the module for every diagram not yet answered in both themes; the module
  * answers at once ('' while rendering) and announces each finished render.
+ * `sources`: the transcript's fences, or another surface's (filesMermaid).
  */
-export async function prepareMermaid(client: T3Client, native: Native | null | undefined): Promise<void> {
+export async function prepareMermaid(client: T3Client, native: Native | null | undefined, sources = transcriptMermaid(client)): Promise<void> {
   if (!native?.available || !client.origin) return;
-  const missing = transcriptMermaid(client).filter(code => { const known = answers.get(code); return !known || !known.light || !known.dark; });
+  const missing = sources.filter(code => { const known = answers.get(code); return !known || !known.light || !known.dark; });
   if (!missing.length) return;
-  const retry = [...retries].flatMap(code => [`light\n${code.trim()}`, `dark\n${code.trim()}`]);
-  retries.clear();
+  const asked = missing.filter(code => retries.has(code));
+  const retry = asked.flatMap(code => [`light\n${code.trim()}`, `dark\n${code.trim()}`]);
+  for (const code of asked) retries.delete(code);
   try {
     const value = await client.restAccess(native).call({ op: 'mermaidRender', origin: client.origin, font: MERMAID_FONT, retry,
       diagrams: missing.flatMap(code => [{ source: code.trim(), theme: 'light' }, { source: code.trim(), theme: 'dark' }]) });
@@ -114,11 +117,24 @@ export function retryMermaid(code: string): string {
   return '';
 }
 
+/**
+ * markdown-links-and-files-preview: FileMarkdownPreview is ChatMarkdown, so a rendered Markdown file's settled
+ * ```mermaid fences draw as diagrams too (MarkdownMermaidCodeBlock, isStreaming false). Files asks for them while it
+ * builds its view and remembers them, per client, so the expand button can open them.
+ */
+const fileFences = new WeakMap<object, string[]>();
+export async function filesMermaid(client: T3Client, native: Native | null | undefined, markdown: string): Promise<MermaidDiagramView[]> {
+  const sources = mermaidFences(markdown).slice(0, 24);
+  fileFences.set(client, sources);
+  await prepareMermaid(client, native, sources);
+  return sources.map((code, index) => ({ id: String(index), code, ...diagramFor(code) }));
+}
+
 /** The expanded diagram (ExpandedImageDialog "Mermaid diagram"), per client and thread. */
 const previews = new WeakMap<object, { threadId: string; code: string }>();
 export function diagramPreviewAction(client: T3Client, op: string, code: string): string {
   if (op === 'diagram-close') { previews.delete(client); return ''; }
-  if (!transcriptMermaid(client).includes(code)) return '';
+  if (!fileFences.get(client)?.includes(code) && !transcriptMermaid(client).includes(code)) return '';
   previews.set(client, { threadId: client.threadId, code });
   return '';
 }

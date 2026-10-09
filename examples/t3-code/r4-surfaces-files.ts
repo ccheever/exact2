@@ -13,7 +13,11 @@ import { fileIconToken } from './timeline-files';
 import { lineTokens } from './timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
 import { workspaceOf, panelKey, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
-import { markdownDocument, tableRows, type Document } from './r4-surfaces-render';
+import { tableRows } from './r4-surfaces-render';
+import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips'; // markdown-links-and-files-preview: the chat renderer's chips and settings
+import { messageCodeBlocks } from './timeline-highlight';
+import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
+import { timelineView } from './timeline-presentation';
 import { textWidth } from './pages-text-width';
 import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
 import { anchorFrame } from './r6-polish-measure';
@@ -26,7 +30,7 @@ import { ensureDraftThreadId } from './r7-handoff-thread';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
-import { filesMediaView, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
+import { filesMediaView, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
 import { letGo } from './let-go';
 import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
@@ -46,9 +50,15 @@ export type FilesView = {
   path: string; preview: string; previewError: string; crumbs: Crumb[]; lines: FileLine[]; commentOpen: boolean; text: string; textKey: string;
   gutter: number; wrap: boolean; rawText: boolean; openInBrowser: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
-  markdown: Document; code: never[]; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
+  // markdown-links-and-files-preview PA-3: FileMarkdownPreview is ChatMarkdown. `markdownSource` is renderMarkdown's one
+  // message (app.contract filesMarkdown; kind "file" when its task checkboxes may write the file), `md` its chips and
+  // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
+  // `codeCopyNonce` Copy code's check.
+  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
+  codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
 };
+export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
 type Read = { contents: string; byteLength: number; truncated: boolean; error: string; notFile: boolean };
 type Edit = { contents: string; revision: number; confirmed: number; saving: boolean; error: string };
@@ -203,6 +213,22 @@ export async function editFile(client: T3Client, native: Native, path: string, c
     edit.saving = false;
   }
 }
+/** setMarkdownTaskChecked (filePreviewMode.ts): the marker at `markerOffset` checked or cleared; anything else unchanged. */
+export function setMarkdownTaskChecked(markdown: string, markerOffset: number, checked: boolean): string {
+  if (markerOffset < 0 || markdown[markerOffset] !== '[' || !/[ xX]/.test(markdown[markerOffset + 1] ?? '') || markdown[markerOffset + 2] !== ']') return markdown;
+  return `${markdown.slice(0, markerOffset + 1)}${checked ? 'x' : ' '}${markdown.slice(markerOffset + 2)}`;
+}
+/** RenderedMarkdownSurface onTaskListChange: the open file's task toggled in its latest contents and saved like an edit
+ * (`value` = "<marker offset>\t<checked>", from markdown.contract TaskCheckbox). */
+async function toggleTask(client: T3Client, native: Native, value: string): Promise<void> {
+  const panel = panelState(client), active = panel.surfaces.find(entry => entry.id === panel.active);
+  if (active?.kind !== 'file' || !isMarkdownPath(active.path) || isAbsolute(active.path)) return;
+  const read = filesState(client).reads.get(active.path);
+  if (!read || read.error || read.truncated) return;
+  const [offset, checked] = value.split('\t');
+  const next = setMarkdownTaskChecked(read.contents, Number(offset), checked === 'true');
+  if (next !== read.contents) await editFile(client, native, active.path, next);
+}
 /** Paths with an unconfirmed edit: their tabs carry the pending dot. */
 export function pendingPaths(client: T3Client): Set<string> {
   const state = states.get(client);
@@ -253,6 +279,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'open-browser') { await openInPreviewBrowser(client, native, id); return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
   if (op === 'edit') { await editFile(client, native, id, value); return ''; }
+  if (op === 'task') { await toggleTask(client, native, value); return ''; }
   if (op === 'editors') { state.editorsOpen = !state.editorsOpen; return ''; }
   // DirectoryBreadcrumb: a folder crumb opens its listing; folders navigate inside it, Back climbs toward the crumb.
   if (op === 'crumb') { const root = id === '.' ? '' : id; state.crumb = state.crumb?.root === root ? null : { root, dir: root }; if (state.crumb) await loadDirectory(client, native, root); return ''; }
@@ -428,6 +455,23 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
   }
 }
 
+/**
+ * FileMarkdownPreview: ChatMarkdown over the file's text, relative links and images resolved against the file's own
+ * folder (`imageBaseDir`), ```mermaid fences drawn as diagrams; its task checkboxes write the file unless it is
+ * read-only (RenderedMarkdownSurface readOnly).
+ */
+async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
+  const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/';
+  const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
+  const urls = await markdownMediaUrls(client, native, folder, now, [text]);
+  const diagrams = await filesMermaid(client, native, text);
+  return {
+    markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
+    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, []) },
+    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
+  };
+}
 /** How many lines filesView numbers for `path` while its preview is the source text (`preview == "code"`), else 0. */
 function codePreviewLines(client: T3Client, path: string): number {
   const state = states.get(client), { cwd } = workspaceOf(client);
@@ -454,7 +498,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
   explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
@@ -488,6 +532,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const parsedTable = previewPath && table && rendered && read && !read.error ? tableRows(previewPath, text) : null;
   const showExplorer = !isAbsolute(path) && (preferences.explorer || !previewPath);
   const preview = !previewPath ? '' : media.kind ? 'media' : frame ? (page.error ? 'error' : page.url ? (pdf ? 'pdf' : 'html') : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code';
+  const rich = preview === 'markdown' ? await renderedMarkdown(client, native, previewPath, absolute, text, editable, now) : null;
   return {
     cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
@@ -502,7 +547,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     canRender: markdown || table || html, rendered, renderLabel: markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
-    markdown: previewPath && markdown && rendered && read && !read.error ? markdownDocument(previewPath, text) : { id: '', blocks: [] }, code: [], table: parsedTable?.rows ?? [],
+    ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,

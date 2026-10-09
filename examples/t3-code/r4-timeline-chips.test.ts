@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import { attachmentSize, chippedAttachmentIds, diffSchemeOf, fileLinkTarget, markdownEnv, messageChips, middleTruncate } from './r4-timeline-chips';
 import type { T3Client } from './client';
+import { markdownImageHref, markdownLinkHref, NO_HREF } from './media-views';
 
 const item = (text: string, records: object[] = [], attachments: object[] = []) => ({ type: 'user_message', text, context: { version: 1, records }, attachments });
 
@@ -44,6 +45,24 @@ describe('sent-message context chips', () => {
     const chips = messageChips({ text: 'Open [a](src/a.ts#L3), [b](./docs/../b.md:4), [abs](/etc/hosts), [web](https://x.dev) and ![i](pic.png)' }, '/repo/root', []);
     expect(chips.map(chip => [chip.href, chip.tip])).toEqual([
       ['t3-file:src/a.ts#L3', '/repo/root/src/a.ts:3'], ['t3-file:./docs/../b.md:4', '/repo/root/b.md:4'], ['t3-file:/etc/hosts', '/etc/hosts']]);
+  });
+  // markdown-links-and-files-preview TH-9: react-markdown's defaultUrlTransform empties `fixture.txt:3` (its "scheme"
+  // is fixture.txt), so only the bare path is a chip; the same table as markdown_links.rs relative_name_line_links_lose_their_target.
+  test('relative name:line destinations lose their target, so only the bare path is a file chip', () => {
+    const chips = messageChips({ text: 'Review [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).' }, '/repo', []);
+    expect(chips.map(chip => [chip.href, chip.tip])).toEqual([['t3-file:fixture.txt', '/repo/fixture.txt']]);
+    expect(messageChips({ text: '[a](C:\\repo\\a.ts:3) [m](Makefile:12) [x](xmpp:me@x.dev) [t](tel:1) [f](file:///repo/a.ts)' }, '/repo', []).map(chip => chip.href))
+      .toEqual(['t3-file:C:\\repo\\a.ts:3', 't3-file:file:///repo/a.ts']);
+    const table: [string, string][] = [
+      ['fixture.txt:3', NO_HREF], ['Makefile:12', NO_HREF], ['a.ts:12:4', NO_HREF], ['fixture.txt', 't3-file:fixture.txt'], ['src/a.ts:3', 't3-file:src/a.ts:3'],
+      ['./fixture.txt:3', 't3-file:./fixture.txt:3'], ['/repo/fixture.txt:3', 't3-file:/repo/fixture.txt:3'], ['a.ts#L3', 't3-file:a.ts#L3'],
+      ['C:\\repo\\a.ts:3', 't3-file:C:\\repo\\a.ts:3'], ['C:/repo/a.ts', 't3-file:C:/repo/a.ts'], ['file:///repo/a.ts', 't3-file:file:///repo/a.ts'],
+      ['https://example.com/a:b', 'https://example.com/a:b'], ['mailto:me@example.com', 'mailto:me@example.com'], ['xmpp:me@example.com', 'xmpp:me@example.com'],
+      ['tel:123', NO_HREF], ['javascript:alert(1)', NO_HREF], ['data:text/plain,hi', NO_HREF], ['ftp://example.com/a', NO_HREF], ['#section', ''],
+      ['//example.com/a', '//example.com/a'], ['t3-context://v1/file/f1', 't3-context://v1/file/f1'],
+    ];
+    expect(table.map(([href]) => [href, markdownLinkHref(href)])).toEqual(table);
+    expect([markdownImageHref('a.png:3'), markdownImageHref('shots/a.png'), markdownImageHref('data:image/png;base64,AA')]).toEqual(['', 't3-file:shots/a.png', '']);
   });
   test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);

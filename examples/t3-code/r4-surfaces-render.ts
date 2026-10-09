@@ -1,13 +1,16 @@
-// Rendered previews in the Files surface (lane r4-surfaces; MIT reference, see LICENSE-T3:
-// components/files/FileMarkdownPreview.tsx over ChatMarkdown, DelimitedTablePreview.tsx
-// and packages/shared/src/delimitedPreview.ts): a file's Markdown as the transcript's
-// ChatDocument blocks (gaps as macos/src/markdown.rs block_gap) and CSV/TSV as rows.
+// Rendered previews (lane r4-surfaces; MIT reference, see LICENSE-T3: DelimitedTablePreview.tsx and
+// packages/shared/src/delimitedPreview.ts): CSV/TSV as rows, and a sent attachment's Markdown as
+// ChatDocument blocks (gaps as macos/src/markdown.rs block_gap; r5-panels-attach.ts). A Markdown file
+// in Files is parsed by the chat renderer itself (markdown-links-and-files-preview: app.contract
+// filesMarkdown over macos/src/markdown.rs, r4-surfaces-files.ts renderedMarkdown).
 import { fileIconToken } from './timeline-files';
 
 export type Run = { id: string; text: string; weight: number; slant: string; mono: boolean; href: string; kind: string; icon: string };
 export type Block = { id: string; kind: string; depth: number; marker: string; text: string; href: string; header: boolean; runs: Run[]; cells: { id: string; runs: Run[] }[]; gap: number; flow: boolean;
   // r4-timeline: markdown.contract ChatBlock's table fields (a `table` block's rows and sizing columns, its Markdown and CSV); empty here.
-  rows: { id: string; header: boolean; cells: { id: string; runs: Run[] }[] }[]; columns: { id: string; sizer: Run[]; capped: boolean; header: boolean; grow: number; align: string }[]; markdown: string; csv: string; closedFence: boolean };
+  rows: { id: string; header: boolean; cells: { id: string; runs: Run[] }[] }[]; columns: { id: string; sizer: Run[]; capped: boolean; header: boolean; grow: number; align: string }[]; markdown: string; csv: string; closedFence: boolean;
+  // markdown.contract ChatBlock's GFM task ("open", "done" or "") and its offset (-1: the disabled checkbox of a read-only document).
+  task: string; taskOffset: number };
 export type Document = { id: string; blocks: Block[] };
 
 const run = (id: number, text: string, extra: Partial<Run> = {}): Run => ({ id: String(id), text, weight: 400, slant: 'normal', mono: false, href: '', kind: '', icon: '', ...extra });
@@ -42,7 +45,7 @@ export function markdownDocument(id: string, text: string): Document {
   const blocks: Block[] = [];
   const add = (kind: string, fields: Partial<Block>) => {
     const previous = blocks[blocks.length - 1], depth = fields.depth ?? 0;
-    blocks.push({ id: String(blocks.length), kind, depth, marker: '', text: '', href: '', header: false, runs: [], cells: [], flow: false, rows: [], columns: [], markdown: '', csv: '', closedFence: false, ...fields, gap: gapFor(previous, kind, depth) });
+    blocks.push({ id: String(blocks.length), kind, depth, marker: '', text: '', href: '', header: false, runs: [], cells: [], flow: false, rows: [], columns: [], markdown: '', csv: '', closedFence: false, task: '', taskOffset: -1, ...fields, gap: gapFor(previous, kind, depth) });
   };
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let paragraph: string[] = [];
@@ -68,9 +71,10 @@ export function markdownDocument(id: string, text: string): Document {
     const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
     if (item) {
       flush();
-      const content = item[3]!.replace(/^\[([ xX])\]\s+/, (_, mark: string) => (mark === ' ' ? '☐ ' : '☑ '));
+      const task = /^\[([ xX])\]\s+\S/.exec(item[3]!), content = task ? item[3]!.slice(3).trimStart() : item[3]!;
       const flow = /`/.test(content);
-      add('item', { depth: Math.floor(item[1]!.replace(/\t/g, '  ').length / 2), marker: /\d/.test(item[2]!) ? item[2]!.replace(')', '.') : '•', runs: inlineRuns(content, flow), flow });
+      add('item', { depth: Math.floor(item[1]!.replace(/\t/g, '  ').length / 2), marker: /\d/.test(item[2]!) ? item[2]!.replace(')', '.') : '•', runs: inlineRuns(content, flow), flow,
+        task: task ? (task[1] === ' ' ? 'open' : 'done') : '' });
       continue;
     }
     const quote = /^\s*>\s?(.*)$/.exec(line);

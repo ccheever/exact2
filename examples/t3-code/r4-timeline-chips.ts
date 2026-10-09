@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
 import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
-import { markdownMediaChips } from './media-views'; // media-actions: a message's image lines and their actions
+import { markdownLinkHref, markdownMediaChips } from './media-views'; // media-actions: a message's image lines and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -52,7 +52,6 @@ export function fileLinkTarget(href: string, root: string): string {
   }
   return parts.join('/') || '/';
 }
-const isWebHref = (href: string) => /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(href) && !/^file:/i.test(href);
 
 /** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run). */
 export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''): ChipView[] {
@@ -69,7 +68,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
   if (text.includes('](')) for (const match of text.matchAll(FILE_LINK)) {
     const href = (match[3] ?? match[4] ?? '').trim();
-    if (match[1] || !href || isWebHref(href) || /^(data|javascript|mailto|tel):/i.test(href)) continue;
+    // markdown-links-and-files-preview TH-9: exactly the destinations markdown.rs draws as file chips.
+    if (match[1] || !markdownLinkHref(href).startsWith('t3-file:')) continue;
     add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
   }
   // media-actions: an image line's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
