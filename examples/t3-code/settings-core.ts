@@ -64,8 +64,9 @@ export const CLIENT_DEFAULTS = {
   sidebarProjectSortOrder: 'updated_at',
   // legacy-sidebar: the legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
   sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
-  // browser-surface part 3: the Browser section's recording and floating-preview defaults (contracts settings.ts:
-  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on).
+  // browser-surface part 3: the recording and floating-preview defaults it reads (contracts settings.ts names and defaults:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Part 4 (profiles) draws
+  // their rows in Settings › Integrations › Browser and writes them.
   browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };

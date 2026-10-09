@@ -499,9 +499,10 @@ world.
   (WKDownload). The reference saves an agent-driven page's downloads into the artifact directory and lets a person's ask
   with the save dialog; pages become agent-driven with part 5, so until then a person's download asks with a save panel
   and an agent run (which shows nothing modal) saves into the artifact directory as `browser-download-<id>-<name>`.
-- **Settings.** Browser recording frame rate, Show key presses, Show mouse presses and Auto-show floating preview are
-  live client settings; the group's "Only available in the desktop app." notice stays until parts 2, 4 and 5 make the
-  remaining rows live. Auto-show is read by part 5 (an agent opening a preview).
+- **Settings.** Part 3 reads `browserRecordingFrameRate` (30 or 60), `browserRecordingShowKeyPresses`,
+  `browserRecordingShowMousePresses` and `browserAutoShowFloatingPreview` (the reference's names and defaults) from the
+  client settings; their rows in Settings › Integrations › Browser are part 4's (coordinator, 2026-10-09), and part 5
+  reads Auto-show when an agent opens a preview.
 
 ## Not exact2 asks (stay in the app module)
 
