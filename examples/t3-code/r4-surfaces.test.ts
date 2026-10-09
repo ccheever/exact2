@@ -300,16 +300,18 @@ describe('the surface launcher keyboard', () => {
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
 
-  // browser-surface part 4: the Browser row's profile chevron sits inside the launcher. Its Enter is the chevron's own
-  // press, and a key in its list is the list's (Base UI's menu prevents the default, which `handleKeyDown` returns on):
-  // neither opens nor moves the launcher's highlighted row.
-  test("the Browser row's profile chevron keeps its Enter, and its list keeps its keys, from the launcher", async () => {
+  // browser-surface part 4: the Browser row's profile chevron sits inside the launcher. It is a Base UI menu trigger
+  // (menu-keys.contract): Enter and Space open its list at the first item, ↓ and ↑ at the first and the last. Its keys,
+  // and Enter on a row of its list, are the menu's: the launcher (`handleKeyDown`) neither opens nor moves its row.
+  test("the Browser row's profile chevron keeps its keys, and its list keeps Enter, from the launcher", async () => {
     const lines = (await Bun.file(new URL('./browser-surface.contract', import.meta.url)).text()).split('\n');
     const start = lines.indexOf('component BrowserLauncherProfiles'), end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
     const chevron = lines.slice(start, end).join('\n');
-    expect(chevron).toContain('action chevronKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
-    expect(chevron).toContain('action listKey(k: string)\n    if k == "Enter" or k == "ArrowDown" or k == "ArrowUp" or k == "ArrowLeft" or k == "ArrowRight"\n      stopPropagation()');
-    expect(chevron).toContain('button popovertarget="launcher-browser-profiles" hover=hover key=chevronKey');
+    expect(chevron).toContain('action triggerKey(k: string)\n    if kmOpenKey(k)\n      keyed = kmBump(keyed, false)\n    if k == "Enter" or kmArrow(k)\n      stopPropagation()');
+    expect(chevron).toContain('action listKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
+    expect(chevron).toContain('button popovertarget="launcher-browser-profiles" key=triggerKey focus=keyArm(true) blur=keyArm(false)');
+    expect(chevron).toContain('KeyMenuOpen(menuId="launcher-browser-profiles", armed=keyArmed, opened=keyOpened)');
     expect(chevron).toContain('column id="launcher-browser-profiles" popover="auto" key=listKey');
+    expect(chevron).toContain('KeyMenu(menuId="launcher-browser-profiles-keys", items=map(profiles, (profile) => KmItem(id=`launcher-browser-profile-${profile.id}`, label=profile.name)), keyed=keyed');
   });
 });

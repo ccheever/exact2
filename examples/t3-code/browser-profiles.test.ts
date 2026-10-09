@@ -5,7 +5,7 @@
 // rows, each named after the reference code it follows: browserDefaults' profile resolution, the saved settings,
 // PreviewView's badge, RightPanelTabs' profile lists, the settings writes of BrowserProfilesSetting and
 // runWizardImport's registration of a new profile, the More menu's Clear cookies / Clear cache, and the page's projection.
-import { describe, expect, it, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
   BUILT_IN_BROWSER_PROFILES, DEFAULT_BROWSER_PROFILE_ID, INCOGNITO_BROWSER_PROFILE_ID, adoptBrowserProfilePrefs, browserDefaults, browserProfileChoices, browserProfileName,
   browserProfileRemovalAvailable, clearBrowserProfileData, findBrowserProfile, isBrowserProfileId, isBuiltInBrowserProfileId, launcherOffersProfiles, resolveBrowserProfiles,
@@ -17,8 +17,12 @@ import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import type { Obj } from './domain';
 import type { PanelState } from './r4-surfaces-panel';
+import { resetPrimary } from './local-primary-fixture';
 
 const work: BrowserProfile = { id: 'profile-work', name: 'Work', kind: 'persistent' };
+// The app's one primary (local-primary.ts) is module state another test file may leave set: these rows name their own
+// environments, so each starts with none (the clear-in-every-environment row counts them).
+beforeEach(() => resetPrimary());
 
 describe('resolveBrowserProfiles', () => {
   it("lists built-ins ahead of the user's own profiles", () => {
