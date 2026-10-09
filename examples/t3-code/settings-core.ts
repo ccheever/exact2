@@ -126,6 +126,11 @@ export function applyDeviceSetting(local: LocalPrefs, key: string, value: string
   if (key in CLIENT_DEFAULTS) {
     const decoded = clientValue(key, value);
     if (decoded === undefined) throw new ClientError('Unsupported device setting.');
+    // ThemeLibrary's Use (ThemeSettings.tsx:906-910, singleAppearanceOf): a one-palette custom theme takes only its own
+    // half (assignHalf), so the other appearance keeps its theme; any other theme is the whole theme (setTheme).
+    const own = key === 'theme' ? (local.customThemes ?? []).find(theme => theme.id === decoded) : undefined;
+    const modes = own ? (['light', 'dark'] as const).filter(mode => own[mode] != null || own.appearance === mode) : [];
+    if (modes.length === 1) { local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [modes[0] === 'light' ? 'themeLight' : 'themeDark']: decoded }; return true; }
     local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [key]: decoded };
     if (key === 'theme') local.clientSettings = { ...local.clientSettings, themeLight: decoded as string, themeDark: decoded as string };
     return true;

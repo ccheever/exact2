@@ -24,12 +24,37 @@ const THEMES: Record<string, [string, string, string]> = {
     '#1d1929 #1d1929 #fffaff #8e8a95 #4d4366 #5d527b #9d7df2 #241523 #2d2643 #9690a1 #272139 #fffaff #9792a0 #3f345e #736d7e #454250 #433765 #4b3d72 #f099d8'],
 };
 export const THEME_IDS = Object.keys(THEMES);
+/**
+ * A theme's roles for one appearance. A custom theme without a palette for it is the default theme there
+ * (audit-wave-followups-2 FV-3: getThemeColorsForMode is null, so nothing of the theme paints that appearance).
+ */
 export function themeRoles(id: string, mode: 'light' | 'dark', custom: CustomTheme[] = []): Record<Role, string> {
   const own = custom.find(theme => theme.id === id);
   const entry = THEMES[own ? 't3-code' : id] ?? THEMES['t3-code']!;
   const values = (mode === 'light' ? entry[1] : entry[2]).split(' ');
   const base = Object.fromEntries(ROLES.map((role, index) => [role, values[index]!])) as Record<Role, string>;
-  return own ? { ...base, ...(own[mode] ?? own[own.appearance] ?? {}) } as Record<Role, string> : base;
+  return own ? { ...base, ...(own[mode] ?? {}) } as Record<Role, string> : base;
+}
+/** The appearance a theme can paint: `mode`, or a one-palette custom theme's own (previewColorsOf ?? previews[0]). */
+export function paletteMode(id: string, mode: 'light' | 'dark', custom: CustomTheme[] = []): 'light' | 'dark' {
+  const own = custom.find(theme => theme.id === id);
+  return own && !own[mode] && own.appearance !== mode ? own.appearance : mode;
+}
+type Owners = Pick<ClientPrefs, 'themeLight' | 'themeDark'>;
+/**
+ * resolveThemeAppearance (themePalette.ts:1541-1567): an appearance whose theme has no palette for it shows that
+ * theme's own appearance instead. A one-palette theme reaches a half it lacks only as the whole theme (setTheme,
+ * the editor's create); the library's Use puts it on its own half (assignHalf), so the other keeps its theme.
+ */
+export function resolveAppearance(prefs: Owners, custom: CustomTheme[], requested: 'light' | 'dark'): 'light' | 'dark' {
+  return paletteMode(requested === 'light' ? prefs.themeLight : prefs.themeDark, requested, custom);
+}
+/** The mode the app draws in: System stays System unless a theme resolves an appearance to the other one. */
+export function effectiveMode(mode: string, prefs: Owners, custom: CustomTheme[] = []): string {
+  const light = resolveAppearance(prefs, custom, 'light'), dark = resolveAppearance(prefs, custom, 'dark');
+  if (mode === 'light') return light;
+  if (mode === 'dark') return dark;
+  return light === 'light' && dark === 'dark' ? mode : light === dark ? light : mode;
 }
 
 // ── Colour arithmetic (sRGB, as color-mix in srgb) ─────────────────────────
@@ -88,8 +113,8 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
 }
 export type Palette = Tokens;
 /** Each token as `light-dark(light, dark)`: the light half wears themeLight, the dark half themeDark. */
-export function palette(prefs: Pick<ClientPrefs, 'themeLight' | 'themeDark' | 'appearanceContrast'> & { glassOpacity?: number }, custom: CustomTheme[] = [], mode = 'system'): Palette {
-  const glass = prefs.glassOpacity ?? 80;
+export function palette(prefs: Pick<ClientPrefs, 'themeLight' | 'themeDark' | 'appearanceContrast'> & { glassOpacity?: number }, custom: CustomTheme[] = [], requested = 'system'): Palette {
+  const glass = prefs.glassOpacity ?? 80, mode = effectiveMode(requested, prefs, custom);
   const light = tokens(prefs.themeLight, 'light', prefs.appearanceContrast, custom, glass), dark = tokens(prefs.themeDark, 'dark', prefs.appearanceContrast, custom, glass);
   // An explicit appearance paints its own half directly: the host re-resolves light-dark()
   // on views but not inside an SVG scene, so a fixed colour keeps icons in step.
@@ -107,14 +132,15 @@ const STANDARD_PREVIEW = { light: { sidebar: '#fafafa', canvas: '#fcfcfc', surfa
   dark: { sidebar: '#0f0f10', canvas: '#0a0a0a', surface: '#121212', accentSurface: '#27272a', accent: '#1c1c1f', messageSurface: '#27272a', messageAction: '#8b9cff' } };
 function previewColors(id: string, mode: 'light' | 'dark', custom: CustomTheme[] = []) {
   if (id === 't3-code' || !(id in THEMES || custom.some(theme => theme.id === id))) return STANDARD_PREVIEW[mode];
-  const r = themeRoles(id, mode, custom);
+  const r = themeRoles(id, paletteMode(id, mode, custom), custom);
   return { sidebar: r.sidebar, canvas: r.canvas, surface: r.surface, accentSurface: r.accentSurface, accent: r.accent, messageSurface: r.messageSurface, messageAction: r.messageAction };
 }
 const farthest = (x: number, y: number) => Math.max(...[[0, 0], [1, 0], [0, 1], [1, 1]].map(([cx, cy]) => Math.hypot(cx! - x, cy! - y))) * 56;
 export function themeCards(prefs: Pick<ClientPrefs, 'themeLight' | 'themeDark'>, custom: CustomTheme[] = []): ThemeCard[] {
   return [...THEME_IDS.map(id => [id, THEMES[id]![0], false] as const), ...custom.map(theme => [theme.id, theme.label, true] as const)].map(([id, label, own]) => ({ id, label, custom: own,
     selected: prefs.themeLight === id && prefs.themeDark === id,
-    canvasLight: themeRoles(id, 'light', custom).canvas, accentLight: themeRoles(id, 'light', custom).accent, canvasDark: themeRoles(id, 'dark', custom).canvas, accentDark: themeRoles(id, 'dark', custom).accent,
+    canvasLight: themeRoles(id, paletteMode(id, 'light', custom), custom).canvas, accentLight: themeRoles(id, paletteMode(id, 'light', custom), custom).accent,
+    canvasDark: themeRoles(id, paletteMode(id, 'dark', custom), custom).canvas, accentDark: themeRoles(id, paletteMode(id, 'dark', custom), custom).accent,
     orbs: (['light', 'dark'] as const).map(mode => themeOrb(id, mode, (mode === 'light' ? prefs.themeLight : prefs.themeDark) === id, custom)) }));
 }
 /** ThemePreviewCircle: one appearance's orb (a canvas-tinted base, the accent glow, a soft action tint). */

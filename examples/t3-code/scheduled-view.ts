@@ -14,6 +14,8 @@ import { triggerModelName } from './r3-composer-controls-model';
 import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { liveEnvironments, watchLive, type LiveEnvironment } from './live-streams';
 import { letGo } from './let-go';
+import { sanitizeNewRefName } from './composer-controls-branch';
+import { REF_PAGE, firstPage, morePages, pageWanted, refsStatus, scrollEnds, type RefPages } from './r5-composer-paging';
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
 export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
@@ -101,11 +103,37 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
-// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs) and its selectedRefQuery lookups by name: read when the
-// editor opens and kept while it stays open, as the picker's query atoms are, never again on a wake or the minute tick;
-// Refresh, a new connection and a new base to look up read again.
-type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[] };
-const editorRefs = new WeakMap<T3Client, { key: string; branches: Refs[] }>();
+// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs): pages of VCS_REF_LIST_LIMIT refs per project and
+// search, the picker's search sent to the server (sanitizeNewRefName), a scroll toward the list's end loading the next
+// page (r5-composer-paging.ts), and the selectedRefQuery lookups by name. Read when the editor opens and kept while it
+// stays open, as the picker's query atoms are, never again on a wake or the minute tick; Refresh, a new connection and
+// another environment, task or project list read again. (audit-wave-followups-2 FV-2)
+type ProjectRefs = RefPages & { error: string };
+type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[]; status: string };
+type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string, BranchRef[]>; picker: string };
+const editorRefs = new WeakMap<T3Client, Visit>();
+export const TASK_REFS = 'task-refs'; // settings-scheduled.contract's list: `data-anchor="scroll:task-refs"`
+const failed = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'Failed to load refs.');
+
+/** The picker's list asked for its next page and has not had it yet (the shell clock keeps asking, r6-polish-refs.ts). */
+export function scheduledRefsWanted(client: T3Client): boolean {
+  const visit = editorRefs.get(client), pages = visit?.pages.get(visit.picker);
+  return !!pages && !pages.error && pageWanted(pages, obj(client.presentation), TASK_REFS);
+}
+
+/**
+ * The editor's picker as the root holds it (`taskBase`, settings-scheduled.contract `taskPicker`): its project, its base
+ * and its search, for the editor `key` only.
+ */
+export function pickerOf(taskBase: string, key: string): { project: string; ref: string; query: string } | null {
+  const params = new URLSearchParams(taskBase);
+  return params.get('key') === key ? { project: str(params.get('project')), ref: str(params.get('ref')).trim(), query: str(params.get('query')) } : null;
+}
+
+/** BranchPicker's status line: the error, "Loading more refs..." while a page is out, or "Showing N of M refs" while more remain. */
+export function taskRefsStatus(pages: ProjectRefs): string {
+  return pages.error || refsStatus(pages, false);
+}
 
 export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
@@ -138,35 +166,52 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const firstProject = projects[0] ?? null;
     const draft = editorDraft(task, str(firstProject?.id), defaultModelKey(config, str(firstProject?.id), firstProject), editing.environmentId);
     const marks = taskModelMarks(arr(config.providers), draft.modelKey);
-    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), and the base when the chosen
-    // project's page does not list it: the picker's selectedRefQuery asks for it by name (limit 10), so a local branch past
-    // the first page still reads "From origin/<ref>". The base is the draft's in its project, and the editor's after it
-    // switched project (`taskBase`, settings-scheduled.contract chooseProject). A failed lookup leaves it unknown.
+    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), the picker's search and
+    // pages for the project it shows, and the base when the shown list does not have it: the picker's selectedRefQuery
+    // asks for it by name (limit 10), so a local branch past the first page still reads "From origin/<ref>". The base is
+    // the draft's in its project, and the editor's (`taskBase`, settings-scheduled.contract taskPicker). A failed lookup
+    // leaves it unknown.
     const key = `${editing.environmentId}:${target?.taskId || 'new'}`;
-    const switched = new URLSearchParams(taskBase);
-    const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }];
-    if (switched.get('key') === key) wanted.push({ projectId: str(switched.get('project')), ref: str(switched.get('ref')).trim() });
-    // Once per editor visit: the bases to look up are part of the key, so a new one reads again.
-    const refsKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
-      ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`), ...wanted.map(entry => `${entry.projectId}@${entry.ref}`)].join('|');
-    let kept = editorRefs.get(client);
-    if (!kept || kept.key !== refsKey) {
-      // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
-      // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
-      const listRefs = async (payload: Obj) => arr((await (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload))).refs);
-      const branches = await Promise.all(projects.map(async project => {
-        const cwd = str(project.workspaceRoot), projectId = str(project.id);
-        try {
-          const refs = await listRefs({ cwd, limit: 100 });
-          const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !refs.some(ref => str(ref.name) === entry.ref)).map(entry => entry.ref))];
-          const selected = (await Promise.all(unlisted.map(async name => (await listRefs({ cwd, query: name, limit: 10 }).catch((error: unknown): Obj[] => { if (letGo(error)) throw error; return []; }))
-            .filter(ref => str(ref.name) === name)))).flat();
-          return { projectId, error: '', refs: refs.map(ref => branchRef(ref, cwd)), selected: selected.map(ref => branchRef(ref, cwd)) };
-        } catch (error) { if (letGo(error)) throw error; return { projectId, error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[], selected: [] as BranchRef[] }; }
-      }));
-      editorRefs.set(client, kept = { key: refsKey, branches });
-    }
-    const branches = kept.branches;
+    const picker = pickerOf(taskBase, key);
+    const shown = picker?.project || draft.projectId;
+    const search = sanitizeNewRefName(picker?.query ?? '').slice(0, 256);
+    const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }, ...(picker ? [{ projectId: shown, ref: picker.ref }] : [])];
+    // Once per editor visit: another connection, task or project list starts a new one.
+    const visitKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
+      ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`)].join('|');
+    let visit = editorRefs.get(client);
+    if (!visit || visit.key !== visitKey) editorRefs.set(client, visit = { key: visitKey, pages: new Map(), lookups: new Map(), picker: '' });
+    visit.picker = `${shown}\n${search}`;
+    // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
+    // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
+    const listRefs = async (payload: Obj) => (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload));
+    const kept = visit, presentation = obj(client.presentation);
+    const branches: Refs[] = await Promise.all(projects.map(async project => {
+      const cwd = str(project.workspaceRoot), projectId = str(project.id), query = projectId === shown ? search : '';
+      const list = (cursor?: number) => listRefs({ cwd, limit: REF_PAGE, ...(query ? { query } : {}), ...(cursor === undefined ? {} : { cursor }) });
+      const pagesKey = `${projectId}\n${query}`;
+      let pages = kept.pages.get(pagesKey);
+      if (!pages) {
+        try { pages = { ...firstPage(await list(), scrollEnds(presentation, TASK_REFS)), error: '' }; }
+        catch (error) { if (letGo(error)) throw error; pages = { refs: [], total: 0, nextCursor: null, ends: scrollEnds(presentation, TASK_REFS), error: failed(error) }; }
+        kept.pages.set(pagesKey, pages);
+      } else if (projectId === shown && !pages.error) {
+        // A scroll toward the list's end loads the next page (BranchPicker maybeFetchNextBranchPage).
+        try { Object.assign(pages, await morePages(pages, presentation, TASK_REFS, list)); }
+        catch (error) { if (letGo(error)) throw error; Object.assign(pages, { error: failed(error), loadingMore: false }); }
+      }
+      const listed = pages.refs.map(ref => branchRef(ref, cwd));
+      const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !listed.some(ref => ref.value === entry.ref)).map(entry => entry.ref))];
+      const selected = (await Promise.all(unlisted.map(async name => {
+        const found = kept.lookups.get(`${projectId}\n${name}`);
+        if (found) return found;
+        const refs = await listRefs({ cwd, query: name, limit: 10 }).then(answer => arr(answer.refs)).catch((error: unknown): Obj[] => { if (letGo(error)) throw error; return []; });
+        const named = refs.filter(ref => str(ref.name) === name).map(ref => branchRef(ref, cwd));
+        kept.lookups.set(`${projectId}\n${name}`, named);
+        return named;
+      }))).flat();
+      return { projectId, error: pages.error, refs: listed, selected, status: taskRefsStatus(pages) };
+    }));
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,

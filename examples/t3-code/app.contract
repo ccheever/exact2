@@ -440,7 +440,7 @@ component T3Code
   state keybindingWhen = ""
   state keybindingRecording = false
   resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
-  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase) as shape ScheduledPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase, shellClock) as shape ScheduledPage // shellClock: the base-branch picker's next page (r6-polish-refs.ts)
   state licenseQuery = ""
   state licenseExpanded = ""
   state licenseRetry = 0
@@ -844,7 +844,7 @@ component T3Code
     send themeLive = command(`themelocal:${part}`, id, value, n)
   state restEditor = ""
   state restSubject = ""
-  state taskBase = "" // the scheduled editor's project and base when that project's first page of refs lacks it (settings-scheduled.contract chooseProject)
+  state taskBase = "" // the scheduled editor's picker: its project, base and search (settings-scheduled.contract taskPicker), new with each editor
   action restTaskBase(value: string)
     taskBase = value
   action restOpen(editor: string, subject: string) // the window's half: the dialog label, the row menu
@@ -855,10 +855,12 @@ component T3Code
     restSubject = subject
     modalError = ""
     taskModelPick = ""
+    taskBase = ""
   action restClose
     restEditor = ""
     modalError = ""
     taskModelPick = ""
+    taskBase = ""
   action restLocal(op: string, value: string)
     send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
   action restRaw(op: string, id: string, value: string) // a settings editor's command, also as rest and restInput (T3Window)

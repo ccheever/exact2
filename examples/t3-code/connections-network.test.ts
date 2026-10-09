@@ -176,7 +176,8 @@ describe('Network access and Tailscale HTTPS commands (applyLocalSetting restart
     const client = new T3Client();
     const { native, requests, settings } = fakeNative(request => request.op === 'localNetworkFacts' ? facts({ lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] }) : undefined);
     await runNetworkOp(client, native, 'network-access', '', 'on');
-    expect(networkUi.exposureError).toBe('No reachable network address is available for desktop network access on port 16101.');
+    // The reference's renderer reads DesktopServerExposure's error through the IPC (audit-wave-followups-2 FV-5).
+    expect(networkUi.exposureError).toBe("Error invoking remote method 'desktop:set-server-exposure-mode': DesktopServerExposureNoNetworkAddressError: No reachable network address is available for desktop network access on port 16101.");
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not update network access', networkUi.exposureError]]);
     expect(settings.serverExposureMode).toBe('local-only'); // refused before the write, as DesktopServerExposure.setMode
     expect(requests.some(request => request.op === 'desktopSettingsSet')).toBe(false);
