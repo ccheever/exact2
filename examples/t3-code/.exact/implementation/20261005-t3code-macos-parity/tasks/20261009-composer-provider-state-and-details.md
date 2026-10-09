@@ -113,6 +113,24 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
   (startThreadTurn's `bootstrap.prepareWorktree`). A started thread stays locked. The composer strip follows the same
   rule when "persist context strip" is on.
 
+## Review round 1 (2026-10-10)
+
+An independent review of PR #356 found one blocking and four should-fix problems. All five are fixed.
+
+| Problem | Fix | Test |
+| --- | --- | --- |
+| Blocking: after an unstarted server thread's first message in New worktree (PA-9, `launchThread` with `reuseExistingThread`), the sent images stayed in the thread's composer: `finishPending` released them under the new-thread key. | `finishPending` uses one key for the text and the images: a launch from a draft owns `env:new:<project>`, a `reuseExistingThread` launch owns `env:<thread>`. | `composer-details-workspace.test.ts` PA-9: a pre-uploaded image goes out with the first message and leaves the composer, in New worktree and in Current checkout. It fails on the old key. |
+| The picker's checked row and the fan-out seed read the raw `providerId`/`modelId`, not the resolved selection. A draft whose default instance is gone had no checked row, and Shift+click seeded `':'`, so the send was refused. | `composerPair` (ChatComposer's `selectedInstanceId` and `selectedModelForPickerWithCustomFallback`) drives the picker's checked row, its default rail, legacy expansion and ChatGPT sharing (`pickerCatalog`), and the seed of `toggleFanout` (`onToggleModel`'s `selectedModelSelection`). A settings picker keeps its own value. | `composer-provider-selection.test.ts`: the CO-6 thread checks `codex:model-a`; the draft with a missing default checks `codex:model-b`, fans out as "Model B, Model A" and launches both. Both fail on the old code. |
+| `applyProviderInstanceSettings` was not ported: `enabled` came from the streamed snapshot. | Ported with `resolveProviderInstanceEnabled`. `composerSelection` applies it, as ChatView does: an explicit instance follows its envelope, a default instance its legacy `providers.<driver>`, and any other instance counts as disabled. When the settings have no `providerInstances` map (a server older than provider instances, or a test double) the snapshot's value stands. A current server always sends the map, so the rule matches the reference. | The reference's `applyProviderInstanceSettings` tests by name, and a composer test: a just-disabled instance and a deleted one drop out. |
+| CO-5 had no automated check. | A source-wiring test (as `context-menu-hookup.test.ts`) checks four things: both buttons send `ui:add-script`; the root opens `card-action` for the thread's project and never sends the op; `ProjectDialogs` mounts with the window; the editor saves through `sb:action-add` for that scope, and Cancel closes it. | `composer-details-workspace.test.ts`. It fails on the base. |
+| PA-9's Start from origin was reset on every workspace switch and thread change. | `pendingServerThreadStartFromOriginByThreadId`: a per-thread map that lasts for the client's life. `onEnvModeChange` sets only the mode. A thread change resets only the mode and the base. The reference's map lives as long as the ChatView, which a draft route remounts. The clone keeps it for the client's life. The two differ only after a visit to a draft. | `composer-details-workspace.test.ts`: the choice survives a switch to Current checkout and back, and a visit to another thread. |
+
+Live drive (agent mode, one drive per side): a new lane thread "Stale model thread" (claudeAgent/`claude-retired-model`,
+not in Claude's catalog) in all three homes. Claude was switched back on in all three. Open the thread, open the model
+picker. Before: the trigger reads "claude-retired-model" and no row is checked. After: "Claude Fable 5.1" and its row
+checked. Reference: the same as after. The other four fixes show no difference on screen, so their evidence is the
+tests above.
+
 ## Lane setup
 
 Lane `composer-provider-state-and-details` (base port 16880), before lane `composer-provider-state-and-details-before`.
@@ -135,6 +153,8 @@ All rows ran in agent mode; no row needs real input.
 | CO-8 | pass: after Shift+click of Claude Sonnet 5.5, the details row reads "New worktree · Create" and the branch row "From feature/audit" (before: "work"). | [co8-details-workspace.png](https://raw.githubusercontent.com/ccheever/exact2/680fca14bf0cf1a8ccb059dca1927deb3b74c5f4/composer-provider-state-and-details/co8-details-workspace.png) |
 | CO-5 | pass: "Add project script" opens "Add Action" over the thread (before: Settings › Project); Cancel closes it; Save action (Lint, `bun run lint`) adds the "Lint" row, as the reference does. | [co5-add-action-dialog.png](https://raw.githubusercontent.com/ccheever/exact2/4c42a52a97dcc82bf85532f0d275fae12f8adb6a/composer-provider-state-and-details/co5-add-action-dialog.png) |
 | PA-9 | pass: "Audit work thread" has the Workspace select (Current checkout, New worktree); New worktree reads "New worktree · Create" and the branch row "From origin/feature/audit", as the reference. The fixture thread (started) keeps its static row. | [pa9-workspace-select.png](https://raw.githubusercontent.com/ccheever/exact2/ec028e1c6dac736d260a7c89d2b7a87b0ea0e60d/composer-provider-state-and-details/pa9-workspace-select.png) |
+
+Review round 1 (2026-10-10): stale-model thread picker, before | after | reference: [r2-stale-model-picker.png](https://raw.githubusercontent.com/ccheever/exact2/6841dcf9013a0c91d9f74aaad4048409bc7cb89e/composer-provider-state-and-details/r2-stale-model-picker.png).
 
 Tests:
 - `composer-provider-selection.test.ts`: the reference's `resolveComposerProviderSelection`,
