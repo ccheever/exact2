@@ -12,7 +12,8 @@ export interface ThreadLocalCommandContext {
   snapshot:ThreadSendSnapshot; facts:ThreadSendFacts; now:number;
   /** Source ThreadDetail key: scoped thread, thread model instance, run and pending request. */
   usageKey:string;
-  /** Invocation-only exact route/draft/catalog/generation admission. Never retained. */
+  /** Invocation-only admission: exact route/draft before clear, captured transport after
+   * accepted clear. Navigation alone must not cancel the original feedback. Never retained. */
   current():boolean;
   /** Starts the concrete clear synchronously, before returning its persistence promise.
    * Refusal must reject; a nonempty message reports an accepted edit whose save failed.

@@ -528,3 +528,33 @@ export function mobileComposerContextMountedSend(client:T3Client,current:EditorD
   local.mobileOutboxTransferCompletions=completions;if(!write)client.revision++;
   return result;
 }
+
+/** Internal local content clear. The owner verifies this exact native command/terminal.
+ * No inventory is removed: attachment or metadata changes revoke producer-specific clearing.
+ * All allocations precede the concrete mounted document write; no callback authority. */
+export function mobileComposerContextMountedLocalClear(client:T3Client,current:EditorDocumentIntent,
+  captured:{snapshot:ComposerSendDraftSnapshot;incarnation:string;revision:number},
+  proof:Parameters<typeof mobileEditorDocumentCommitMounted>[2]) {
+  const raw=sendRaw(client,current.target),document=sendDocument(client,current.key),refuse=()=>({ok:false as const});
+  if(!raw||!document||document.blocked||!mobileEditorDocumentIntentCurrent(client,current)
+    ||!Number.isSafeInteger(client.revision)||client.revision<0||client.revision>=Number.MAX_SAFE_INTEGER
+    ||document.revision>=Number.MAX_SAFE_INTEGER||raw.snapshot.contextRevision>=Number.MAX_SAFE_INTEGER)return refuse();
+  const {entry,snapshot}=raw,next={value:proof.latest.value,selection:{...proof.latest.selection}};
+  const exact=document.incarnation===captured.incarnation&&document.revision===captured.revision
+    &&sendCanonical(snapshot)===sendCanonical(captured.snapshot)&&!snapshot.images.length&&!snapshot.files.length;
+  const cleared=exact&&proof.terminal.kind==='commandApplied'&&proof.latest.eventCount===proof.terminal.eventCount
+    &&next.value===''&&next.selection.start===0&&next.selection.end===0;
+  const history=mobileCreateContextHistory();
+  let context=snapshot.context??undefined;
+  if(entry){
+    history('',{version:1,records:histories.get(entry)?.snapshot()??[]});
+    // Keep history metadata available to native Undo; content clear removes the live envelope.
+    const projected=history(next.value,snapshot.context??undefined);
+    context=cleared?undefined:exact&&next.value!==document.value?projected:snapshot.context??undefined;
+  }
+  const result={ok:true as const,cleared,ledger:{value:next.value,selection:{...next.selection},
+    revision:document.revision+1,incarnation:document.incarnation}};
+  if(!mobileEditorDocumentCommitMounted(client,current,proof,next))return refuse();
+  if(entry){entry.text=next.value;entry.revision++;if(context)entry.context=context;else delete entry.context;histories.set(entry,history)}
+  return result;
+}

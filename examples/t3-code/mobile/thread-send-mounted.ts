@@ -117,7 +117,7 @@ export function mobileThreadMountedSendConsume(client:T3Client):boolean {
   owner.state=mobileComposerEditorStageEffect(owner.state,terminal.id).state;owner.pending=null;
   p.result={status:'applied',marker:copy(applied.marker)};p.revoked=true;mobileEditorOwnerChanged(client);return true;
 }
-/** Positive write observation is necessary: shared persist catches ordinary save failures. */
+/** Observe the exact marker’s completed storage write before issuing native CAS. */
 async function persistProof(client:MobileDraftClient,storage:Files,id:string,expected:ThreadSendTransferCompletion):Promise<void> {
   let written=false,error:unknown;
   const files:Files={fs:{...storage.fs,atomicWriteFile:async(path,bytes)=>{

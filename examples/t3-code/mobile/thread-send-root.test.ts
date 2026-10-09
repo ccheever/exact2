@@ -18,7 +18,7 @@ const now=Date.parse('2026-10-09T12:00:00Z'),copy=<T>(v:T):T=>JSON.parse(JSON.st
 const fingerprint=(v:unknown)=>createHash('sha256').update(canonical(v)).digest('hex');
 let serial=0;
 async function fixture(options:{saved?:Obj;environmentId?:string;claim?:ThreadSendTransferClaim}={}) {
-  const client=new MobileDraftClient(),environmentId=options.environmentId??`transfer-${++serial}`;
+  const client=new MobileDraftClient(),environmentId=options.environmentId??`root-transfer-${++serial}`;
   let saved:Obj=copy(options.saved??{}),claim:ThreadSendTransferClaim|null=copy(options.claim??null),failPersist=0,complete=false;
   let inventoryComplete=true,uncertain=false;
   let hook:((request:Obj)=>Promise<void>|void)|undefined;
@@ -156,6 +156,39 @@ test('feedback exposes uploading during concrete persistence, then exact RPC and
  const request=f.requests.find(r=>r.method==='provider.uploadFeedback');expect(request?.payload).toEqual({threadId:'thread',reason:'useful'});
  f.input.active=false;view(f);held.resolve();const result=await sending;expect(result.stale).toBe(true);expect(result.message).toBe('');
  f.input.active=true;f.input.visit='return';expect(view(f).dock.feedback[0]?.feedbackId).toBe('feedback-id');
+});
+test('feedback accepted before navigation finishes saving and uploads for its original thread',async()=>{
+ const f=await fixture();connected(f);f.client.local.drafts[f.target.key]='/feedback original reason';await prepared(f);
+ const held=gate(),entered=gate(),write=f.storage.fs.atomicWriteFile;
+ f.storage.fs.atomicWriteFile=async(path,bytes)=>{entered.resolve();await held.promise;await write(path,bytes)};
+ const sending=run(f,'send');await entered.promise;
+ expect(f.client.local.drafts[f.target.key]).toBe('');expect(f.requests.some(r=>r.method==='provider.uploadFeedback')).toBe(false);
+ const otherKey=`${f.target.environmentId}:other`;
+ f.client.threadId='other';f.client.local.drafts[otherKey]='Keep this new draft';
+ Object.assign(f.input,{threadId:'other',url:`/threads/${f.target.environmentId}/other`,visit:'other-visit'});
+ expect(view(f).dock.feedback).toEqual([]);
+ held.resolve();const result=await sending;
+ expect(result).toMatchObject({accepted:true,stale:true,message:''});
+ expect(f.requests.filter(r=>r.method==='provider.uploadFeedback')).toEqual([expect.objectContaining({payload:{threadId:'thread',reason:'original reason'}})]);
+ expect(obj(f.disk().drafts)[f.target.key]).toBe('');expect(f.client.local.drafts[otherKey]).toBe('Keep this new draft');
+ expect(view(f).dock.feedback).toEqual([]);
+ f.client.threadId='thread';Object.assign(f.input,{threadId:'thread',url:`/threads/${f.target.environmentId}/thread`,visit:'return'});
+ expect(view(f).dock.feedback[0]).toMatchObject({status:'sent',feedbackId:'feedback-id'});
+});
+test('feedback transport revocation during the accepted clear save prevents dispatch',async()=>{
+ for(const change of ['permission','generation','catalog','connection'] as const){
+  const f=await fixture();connected(f);f.client.local.drafts[f.target.key]='/feedback';await prepared(f);
+  const held=gate(),entered=gate(),write=f.storage.fs.atomicWriteFile;
+  f.storage.fs.atomicWriteFile=async(path,bytes)=>{entered.resolve();await held.promise;await write(path,bytes)};
+  const sending=run(f,'send');await entered.promise;
+  if(change==='permission')f.client.scopes=[];
+  else if(change==='generation')f.client.generation++;
+  else if(change==='catalog')fleet.saved.find(s=>s.environmentId===f.target.environmentId)!.origin='https://replacement.test';
+  else f.client.connection='disconnected';
+  held.resolve();await sending;
+  expect(f.requests.some(r=>r.method==='provider.uploadFeedback')).toBe(false);
+  expect(f.client.local.drafts[f.target.key]).toBe('');expect(obj(f.disk().drafts)[f.target.key]).toBe('');
+ }
 });
 test('feedback permission loss after dispatch interrupts without redirecting or automatic retry',async()=>{
  const f=await fixture();connected(f);f.client.local.drafts[f.target.key]='/feedback';await prepared(f);
