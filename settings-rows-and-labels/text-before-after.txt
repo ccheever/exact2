@@ -1,0 +1,140 @@
+settings-rows-and-labels: text evidence from the agent tree dumps of the two drives (same steps; drive.sh below).
+
+== before: settings-rows-and-labels agent drive (tree dumps)
+
+-- S1-9 General > Background activity > layers popover
+Daehyeon’s MacBook Pro | Environment | Inherits | Default | Balanced
+
+-- S2-10 Source Control (Automatically pull on, merge Squash, branch naming Semantic, writing Conventional Commits): controls and resets
+  button 'Reset Automatically pull to default'  #reset-defaultAutoPull
+  switch 'Automatically pull' accessibilityChecked=True  #scoped-defaultAutoPull
+  button 'Reset Default merge method to default'  #reset-pullRequestMergeMethod
+  combobox 'Default merge method'  #scoped-pullRequestMergeMethod
+  button 'Reset Worktree branch naming to default'  #reset-branchNamingMode
+  combobox 'Worktree branch naming'  #scoped-branchNamingMode
+  button 'Reset Source control writing style to default'  #reset-sourceControlWritingStyle
+  combobox 'Source control writing style'  #scoped-sourceControlWritingStyle
+  switch 'Follow change request templates' accessibilityChecked=True  #scoped-sourceControlWritingStyle.followChangeRequestTemplates
+  switch 'Use a separate source control writer model' accessibilityChecked=False  #scoped-writer-model-enabled
+  git row: Automatic Git fetch interval | Refresh remote branches in the background. Set to 0 to avoid automatic Git prompts. | seconds
+
+-- S2-3 the toast after Create task (empty checkout path)
+  title: Could not save scheduled task
+  description: Checkout path is required: Enter the path of the checkout to run in.
+
+-- S2-8 Add environment: Host "not a url", Pairing code "ABC"
+  inline: invalid URL: invalid international domain name
+
+-- S2-9, S2-10 Connections > this machine > Icon submenu
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720  Icon
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-server  Server
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-cloud  Cloud VM
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-linux  Linux/WSL
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-desktop  Desktop
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-laptop  Laptop | detected
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-mac-mini  Mini PC
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-mac-studio  Workstation
+
+== after: settings-rows-and-labels agent drive (tree dumps)
+
+-- S1-9 General > Background activity > layers popover
+Daehyeon’s MacBook Pro | Environment | Inherits | Default | Custom
+
+-- S2-10 Source Control (Automatically pull on, merge Squash, branch naming Semantic, writing Conventional Commits): controls and resets
+  button 'Reset default automatic pull to default'  #reset-defaultAutoPull
+  switch 'Default automatic pull' accessibilityChecked=True  #scoped-defaultAutoPull
+  button 'Reset default merge method to default'  #reset-pullRequestMergeMethod
+  combobox 'Default pull request merge method'  #scoped-pullRequestMergeMethod
+  button 'Background policy details'  #git-fetch-policy
+  button 'Reset branch naming to default'  #reset-branchNamingMode
+  combobox 'Worktree branch naming'  #scoped-branchNamingMode
+  button 'Reset source control writing style to default'  #reset-sourceControlWritingStyle
+  combobox 'Source control writing style'  #scoped-sourceControlWritingStyle
+  switch 'Follow change request templates' accessibilityChecked=True  #scoped-sourceControlWritingStyle.followChangeRequestTemplates
+  switch 'Use a separate source control writer model' accessibilityChecked=False  #scoped-writer-model-enabled
+  git row: Git fetch interval | Refresh remote branches in the background. Set to 0 to avoid automatic Git prompts. | seconds
+
+-- S2-3 the toast after Create task (empty checkout path)
+  title: Checkout path is required
+  description: Enter the path of the checkout to run in.
+
+-- S2-8 Add environment: Host "not a url", Pairing code "ABC"
+  inline: Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).
+
+-- S2-9, S2-10 Connections > this machine > Icon submenu
+  menuitem ''  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720  Icon
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-server  Server
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-cloud  Cloud VM
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-linux  Linux/WSL
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-desktop  Desktop
+  menuitemradio '' accessibilityChecked=True  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-laptop  Laptop | detected
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-mac-mini  Mini PC
+  menuitemradio '' accessibilityChecked=False  #environment-icon-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-mac-studio  Workstation
+
+== reference (T3 Code 1e2ecbd975, Electron, CDP ARIA of this lane and the audit's)
+-- S1-9: Daehyeon’s MacBook Pro | Environment | Inherits | Default | Custom   (audit settings-1/S1-9.txt)
+-- S2-10 Source Control:
+    - combobox "Search settings"
+    - switch "Default automatic pull"
+    - combobox "Default pull request merge method": Last selected
+    - switch "Git availability" [checked] [disabled]
+    - switch "GitHub availability" [disabled]
+    - switch "GitLab availability" [disabled]
+    - switch "Azure DevOps availability" [disabled]
+    - switch "Bitbucket availability" [disabled]
+    - switch "Forgejo / Gitea availability" [disabled]
+    - combobox "Worktree branch naming": Static prefix
+    - combobox "Source control writing style": Repository conventions
+    - switch "Follow change request templates" [checked]
+  resets (SettingResetButton aria-label `Reset ${label} to default`; at their defaults the reference draws none): label="default automatic pull", "default merge method" (ProjectDefaultsSettings.tsx:400, 428), "branch naming" (BranchNamingSettings.tsx:43), "source control writing style" (SourceControlWritingSettings.tsx:140)
+-- S2-9, S2-10 Icon submenu:
+      - menuitem "Icon" [expanded]
+          - menuitemradio "Server"
+          - menuitemradio "Cloud VM"
+          - menuitemradio "Linux/WSL":
+          - menuitemradio "Desktop"
+          - menuitemradio "Laptop detected" [checked]
+          - menuitemradio "Mini PC":
+          - menuitemradio "Workstation":
+
+== drive.sh
+#!/bin/zsh
+# One agent drive of the clone for settings-rows-and-labels. Usage: drive.sh before|after
+# before = t3-code-evidence-base (lane settings-rows-and-labels-before), after = this worktree (lane settings-rows-and-labels).
+SIDE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-rows-and-labels
+E=$W/target/evidence/$SIDE
+if [ $SIDE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=settings-rows-and-labels-before; WORK=b54f803d-2f85-4828-8d9e-cecdee2f1f25
+else ROOT=$W; LANE=settings-rows-and-labels; WORK=7decab57-fb36-4637-8af3-694b61b8dae2; fi
+ENV=ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720
+GITTIP=()
+[ $SIDE = after ] && GITTIP=("tap git-fetch-policy hover" "clock +300")
+ops=(
+  "clock +20000 real" "clock +3000 real" "tap \"Dismiss notification\"" "tap connection-settings" "clock +2500 real" "tap toast-secondary-1" "clock +400 real"
+  "tap settings-general" "clock +800 real"
+  "tap setting-time-format" "tap setting-time-format-menu-24-hour" "clock +800 real"
+  "tap restore-device-defaults" "clock +500" "screenshot $E/s1-8.png window" "tap restore-defaults-cancel" "clock +300"
+  "tap setting-inheritance-background-activity" "clock +300" "tree" "tap setting-inheritance-background-activity" "clock +300"
+  "tap setting-info-background-activity hover" "clock +300" "screenshot $E/general-policy.png window"
+  "tap settings-providers" "clock +1500 real" "tap provider-health-policy hover" "clock +300" "screenshot $E/s1-16.png window"
+  "tap settings-source-control" "clock +2000 real" "tap discovery-details-git" "clock +300" $GITTIP "screenshot $E/s2-7.png window"
+  "tap scoped-defaultAutoPull" "clock +1500 real"
+  "tap scoped-pullRequestMergeMethod" "tap scoped-pullRequestMergeMethod-option-squash" "clock +1500 real"
+  "tap scoped-branchNamingMode" "tap scoped-branchNamingMode-option-semantic" "clock +1500 real"
+  "tap scoped-sourceControlWritingStyle" "tap scoped-sourceControlWritingStyle-option-conventional_commits" "clock +1500 real"
+  "tree" "screenshot $E/s2-10-source-control.png window"
+  "tap settings-scheduled-tasks" "clock +1500 real" "tap new-scheduled-task" "clock +1500 real"
+  "tap task-project" "tap task-project-option-verify-project" "clock +1500 real" "screenshot $E/s2-6-fixture.png window"
+  "tap task-project" "tap task-project-option-$WORK" "clock +2000 real" "screenshot $E/s2-6-work.png window"
+  "type task-title Audit task" "type task-prompt Check things"
+  "tap task-workspace" "tap task-workspace-option-existing_worktree" "tap task-schedule-interval" "clock +300"
+  "tap save-scheduled-task" "clock +800 real" "screenshot $E/s2-3.png window" "tree" "tap cancel-scheduled-task" "clock +300"
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +300" "type server-origin not a url" "type server-credential ABC" "tap connect" "clock +2500 real"
+  "screenshot $E/s2-8.png window" "tree" "tap close-connection" "clock +300"
+  "tap this-machine-menu" "clock +300" "tap environment-icon-$ENV" "clock +300" "screenshot $E/s2-9.png window" "tree"
+)
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16240 "${ops[@]}" > $E/drive.jsonl 2> $E/drive.err
+echo "exit=$?" >> $E/drive.err
+tail -3 $E/drive.err
