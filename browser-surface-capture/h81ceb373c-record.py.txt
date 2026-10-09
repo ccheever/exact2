@@ -1,0 +1,29 @@
+# browser-surface-capture: the drive record of drives 7 and 8 from the agent's JSON lines (not committed).
+import json,re
+print('browser-surface-capture: drives 7 and 8 (agent mode, 1280x840, the screen locked; window images by `screenshot <png> window`).')
+print('Lane: T3_LOCAL_PORT=16720 (a fresh copy of the seeded home per run), fixture 127.0.0.1:16721, isolated CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, lane PATH.')
+print('Before = the never-edited base worktree t3-code-evidence-base at 950e8e2e5 (its own build); drive 7 = 8038df70e (the #352 merge); drive 8 = 81ceb373c (the two drive 7 fixes), the final code head.')
+print('Script: drive7.sh (the same ops for drives 7 and 8; the before run stops after the More menu).')
+print('The send reached the lane Claude CLI, which is not signed in (isolated CLAUDE_CONFIG_DIR): "Not logged in", no provider turn ran.')
+for run in ('drive7-before','drive7','drive8'):
+    L=open(f'runs/{run}/agent.jsonl').readlines()
+    print(f'\n===== {run}: {len(L)} result lines; pids/exits:')
+    print(open(f'runs/{run}/pids.txt').read().strip())
+    for i,l in enumerate(L):
+        d=json.loads(l)
+        if 'nodes' in d:
+            tids={n.get('props',{}).get('testId','') for n in d['nodes']}
+            tx=[n['props'].get('text') for n in d['nodes'] if isinstance(n.get('props',{}).get('text'),str)]
+            facts={'right-panel':'right-panel' in tids,'browser-url':'browser-url' in tids,'browser-mini-player':'browser-mini-player' in tids,'device-toolbar':'browser-device-toolbar' in tids,'zoom':[t for t in tx if t.endswith('%')][:1],'capture-dot':'browser-capture-dot' in tids,'"Recording saved"':'Recording saved' in tx,'transcript chips':[t for t in tx if t in ('Tighten the button spacing','Send this one too')]}
+            print(f'{i:3d} tree clock={d.get("clock")} epoch={d.get("epoch")} {json.dumps(facts, ensure_ascii=False)}')
+        elif 'slots' in d:
+            m=re.search(r'"composerText":("[^"]*")',l); s=re.findall(r'"sendSerial":(\d+)',l)
+            print(f'{i:3d} state epoch={d.get("epoch")} composerText={m.group(1) if m else None} capture.sendSerial={s[-1] if s else None}')
+        elif 'lines' in d:
+            hs=[x for x in d.get('host',[]) if isinstance(x,str) and 't3.browser:' in x]
+            print(f'{i:3d} logs (host t3.browser lines so far):')
+            for h in hs: print('      ' + re.sub(r'^app: ','',h)[:200])
+        else:
+            print(f'{i:3d} ' + json.dumps({k:v for k,v in d.items() if k not in ('incarnation','carrier','mode')}, ensure_ascii=False)[:230])
+    try: print('artifacts:\n' + open(f'runs/{run}/artifacts.txt').read())
+    except Exception: pass
