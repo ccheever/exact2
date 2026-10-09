@@ -97,6 +97,12 @@ function capabilityLabels(model: Obj): string {
 // One set per environment's host: the same instance id on two environments keeps its own drafts (the reference keys the panel on its environment).
 const envDraftStores = new WeakMap<object, Map<string, Obj[]>>();
 function envDraftsOf(host: ProviderHost): Map<string, Obj[]> { let drafts = envDraftStores.get(host); if (!drafts) envDraftStores.set(host, drafts = new Map()); return drafts; }
+// settings-escape-and-nav: each custom model add or remove this host makes is a new revision of the instance's
+// "Models" block, so the block's key never comes back after a write (add a model, then remove it). An open
+// "Add custom model" field is held by that key (SettingsWindow `modelAdding`): a successful add closes it, as
+// ProviderModelsSection's handleAdd calls setIsAdding(false); a refused one keeps it open with its error.
+const modelRevisions = new WeakMap<object, Map<string, number>>();
+function modelRevisionsOf(host: ProviderHost): Map<string, number> { let revisions = modelRevisions.get(host); if (!revisions) modelRevisions.set(host, revisions = new Map()); return revisions; }
 function envRows(host: ProviderHost, instanceId: string, instance: Obj, dedicated: Set<string>): Obj[] {
   const published = arr(instance.environment).filter(variable => !dedicated.has(str(variable.name)));
   const draft = envDraftsOf(host).get(instanceId);
@@ -164,7 +170,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   return {
     id: row.id, key: row.id, driver: row.driver, title: displayName, setup: setupView(host, row, provider),
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
-    modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}` }],
+    modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}:${modelRevisionsOf(host).get(row.id) ?? 0}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
     version: versionLabel(provider?.version), enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
     // ProviderInstanceCard editorStatusNode: "Authenticated as" <redacted email> "· label", else the headline.
@@ -493,6 +499,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       next = { ...instance, config: { ...config, customModels: storedCustomModels(row.driver, custom) } };
     } else throw new ClientError(`Unknown action: ${op}`);
     await upsert(host, native, row, next, settings, extra);
+    if (op === 'provider-model-add' || op === 'provider-model-remove') modelRevisionsOf(host).set(id, (modelRevisionsOf(host).get(id) ?? 0) + 1);
   }
   await refreshConfig(host, native);
   return '';

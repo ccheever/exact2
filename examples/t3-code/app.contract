@@ -681,8 +681,8 @@ component T3Code
     keybindingRecording = false
   action editKeybindingWhen(value: string)
     keybindingWhen = value
-  action captureKeybinding(original: string, value: string)
-    keybindingKey = value == "escape" ? original : value
+  action captureKeybinding(original: string, value: string) // the recorder's chord; "escape" restores, "blur" keeps the draft (settings-escape-and-nav)
+    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)
     keybindingRecording = false
   action cancelKeybinding
     keybindingOpen = false
