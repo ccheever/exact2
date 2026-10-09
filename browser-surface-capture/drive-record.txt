@@ -1,0 +1,46 @@
+browser-surface-capture: live drives (agent mode, lane env), 2026-10-09. Lane: T3_LOCAL_HOME=<lane>/t3-home (seeded by the runtime's `t3 project add`), T3_LOCAL_PORT=16720, fixture on 127.0.0.1:16721, closed port 16749; isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, T3CODE_TELEMETRY_ENABLED=false.
+The screen was locked: the agent's window captures are blank (as in part 1's drive 3), so this record holds the trees, state and host logs.
+
+Drive 1 stopped at op 39/112 on a driver word (`tap browser-page at 120 220` is not a form; `clicks 1 at` is). Before it: settings (Integrations: the key/mouse switches and 60 fps), the Browser tab, a screenshot, Copy path and Reveal:
+  t3.browser: navigate http://127.0.0.1:16721/
+  t3.browser: screenshot browser-screenshot-127-0-0-1-mv0in6a1.png
+  t3.browser: artifact copy-path browser-screenshot-127-0-0-1-mv0in6a1.png
+  t3.browser: artifact reveal browser-screenshot-127-0-0-1-mv0in6a1.png
+
+Drive 2 (the retry) ran ops 1-81 of 118 and stopped at op 82 (`tap browser-mini-handle hover`: no floating player; see the finding below). Host log lines, in order:
+  t3.browser: navigate http://127.0.0.1:16721/
+  t3.browser: screenshot browser-screenshot-127-0-0-1-mv0isskm.png
+  t3.browser: artifact copy-path browser-screenshot-127-0-0-1-mv0isskm.png
+  t3.browser: artifact reveal browser-screenshot-127-0-0-1-mv0isskm.png
+  t3.browser: annotate start
+  t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+  t3.browser: navigate http://127.0.0.1:16721/anim
+  t3.browser: record arm keys=true mouse=true
+  t3.browser: record capture 60fps 1078x1496
+  t3.browser: record begin video/mp4;codecs=avc1 1078x1496 4838064bps 60fps
+  t3.browser: record disarm
+  t3.browser: record finish frames=267 bytes=110224
+  t3.browser: record release frames=0 dropped=0
+  t3.browser: record saved browser-recording-mv0itb6b.mp4
+
+tree after loading the fixture page (line 26):
+  browser-annotate: Annotate preview
+  browser-capture: Capture screenshot
+  browser-float: Float preview over chat
+  browser-more-window: {'disabled': False}
+tree while recording (line 56):
+  browser-annotate: Annotate preview
+  browser-capture: Stop recording
+  browser-capture-dot: {}
+  browser-float: Float preview over chat
+  browser-more-window: {'disabled': False}
+tree after the stop (line 68):
+  browser-annotate: Annotate preview
+  browser-capture: Capture screenshot
+  browser-float: Float preview over chat
+  browser-more-window: {'disabled': False}
+state after More › Open separate preview window (line 71): shell.panel.browser.capture = {"pickActive": false, "pickDisabled": false, "pickTip": "Annotate elements, regions, and drawings", "captureDisabled": false, "recording": false, "floating": false, "floatDisabled": false, "separateWindow": true, "sendSerial": 0}
+state after Annotate (select #save, comment, Return) (line 48): composerText = "" ; capture = {"pickActive": false, "pickDisabled": false, "pickTip": "Annotate elements, regions, and drawings", "captureDisabled": false, "recording": false, "floating": false, "floatDisabled": false, "separateWindow": false, "sendSerial": 0}
+
+Finding (fixed after drive 2, not re-driven: the brief allows one retry): the lane thread is a new thread's draft, so `client.threadId` is empty while the Browser tab names the id the draft was given (addBrowserSurface's ensureDraftThreadId). Annotate's chip went to that id's draft instead of the open composer (composerText stayed empty; the module logged `annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok`), and Float preview did nothing (no thread key). Both now key by the open thread (browser-capture.ts `playerThreadKey`, `applyAnnotation`), with a Bun row for the draft case; the module now logs `annotate applied <serial> <outcome>`.
+settings: the drive's arm line shows keys=true mouse=true at 60fps, set through Settings › Integrations' new rows before the drive opened the Browser tab.
