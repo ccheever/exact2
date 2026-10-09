@@ -47,6 +47,7 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
+import { buildInfo } from './buildinfo.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
@@ -1256,7 +1257,7 @@ async function main(args) {
     // so two apps built here are two identities to the keychain (LLP 1018 D7).
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
-    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach }));
+    writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: buildInfo(app, { root, production }) }));
     if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
     if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
@@ -1282,10 +1283,10 @@ async function main(args) {
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
       for (const file of [paths.executable, ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: buildInfo(app, { root, production }) }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
-      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: appIcon(app, resources, 'macos') }));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...appIcon(app, resources, 'macos'), ...buildInfo(app, { root, production }) } }));
       writeUsageStrings(bakedCompat.reach, resources);
       const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
@@ -1327,7 +1328,7 @@ async function main(args) {
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys(sdkName) : null, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: { ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
