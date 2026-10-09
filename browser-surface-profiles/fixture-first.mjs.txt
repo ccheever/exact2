@@ -1,0 +1,17 @@
+// browser-surface part 4 lane: part 2's first-layout fixture (#352, browser-surface-navigation-v2/h26f5c9066-fixture.mjs),
+// extended to log each report's query (the first layout's size and devicePixelRatio, and every resize after it), on
+// 127.0.0.1:16782 (the root page, typed into a new tab at the configured default viewport and zoom). Not committed.
+const port = Number(process.env.FIXTURE_PORT || 16782);
+const probe = `<p id="probe" style="font:600 18px ui-monospace,monospace">…</p><script>
+const show = () => { document.getElementById('probe').textContent = innerWidth + ' × ' + innerHeight + ' · dpr ' + devicePixelRatio + ' · ' + (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); };
+addEventListener('resize', show); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', show); show();
+</script>`;
+const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><script>window.__first = { width: innerWidth, height: innerHeight }; fetch('/first?w=' + innerWidth + '&h=' + innerHeight + '&d=' + devicePixelRatio + '&p=' + encodeURIComponent(location.pathname)).catch(() => {}); addEventListener('resize', () => fetch('/resize?w=' + innerWidth + '&h=' + innerHeight + '&d=' + devicePixelRatio).catch(() => {}));</script><meta name="viewport" content="width=device-width"><title>${title}</title><style>:root{color-scheme:light dark}body{font:15px -apple-system,sans-serif;margin:24px;background:#fff;color:#222}@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style></head><body><h1>${title}</h1>${probe}${body}</body></html>`;
+Bun.serve({ port, hostname: '127.0.0.1', async fetch(request) {
+  const url = new URL(request.url);
+  console.log(`${new Date().toISOString()} ${request.method} ${url.pathname}${url.search}`);
+  if (url.pathname === '/first' || url.pathname === '/resize') return new Response('', { status: 204, headers: { 'access-control-allow-origin': '*' } });
+  if (url.pathname === '/') return new Response(page('Lane fixture', '<p>A lane-served page for the Browser surface.</p>'), { headers: { 'content-type': 'text/html' } });
+  return new Response(page('Not found', '<p>No such page.</p>'), { status: 404, headers: { 'content-type': 'text/html' } });
+} });
+console.log(`fixture on ${port}`);
