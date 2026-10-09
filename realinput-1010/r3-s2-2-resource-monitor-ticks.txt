@@ -1,0 +1,22 @@
+5568.45 cpu 1.8% | 0.63s observed CPU time | mem 356 MB | updated just now
+5568.81 cpu 1.8% | 0.65s observed CPU time | mem 356 MB | updated just now
+5569.19 cpu 1.8% | 0.65s observed CPU time | mem 356 MB | updated just now
+5569.55 cpu 1.8% | 0.65s observed CPU time | mem 356 MB | updated just now
+5569.92 cpu 1.6% | 0.66s observed CPU time | mem 356 MB | updated just now
+5570.29 cpu 1.6% | 0.66s observed CPU time | mem 356 MB | updated just now
+5570.67 cpu 1.6% | 0.66s observed CPU time | mem 356 MB | updated just now
+5571.08 cpu 2.0% | 0.68s observed CPU time | mem 356 MB | updated just now
+--- 1 s spaced
+02:06:18 cpu 2.5% | 0.82s observed CPU time | mem 357 MB | read 0 B/s | write 15.7 KB/s
+02:06:19 cpu 1.8% | 0.84s observed CPU time | mem 357 MB | read 0 B/s | write 15.8 KB/s
+02:06:20 cpu 1.9% | 0.86s observed CPU time | mem 357 MB | read 0 B/s | write 0 B/s
+02:06:21 cpu 2.2% | 0.88s observed CPU time | mem 358 MB | read 0 B/s | write 0 B/s
+02:06:22 cpu 1.9% | 0.90s observed CPU time | mem 358 MB | read 0 B/s | write 31.4 KB/s
+02:06:23 cpu 5.8% | 0.96s observed CPU time | mem 359 MB | read 0 B/s | write 47.1 KB/s
+02:06:24 cpu 1.8% | 0.97s observed CPU time | mem 359 MB | read 0 B/s | write 0 B/s
+02:06:25 cpu 1.7% | 0.99s observed CPU time | mem 359 MB | read 0 B/s | write 0 B/s
+02:06:26 cpu 1.8% | 1.01s observed CPU time | mem 359 MB | read 0 B/s | write 15.7 KB/s
+02:06:27 cpu 2.0% | 1.03s observed CPU time | mem 359 MB | read 0 B/s | write 0 B/s
+baseline click call on idle General: 0.99s
+baseline click call on idle General: 0.92s
+General click from Diagnostics: click call 1.20s; post-click snapshot already shows General selected
