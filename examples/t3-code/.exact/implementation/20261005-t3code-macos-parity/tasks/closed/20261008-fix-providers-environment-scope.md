@@ -1,9 +1,9 @@
 ---
 name: 20261008-fix-providers-environment-scope
 plan: 20261005-t3code-macos-parity
-implementation: verified
+implementation: done
 verification: passed
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-providers-environment-scope'
@@ -58,10 +58,10 @@ Excluded: other Settings pages' scope handling (not reported broken); framework 
 
 ## Context and guidance
 
-- Parent: [spec](../spec.md), [plan](../plan.md).
-- Prior work: [provider-sign-in-and-install](closed/20261005-provider-sign-in-and-install.md),
-  [provider-settings-upkeep](closed/20261005-provider-settings-upkeep.md),
-  [settings-scoped-controls-and-theme-editor](closed/20261005-settings-scoped-controls-and-theme-editor.md) (the
+- Parent: [spec](../../spec.md), [plan](../../plan.md).
+- Prior work: [provider-sign-in-and-install](20261005-provider-sign-in-and-install.md),
+  [provider-settings-upkeep](20261005-provider-settings-upkeep.md),
+  [settings-scoped-controls-and-theme-editor](20261005-settings-scoped-controls-and-theme-editor.md) (the
   multi-environment settings scope) and #312's provider state work.
 - Lane rules from the common brief: isolated homes, ports 16000–16999, `--env PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin`
   on `open`, never port 3773 or `~/.t3`.
@@ -190,6 +190,8 @@ as `52378bbef` (STATUS.md conflict, both sides kept); runner attempt 5 on the me
 | merged tree: runner attempt 5 | `52378bbef` (96c4c38f2 merged) | 11 / 11 passed, `source_unchanged: true`; `bun test examples/t3-code` 3,468 / 1 / 0; contract 5,512 slots | local `target/fpes/verify/attempt-5` | none |
 
 ## Next action
+
+2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #329 (`b53cd7da7`); the record moved to `tasks/closed/`.
 
 Coordinator: review and merge draft PR #329. Merge order: #311 may land first; this branch changed `app.contract` in place
 (resources, sends, `coreScope`, the Settings openers), so a later merge with #311 may touch nearby lines.

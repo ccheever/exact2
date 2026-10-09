@@ -16,12 +16,12 @@ verified_commit: null
 ## Outcome
 
 The Browser tab's Annotate, Capture screenshot (Shift-click records) and Float preview over chat buttons, drawn disabled
-and marked "part 3" by [part 1](20261005-browser-surface.md), work as in the reference: annotation with select,
+and marked "part 3" by [part 1](closed/20261005-browser-surface.md), work as in the reference: annotation with select,
 marquee, draw and erase tools whose payload lands in the composer; screenshots and recordings saved as artifacts with
 their toasts; the separate preview window and the floating mini player's browser source. The More menu's Open/Close
 separate preview window row works; downloads that a page starts go to the artifact directory.
 
-Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 3). It starts
+Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 3). It starts
 after part 1 merges into `feat(example)/t3-code`.
 
 ## Scope and exclusions
@@ -69,7 +69,7 @@ Parent specification: [spec](../spec.md); engine decisions and declared differen
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | its draft PR | Merged into `feat(example)/t3-code` | pending |
+| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X8](../issues/closed/20261005-x08-agent-pointer-native-views.md) | #107 (fixed) | Pointer input into the page for annotate drags; real drags stay attended | — |
 | scheduling preference | `20261005-floating-device-player` (player layout) | none | Not a prerequisite | — |
 

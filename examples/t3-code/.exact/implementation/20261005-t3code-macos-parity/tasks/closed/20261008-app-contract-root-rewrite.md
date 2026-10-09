@@ -1,9 +1,9 @@
 ---
 name: 20261008-app-contract-root-rewrite
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-app-contract-root-rewrite
@@ -32,7 +32,7 @@ root rewrite belongs to #303/T3 example"; general child resources wait for D5.
 ## Why (measured at `ec32c8c37`, 2026-10-08)
 
 - `app.contract` has 1,478 of the 1,500 lines `bun scripts/caps.mjs` allows, so 22 lines of room are left.
-  [app-contract-room](closed/20261008-app-contract-room.md) (#264) moved the root's view into `T3Window`
+  [app-contract-room](20261008-app-contract-room.md) (#264) moved the root's view into `T3Window`
   (`app-window.contract`): 1,499 → 1,459 lines. The merges since then added 19 lines. Every new feature still adds
   root state or actions, so the room runs out again within a few tasks.
 - The root has 168 states, 46 resources, 16 mutations, 18 tasks, 20 derives and 175 actions. Its `view` is one
@@ -102,8 +102,8 @@ Excluded:
 
 ## Context and guidance
 
-- Parent: [spec](../spec.md), [plan](../plan.md).
-- Prior work: [app-contract-room](closed/20261008-app-contract-room.md): the 1,459-line analysis, plan identity by
+- Parent: [spec](../../spec.md), [plan](../../plan.md).
+- Prior work: [app-contract-room](20261008-app-contract-room.md): the 1,459-line analysis, plan identity by
   renumbering, the `T3Window` move.
 - Contract rules: `docs/contract-for-agents.md` "Composition and lifetime" (children hold state, derives and actions,
   call `action` props, never write parent state, declare no resources, mutations or tasks); LLP 1091.
@@ -230,6 +230,8 @@ unchanged). All six screens pixel-identical; record `drive2-record.md` on `t3-co
 | extra drive (go-ahead 2026-10-09) | `b53cd7da7`, `a3b9b094f` | Usage reached from home; title menu, Rename, Escape: the same in both, 6/6 screens pixel-identical; no Usage segment to pin (no signed-in provider) | 5 before/after pairs, `drive2-record.md` | the pin: a signed-in provider |
 
 ## Next action
+
+2026-10-09 (records sync, `t3-code-records-337`): merged into `feat(example)/t3-code` as #332 (`f633671b7`); the record moved to `tasks/closed/`. Its open rows stay as recorded above; the `timeline-keyboard` recipe was fixed by #333.
 
 Review of the draft PR, then the coordinator's records sync. Open rows: the Usage pin (a signed-in provider on the lane),
 the `connectionAskRemove` refusal (recorded), and the `timeline-keyboard` recipe (a separate follow-up).

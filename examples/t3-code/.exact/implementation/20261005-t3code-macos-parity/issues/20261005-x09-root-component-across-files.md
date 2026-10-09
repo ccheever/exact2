@@ -137,7 +137,7 @@ of root actions.
 merely to evade the cap."
 - **Different design:** neither option under "Requested support" is chosen (A, child resources; B, a root across
   files). Request ownership waits for LLP 1035.005.000 D5 (navigation-entry ownership), with no date.
-- For the clone: [app-contract-root-rewrite](../tasks/20261008-app-contract-root-rewrite.md) is the endorsed
+- For the clone: [app-contract-root-rewrite](../tasks/closed/20261008-app-contract-root-rewrite.md) is the endorsed
   remedy. Resources, mutations and tasks stay in the root; view-only state and action halves move to area children.
 - The local A1 branch ("Fix built" above) is superseded by the decision and not pursued.
 - #108 stays open upstream for D5. Nothing to adopt.

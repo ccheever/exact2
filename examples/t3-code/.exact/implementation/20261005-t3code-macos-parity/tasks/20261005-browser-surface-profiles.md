@@ -22,7 +22,7 @@ clears cookies and cache for that profile only (part 1 draws Clear cookies and C
 Settings › Integrations › Browser manages the profiles and the default one; the cookie import wizard brings cookies
 from Chrome, Edge, Brave, Vivaldi, Opera, Arc, Helium, Firefox and Safari.
 
-Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 4). It starts
+Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 4). It starts
 after part 1 merges into `feat(example)/t3-code`.
 
 ## Scope and exclusions
@@ -60,7 +60,7 @@ Parent specification: [spec](../spec.md); engine decisions and declared differen
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | its draft PR | Merged into `feat(example)/t3-code` | pending |
+| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X66](../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the profile submenu opens from its chevron, not on hover, until a popover can open from an action | — |
 
 ## Acceptance and reproduction
