@@ -4,7 +4,10 @@
 // DeviceSetup.tsx). Network paths run against a recording fake of the native bridge.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
-import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, availability, panelView, workspacePath, type PanelState } from './r4-surfaces-panel';
+import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surfaceStore, availability, panelView, workspacePath, type PanelState } from './r4-surfaces-panel';
+import { draftThreadId } from './r7-handoff-thread';
+import { deviceThreadId } from './r6-media-device';
+import { toasts } from './toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths } from './r4-surfaces-files';
 import { resolveChains, listLines, prsView, prCommandPayload } from './r4-surfaces-prs';
 import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from './r4-surfaces-device';
@@ -72,7 +75,7 @@ describe('rightPanelStore rules', () => {
     syncDiff({ diffOpen: false } as unknown as T3Client, state);
     expect(state.visible).toBe(false);
   });
-  test('the launcher enables Files with a project, Device from a thread and Linked pull requests with links', () => {
+  test('the launcher enables Files with a project, Device from a thread or a draft and Linked pull requests with links', () => {
     const { client } = fakeClient();
     expect(availability(client)).toMatchObject({ files: true, device: true, pullRequests: false });
     const rows = surfaces(client);
@@ -80,8 +83,20 @@ describe('rightPanelStore rules', () => {
     expect(rows.find(row => row.id === 'device')).toMatchObject({ available: true });
     expect(rows.find(row => row.id === 'terminal')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'pull-requests')).toMatchObject({ available: false, reason: 'No linked pull requests available.' });
+    // ChatView `deviceAvailable={activeThreadRef !== null}`: a project's draft has its thread ref too (PA-1).
     const draft = fakeClient({ threadId: '' }).client;
-    expect(surfaces(draft).find(row => row.id === 'device')).toMatchObject({ available: false, reason: 'Available from a thread.' });
+    expect(surfaces(draft).find(row => row.id === 'device')).toMatchObject({ available: true, reason: '' });
+    const none = fakeClient({ threadId: '', projectId: '' }).client;
+    expect(surfaces(none).find(row => row.id === 'device')).toMatchObject({ available: false, reason: 'Available from a thread.' });
+  });
+  test('a Terminal tab wears the terminal glyph the shell icon set draws (PA-10)', async () => {
+    const icons = await Bun.file(new URL('./shell-icons.contract', import.meta.url)).text();
+    const { client } = fakeClient();
+    const state = panelState(client);
+    state.surfaces = [{ id: 'terminal', kind: 'terminal', path: '', line: 0, reveal: 0 }]; state.active = 'terminal'; state.visible = false;
+    const tab = (await panelView(client, null, 0)).tabs[0]!;
+    expect(tab.icon).toBe('square-terminal');
+    expect(icons).toContain(`name == "${tab.icon}" ?`);
   });
 });
 
@@ -124,6 +139,52 @@ describe('Files surface', () => {
     expect(view.files).toMatchObject({ path: 'src/index.ts', preview: 'code', editable: true, wrap: true, showExplorer: true });
     expect(view.files.rows.find(row => row.path === 'src/index.ts')!.selected).toBe(true);
     expect(view.files.crumbs.map(crumb => crumb.label)).toEqual(['surface-fixture', 'src', 'index.ts']);
+  });
+  // FilePreviewPanel showsRawText and canOpenInBrowser (PA-4, PA-5): word wrap only over source text; a page or a PDF opens in the Browser.
+  test('the subheader offers word wrap only for source text and "Open file in preview browser" for a page or a PDF', async () => {
+    const rpcs: { method: string; payload: Record<string, unknown> }[] = [];
+    const { client, replies } = fakeClient({ available: true, origin: 'http://127.0.0.1:9',
+      rpc: async (_native: unknown, method: string, payload: Record<string, unknown>) => { rpcs.push({ method, payload }); return { relativeUrl: `/api/assets/${rpcs.length}` }; } });
+    replies['projects.listEntries'] = () => ({ entries: [{ path: 'docs', kind: 'directory' }], truncated: false });
+    replies['projects.readFile'] = payload => ({ relativePath: payload.relativePath, contents: '%PDF-1.4 text', byteLength: 13, truncated: false });
+    const subheader = async (path: string) => { await surfaceLocal(client, native, 'file', path, ''); const files = (await panelView(client, native, 0)).files; return [files.preview, files.rawText, files.openInBrowser]; };
+    expect(await subheader('docs/notes.ts')).toEqual(['code', true, false]);
+    expect(await subheader('docs/page.html')).toEqual(['html', false, true]);
+    expect(await subheader('docs/guide.pdf')).toEqual(['pdf', false, true]);
+    expect(await subheader('docs/logo.png')).toEqual(['media', false, false]);
+    // The page's source (the eye toggle) is text again: word wrap comes back, the Browser button stays.
+    await surfaceLocal(client, native, 'files-render', 'docs/page.html', '');
+    expect(await subheader('docs/page.html')).toEqual(['code', true, true]);
+    // Without the module's web views there is no Browser (isPreviewSupportedInRuntime).
+    (client as unknown as { available: boolean }).available = false;
+    expect((await subheader('docs/guide.pdf'))[2]).toBe(false);
+  });
+  test('"Open file in preview browser" signs the workspace file for the thread and opens it in a Browser tab (openFileInPreview)', async () => {
+    const live = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
+    // A page and a PDF take the same path: the signed `workspace-file` URL opens in a new Browser tab.
+    for (const [path, tab] of [['docs/page.html', 'tab-1'], ['docs/guide.pdf', 'tab-2']] as const) {
+      const rpcs: { method: string; payload: Record<string, unknown> }[] = [], raws: Record<string, unknown>[] = [];
+      const { client } = fakeClient({ available: true, origin: 'http://127.0.0.1:9', generation: 1, presentation: {},
+        raw: async (_native: unknown, request: Record<string, unknown>) => { raws.push(request); return { ok: true, value: {} }; },
+        rpc: async (_native: unknown, method: string, payload: Record<string, unknown>) => {
+          rpcs.push({ method, payload });
+          if (method === 'assets.createUrl') return { relativeUrl: `/api/assets/token/${path.split('/').pop()}` };
+          if (method === 'preview.list') return { sessions: [], serverEpoch: 'epoch-1', revision: 1 };
+          if (method === 'preview.open') return { threadId: 't1', tabId: tab, navStatus: { _tag: 'Loading', url: String(payload.url), title: '' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' };
+          return {};
+        } });
+      await surfaceLocal(client, live, 'files-open-browser', path, '');
+      expect(rpcs.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'workspace-file', threadId: 't1', path: `/repo/${path}` } });
+      expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't1', url: `http://127.0.0.1:9/api/assets/token/${path.split('/').pop()}` });
+      expect(panelState(client)).toMatchObject({ active: `browser:${tab}`, visible: true });
+      expect(raws.filter(request => request.op === 'browserSync').at(-1)?.tabs).toHaveLength(1);
+      expect(toasts(client)).toEqual([]);
+    }
+    // A refused signature is the reference's stacked toast, and no tab opens.
+    const refused = fakeClient({ available: true, origin: 'http://127.0.0.1:9', rpc: async () => { throw new Error('Workspace context not found.'); } }).client;
+    await surfaceLocal(refused, live, 'files-open-browser', 'docs/guide.pdf', '');
+    expect(toasts(refused).at(-1)).toMatchObject({ title: 'Unable to open file in browser', description: 'Workspace context not found.' });
+    expect(panelState(refused).surfaces.some(surface => surface.kind === 'browser')).toBe(false);
   });
   test('edits are written with projects.writeFile, newest contents last, and the tab is pending until confirmed', async () => {
     const { client, calls, replies } = fakeClient();
@@ -201,5 +262,41 @@ describe('Device setup', () => {
     expect((await panelView(client, native, 0)).deviceSetup).toBe(false);
     await watchDevice(client, native);
     expect(calls.filter(call => call.method === 'subscribe').length).toBe(1);
+  });
+  test('M on a draft opens Device for the draft\'s own thread id, allocated as it opens (PA-1)', async () => {
+    const { client } = fakeClient({ threadId: '', local: { clientSettings: { wordWrap: true }, composerControls: {} } });
+    expect(availability(client).device).toBe(true);
+    await surfaceLocal(client, native, 'open', 'm', '');
+    expect(draftThreadId(client)).toBe('cmd-0');
+    expect(deviceThreadId(client)).toBe('cmd-0');
+    expect(surfaceStore(client).deviceSetup).toBe('env:cmd-0');
+  });
+});
+
+// RightPanelTabs handleKeyDown (PA-2), read from the Contract source as menu-keys.test.ts reads its menus; the macOS drive
+// in tasks/20261009-right-panel-launcher-and-files.md proves the keys.
+describe('the surface launcher keyboard', () => {
+  const component = async (name: string) => {
+    const lines = (await Bun.file(new URL('./shell-panels.contract', import.meta.url)).text()).split('\n');
+    const start = lines.indexOf(`component ${name}`), end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    return lines.slice(start, end).join('\n');
+  };
+  test('one highlight over the available rows: the arrows move and wrap it, Enter opens it, a chord or a letter is the panel\'s', async () => {
+    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui)');
+    const launcher = await component('SurfaceLauncher');
+    expect(launcher).toContain('state highlight = -1');
+    expect(launcher).toContain('derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)');
+    expect(launcher).toContain('derive lit = length(ids) == 0 ? -1 : min(highlight, length(ids) - 1)');
+    expect(launcher).toContain('if e.metaKey or e.ctrlKey or e.altKey or length(ids) == 0\n      ui("key", k)');
+    expect(launcher).toContain('else if k == "ArrowDown" or k == "ArrowRight"\n      preventDefault()\n      highlight = (lit + 1) % length(ids)');
+    expect(launcher).toContain('else if k == "ArrowUp" or k == "ArrowLeft"\n      preventDefault()\n      highlight = lit == -1 ? length(ids) - 1 : (lit - 1 + length(ids)) % length(ids)');
+    expect(launcher).toContain('else if k == "Enter" and lit >= 0\n      preventDefault()\n      match at(ids, lit)\n        case some(id)\n          ui("choose", id)');
+    expect(launcher).toContain('    else\n      ui("key", k)');
+    // A pointer over an available row moves the same highlight; leaving that row clears it.
+    expect(launcher).toContain('highlight = over ? indexOf(ids, id) : (highlight == indexOf(ids, id) ? -1 : highlight)');
+    expect(launcher).toContain('id="surface-chooser" key=keys hatch="t3-launcher"');
+    expect(launcher).toContain('highlighted=(surface.available and lit >= 0 and indexOf(ids, surface.id) == lit), tipped=(hovered == surface.id)');
+    // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
+    expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
 });
