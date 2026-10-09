@@ -56,6 +56,9 @@ final class T3Module: ExactModule {
         composer = T3Composer(changed: changed)
         composer.editor.styler.imageDirectory = T3Storage.dataRoot(agent: context.agent, contextData: context.data).appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
         promptPreview.styler.richText = false // PromptFontPreview leaves ComposerPromptEditor's richTextEnabled off: markers stay text
+        // A skill chip's press in either editor opens its details popover (T3ComposerChipPress.swift, composer-chip-popover.ts).
+        composer.editor.styler.press.onChange = { changed("t3.chip") }
+        promptPreview.styler.press.onChange = { changed("t3.chip") }
         intent = T3ComposerIntent(changed: changed)
         frames = T3ComposerFrames(changed: changed)
         scrollEnds = R5ComposerScroll(changed: changed)

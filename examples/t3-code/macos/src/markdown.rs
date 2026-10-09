@@ -33,6 +33,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "createProvider",
             "command",
             "composerEditor",
+            "composerChip", // a skill chip's details popover (composer-chip-popover.ts)
             "composerWorkspace",
             "refreshComposerWorkspace",
             "refreshTimelineReads",

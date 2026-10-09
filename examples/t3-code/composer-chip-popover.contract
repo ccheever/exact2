@@ -1,0 +1,51 @@
+// A skill chip's details popover (settings-appearance-and-skill-chip, desktop audit S1-12), adapted from
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): ComposerPromptEditorTiptap.tsx ComposerSkillNodeView's
+// ContextChipPopover (contextChipParts.tsx) and ui/popover.tsx PopoverPopup (side top, align center,
+// sideOffset 4, width "lg": w-96 capped at the viewport less 2rem, padding "compact": py-2 px-3,
+// dropdown-glass, drawn opaque as there is no backdrop blur here). Its content is `space-y-3 p-2 text-sm`:
+// the label (font-medium), the skill's description or "No description is available for this skill.", and an
+// outline small "View instructions" for a skill with a path. The chip is drawn by the native editor, which reports a press with the chip's
+// window frame (T3ComposerChipPress.swift); the window draws this above every page (the Settings prompt
+// sample's chip included), as Base UI portals the popup to the body. Base UI's collision avoidance: the
+// side flips below when the window leaves no room above, and the popup shifts to stay 5 pt inside it.
+
+shape ChipPopover
+  seq: number
+  open: bool
+  surface: string
+  label: string
+  title: string
+  description: string
+  path: string
+  x: number
+  y: number
+  width: number
+  height: number
+
+// The popup's height for the flip: py-2 and p-2 around the label, space-y-3, the description's lines at
+// 20/14 (about 7 pt a character across the content width), and the 28 pt button with its 12 pt gap.
+fn chipPopoverEstimate(chip: ChipPopover, width: number): number = 2 + 32 + 20 + 12 + (floor(length(chip.description) * 7 / max(width - 42, 100)) + 1) * 20 + (chip.path != "" ? 40 : 0)
+
+// Within the window, 5 pt from its edges (Base UI's collision padding).
+fn chipPopoverLeft(chip: ChipPopover, width: number, viewportWidth: number): number = max(5, min(viewportWidth - width - 5, chip.x + chip.width / 2 - width / 2))
+
+component ChipPopoverLayer
+  inject
+    rem: number
+  props
+    chip: ChipPopover
+    viewportWidth: number
+    viewportHeight: number
+    // View instructions: the skill's file opens in the right panel (rightPanelStore.openFile).
+    instructions: action
+  derive width = min(24 * rem, viewportWidth - 2 * rem)
+  derive estimate = chipPopoverEstimate(chip, width)
+  derive above = chip.y - 9 >= estimate or chip.y >= viewportHeight - chip.y - chip.height
+  view
+    column id="chip-popover" position="absolute" left=chipPopoverLeft(chip, width, viewportWidth) top=(above ? "auto" : chip.y + chip.height + 4) bottom=(above ? viewportHeight - chip.y + 4 : "auto") width=width padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=130 role="dialog" aria-label=chip.title testId="chip-popover"
+      column padding="0.5rem" gap="0.75rem" align-items="flex-start" color="light-dark(#27272a, #f5f5f5)"
+        text chip.label font-size="0.875rem" line-height="1.25rem" font-weight=500 testId="chip-popover-label"
+        text chip.description font-size="0.875rem" line-height="1.25rem" testId="chip-popover-description"
+        when chip.path != ""
+          button press=instructions testId="chip-popover-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
+            text "View instructions" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap"

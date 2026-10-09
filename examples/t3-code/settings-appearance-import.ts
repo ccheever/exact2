@@ -157,7 +157,8 @@ export async function searchOpenVsx(client: T3Client, native: Native, query: str
       if (!contributions(manifest).length || !licenseOk(manifest, license)) return null;
       const id = `${namespace}.${name}`;
       const repository = str(detail.repository);
-      return { id, namespace, name, version, displayName: str(detail.displayName, name), publisher: str(obj(detail.publishedBy).loginName, namespace), description: str(detail.description),
+      // openVsxThemes.ts extensionFromDetail: the publisher is the extension's namespace, not the uploader's login.
+      return { id, namespace, name, version, displayName: str(detail.displayName, name), publisher: str(detail.namespace).trim() || namespace, description: str(detail.description),
         downloads: `${FORMAT(Number(detail.downloadCount) || 0)} downloads`, sourceUrl: /^https:\/\//.test(repository) ? repository : '',
         // ThemeExtensionIcon: the extension's own icon (Open VSX files.icon), else the palette glyph.
         iconUrl: /^https:\/\/open-vsx\.org\//.test(str(obj(detail.files).icon)) ? str(obj(detail.files).icon) : '',
