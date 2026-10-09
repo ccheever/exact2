@@ -1,0 +1,22 @@
+audit-wave-followups-3: live drives, 1280x840, agent mode (clone) and CDP (reference)
+Before: the feature tip b8e36d476 built in its own worktree (t3-code-awf3-before; the shared evidence-base sits at 950e8e2e5, 30 commits behind), lane audit-wave-followups-3-before, storage awf3-before-2.
+After: this branch's bundle (a66131ef1 = 903c234a5 + merge of origin e4647764f + the search Escape), lane audit-wave-followups-3, storage awf3-after-2 (the one retry: the first run stopped at op 48, 'clock: the clock cannot go backwards (60700.0 -> 60699.99999999999)', a driver float, before any FW-3 step).
+Reference: T3 Code 1e2ecbd975 Electron production build over CDP, app mode Light (t3code:theme-appearance-mode), prefers-color-scheme emulated dark.
+Fixture (both clone lanes and the reference home): thread 'Attachment preview' in project work whose user message carries notes.md (stored under userdata/attachments), docs/flow.md with a mermaid fence.
+
+== Clone before (tree facts after each step) ==
+ FW-2 (after the chip): focus=['attachment-preview-verify-attach-0a1b2c3d-1111-4222-8333-444455556666-md'] open=[] {'attachment-markdown': 'present'}
+ FW-3 row: Filters, ArrowRight into State, Escape: focus=['pull-requests-filters'] open=[] {'attachment-markdown': 'present', 'pr-filter-state expanded': True, 'pr-filter-author expanded': False}
+ FW-4: Filters > Author: focus=['pr-author-search'] open=['pr-filters-layer'] {'attachment-markdown': 'present', 'Anyone aria-checked': True, 'pr-filter-state expanded': False, 'pr-filter-author expanded': True}
+ FW-3 search: Escape in Search authors: focus=['pull-requests-filters'] open=[] {'attachment-markdown': 'present', 'Anyone aria-checked': True, 'pr-filter-state expanded': False, 'pr-filter-author expanded': True}
+
+== Clone after (tree facts after each step) ==
+ FW-2 (after the chip): focus=['attachment-preview-verify-attach-0a1b2c3d-1111-4222-8333-444455556666-md'] open=[] {'attachment-markdown': 'present', 'diagram': 'mermaid-expand-8'}
+ FW-3 row: Filters, ArrowRight into State, Escape: focus=['pr-filter-state'] open=['pr-filters-layer'] {'attachment-markdown': 'present', 'diagram': 'mermaid-expand-8', 'pr-filter-state expanded': False, 'pr-filter-author expanded': False}
+ FW-4: Filters > Author: focus=['pr-author-search'] open=['pr-filters-layer'] {'attachment-markdown': 'present', 'diagram': 'mermaid-expand-8', 'Anyone aria-checked': True, 'pr-filter-state expanded': False, 'pr-filter-author expanded': True}
+ FW-3 search: Escape in Search authors: focus=['pr-filters-keys'] open=['pr-filters-layer'] {'attachment-markdown': 'present', 'diagram': 'mermaid-expand-8', 'pr-filter-state expanded': False, 'pr-filter-author expanded': False}
+
+== Reference (CDP) ==
+ FW-3 row: ArrowDown, ArrowRight -> focus 'All' [menuitemradio], menus [Filters, State]; Escape -> focus 'State Open' [menuitem], menus [Filters]; Escape -> focus Filters button, no menu
+ FW-4: Author submenu menus [Filters, 'Anyone(checked)|No authors found'] (aria-checked, drawn tinted with no check)
+ FW-3 search: focus 'Search authors' [INPUT]; Escape -> focus BODY, menus [Filters] (submenu closed, Filters open, no row lit); Escape -> no menu
