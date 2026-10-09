@@ -1,0 +1,39 @@
+#!/bin/zsh
+# fix-settings-integrations-loop: the live drive (agent mode, lane env). Not committed; uploaded as evidence.
+# Usage: drive.sh <run name> <branch|base>. "branch" drives this worktree's build; "base" the never-edited evidence-base
+# build (c603c22d6, under its .build-lock). Same steps for both: launch on the lane's embedded server ("This machine",
+# T3_LOCAL_PORT 16800), `t3 app` opens the lane project, open Settings › Integrations, hold it 30 s, leave Settings and
+# wait 10 s. Ops' answer times are stamped per line (agent.jsonl.ts); the lane server's trace is copied after.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-fix-settings-integrations-loop
+L=$W/target/fsil-lane
+P=${1:-drive}; MODE=${2:-branch}; OUT=$W/target/fsil/runs/$P; rm -rf $OUT; mkdir -p $OUT
+if [ $MODE = base ]; then A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; else A=$W; fi
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+export EXACT_APP_DIR=$A/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16800 T3_LOCAL_RUNTIME_DIR=$R T3CODE_TELEMETRY_ENABLED=false
+export HOME=$L/home CFFIXED_USER_HOME=$L/home TMPDIR=$L/tmp/
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+# The driver asks rustc/cargo for the host target and metadata: rustup proxies (drvbin) with the real toolchain dirs.
+export RUSTUP_HOME=/Users/daehyeonmun/.rustup CARGO_HOME=/Users/daehyeonmun/.cargo
+export PATH=$L/bin:$L/drvbin:${BUN:h}:/usr/bin:/bin:/usr/sbin:/sbin
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do kill -0 $AG 2>/dev/null || return 1; sleep 0.2; done; }
+cd $A
+S=$OUT
+OPS=("clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window"
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real" "screenshot $S/20-integrations.png window"
+  "clock +30000 real" "screenshot $S/21-integrations-30s.png window" tree
+  "tap settings-go-to-threads" "clock +3000 real" "screenshot $S/30-left.png window" "clock +10000 real" "screenshot $S/31-left-10s.png window" logs)
+printf '%s\n' "${OPS[@]}" > $OUT/ops.txt
+date -u +%FT%T.000Z > $OUT/started.txt
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" 2> $OUT/agent.err | tee $OUT/agent.jsonl | perl -MTime::HiRes=time -ne 'printf "%.3f %s", time, $_' > $OUT/agent.jsonl.ts &
+AG=$!; echo "driver pipeline pid $AG" > $OUT/pids.txt
+waitline 1 || { echo "driver exited before its first answer" >> $OUT/pids.txt; cat $OUT/agent.err; exit 1; }
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR=$L/tmp/ T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "driver exit $?" >> $OUT/pids.txt
+cp $T3_LOCAL_HOME/userdata/logs/server.trace.ndjson* $OUT/ 2>/dev/null
+for f in $S/*.png; do echo "$(stat -f %Fm $f) ${f:t}"; done > $OUT/png-mtimes.txt
+echo DRIVE-DONE
