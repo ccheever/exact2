@@ -1,0 +1,21 @@
+# Paste each visible guest shot into the renderer shot at its slot (reference windows; not committed).
+import json, sys
+from PIL import Image
+for base in sys.argv[1:]:
+    meta = json.load(open(f'{base}.json'))
+    out = Image.open(f'{base}.r.png').convert('RGB')
+    s = meta['scale']
+    slots = [slot for slot in meta['slots'] if slot['visible']]
+    shots = [shot for shot in meta['shots'] if 'file' in shot]
+    for slot, shot in zip(slots, shots):
+        page = Image.open(shot['file']).convert('RGBA')
+        white = Image.new('RGBA', page.size, (255, 255, 255, 255)); white.alpha_composite(page)  # the page's canvas is white
+        guest = white.convert('RGB').resize((round(slot['width'] * s), round(slot['height'] * s)), Image.LANCZOS)
+        out.paste(guest, (round(slot['x'] * s), round(slot['y'] * s)))
+    over = Image.open(f'{base}.r.png').convert('RGB')
+    for box in meta.get('overlays', []):  # the app's layers above the webview
+        x0, y0 = max(0, round(box['x'] * s) - 22), max(0, round(box['y'] * s) - 22)
+        x1, y1 = round((box['x'] + box['width']) * s) + 22, round((box['y'] + box['height']) * s) + 22
+        out.paste(over.crop((x0, y0, x1, y1)), (x0, y0))
+    out.save(f'{base}.png')
+    print(base, out.size, len(slots), len(shots))
