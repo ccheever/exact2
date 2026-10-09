@@ -1160,7 +1160,7 @@ component T3Code
         focus("surface-chooser")
     if what == "terminal" // terminal-drawer: the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
       send terminalChanged = command("terminallocal:toggle", "", "", 0)
-    if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T"))) and not commandPending
+    if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
@@ -1169,6 +1169,10 @@ component T3Code
       openSettings() // a project link replaces the whole scope (retainSettingsScope)
       settingsProjectId = target == "" ? data.projectId : target
       settingsRoute = "projects"
+    if op == "ui:add-script" // ProjectScriptsControl's Add project script: the Add Action dialog in place, for this project
+      restEditor = "card-action"
+      restSubject = target == "" ? data.projectId : target
+      modalError = ""
     if op == "ui:scheduled-tasks" // ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
       settingsEnvironmentId = settings.environmentId
       settingsMachine = ""
@@ -1180,7 +1184,7 @@ component T3Code
       restEditor = target == "" ? "" : "task"
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""
-    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and op != "ui:scheduled-tasks" and not commandPending
+    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
       send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"
