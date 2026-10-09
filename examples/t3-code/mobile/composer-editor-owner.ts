@@ -7,7 +7,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { Obj } from './shared/domain';
-import { mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileComposerContextCompleteSend, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
 import { mobileComposerContextInventoryOwnerAvailable, mobileComposerContextInsertDocument, type ComposerExternalContextContent, type ComposerExternalContextResult, mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileEditorDocumentEnroll, mobileEditorDocumentMembership, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
@@ -224,4 +224,23 @@ export function mobileEditorCommitContextInsertion(client:T3Client,capture:Edito
   if(entry)Object.assign(entry,outcome.ledger);
   if(same)r.active=null;
   admissions.delete(lane);r.revision++;return outcome.result;
+}
+
+/** Ordinary queued Send publication. All volatile ledger preparation precedes the concrete
+ * context/document/inventory commit; preserved completions leave the observed ledger untouched. */
+export function mobileEditorCompleteQueuedSend(client:T3Client,capture:EditorDocumentIntent,
+  claim:import('./thread-send-transfer-model').ThreadSendTransferClaim) {
+  const r=registry(client),active=r.active;
+  if(active&&active.target.origin===capture.target.origin&&active.target.environmentId===capture.target.environmentId
+    &&active.target.key===capture.target.key)return {ok:false as const};
+  if(!Number.isSafeInteger(r.revision)||r.revision<0||r.revision>=Number.MAX_SAFE_INTEGER)return {ok:false as const};
+  const entry=r.documents.get(keyOf(capture.target));
+  const ledger={value:'',selection:{start:0,end:0},revision:capture.revision+1,incarnation:capture.incarnation};
+  const result=mobileComposerContextCompleteSend(client,capture,claim);
+  if(!result.ok)return result;
+  if(!result.alreadyApplied&&result.marker.disposition==='cleared'){
+    if(entry)Object.assign(entry,ledger);
+    r.revision++;
+  }
+  return result;
 }

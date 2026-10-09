@@ -414,6 +414,7 @@ final class T3MobileOutbox {
         return record["context"] == nil
     }
     static func validateCapture(_ capture: Object, record: Object? = nil) -> Bool {
+        if capture["kind"] != nil { return validateOrdinaryCapture(capture, record: record) }
         guard fields(capture, required: ["version", "draft"]), integer(capture["version"], positive: true), capture["version"] as? Int == 1,
               let draft = capture["draft"] as? Object,
               fields(draft, required: ["key", "revision", "createdAt", "environmentId", "origin", "projectId", "text", "images", "files", "attachmentIds", "choices", "workspace"], optional: ["branchChoice", "context"]),
@@ -475,11 +476,12 @@ final class T3MobileOutbox {
         return true
     }
     private static func sameTransfer(_ original: Object, _ current: Object) -> Bool {
-        guard ["transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId"].allSatisfy({ jsonEqual(original[$0], current[$0]) }) else { return false }
+        guard ["kind", "origin", "environmentId", "transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId"].allSatisfy({ jsonEqual(original[$0], current[$0]) }) else { return false }
         return ["completed", "released"].contains(current["state"] as? String ?? "")
             || jsonEqual(original["record"], current["record"]) && jsonEqual(original["capture"], current["capture"])
     }
     static func validateTransfer(_ claim: Object, id: String) -> Bool {
+        if claim["kind"] != nil { return validateOrdinaryTransfer(claim, id: id) }
         guard fields(claim, required: ["transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId", "state", "record", "capture", "outcome"]),
               claim["transferId"] as? String == id, claim["messageId"] as? String == id,
               ["threadId", "commandId", "mutationId", "draftKey"].allSatisfy({ nonempty(claim[$0]) }),
@@ -499,6 +501,236 @@ final class T3MobileOutbox {
               outcome["messageId"] as? String == id, integer(outcome["revision"]), outcome["message"] is String,
               outcome["removed"] is NSNull, outcome["status"] as? String == (["failed", "released"].contains(state) ? "failed" : "committed") else { return false }
         return state == "queued" ? jsonEqual(outcome["record"], claim["record"]) : outcome["record"] is NSNull
+    }
+
+    // v2 ordinary capture deliberately does not use NewTask's reference projection.
+    static func ordinaryTarget(_ value: Object) -> Bool {
+        guard fields(value, required: ["origin", "environmentId", "threadId", "draftKey"]),
+              canonicalOrigin(value["origin"]), ordinaryText(value["environmentId"]), ordinaryText(value["threadId"]),
+              let thread = value["threadId"] as? String, !thread.hasPrefix("new:"),
+              let key = value["draftKey"] as? String, !key.contains("~queued-edit~") else { return false }
+        return key == "\(value["environmentId"] as! String):\(thread)"
+    }
+    static func ordinaryScope(_ value: Object, draft: Bool = false) -> Object {
+        ["origin": value["origin"] ?? NSNull(), "environmentId": value["environmentId"] ?? NSNull(),
+         "threadId": value["threadId"] ?? NSNull(), "draftKey": value[draft ? "key" : "draftKey"] ?? NSNull()]
+    }
+    private static func ordinaryText(_ raw: Any?, limit: Int = 4096) -> Bool {
+        nonempty(raw) && (raw as! String).utf16.count <= limit
+    }
+    private static func ordinarySelection(_ raw: Any?, length: Int) -> Bool {
+        if raw is NSNull { return true }
+        guard let value = raw as? Object, fields(value, required: ["start", "end"]), integer(value["start"]), integer(value["end"]),
+              let start = value["start"] as? Int, let end = value["end"] as? Int else { return false }
+        return start <= end && end <= length
+    }
+    private static func ordinaryDocument(_ raw: Any?, text: String, persisted: Bool = false) -> Bool {
+        guard let value = raw as? Object,
+              fields(value, required: ["incarnation", "revision", "selection"] + (persisted ? ["origin", "environmentId", "threadId", "draftKey"] : [])),
+              ordinaryText(value["incarnation"], limit: 128), integer(value["revision"]),
+              ordinarySelection(value["selection"], length: text.utf16.count) else { return false }
+        return !persisted || ordinaryTarget(ordinaryScope(value))
+    }
+    private static func ordinaryContext(_ raw: Any?, bounded: Bool) -> Bool {
+        if raw is NSNull { return true }
+        guard let value = raw as? Object, fields(value, required: ["version", "records"]), integer(value["version"]), value["version"] as? Int == 1,
+              let records = value["records"] as? [Object], !bounded || records.count <= 200,
+              let data = try? JSONSerialization.data(withJSONObject: records, options: [.withoutEscapingSlashes]),
+              let string = String(data: data, encoding: .utf8), !bounded || string.utf16.count <= 16_000_000 else { return false }
+        var seen = Set<String>()
+        return records.allSatisfy { item in
+            ordinaryContextRecord(item) && seen.insert(item["contextId"] as! String).inserted
+        }
+    }
+    private static func ordinaryContextRecord(_ item: Object) -> Bool {
+        if contextRecord(item) { return true }
+        guard integer(item["version"]), item["version"] as? Int == 1,
+              let id = item["contextId"] as? String, matches(id, "^[a-zA-Z0-9_-]{1,128}$"),
+              let label = item["label"] as? String, label.utf16.count <= 200,
+              let kind = item["kind"] as? String else { return false }
+        func string(_ raw: Any?, _ limit: Int, nullable: Bool = false, trimmed: Bool = false) -> Bool {
+            if nullable && raw is NSNull { return true }
+            guard let value = raw as? String, value.utf16.count <= limit else { return false }
+            return !trimmed || nonempty(value)
+        }
+        func element(_ value: Object) -> Bool {
+            guard string(value["pageUrl"], 2048), string(value["pageTitle"], 2048, nullable: true),
+                  string(value["tagName"], 255, trimmed: true), string(value["selector"], 2048, nullable: true),
+                  string(value["htmlPreview"], 8000), string(value["componentName"], 2048, nullable: true), string(value["styles"], 8000) else { return false }
+            if value["source"] is NSNull { return true }
+            guard let source = value["source"] as? Object else { return false }
+            return ["functionName", "fileName"].allSatisfy { string(source[$0], 2048, nullable: true) }
+                && ["lineNumber", "columnNumber"].allSatisfy { source[$0] is NSNull || integer(source[$0]) }
+        }
+        if kind == "element" { return element(item) }
+        if kind == "preview-annotation" {
+            guard ["annotationId", "pageUrl", "targetSummary"].allSatisfy({ string(item[$0], 2048) }),
+                  string(item["pageTitle"], 2048, nullable: true), string(item["comment"], 8000),
+                  let changes = item["styleChanges"] as? [String], changes.count <= 200, changes.allSatisfy({ $0.utf16.count <= 2048 }) else { return false }
+            if let raw = item["elements"] { guard let values = raw as? [Object], values.count <= 50, values.allSatisfy(element) else { return false } }
+            if let raw = item["elementIds"] { guard let values = raw as? [String], values.count <= 50, values.allSatisfy({ $0.utf16.count <= 2048 }) else { return false } }
+            for key in ["regionCount", "strokeCount"] where item[key] != nil { if !integer(item[key]) { return false } }
+            if let raw = item["screenshotContextId"] { guard let id = raw as? String, matches(id, "^[a-zA-Z0-9_-]{1,128}$") else { return false } }
+            if let raw = item["styleChangeDetails"] {
+                guard let values = raw as? [Object], values.count <= 200, values.allSatisfy({ value in
+                    string(value["targetId"], 2048) && string(value["selector"], 2048, nullable: true) && string(value["property"], 2048)
+                        && string(value["previousValue"], 8000) && string(value["value"], 8000)
+                }) else { return false }
+            }
+            return true
+        }
+        // Known producer kinds cannot escape their validation through the future-kind branch.
+        guard !["image", "file", "thread", "terminal", "mention", "skill", "review-comment"].contains(kind),
+              matches(kind, "^[a-z][a-z0-9-]{0,39}$"), let payload = item["payload"],
+              let bytes = try? JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed, .withoutEscapingSlashes]),
+              let string = String(data: bytes, encoding: .utf8) else { return false }
+        return string.utf16.count <= 64000
+    }
+    /// Returns complete mixed normalized attachments. Preserved current inventory grants no upload authority.
+    private static func ordinaryInventory(_ value: Object, target: Object, bounded: Bool) -> [Object]? {
+        guard let images = value["images"] as? [Object], let files = value["files"] as? [Object],
+              let order = value["attachmentIds"] as? [String], !bounded || images.count + files.count <= 100 else { return nil }
+        let rawOrder: [String]
+        if value["attachmentOrder"] is NSNull { rawOrder = [] }
+        else { guard let raw = value["attachmentOrder"] as? [String], raw.allSatisfy({ ordinaryText($0) }), Set(raw).count == raw.count else { return nil }; rawOrder = raw }
+        var normalized: [String: Object] = [:], insertion: [String] = [], seen = Set<String>(), contexts = Set<String>()
+        for (kind, rows) in [("image", images), ("file", files)] {
+            for row in rows {
+                guard let id = row["id"] as? String, ordinaryText(id), !bounded || matches(id, "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"),
+                      seen.insert(id.lowercased()).inserted, ordinaryText(row["name"], limit: 255), ordinaryText(row["mimeType"], limit: 100), integer(row["sizeBytes"]) else { return nil }
+                let upload: String
+                if kind == "image" {
+                    guard row["uploadId"] == nil || row["uploadId"] is String, row["source"] == nil || row["source"] is Object else { return nil }
+                    upload = row["uploadId"] as? String ?? ""
+                } else {
+                    guard row["draftKey"] as? String == target["draftKey"] as? String, row["environmentId"] as? String == target["environmentId"] as? String,
+                          ordinaryText(row["contextId"], limit: 128), contexts.insert(row["contextId"] as! String).inserted,
+                          bounded ? row["source"] as? String == "attached" : ordinaryText(row["source"]),
+                          member(row["status"], ["staged", "ready"]), let actual = row["attachmentId"] as? String,
+                          row["status"] as? String != "ready" || !actual.isEmpty else { return nil }
+                    upload = actual
+                    for key in ["videoWidth", "videoHeight"] where row[key] != nil { if !positive(row[key]) { return nil } }
+                }
+                guard upload.isEmpty || matches(upload, "^[a-zA-Z0-9_-]{1,128}$") else { return nil }
+                var next: Object = ["kind": kind, "id": id, "name": row["name"]!, "mimeType": row["mimeType"]!, "sizeBytes": row["sizeBytes"]!,
+                    "uploadId": upload, "status": upload.isEmpty ? "staged" : "ready"]
+                if !upload.isEmpty { next["uploadEnvironmentId"] = target["environmentId"] }
+                if kind == "file" { next["contextId"] = row["contextId"]; next["source"] = row["source"]
+                    for key in ["videoWidth", "videoHeight"] where row[key] != nil { next[key] = row[key] }
+                } else if let source = row["source"] { next["source"] = source }
+                normalized[id] = next; insertion.append(id)
+            }
+        }
+        var ranked = Set<String>()
+        let expected = (rawOrder + insertion).filter { normalized[$0] != nil && ranked.insert($0).inserted }
+        guard order == expected, order.count == normalized.count else { return nil }
+        return order.compactMap { normalized[$0] }
+    }
+    static func validateOrdinaryCapture(_ capture: Object, record: Object? = nil) -> Bool {
+        guard fields(capture, required: ["version", "kind", "draft"]), integer(capture["version"]), capture["version"] as? Int == 2,
+              capture["kind"] as? String == "ordinary", let draft = capture["draft"] as? Object,
+              fields(draft, required: ["key", "origin", "environmentId", "threadId", "document", "text", "context", "contextRevision", "images", "files", "attachmentIds", "attachmentOrder"]),
+              ordinaryTarget(ordinaryScope(draft, draft: true)), let text = draft["text"] as? String, text.utf16.count <= 1_000_000,
+              ordinaryDocument(draft["document"], text: text), integer(draft["contextRevision"]), ordinaryContext(draft["context"], bounded: true),
+              JSONSerialization.isValidJSONObject(capture), let attachments = ordinaryInventory(draft, target: ordinaryScope(draft, draft: true), bounded: true) else { return false }
+        for context in (draft["context"] as? Object)?["records"] as? [Object] ?? [] where context["attachmentId"] != nil {
+            guard let attachment = attachments.first(where: { jsonEqual($0["id"], context["attachmentId"]) }),
+                  ["kind", "name", "mimeType", "sizeBytes"].allSatisfy({ jsonEqual(attachment[$0], context[$0]) }) else { return false }
+        }
+        guard let record else { return true }
+        return fields(record, required: ["schemaVersion", "origin", "environmentId", "threadId", "messageId", "commandId", "text", "attachments", "modelSelection", "runtimeMode", "interactionMode", "createdAt"], optional: ["context", "dispatchMode"])
+            && validateRecord(record) && ["origin", "environmentId", "threadId"].allSatisfy({ jsonEqual(record[$0], draft[$0]) })
+            && record["text"] as? String == text.trimmingCharacters(in: trimCharacters) && jsonEqual(record["context"] ?? NSNull(), draft["context"])
+            && jsonEqual(record["attachments"], attachments)
+    }
+    static func validateOrdinaryTransfer(_ claim: Object, id: String) -> Bool {
+        guard fields(claim, required: ["kind", "origin", "environmentId", "transferId", "draftKey", "fingerprint", "messageId", "threadId", "commandId", "mutationId", "state", "record", "capture", "outcome"]),
+              claim["kind"] as? String == "ordinary", ordinaryTarget(ordinaryScope(claim)), claim["transferId"] as? String == id, claim["messageId"] as? String == id,
+              ["transferId", "commandId", "mutationId"].allSatisfy({ ordinaryText(claim[$0]) }),
+              let digest = claim["fingerprint"] as? String, matches(digest, "^[a-f0-9]{64}$"),
+              let state = claim["state"] as? String, ["prepared", "queued", "failed", "completed", "released"].contains(state) else { return false }
+        if ["completed", "released"].contains(state) {
+            guard claim["record"] is NSNull, claim["capture"] is NSNull else { return false }
+        } else {
+            guard let record = claim["record"] as? Object, let capture = claim["capture"] as? Object, validateOrdinaryCapture(capture, record: record),
+                  jsonEqual(ordinaryScope(capture["draft"] as! Object, draft: true), ordinaryScope(claim)),
+                  (try? captureFingerprint(capture)) == digest,
+                  ["messageId", "threadId", "commandId"].allSatisfy({ jsonEqual(record[$0], claim[$0]) }) else { return false }
+        }
+        if state == "prepared" { return claim["outcome"] is NSNull }
+        guard let outcome = claim["outcome"] as? Object, jsonEqual(outcome["mutationId"], claim["mutationId"]), outcome["messageId"] as? String == id,
+              integer(outcome["revision"]), outcome["message"] is String, outcome["removed"] is NSNull,
+              outcome["status"] as? String == (["failed", "released"].contains(state) ? "failed" : "committed") else { return false }
+        return state == "queued" ? jsonEqual(outcome["record"], claim["record"]) : outcome["record"] is NSNull
+    }
+    static func validateOrdinaryCompletion(_ marker: Object, claim: Object) -> Bool {
+        guard claim["state"] as? String == "queued", let capture = claim["capture"] as? Object, let draft = capture["draft"] as? Object,
+              let before = draft["document"] as? Object,
+              fields(marker, required: ["version", "kind", "draftKey", "fingerprint", "disposition", "before", "after"]),
+              integer(marker["version"]), marker["version"] as? Int == 2, marker["kind"] as? String == "ordinary",
+              jsonEqual(marker["draftKey"], claim["draftKey"]), jsonEqual(marker["fingerprint"], claim["fingerprint"]),
+              member(marker["disposition"], ["cleared", "preserved"]),
+              jsonEqual(marker["before"], ["incarnation": before["incarnation"]!, "revision": before["revision"]!]),
+              let after = marker["after"] as? Object,
+              fields(after, required: ["document", "text", "context", "images", "files", "attachmentIds", "attachmentOrder"]),
+              let text = after["text"] as? String, text.utf16.count <= 1_000_000, ordinaryDocument(after["document"], text: text, persisted: true),
+              let document = after["document"] as? Object, jsonEqual(ordinaryScope(document), ordinaryScope(claim)),
+              ordinaryInventory(after, target: ordinaryScope(claim), bounded: false) != nil,
+              let ids = after["attachmentIds"] as? [String], jsonEqual(after["attachmentOrder"], ids.isEmpty ? NSNull() : ids as Any) else { return false }
+        if !(after["context"] is NSNull) {
+            guard let context = after["context"] as? Object, fields(context, required: ["origin", "environmentId", "key", "revision", "text", "context"]),
+                  ["origin", "environmentId"].allSatisfy({ jsonEqual(context[$0], claim[$0]) }), jsonEqual(context["key"], claim["draftKey"]),
+                  integer(context["revision"]), context["text"] as? String == text, !(context["context"] is NSNull), ordinaryContext(context["context"], bounded: false) else { return false }
+        }
+        let same = jsonEqual(document["incarnation"], before["incarnation"]), revision = document["revision"] as! Int, original = before["revision"] as! Int
+        if marker["disposition"] as? String == "cleared" {
+            return same && original < 9_007_199_254_740_991 && revision == original + 1 && text.isEmpty && after["context"] is NSNull
+                && (after["images"] as! [Object]).isEmpty && (after["files"] as! [Object]).isEmpty && ids.isEmpty
+                && jsonEqual(document["selection"], ["start": 0, "end": 0])
+        }
+        return !same || revision > original || revision == original && text == draft["text"] as? String
+    }
+    /// Called under the existing coordinator mutex. Rewrites the SAME validated bytes to establish durability.
+    func ordinaryTransferEvidence(_ claim: Object) throws {
+        let path = directory.deletingLastPathComponent().appendingPathComponent("t3-code.json")
+        let properties = try path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard properties.isRegularFile == true, properties.isSymbolicLink != true, (properties.fileSize ?? Int.max) <= T3Wire.maximumBytes else { throw failure("The saved ordinary draft is unavailable.") }
+        let data = try Data(contentsOf: path)
+        guard data.count <= T3Wire.maximumBytes, let preferences = try JSONSerialization.jsonObject(with: data) as? Object,
+              let markers = preferences["mobileOutboxTransferCompletions"] as? [String: Object], let marker = markers[claim["transferId"] as! String],
+              Self.validateOrdinaryCompletion(marker, claim: claim), let after = marker["after"] as? Object,
+              let key = claim["draftKey"] as? String, let origin = claim["origin"] as? String, let environment = claim["environmentId"] as? String else { throw failure("Save the exact ordinary draft completion before releasing it.") }
+        let identity = String(decoding: try JSONSerialization.data(withJSONObject: [origin, environment, key], options: [.withoutEscapingSlashes]), as: UTF8.self)
+        guard let documents = preferences["mobileComposerEditor"] as? Object, Self.integer(documents["version"]), documents["version"] as? Int == 1,
+              let entries = documents["documents"] as? [String: Object], Self.jsonEqual(entries[identity], after["document"]),
+              let drafts = preferences["drafts"] as? [String: String], (drafts[key] ?? "") == after["text"] as? String,
+              let images = preferences["snapshotDrafts"] as? [String: [Object]],
+              let files = (preferences["composerFiles"] ?? [Object]()) as? [Object],
+              let orders = (preferences["mobileAttachmentOrder"] ?? Object()) as? [String: [String]] else { throw failure("The saved ordinary draft projection changed.") }
+        // Validate complete mixed sibling inventories; a duplicate cannot hide in another row/type.
+        var groupedFiles: [String: [Object]] = [:]
+        for row in files {
+            guard Self.ordinaryText(row["draftKey"]), Self.ordinaryText(row["environmentId"]) else { throw failure("The saved file inventory is invalid.") }
+            groupedFiles[row["draftKey"] as! String, default: []].append(row)
+        }
+        for draftKey in Set(images.keys).union(groupedFiles.keys) {
+            guard Self.ordinaryText(draftKey) else { throw failure("The saved draft inventory is invalid.") }
+            let imageRows = images[draftKey] ?? [], fileRows = groupedFiles[draftKey] ?? []
+            let environment = fileRows.first?["environmentId"] as? String ?? "unused"
+            let probe: Object = ["images": imageRows, "files": fileRows,
+                "attachmentIds": (imageRows + fileRows).compactMap { $0["id"] as? String }, "attachmentOrder": NSNull()]
+            guard Self.ordinaryInventory(probe, target: ["draftKey": draftKey, "environmentId": environment], bounded: false) != nil else { throw failure("The saved mixed attachment inventory is invalid.") }
+        }
+        guard orders.values.allSatisfy({ values in values.allSatisfy { Self.ordinaryText($0) } && Set(values).count == values.count }),
+              Self.jsonEqual(images[key] ?? [], after["images"]), Self.jsonEqual(files.filter { $0["draftKey"] as? String == key }, after["files"]),
+              Self.jsonEqual(orders[key].map { $0 as Any } ?? NSNull(), after["attachmentOrder"]) else { throw failure("The saved attachment projection changed.") }
+        let contexts: Object
+        if let raw = preferences["mobileComposerContexts"] {
+            guard let registry = raw as? Object, Self.integer(registry["version"]), registry["version"] as? Int == 1, let entries = registry["entries"] as? Object else { throw failure("The saved context inventory is invalid.") }
+            contexts = entries
+        } else { contexts = [:] }
+        guard Self.jsonEqual(contexts[identity] ?? NSNull(), after["context"]) else { throw failure("The saved ordinary context changed.") }
+        try replace(data, path)
     }
 
     func inventoryHolds(_ attachmentID: String) throws -> Bool {

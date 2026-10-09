@@ -1,3 +1,5 @@
+import { mobileQueuedEditCurrent } from './queued-edit-state';
+import { pendingRequests } from './shared/requests';
 import { mobileFaviconQueries } from './mobile-favicon-query';
 import { watchLive } from './shared/live-streams';
 import { mobileThreadSelection } from './thread-selection';
@@ -176,6 +178,11 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
   if (op === 'send' || op === 'send-alternate' || op === 'queued-edit-cancel') {
     try {
+      // Ordinary Send requires the root's captured preferences, route and recovery admission.
+      // Refuse the old entry before target readers can normalize malformed draft stores.
+      if (op !== 'queued-edit-cancel' && mobileClient.threadId && !mobileClient.threadId.startsWith('new:')
+        && !mobileQueuedEditCurrent(mobileClient) && !pendingRequests(mobileClient.projection).inputs.length)
+        return { revision: mobileClient.revision, message: 'Send this draft from its current thread composer.' };
       const target = mobileComposerTargetRequire(mobileClient, id);
       if (op === 'queued-edit-cancel') return mobileQueuedEditCancel(target.editOwner, native, mobileClient);
       if (target.kind === 'queued-edit') return mobileQueuedEditSave(target.editOwner, native, mobileClient);

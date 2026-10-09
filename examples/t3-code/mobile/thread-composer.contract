@@ -1,3 +1,4 @@
+use ThreadSubmission from "./thread-send-root.contract"
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
 // @ref llp/1109.008-mobile-voice.decision.md#presentation
@@ -7,6 +8,7 @@ use MobileQueueTrigger from "./queue-trigger.contract"
 use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
 component ThreadComposer
   props
+    submission: ThreadSubmission
     editorId: string
     showQueue: bool
     showBackdrop: bool
@@ -27,6 +29,11 @@ component ThreadComposer
     voiceOwner: string
     voiceAction: action
     voiceDisabled: bool
+  derive canSend = submission.ordinary ? submission.canSend : data.canSend
+  derive showStop = data.showStop and (not submission.ordinary or not submission.hasContent)
+  derive sendLabel = submission.ordinary ? submission.sendLabel : data.sendLabel
+  derive sendSymbol = submission.ordinary ? submission.sendSymbol : data.sendSymbol
+  derive blockedReason = submission.ordinary ? submission.reason : data.blockedReason
   derive dictating = voice.busy and voice.owner == voiceOwner
   derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
   action typedDraft(value: string)
@@ -36,11 +43,11 @@ component ThreadComposer
   action typedKey(key: string)
     if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
       preventDefault()
-      if data.canSend and not dictating
+      if canSend and not dictating
         action("send", data.contentOwner, "")
     else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
       preventDefault()
-      if data.canSend and not dictating
+      if canSend and not dictating
         action("send-alternate", data.contentOwner, "")
   view
     column position="relative" padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
@@ -98,41 +105,46 @@ component ThreadComposer
                       text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                       t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-                  ThreadSendButton(data=data, action=action, colors=colors)
+                  ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
             else when not voicePresented
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-              ThreadSendButton(data=data, action=action, colors=colors)
+              ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
             when voicePresented
               row position=(expanded ? "relative" : "absolute") left=0 right=0 bottom=0 height=44 align-items="center"
                 when dictating
                   column flex=1 min-width=0
                     VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
-                  when data.showStop
-                    ThreadSendButton(data=data, action=action, colors=colors)
+                  when showStop
+                    ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
                 else
                   column flex=1 min-width=0
                     VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-                  ThreadSendButton(data=data, action=action, colors=colors)
+                  ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
 
 component ThreadSendButton
   props
+    sendLabel: string
+    sendSymbol: string
+    canSend: bool
+    showStop: bool
+    blockedReason: string
     data: ThreadComposerState
     action: action
     colors: ThreadColors
-  derive disabled = data.showStop ? not data.canStop : not data.canSend
+  derive disabled = showStop ? not data.canStop : not canSend
   view
-    button press=action((data.showStop ? "stop" : "send"), data.contentOwner, "")
+    button press=action((showStop ? "stop" : "send"), data.contentOwner, "")
       disabled=disabled width=44 height=44 padding=0 flex-shrink=0
-      aria-label=(data.showStop ? "Stop agent" : length(data.blockedReason) > 0 ? data.blockedReason : data.sendLabel)
+      aria-label=(showStop ? "Stop agent" : length(blockedReason) > 0 ? blockedReason : sendLabel)
       testId="thread-send"
       column width=44 height=44 align-items="center" justify-content="center"
         column width=30 height=30 border-radius=15 align-items="center" justify-content="center"
-          background-color=(data.showStop ? colors.danger : colors.primary) opacity=(disabled ? 0.15 : 1)
-          t3-symbol symbol-name=(data.showStop ? "stop.fill" : data.sendSymbol) point-size=14 symbol-weight="semibold"
-            symbol-tint=(data.showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
+          background-color=(showStop ? colors.danger : colors.primary) opacity=(disabled ? 0.15 : 1)
+          t3-symbol symbol-name=(showStop ? "stop.fill" : sendSymbol) point-size=14 symbol-weight="semibold"
+            symbol-tint=(showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
 
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
 shape ComposerFocusReturn

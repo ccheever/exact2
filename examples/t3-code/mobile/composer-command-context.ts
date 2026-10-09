@@ -2,6 +2,9 @@
 // Source365aa87982 composerContext.ts/use-composer-drafts.ts; mobile-only persistence seam.
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
+import { mobileEditorDocument as sendDocument } from './composer-editor-persistence';
+import { threadSendTransferDecodeCompletion as sendCompletion } from './thread-send-transfer-model';
+import { mobileOutboxTransferCanonical as sendCanonical } from './mobile-outbox-transfer-model';
 import { obj, str, type Obj } from './shared/domain';
 import { draftFiles } from './shared/composer-editor-files';
 import { ClientError } from './shared/protocol';
@@ -357,4 +360,108 @@ export function mobileComposerContextForSend(client:T3Client,key:string,text:str
   const merged=mobileNewTaskContextProject(text,{version:1,records:[...records.values()]});
   if(!merged.ok) throw new ClientError(merged.error,'retained');
   return merged.context ? clone(merged.context) as unknown as Obj : undefined;
+}
+
+/** Exact ordinary Send projection: unlike Persisted(), this never observes/prunes text.
+ * Internal Send wrappers also enforce no active same-document rich editor. */
+export interface ComposerSendDraftSnapshot {
+  text:string;context:MobileMessageContext|null;contextRevision:number;
+  contextRow:{origin:string;environmentId:string;key:string;revision:number;text:string;context:MobileMessageContext}|null;
+  images:Obj[];files:import('./shared/composer-editor-files').DraftFile[];attachmentIds:string[];attachmentOrder:string[]|null;
+}
+function sendJSON(value:unknown,parents=new Set<object>()):boolean {
+  if(value===null||typeof value==='string'||typeof value==='boolean')return true;
+  if(typeof value==='number')return Number.isFinite(value);
+  if(!Array.isArray(value)&&!plainRaw(value)||parents.has(value as object))return false;
+  parents.add(value as object);
+  const array=Array.isArray(value),keys=Reflect.ownKeys(value as object).filter(k=>!array||k!=='length');
+  const valid=(!array||keys.length===value.length&&Array.from({length:value.length},(_,i)=>Object.hasOwn(value,i)).every(Boolean))
+    &&keys.every(k=>{const d=Object.getOwnPropertyDescriptor(value,k)!;return typeof k==='string'&&d.enumerable&&'value'in d&&sendJSON(d.value,parents)});
+  parents.delete(value as object);return valid;
+}
+function sendRaw(client:T3Client,target:MobileComposerTarget) {
+  const local=client.local as typeof client.local & {composerFiles?:unknown;mobileAttachmentOrder?:unknown;mobileNewTaskDrafts?:unknown;mobileOutboxTransferCompletions?:unknown};
+  const scope=scopeFor(client,target.key),registry=store(client);
+  if(!scope||target.origin!==client.origin||target.environmentId!==client.environmentId||target.generation!==client.generation
+    ||target.kind!=='ordinary'||target.key!==`${target.environmentId}:${target.threadId}`||registry.invalid!==undefined
+    ||!plainRaw(local.drafts)||!sendJSON(local.drafts)||!Object.values(local.drafts).every(v=>typeof v==='string'&&v.length<=1_000_000)
+    ||local.mobileNewTaskDrafts!==undefined&&!sendJSON(local.mobileNewTaskDrafts))return null;
+  const cleanup=releaseStore(local.mobileNewTaskDrafts);if(!cleanup)return null;
+  const raw={snapshotDrafts:local.snapshotDrafts,composerFiles:local.composerFiles??[],mobileAttachmentOrder:local.mobileAttachmentOrder??{},
+    snapshotReleases:local.snapshotReleases,fileReleases:cleanup.fileReleases};
+  // Optional absence is supported; explicit null is never normalized into an empty inventory.
+  if(local.composerFiles===null||local.mobileAttachmentOrder===null||!sendJSON(raw))return null;
+  const read=mobileComposerAttachmentInventoryRead(raw,{environmentId:target.environmentId,threadId:target.threadId,draftKey:target.key});
+  if(!read.ok)return null;
+  const completions=local.mobileOutboxTransferCompletions===undefined?{}:local.mobileOutboxTransferCompletions;
+  if(!plainRaw(completions)||!sendJSON(completions))return null;
+  const id=slot(scope),entry=registry.entries.get(id),text=local.drafts[target.key]??'';
+  for(const value of registry.entries.values())if(!sendJSON({...value,...(value.context===undefined?{}:{context:value.context})}))return null;
+  if(entry&&(entry.text!==text||!Number.isSafeInteger(entry.revision)||entry.revision<0))return null;
+  const checked=batchContext(entry?.context);if(!checked.ok)return null;
+  const history=entry?histories.get(entry)?.snapshot()??[]:[];
+  if(!sendJSON(history)||!batchContext({version:1,records:history}).ok)return null;
+  const context=checked.context??null,contextRow=context?{...scope,revision:entry!.revision,text,context:clone(context)}:null;
+  const files=(raw.composerFiles as import('./shared/composer-editor-files').DraftFile[]).filter(file=>file.draftKey===target.key);
+  const orders=raw.mobileAttachmentOrder as Record<string,string[]>;
+  const snapshot:ComposerSendDraftSnapshot={text,context:context?clone(context):null,contextRevision:entry?.revision??0,contextRow,
+    images:clone(local.snapshotDrafts[target.key]??[]),files:clone(files),attachmentIds:read.attachments.map(a=>a.id),
+    attachmentOrder:Object.hasOwn(orders,target.key)?clone(orders[target.key]!):null};
+  return {local,scope,registry,id,entry,cleanup,raw,completions,snapshot};
+}
+export function mobileComposerContextSendSnapshot(client:T3Client,target:MobileComposerTarget):ComposerSendDraftSnapshot|null {
+  return sendRaw(client,target)?.snapshot??null;
+}
+/** Internal concrete transaction: wrapper proves actual queued claim and rejects active rich
+ * admission. Pure DTO validity alone is not queue authenticity. No arbitrary installer/callback. */
+export function mobileComposerContextCompleteSend(client:T3Client,current:EditorDocumentIntent,
+  claim:import('./thread-send-transfer-model').ThreadSendTransferClaim):
+  {ok:true;marker:import('./thread-send-transfer-model').ThreadSendTransferCompletion;alreadyApplied:boolean}|{ok:false} {
+  const raw=sendRaw(client,current.target);
+  if(!raw||!mobileEditorDocumentIntentCurrent(client,current)||!Number.isSafeInteger(client.revision)||client.revision<0||client.revision>=Number.MAX_SAFE_INTEGER
+    ||claim.state!=='queued'||!claim.capture||!claim.record)return {ok:false};
+  const captured=claim.capture.draft,{snapshot,local,scope,entry}=raw;
+  if(captured.key!==current.target.key||captured.origin!==scope.origin||captured.environmentId!==scope.environmentId||captured.threadId!==current.target.threadId)return {ok:false};
+  const document=sendDocument(client,current.key);
+  if(!document||document.blocked||document.incarnation===captured.document.incarnation&&document.revision<captured.document.revision)return {ok:false};
+  const existing=raw.completions[claim.transferId];
+  if(existing!==undefined){
+    try {const marker=sendCompletion(existing,claim);if(sendCanonical(marker.after)===sendCanonical(sendAfter(document,snapshot)))return {ok:true,marker,alreadyApplied:true}}
+    catch{return {ok:false}}
+  }
+  // A prior accepted publication is never applied a second time. Newer input refreshes a preserve proof.
+  const exact=existing===undefined&&document.incarnation===captured.document.incarnation&&document.revision===captured.document.revision
+    &&sendCanonical(document.selection)===sendCanonical(captured.document.selection)&&snapshot.text===captured.text
+    &&snapshot.contextRevision===captured.contextRevision&&sendCanonical(snapshot.context)===sendCanonical(captured.context)
+    &&sendCanonical(snapshot.images)===sendCanonical(captured.images)&&sendCanonical(snapshot.files)===sendCanonical(captured.files)
+    &&sendCanonical(snapshot.attachmentIds)===sendCanonical(captured.attachmentIds)&&sendCanonical(snapshot.attachmentOrder)===sendCanonical(captured.attachmentOrder);
+  if(exact&&(current.revision>=Number.MAX_SAFE_INTEGER||snapshot.contextRevision>=Number.MAX_SAFE_INTEGER))return {ok:false};
+  const after=exact?{document:{origin:document.origin,environmentId:document.environmentId,threadId:document.threadId,draftKey:document.draftKey,
+    incarnation:document.incarnation,revision:document.revision+1,selection:{start:0,end:0}},text:'',context:null,images:[],files:[],attachmentIds:[],attachmentOrder:null}:sendAfter(document,snapshot);
+  let marker:import('./thread-send-transfer-model').ThreadSendTransferCompletion;
+  try {marker=sendCompletion({version:2,kind:'ordinary',draftKey:claim.draftKey,fingerprint:claim.fingerprint,
+    disposition:exact?'cleared':'preserved',before:{incarnation:captured.document.incarnation,revision:captured.document.revision},after},claim)}catch{return {ok:false}}
+  const completions={...raw.completions,[claim.transferId]:marker};
+  const result={ok:true as const,marker:clone(marker),alreadyApplied:false};
+  if(!exact){local.mobileOutboxTransferCompletions=completions;client.revision++;return result}
+  const images={...clone(local.snapshotDrafts),[current.target.key]:[]};
+  const files=clone(raw.raw.composerFiles as import('./shared/composer-editor-files').DraftFile[]).filter(file=>file.draftKey!==current.target.key);
+  const orders={...clone(raw.raw.mobileAttachmentOrder as Record<string,string[]>),[current.target.key]:[]};
+  const snapshotReleases=[...local.snapshotReleases,...snapshot.images.map(image=>String(image.id)).filter(id=>!local.snapshotReleases.includes(id))];
+  const oldFileReleases=raw.cleanup.fileReleases as string[];
+  const cleanup={...raw.cleanup,fileReleases:[...oldFileReleases,...snapshot.files.map(file=>file.id).filter(id=>!oldFileReleases.includes(id))]};
+  const history=mobileCreateContextHistory(),next={value:'',selection:{start:0,end:0}};
+  if(!mobileEditorDocumentCommit(client,current,next))return {ok:false};
+  // Every allocation/validation above precedes the single concrete text commit.
+  if(entry){delete entry.context;entry.text='';entry.revision++;histories.set(entry,history)}
+  local.snapshotDrafts=images;local.composerFiles=files;local.mobileAttachmentOrder=orders;
+  local.snapshotReleases=snapshotReleases;local.mobileNewTaskDrafts=cleanup;local.mobileOutboxTransferCompletions=completions;
+  return result;
+}
+function sendAfter(document:import('./composer-editor-persistence').EditorDurableDocument,snapshot:ComposerSendDraftSnapshot) {
+  return {document:{origin:document.origin,environmentId:document.environmentId,threadId:document.threadId,draftKey:document.draftKey,
+    incarnation:document.incarnation,revision:document.revision,selection:document.selection?{...document.selection}:null},
+    // Completion describes actual serialized order. Raw capture order still fences pre-clear changes.
+    text:snapshot.text,context:snapshot.contextRow,images:snapshot.images,files:snapshot.files,attachmentIds:snapshot.attachmentIds,
+    attachmentOrder:snapshot.attachmentIds.length?snapshot.attachmentIds:null};
 }

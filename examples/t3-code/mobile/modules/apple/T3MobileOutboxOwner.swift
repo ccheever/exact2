@@ -63,7 +63,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     func deliveryRecordLocked(_ request: Object) throws -> Object {
         guard loaded, errors.isEmpty, request["ownerEpoch"] as? String == epoch,
               let id = request["messageId"] as? String, let row = rows[id], let record = row.record,
-              row.confirmed, unresolved[id] == nil,
+              row.confirmed, unresolved[id] == nil, ordinaryDeliveryReadyLocked(id),
               !accepted.values.contains(where: { $0["messageId"] as? String == id }),
               (holds[id] ?? []).isEmpty,
               request["expectedToken"] as? String == row.token,
@@ -88,7 +88,20 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
     }
     /// Exact replay owns its old payload; a currently open editor still defers network work.
     func deliveryRetryUnheldLocked(_ message: String) -> Bool {
-        (holds[message] ?? []).isEmpty
+        (holds[message] ?? []).isEmpty && ordinaryDeliveryReadyLocked(message)
+    }
+    /// Only a successfully saved/re-synced completed v2 envelope opens delivery. v1 and legacy rows are unchanged.
+    private func ordinaryDeliveryReadyLocked(_ id: String) -> Bool {
+        guard let claim = transfer(id), claim["kind"] as? String == "ordinary" else { return true }
+        let mutation = claim["mutationId"] as! String
+        return loaded && errors.isEmpty && claim["state"] as? String == "completed" && unresolved[id] == nil
+            && !uncertainResults.contains(mutation) && acceptedTransfers[id] == nil
+            && (cache[id]?["transfer"] as? Object)?["state"] as? String == "completed"
+    }
+    private func uncertainOrdinaryTerminalLocked(_ claim: Object) -> Bool {
+        guard claim["kind"] as? String == "ordinary", ["completed", "released"].contains(claim["state"] as? String ?? "") else { return false }
+        let id = claim["transferId"] as! String, mutation = claim["mutationId"] as! String
+        return !loaded || unresolved[id] != nil || uncertainResults.contains(mutation)
     }
     // Called with the coordinator lock already held by byte removal.
     func protects(_ identifier: String) -> Bool {
@@ -143,7 +156,10 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                           mutation.hasPrefix(epoch + ":"), let sequence = Int(mutation.dropFirst(epoch.count + 1)), sequence > 0,
                           sequence <= 9_007_199_254_740_991 else { throw fail("Read a complete outbox and provide an owned draft capture.") }
                     let draft = capture["draft"] as! Object, key = draft["key"] as! String, digest = try T3MobileOutbox.captureFingerprint(capture)
-                    let candidates = transfers().filter { $0["draftKey"] as? String == key }.sorted { ($0["transferId"] as! String) < ($1["transferId"] as! String) }
+                    let target = try transferRequestTarget(request)
+                    guard (capture["kind"] as? String == "ordinary") == (target != nil),
+                          target == nil || T3MobileOutbox.jsonEqual(target, T3MobileOutbox.ordinaryScope(draft, draft: true)) else { throw fail("The captured ordinary target changed.") }
+                    let candidates = transfers().filter { claimMatches($0, target: target, key: key) }.sorted { ($0["transferId"] as! String) < ($1["transferId"] as! String) }
                     let existing = candidates.first { claim in
                         let state = claim["state"] as! String
                         return unresolved[claim["transferId"] as! String] != nil || !["released", "completed"].contains(state)
@@ -151,22 +167,28 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                     if let existing {
                         let id = existing["transferId"] as! String
                         let disposition = existing["fingerprint"] as? String == digest ? "existing" : "conflict"
-                        worker.async { originalAnswer(.success(self.synced { self.transferResponse(id, disposition: disposition) })) }
+                        worker.async {
+                            do { originalAnswer(.success(try self.synced { try self.transferResponse(id, disposition: disposition) })) }
+                            catch { originalAnswer(.failure(error)) }
+                        }
                         return
                     }
                     let id = record["messageId"] as! String
                     guard cache[id] == nil, rows[id] == nil, acceptedTransfers[id] == nil else { throw fail("A new transfer needs unused task identities.") }
                     try transferAdmission(record)
-                    let claim: Object = ["transferId": id, "draftKey": key, "fingerprint": digest, "messageId": id,
+                    var claim: Object = ["transferId": id, "draftKey": key, "fingerprint": digest, "messageId": id,
                         "threadId": record["threadId"]!, "commandId": record["commandId"]!, "mutationId": mutation,
                         "state": "prepared", "record": record, "capture": capture, "outcome": NSNull()]
+                    if let target { claim["kind"] = "ordinary"; claim["origin"] = target["origin"]; claim["environmentId"] = target["environmentId"] }
                     request = ["action": "mutate", "ownerEpoch": epoch, "mutationId": mutation, "messageId": id,
                         "operation": "enqueue", "record": record, "transfer": claim]
                     action = "mutate"
                     answer = { result in
                         switch result {
                         case .failure(let error): originalAnswer(.failure(error))
-                        case .success: originalAnswer(.success(self.synced { self.transferResponse(id, disposition: "created") }))
+                        case .success:
+                            do { originalAnswer(.success(try self.synced { try self.transferResponse(id, disposition: "created") })) }
+                            catch { originalAnswer(.failure(error)) }
                         }
                     }
                 }
@@ -230,7 +252,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         var claimOwners: [String: String] = [:]
         for value in inventory.values {
             guard let claim = value["transfer"] as? Object, !["completed", "released"].contains(claim["state"] as! String) else { continue }
-            let key = claim["draftKey"] as! String, id = claim["transferId"] as! String
+            let key = transferScopeKey(claim), id = claim["transferId"] as! String
             if let previous = claimOwners[key], previous != id {
                 inventory.errors.append(["messageId": id, "message": "Multiple active outbox transfers claim the same draft."])
             }
@@ -288,7 +310,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
                 }, "outcomes": cache.values.flatMap { ($0["outcomes"] as? [String: Object] ?? [:]).values.compactMap { entry -> Object? in
                     guard let outcome = entry["result"] as? Object else { return nil }; return decorated(outcome)
                 } },
-                "mutations": cache.values.filter { $0["state"] as? String == "pending" }, "transfers": transfers().map(publicClaim)]
+                "mutations": cache.values.filter { $0["state"] as? String == "pending" }, "transfers": transfers().filter { !uncertainOrdinaryTerminalLocked($0) }.map(publicClaim)]
         }
         answer(.success(result))
     }
@@ -547,7 +569,7 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         if action == "confirmQueued" {
             return synced {
                 let row = rows[id] ?? Row(record: nil, revision: 0, token: "", confirmed: false)
-                return ["current": row.record != nil && row.confirmed && matches(request, row) && row.token == request["token"] as? String && (holds[id] ?? []).isEmpty,
+                return ["current": row.record != nil && row.confirmed && matches(request, row) && row.token == request["token"] as? String && (holds[id] ?? []).isEmpty && ordinaryDeliveryReadyLocked(id),
                         "revision": row.revision]
             }
         }
@@ -645,35 +667,68 @@ final class T3MobileOutboxOwner: @unchecked Sendable {
         }
         return NSNull()
     }
-    private func transferResponse(_ id: String, disposition: String? = nil) -> Object {
+    private func transferResponse(_ id: String, disposition: String? = nil) throws -> Object {
         let claim = transfer(id)
+        if let claim, uncertainOrdinaryTerminalLocked(claim) {
+            throw T3Failure(kind: "Persistence", message: "Re-establish this ordinary transfer's terminal durability before using its receipt.", uncertain: true)
+        }
         var response: Object = ["claim": claim.map { publicClaim($0) as Any } ?? NSNull(), "outcome": claim.map { transferOutcome($0) } ?? NSNull()]
         if let disposition { response["disposition"] = disposition }
         return response
     }
+    private func transferRequestTarget(_ request: Object) throws -> Object? {
+        if request["kind"] == nil {
+            guard request["target"] == nil else { throw fail("An ordinary target requires its explicit kind.") }
+            return nil
+        }
+        guard request["kind"] as? String == "ordinary", let target = request["target"] as? Object,
+              T3MobileOutbox.ordinaryTarget(target) else { throw fail("Choose the exact ordinary draft target.") }
+        return target
+    }
+    private func claimMatches(_ claim: Object, target: Object?, key: String) -> Bool {
+        guard claim["draftKey"] as? String == key else { return false }
+        if let target { return claim["kind"] as? String == "ordinary" && T3MobileOutbox.jsonEqual(T3MobileOutbox.ordinaryScope(claim), target) }
+        return claim["kind"] == nil
+    }
+    private func transferScopeKey(_ claim: Object) -> String {
+        guard claim["kind"] as? String == "ordinary" else { return "new-task:" + (claim["draftKey"] as! String) }
+        return "ordinary:" + String(decoding: try! JSONSerialization.data(withJSONObject: T3MobileOutbox.ordinaryScope(claim), options: [.sortedKeys]), as: UTF8.self)
+    }
     // FIFO worker. Preference evidence and byte release use coordinator callbacks with its mutex.
     private func transferControl(_ request: Object) throws -> Object {
-        let action = request["action"] as! String
+        let action = request["action"] as! String, target = try transferRequestTarget(request)
         if action == "transferLookup" {
-            guard let key = text(request["draftKey"]), key.hasPrefix("new-task:") else { throw fail("Choose a full draft identity.") }
+            guard let key = text(target?["draftKey"] ?? request["draftKey"]), target != nil || key.hasPrefix("new-task:") else { throw fail("Choose a full draft identity.") }
             var digest: Any = NSNull()
             if let raw = request["capture"] {
                 guard let capture = raw as? Object, T3MobileOutbox.validateCapture(capture),
-                      (capture["draft"] as! Object)["key"] as? String == key else { throw fail("The draft capture is invalid.") }
+                      (capture["draft"] as! Object)["key"] as? String == key,
+                      (capture["kind"] as? String == "ordinary") == (target != nil),
+                      target == nil || T3MobileOutbox.jsonEqual(target, T3MobileOutbox.ordinaryScope(capture["draft"] as! Object, draft: true)) else { throw fail("The draft capture is invalid.") }
                 digest = try T3MobileOutbox.captureFingerprint(capture)
             }
-            return synced { ["complete": errors.isEmpty, "fingerprint": digest,
-                "claims": transfers().filter { $0["draftKey"] as? String == key }.map(publicClaim)] }
+            return synced {
+                let claims = transfers().filter { claimMatches($0, target: target, key: key) }
+                return ["complete": errors.isEmpty && !claims.contains(where: uncertainOrdinaryTerminalLocked), "fingerprint": digest,
+                    "claims": claims.filter { !uncertainOrdinaryTerminalLocked($0) }.map(publicClaim)]
+            }
         }
         guard let id = text(request["transferId"]) else { throw fail("Choose an exact draft transfer.") }
-        if action == "transferStatus" { return synced { transferResponse(id) } }
+        let current = synced { transfer(id) }
+        if let current {
+            guard claimMatches(current, target: target, key: target?["draftKey"] as? String ?? current["draftKey"] as! String) else { throw fail("The draft transfer belongs to another target.") }
+        }
+        if action == "transferStatus" { return try synced { try transferResponse(id) } }
         guard var claim = synced({ transfer(id) }), claim["fingerprint"] as? String == request["fingerprint"] as? String else { throw fail("The draft transfer fingerprint changed.") }
         let state = claim["state"] as! String, mutation = claim["mutationId"] as! String
         guard synced({ unresolved[id] != mutation && !uncertainResults.contains(mutation) }), let outcome = claim["outcome"] as? Object else { throw fail("Resolve this transfer's exact durable outcome first.") }
         let releasing = action == "releaseFailedTransfer", finalState = releasing ? "released" : "completed"
         if state == finalState { return [releasing ? "released" : "completed": true, "claim": publicClaim(claim)] }
         guard state == (releasing ? "failed" : "queued"), outcome["status"] as? String == (releasing ? "failed" : "committed") else { throw fail("The transfer has not reached the required durable outcome.") }
-        if !releasing { try transferEvidence(claim) }
+        if !releasing {
+            if claim["kind"] as? String == "ordinary" { try synced { try disk.ordinaryTransferEvidence(claim) } }
+            else { try transferEvidence(claim) }
+        }
         // Queue release work before retirement; a failed retirement leaves capture ownership intact.
         if let record = claim["record"] as? Object { try release([record]) }
         var savedOutcome = outcome; savedOutcome["record"] = NSNull(); savedOutcome["removed"] = NSNull()

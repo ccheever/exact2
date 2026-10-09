@@ -32,6 +32,12 @@ const connection = (client: T3Client) => JSON.stringify([client.generation, clie
   [...fleet.entries.values()].map(entry => [entry.key, entry.generation, entry.phase, entry.synchronized, entry.config, entry.scopes, entry.shell.sequence])]);
 const orderedRows = (client: T3Client) => [...mobileOutboxSnapshot(client).rows].sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt));
 const sameThread = (a: MobileOutboxRecord, b: MobileOutboxRecord) => a.origin === b.origin && a.environmentId === b.environmentId && a.threadId === b.threadId;
+/** The native gate is authoritative; avoid scheduling known unfinished draft retirement. */
+function retiringDraft(client:T3Client,record:MobileOutboxRecord):boolean {
+  return mobileOutboxSnapshot(client).threadTransfers.some(claim=>claim.origin===record.origin
+    &&claim.environmentId===record.environmentId&&claim.threadId===record.threadId&&claim.messageId===record.messageId
+    &&claim.commandId===record.commandId&&claim.state!=='completed');
+}
 function predecessor(client: T3Client, record: MobileOutboxRecord): boolean {
   for (const row of orderedRows(client)) {
     if (identity(row.record) === identity(record)) return false;
@@ -82,17 +88,17 @@ export function mobileOutboxDriveSnapshot(client: T3Client, now: number): Mobile
     const first = !threads.has(threadKey); threads.add(threadKey);
     const wait = Math.max(1, current.retryAt - (Number.isFinite(now) ? now : 0));
     const waits = current.result?.status === 'waiting' && current.waitingFor === stamp;
-    const editing = editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === owner);
-    if (first && (!next || wait < delay) && !drive.busy && queue.complete && editors.ready && !editing && sameEnvironment && !row.held && row.status === 'confirmed'
+    const editing = editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === owner), retiring=retiringDraft(client,record);
+    if (first && (!next || wait < delay) && !drive.busy && queue.complete && editors.ready && !editing && !retiring && sameEnvironment && !row.held && row.status === 'confirmed'
       && automatic(current.result) && !waits) {
       next = JSON.stringify({ owner: ownerOf(record), signature: current.signature, sequence: current.sequence });
       delay = wait;
     }
     return { owner, environmentId: record.environmentId, threadId: record.threadId, messageId: record.messageId,
       title: record.text.trim().split('\n')[0]?.slice(0, 100) || 'Pending task', text: record.text,
-      status: drive.busy === owner ? 'sending' : editing ? 'editing' : current.result?.status ?? (row.held ? 'editing' : 'queued'),
-      reason: !editors.ready ? 'Read saved pending edits before sending.' : editing ? 'Saved edits must be resolved before this task sends.' : current.result?.reason ?? '', held: row.held || editing,
-      canRetry: (first || finalAcknowledged(current, record)) && editors.ready && !editing && !drive.busy && !row.held && !!current.result && current.result.status !== 'delivered' };
+      status: drive.busy === owner ? 'sending' : retiring ? 'retirement-pending' : editing ? 'editing' : current.result?.status ?? (row.held ? 'editing' : 'queued'),
+      reason: retiring ? 'Finish saving this message before delivery.' : !editors.ready ? 'Read saved pending edits before sending.' : editing ? 'Saved edits must be resolved before this task sends.' : current.result?.reason ?? '', held: row.held || editing,
+      canRetry: (first || finalAcknowledged(current, record)) && editors.ready && !editing && !retiring && !drive.busy && !row.held && !!current.result && current.result.status !== 'delivered' };
   });
   return { initialized: queue.initialized, complete: queue.complete, busy: !!drive.busy, count: rows.length, next, delay, items };
 }
@@ -112,6 +118,7 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   const owner = manual ? parsed as MobileOutboxWireOwner : parsed.owner;
   const row = mobileOutboxSnapshot(client).rows.find(item => identity(item.record) === JSON.stringify(owner));
   if (!row || row.held || row.status !== 'confirmed') return { revision: client.revision, message: 'The pending task is no longer ready.' };
+  if(retiringDraft(client,row.record))return {revision:client.revision,message:'Finish saving this message before delivery.'};
   const editors = mobilePendingTaskEditorsSnapshot(client);
   if (!editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === identity(row.record)))
     return { revision: client.revision, message: 'Resolve saved pending edits before sending this task.' };
@@ -132,7 +139,7 @@ export async function mobileOutboxDriveRun(client: T3Client, native: Native, key
   const orderedNative: Native = { available: native.available, watch: topic => native.watch(topic), later(request) {
     if (!localRecovery(request)) {
       const editors = mobilePendingTaskEditorsSnapshot(client);
-      if (!editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === id)) {
+      if (retiringDraft(client,row.record) || !editors.ready || editors.markers.some(marker => mobilePendingTaskEditorKey(marker.owner) === id)) {
         admissionRefused = true; throw new ClientError('Resolve saved pending edits before sending this task.', 'stale');
       }
       if (cleanupOnly || predecessor(client, row.record)) {
@@ -187,6 +194,18 @@ export function mobileOutboxDriveCompleted(client: T3Client): MobileOutboxRecord
       attempt.bridgeReconciled = true; return [];
     }
     return [JSON.parse(JSON.stringify(record))];
+  });
+}
+
+/** Ordinary ACK-to-echo presentation uses the captured message identity. Only the
+ * matching thread's authoritative feed retires it; changing routes does not. */
+export function mobileOutboxThreadCompleted(client:T3Client,origin:string,echoes:ReadonlySet<string>):MobileOutboxRecord[] {
+  return [...state(client).attempts.values()].flatMap(attempt=>{
+    const result=attempt.result,record=result?.status==='delivered'?result.delivery?.operation?.record:undefined;
+    if(!record||record.creation||attempt.bridgeReconciled||record.origin!==origin
+      ||record.environmentId!==client.environmentId||record.threadId!==client.threadId)return [];
+    if(echoes.has(record.messageId)){attempt.bridgeReconciled=true;return []}
+    return [JSON.parse(JSON.stringify(record)) as MobileOutboxRecord];
   });
 }
 

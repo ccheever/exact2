@@ -23,6 +23,7 @@ import { requestPresentation } from './shared/requests';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 import { mobileThreadActivity } from './thread-work';
 import type { ThreadActivity } from './thread-work';
+import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
 export type { ThreadActivity } from './thread-work';
 
 export interface ThreadBlock { id: string; kind: string; text: string; language: string; tokens: ThreadCodeToken[] }
@@ -86,6 +87,15 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
         return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
       }) });
   }
+  for(const pending of mobileThreadOutbox(client,now)) {
+    const record=pending.record;
+    rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
+      blocks:mobileThreadBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
+      showMeta:true,streaming:false,attribution:'',intent:threadOutboxStatus(pending.status),copied:false,expanded:false,
+      toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
+      media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
+        url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
+  }
   rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; }); return rows;
 }
 function elapsed(ms: number): string {
@@ -142,6 +152,7 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
 /** Root owns this awaited resource/mutation; native handles are never saved between answers. */
 export async function mobileThreadPrepare(nativeInput: Native | null | undefined, now: number) {
   const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
+  if(native?.available)await prepareThreadOutboxPreviews(mobileClient,native,now);
   if (native?.available && mobileClient.ready && mobileClient.threadId) {
     await syncWorktreeSetup(mobileClient, native);
     await refreshTimelineReads(mobileClient, native);

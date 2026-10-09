@@ -1,3 +1,4 @@
+use ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors from "./thread-send-root.contract"
 use changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
 use TerminalAttachChange from "./app-shapes.contract"
 use TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
@@ -536,6 +537,26 @@ component App
             haptic("selection")
         case none
           streamHaptics = concat(streamHaptics, [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
+  derive threadSubmissionInput = ThreadSubmissionInput(visit=`${top(nav).id}`, url=top(nav).url, active=(top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")), environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, contextImporting=(pending(terminalAttached) or pending(reviewChanged) or pending(documentChanged) or (lastOperation == "attachments" and pending(changed))), now=wallTime.epochAtZero + elapsed, viewportHeight=viewport.height, dark=appearance.scheme == "dark")
+  resource threadSubmission = threadSubmission(threadSubmissionInput, data.revision) as shape ThreadSubmission
+  resource threadLocalLook = threadLocalColors(appearance.scheme, appearance.themeId) as shape ThreadLocalColors
+  mutation threadSubmissionRead as shape ThreadSubmissionResult refreshes data, threadSubmission
+  task readThreadSubmission when threadSubmission.needsRead and not pending(threadSubmissionRead) key=threadSubmission.readKey
+    after(1, readThreadRecovery)
+  action readThreadRecovery
+    if threadSubmission.needsRead and not pending(threadSubmissionRead)
+      send threadSubmissionRead = threadSubmissionAction(threadSubmissionInput, "recovery-read", threadSubmission.readKey, "", threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
+  mutation threadSubmissionChanged as shape ThreadSubmissionResult refreshes data, threadData, queueData, threadSubmission then didThreadSubmission
+  action didThreadSubmission
+    match threadSubmissionChanged
+      case some(result)
+        if result.visit == `${top(nav).id}` and result.owner == threadSubmission.expectedOwner and result.message != ""
+          send notice = alert("info", "Could not complete action", result.message)
+      case none
+        composerFocusIdentity = composerFocusIdentity
+  action threadLocalCommand(op: string, id: string, value: string)
+    if not pending(changed) and not pending(threadSubmissionChanged)
+      send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
   resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread")) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
@@ -588,6 +609,9 @@ component App
         blur()
         composerFocusIdentity = ""
         nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
+      else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
+        if not pending(changed) and not pending(threadSubmissionChanged)
+          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + now())
       else
         lastOperation = "thread-action"
         send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
@@ -1284,7 +1308,7 @@ component App
   mutation notice as shape Notice
   mutation removal as shape Notice then didConfirmRemove
   mutation scanned as shape PairingFields then didScan
-  mutation changed as shape Change refreshes data, threadData, queueData then didChange
+  mutation changed as shape Change refreshes data, threadData, queueData, threadSubmission then didChange
   task rem mount
     after(1, rootFont)
   action rootFont
@@ -1453,8 +1477,8 @@ component App
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
               reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaNativeOpen, mediaNativeError=mediaNativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
-              changedPending=(pending(changed)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
-              editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
+              changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
+              threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,
               openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,
