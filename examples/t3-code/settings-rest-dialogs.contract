@@ -54,10 +54,11 @@ component SettingsRestDialogs
     rest: action
     raw: action
     close: action
+    taskBase: action
   view
     when editor == "task"
       each draft in scheduled.editors key=draft.key
-        ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest)
+        ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest, lookupBase=taskBase)
     when editor == "project-remove" and subject == ""
       SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group", label, ""))
     when editor == "project-remove" and subject != ""

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
-import { applyCoreSetting, decodeClientPrefs, generalSections, resolveScope, serverContext } from './settings-core';
+import { applyCoreSetting, decodeClientPrefs, formatSettingValue, generalSections, resolveScope, serverContext } from './settings-core';
 import { advancedBackgroundValue, backgroundDialog, normalizeBackground, profileOption, resolveBackground } from './settings-a-background';
 
 type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
@@ -71,6 +71,17 @@ describe('background activity, advanced', () => {
     // A removed environment is not one environment: the option stays disabled with its qualifier.
     const gone = backgroundRow({ ...client, environmentId: '' } as Fake);
     expect(gone.options.find(entry => entry.id === 'advanced')!.disabled).toBe(true);
+  });
+  test("the inheritance popover reads Custom for the policy, as SettingInheritance's formatValue has no profile labels (S1-9)", () => {
+    const client = fakeClient();
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Custom']]);
+    client.config.settings = { ...(client.config.settings as Obj), backgroundActivity: { schemaVersion: 1, profile: 'performance', overrides: {} } };
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Custom'], ['Default', 'Custom']]);
+    // The rest of formatValue: model selections, writing styles, merge methods and the writer model's unset value.
+    expect([formatSettingValue('textGenerationModelSelection', { instanceId: 'codex', model: 'gpt-6' }), formatSettingValue('sourceControlWritingStyle', { mode: 'conventional_commits' }),
+      formatSettingValue('pullRequestMergeMethod', 'squash'), formatSettingValue('pullRequestMergeMethod', null), formatSettingValue('sourceControlWriterModelSelection', null),
+      formatSettingValue('worktreeSubmodules', 'top-level'), formatSettingValue('branchNamingMode', 'static'), formatSettingValue('branchNamePrefix', '')])
+      .toEqual(['gpt-6', 'Conventional Commits', 'Squash and merge', 'Last selected', 'Text generation model', 'Top level only', 'static', 'Empty']);
   });
   test('the command writes server.updateSettings with the computed value', async () => {
     const client = fakeClient();
@@ -140,8 +151,10 @@ describe('device tools, refs, archive menu, look', () => {
     expect(Math.abs(labelWidth('Not installed') - 93.3)).toBeLessThan(6);
   });
   test('base branch refs carry their tag', () => {
-    expect(branchRef({ name: 'main', current: true }, '/a')).toEqual({ value: 'main', label: 'main', search: 'main', badge: 'current' });
-    expect(branchRef({ name: 'origin/Feature', isRemote: true }, '/a').badge).toBe('remote');
+    expect(branchRef({ name: 'main', current: true }, '/a')).toEqual({ value: 'main', label: 'main', search: 'main', badge: 'current', remote: false });
+    expect(branchRef({ name: 'origin/Feature', isRemote: true }, '/a')).toMatchObject({ badge: 'remote', remote: true });
+    // A current branch keeps its tag and still says it is remote or not: the trigger reads `remote` (S2-6).
+    expect(branchRef({ name: 'origin/main', current: true, isRemote: true }, '/a')).toMatchObject({ badge: 'current', remote: true });
     expect(branchRef({ name: 'wt', worktreePath: '/b' }, '/a').badge).toBe('worktree');
   });
   test('the archive context menu unarchives, or confirms a delete only while Delete confirmation is on', async () => {

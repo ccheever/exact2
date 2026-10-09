@@ -2,7 +2,7 @@ import { look } from './settings-appearance-look';
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './client';
 import { snapshot, transcriptPresentation, modelCatalog, providerBanner, projectIdentity, providerBadge } from './presentation';
-import { parsePairing, nativeFiles, type Native, type Files } from './protocol';
+import { environmentFetchFailure, parsePairing, nativeFiles, type Native, type Files } from './protocol';
 import { obj, arr, str, type Obj } from './domain';
 import { answer } from './app';
 import { chatLocal } from './timeline-presentation';
@@ -464,6 +464,19 @@ describe('connection and bootstrap', () => {
     expect(parsePairing('https://app.t3.codes/pair?host=http%3A%2F%2F127.0.0.1%3A3773#token=secret', '')).toEqual({ origin: 'http://127.0.0.1:3773', credential: 'secret' });
     expect(parsePairing('http://old-host:3773', 'http://new-host:3773/pair?token=query#token=fragment')).toEqual({ origin: 'http://new-host:3773', credential: 'fragment' });
     expect(() => parsePairing('file:///etc/passwd', 'x')).toThrow('HTTP');
+    // A host with spaces is the reference's escaped origin, which no request reaches (S2-8); other refused hosts are invalid.
+    expect(parsePairing('not a url', 'ABC')).toEqual({ origin: 'https://not%20a%20url', credential: 'ABC', unreachable: true });
+    expect(parsePairing('http://My Host:3773', 'ABC')).toEqual({ origin: 'http://my%20host:3773', credential: 'ABC', unreachable: true });
+    expect(parsePairing('https://app.t3.codes/pair?host=not%20a%20url#token=secret', '')).toEqual({ origin: 'https://not%20a%20url', credential: 'secret', unreachable: true });
+    // Chromium still reads a refused link's token and host, so they come from the address as written.
+    expect(parsePairing('https://not a url/pair#token=abc', '')).toEqual({ origin: 'https://not%20a%20url', credential: 'abc', unreachable: true });
+    expect(parsePairing('', 'https://not a url/pair?token=query')).toEqual({ origin: 'https://not%20a%20url', credential: 'query', unreachable: true });
+    expect(parsePairing('https://not a url/pair?host=http%3A%2F%2F127.0.0.1%3A3773#token=secret', '')).toEqual({ origin: 'http://127.0.0.1:3773', credential: 'secret' });
+    expect(parsePairing('https://not%20a%20url', 'abc')).toEqual({ origin: 'https://not%20a%20url', credential: 'abc', unreachable: true });
+    expect(parsePairing('ws://My Host:3773', 'ABC')).toEqual({ origin: 'http://my%20host:3773', credential: 'ABC', unreachable: true });
+    expect(() => parsePairing('http://[::1', 'ABC')).toThrow('Backend URL is invalid.');
+    expect(() => parsePairing('http://[::1?host=127.0.0.1#token=abc', '')).toThrow('Backend URL is invalid.');
+    expect(environmentFetchFailure('https://not%20a%20url')).toBe('Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).');
   });
   test('subscribes from snapshot cursors and gates writes on synchronization markers', async () => {
     const client = new T3Client(), native = new Backend(), disk = storage();

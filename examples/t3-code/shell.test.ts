@@ -405,6 +405,10 @@ describe('shell commands and routed failures', () => {
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save&id=t', 'Scheduled task is incomplete: Add a title, prompt, project, and model.')).toBe('Scheduled task is incomplete');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.')).toBe('Invalid interval');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Enter an existing checkout path.')).toBe('Checkout path is required');
+    // settings-rows-and-labels S2-3: the editor's own message (taskInput) maps to the reference's title and description.
+    const checkout = client().value;
+    expect(settingsFailure(checkout, 'rest:task', 'scope', 'action=save', 'Checkout path is required: Enter the path of the checkout to run in.')).toBe('Checkout path is required');
+    expect(toasts(checkout).map(toast => [toast.title, toast.description])).toEqual([['Checkout path is required', 'Enter the path of the checkout to run in.']]);
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Could not save scheduled task: Choose an available provider and model.')).toBe('Could not save scheduled task');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=toggle&id=t', 'denied')).toBe('Could not update scheduled task');
     expect(settingsFailure(value, 'rest:keybinding', 'scope', 'action=remove&previous=x', 'denied')).toBe('Unable to remove keybinding');
