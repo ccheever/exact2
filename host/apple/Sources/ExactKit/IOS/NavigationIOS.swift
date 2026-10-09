@@ -373,7 +373,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let animatedChange = top >= 0 && top <= common && mounted.count == boundaries.count && !unanimated
             && owners[top].view.window != nil
             && !owners[top].viewControllers.elementsEqual(wanted[parts[top]], by: { $0 === $1 })
-        if awaitingKeyboardViewport || NavigationRules.waitsForKeyboardViewport(
+        // A presentation opening or closing meanwhile supersedes a wait
+        // already begun: its cleanup and focus handoff go now.
+        if (awaitingKeyboardViewport && mounted.count == boundaries.count) || NavigationRules.waitsForKeyboardViewport(
             applying: presenter.applying, keyboardShown: presenter.keyboardTop != nil,
             editing: presenter.hasKeyboardEditor, agentFreezes: ExactEnv.agentFreezes, stackChanges: animatedChange) {
             pendingSync = true
@@ -389,8 +391,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                     pendingSync = false
                     sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
                     // The batches that ran meanwhile reconciled autofocus
-                    // with the destination still out of the window.
-                    presenter.syncAccessibility()
+                    // with the destination still out of the window. Retry it
+                    // once the transition is over: a keyboard rising as it
+                    // starts would shrink the viewport under frozen frames.
+                    if changing { autofocusOwed = true } else { presenter.syncAccessibility() }
                 }
             }
             return
@@ -580,7 +584,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// Focus waits through controller installation as well as UIKit's push/pop.
     /// `clock settle` observes the asynchronous part under platform timing.
-    var defersFocus: Bool { changing || syncing || mounting }
+    var defersFocus: Bool { changing || syncing || mounting || awaitingKeyboardViewport }
     var inTransition: Bool { defersFocus || pendingSync }
     /// How the last transition ended — `completed` (the Back control was
     /// pressed), `cancelled` (an interactive pop returned), `idle` (a
@@ -603,6 +607,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var awaitingKeyboardViewport = false
     /// The editor a back swipe put away, focused again if the swipe cancels.
     private weak var droppedEditor: UIView?
+    /// Autofocus to retry when the transition a keyboard waited for ends.
+    private var autofocusOwed = false
+    /// A cancelled swipe's editor is focused again as didShow settles.
+    private var restoresEditor = false
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -759,6 +767,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // keeps its focus (LLP 1035.001 D5).
         droppedEditor = (FirstResponder.current as? UIView).flatMap { $0.isDescendant(of: presenter.viewport) ? $0 : nil }
         presenter.viewport.endEditing(true)
+        presenter.flushKeyboardResize()
         presenter.session?.view?.fit()
         navigation?.view.layoutIfNeeded()
     }
@@ -766,7 +775,26 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether a pop may still begin after dropKeyboard: the blur it caused
     /// was delivered at once and may have changed the route or its Back.
     private var popStillMayBegin: Bool {
-        !changing && !presenter.modals.inTransition && (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil
+        let may = !changing && !presenter.modals.inTransition && !awaitingKeyboardViewport
+            && (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil
+        // Refused with no transition begun: nothing will reach didShow, so
+        // the editor the swipe put away comes back here.
+        if !may, !changing, keyboardDropped {
+            keyboardDropped = false
+            restoreDroppedEditor()
+        }
+        return may
+    }
+
+    /// The editor a back swipe put away, focused again when the swipe does
+    /// not leave its route — only if it is still this session's, on screen,
+    /// and nothing has taken or been given the focus since.
+    private func restoreDroppedEditor() {
+        defer { droppedEditor = nil }
+        guard let editor = droppedEditor, editor.window != nil, editor.isDescendant(of: presenter.viewport),
+              FirstResponder.current == nil || FirstResponder.current === presenter.session?.view,
+              !pendingSync, presenter.pendingFocusNode == nil else { return }
+        _ = editor.becomeFirstResponder()
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
@@ -832,6 +860,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // left a band of it unpainted, or a cancelled pop the source).
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
+            if autofocusOwed { autofocusOwed = false; presenter.syncAccessibility() }
+            // After the owed sync above: the blur's own batch arrived during
+            // the swipe and left one.
+            if restoresEditor { restoresEditor = false; restoreDroppedEditor() } else { droppedEditor = nil }
             recordPop(navigationController)
             // Settled on a stack's root: once UIKit has finished the
             // transition (its own bar restoration included), a root whose
@@ -866,10 +898,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let cancelled = interactiveTransition && (viewController as? RouteController)?.node === source?.node
         // A cancelled swipe returns to the route it began on: so does the
         // editor it put away, if it is still this session's and on screen.
-        if cancelled, let editor = droppedEditor, editor.window != nil, editor.isDescendant(of: presenter.viewport) {
-            _ = editor.becomeFirstResponder()
-        }
-        droppedEditor = nil
+        restoresEditor = cancelled
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         interactiveTransition = false
         guard dispatches, let control = backControl else { return }
@@ -910,6 +939,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         interactiveTransition = false
         keyboardDropped = false
         droppedEditor = nil
+        autofocusOwed = false
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }
