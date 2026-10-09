@@ -109,7 +109,7 @@ test('attachment frames carry app, title, initial and verified accessibility con
   expect(snapshotDraftTiles(client)).toEqual([{ id: 'c', name: 'photo.png', snapshot: false, app: 'Window', title: '', letter: 'W', included: false, contents: '', referenced: false }]);
 });
 
-test('setup wizard: Allow asks native only; continue tests capture before saving On; refusal changes nothing', async () => {
+test('setup wizard: Allow asks native only; continue tests capture and requests the missing grants before saving On; refusal changes nothing', async () => {
   let persisted = '', refuse = false;
   const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode(persisted).buffer; }, async atomicWriteFile(_path, bytes) { persisted = new TextDecoder().decode(bytes); } } };
   const client = new T3Client(); Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't' });
@@ -125,12 +125,35 @@ test('setup wizard: Allow asks native only; continue tests capture before saving
   expect(client.local.deviceSettings.snapShotEnabled).toBe(false);
   expect((await client.command('setting-snapshot', 'setup', 'continue', 0, native, files)).message).toBe('');
   const order = calls.map(call => String(call.op)).filter(op => op.startsWith('snapshot'));
-  expect(order.slice(-2)).toEqual(['snapshotSetup', 'snapshotConfigure']);
+  // Reference enableForSetup: setupSnapShot('test-mac-capture'), then requestSnapShotPermissions(includeAccessibility).
+  expect(order.slice(-3)).toEqual(['snapshotSetup', 'snapshotRequestPermissions', 'snapshotConfigure']);
   expect(calls.filter(call => call.op === 'snapshotSetup').at(-1)).toMatchObject({ action: 'test-mac-capture' });
+  expect(calls.find(call => call.op === 'snapshotRequestPermissions')).toMatchObject({ includeAccessibility: true });
   expect(calls.find(call => call.op === 'snapshotConfigure')).toMatchObject({ enabled: true });
   expect(obj(obj(JSON.parse(persisted)).deviceSettings).snapShotEnabled).toBe(true);
   client.local.deviceSettings.snapShotEnabled = false; refuse = true;
+  const requests = calls.filter(call => call.op === 'snapshotRequestPermissions').length;
   expect((await client.command('setting-snapshot', 'setup', 'continue', 0, native, files)).message).toBe('Permission prompts and test captures are disabled in isolated testing.');
   expect(client.local.deviceSettings.snapShotEnabled).toBe(false);
+  expect(calls.filter(call => call.op === 'snapshotRequestPermissions')).toHaveLength(requests);
   expect((await client.command('setting-snapshot', 'setup', 'install-extension', 0, native, files)).message).toBe('Unsupported snapshot setting.');
+});
+
+test('Include app text: turning it on while capture is on requests Accessibility first (reference saveIncludeAccessibility)', async () => {
+  const files: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode('').buffer; }, async atomicWriteFile() {} } };
+  const client = new T3Client(); Object.assign(client, { generation: 1, environmentId: 'env', projectId: 'p', threadId: 't' });
+  const calls: Obj[] = [];
+  const native: Native = { available: true, watch() {}, async later(input) { calls.push(obj(input)); return { ok: true, generation: 1, value: {} }; } };
+  const ops = () => calls.map(call => String(call.op)).filter(op => op.startsWith('snapshot'));
+  client.local.deviceSettings.snapShotEnabled = false;
+  await client.command('setting-snapshot', 'snapShotIncludeAccessibility', 'true', 0, native, files);
+  expect(ops()).toEqual(['snapshotConfigure']);
+  client.local.deviceSettings.snapShotEnabled = true; calls.length = 0;
+  await client.command('setting-snapshot', 'snapShotIncludeAccessibility', 'false', 0, native, files);
+  expect(ops()).toEqual(['snapshotConfigure']);
+  calls.length = 0;
+  await client.command('setting-snapshot', 'snapShotIncludeAccessibility', 'true', 0, native, files);
+  expect(ops()).toEqual(['snapshotRequestPermissions', 'snapshotConfigure']);
+  expect(calls.find(call => call.op === 'snapshotRequestPermissions')).toMatchObject({ includeAccessibility: true });
+  expect(client.local.deviceSettings.snapShotIncludeAccessibility).toBe(true);
 });

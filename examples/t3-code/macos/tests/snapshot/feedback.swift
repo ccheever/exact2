@@ -112,6 +112,9 @@ func runComposerFocusChecks() {
         snap.perform(["op": "snapshotSetup", "action": action]) { reply = $0 }
         expect(reply["ok"] as? Bool == false && ((reply["error"] as? [String: Any])?["message"] as? String)?.contains("disabled in isolated testing") == true, "isolated \(action) never prompts or captures")
     }
+    var requested: [String: Any] = [:]
+    snap.perform(["op": "snapshotRequestPermissions", "includeAccessibility": true]) { requested = $0 }
+    expect(requested["ok"] as? Bool == true && (requested["value"] as? [String: Any])?["requested"] as? Bool == false, "isolated requestPermissions never prompts, opens Settings or docks a helper")
     var dismissed: [String: Any] = [:]
     snap.perform(["op": "snapshotDismiss", "id": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", "owner": owner]) { dismissed = $0 }
     expect(dismissed["ok"] as? Bool == false, "dismissing an unknown capture is refused")

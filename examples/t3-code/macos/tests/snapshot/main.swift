@@ -122,3 +122,5 @@ expect(T3SnapshotFeedback.screenFrame(CGRect(x: 10, y: 20, width: 300, height: 2
 print("1 capture animation screen-geometry check passed (no OS capture)")
 runFeedbackChecks()
 runComposerFocusChecks()
+runPermissionHelperChecks()
+runPermissionRequestChecks()
