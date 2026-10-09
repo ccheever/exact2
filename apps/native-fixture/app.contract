@@ -560,6 +560,10 @@ component NativeFixture
                       text "Menu over the sheet"
                     button press=askMenu testId="sheet-ask" height=44
                       text "Menu once asked"
+                    // A route pushed in the sheet's own stack: its bar's
+                    // Back and the edge swipe pop it back to Sheet.
+                    button press=detail testId="sheet-detail" height=44
+                      text "Detail in the sheet"
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"

@@ -523,8 +523,9 @@ The rebuilt 128-lane browser drive passes again in
 **Status:** built 2026-10-09. (a) is **approved by Charlie 2026-10-09**.
 (b) is as narrowed by the design review of 2026-10-09 (Astra and Grok,
 `llp/reviews/1041-read-queue.{astra,grok}.md`; the lead ruled the conservative reading
-where the two differed). One deviation from both reviews was found by
-running the design, and is marked **(found in build)** below.
+where the two differed). One point departs from both reviews, the re-ask
+markers' own window; it is a **decision, approved 2026-10-09** (lead, for
+Charlie), below.
 
 **What happened.** The Bluesky clone, on 2eca0ad80, signed in at launch:
 about twenty sources each `await loadModeration()`, one shared promise that
@@ -606,12 +607,15 @@ turns may have written, and never infers anything from intent.
   A burst of queued `GET`s still refuses a write behind them.
 - **The 128 counts real tickets.** Every ordered request except a re-ask
   marker counts against it: reads, effects, finished or not.
-- **Re-ask markers have their own window of 128 (found in build).** Both
-  reviews had markers share the 128. Running the 300-answer case showed
-  that 127 markers plus the shared load's first fetch fill that window.
-  The load's second fetch, a real read, was then refused at 128; the shared
-  promise rejected, and every answer failed. Markers therefore never take
-  the room the work they wait on needs.
+- **Re-ask markers have their own window of 128.** Decision, approved
+  2026-10-09 (lead, for Charlie): re-ask markers get their own window of
+  128; they do no I/O and are bounded, and a shared window demonstrably
+  starved the shared load's real read (the 300-answer test). Both reviews
+  had markers share the 128. Running the 300-answer case that way, 127
+  markers plus the shared load's first fetch filled that window; the load's
+  second fetch, a real read, was refused at 128, the shared promise
+  rejected, and every answer failed. With their own window, markers never
+  take the room the work they wait on needs.
 - **Bytes.** A marker is charged its record (`size_of::<Completed>()`)
   against the lane's 512 MiB until drained, and never a response ceiling.
   Reads and effects are charged as before: request buffers while queued

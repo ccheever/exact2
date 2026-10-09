@@ -509,6 +509,47 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
+  // A route pushed in a sheet's own stack (Detail over Sheet), popped by
+  // UIKit's bar Back and by the edge swipe, real touches both (a session
+  // with UIKit's bars, `--chrome platform`, and the touch runner): each is
+  // one Back, and the router's stack and the native one agree after it.
+  // The sheet is a modal route the root names, never popped by a bar; the
+  // route over it is (Astra's review of 84009baad).
+  if (host === 'ios') {
+    const d = await open({ host, chrome: 'platform', touch: 'drag' });
+    try {
+      const stacks = async () => {
+        const st = await d.state(), router = st.slots.nav.tabs.find((t) => t.name === st.slots.nav.tab).stack.map((e) => String(e.id));
+        return { router, native: st.navigation?.stack ?? [], presentation: st.navigation?.presentation };
+      };
+      await d.tap('sheet'); await settle(d); await d.clock('settle');
+      for (const how of ['the bar\'s Back', 'the edge swipe']) {
+        await d.tap('sheet-detail'); await settle(d); await d.clock('settle');
+        const before = await stacks();
+        check(before.router.length === 3 && JSON.stringify(before.native) === JSON.stringify(before.router.slice(1)),
+          `${host} native: Detail pushes in Sheet's stack, before ${how}: ${JSON.stringify(before)}`);
+        // The scene's offset of the sheet's viewport, from an aim at a node in it.
+        const at = (await d.carrier.ask({ op: 'tap', id: (await d.target('violate')).id, aim: true })).aim;
+        const dx = at.point[0] - at.at[0], dy = at.point[1] - at.at[1];
+        let r;
+        if (how === 'the bar\'s Back') {
+          const back = (await d.op({ op: 'tree', ax: true })).ax?.elements?.find((e) => e.native?.identifier === 'BackButton')?.frame;
+          check(back, `${host} native: Sheet's bar shows a Back button over Detail`);
+          if (!back) break;
+          r = await d.carrier.touches.ask({ op: 'tap', point: [dx + back.x + back.w / 2, dy + back.y + back.h / 2] });
+        } else {
+          r = await d.carrier.touches.ask({ op: 'drag', point: [dx + 4, dy + 150], to: [dx + 390, dy + 150], press: 0.1, hold: 0, velocity: 600 }, 10000);
+        }
+        check(r?.done, `${host} native: ${how} in Sheet is a real touch: ${JSON.stringify(r)}`);
+        await settle(d); await d.clock('settle');
+        const after = await stacks();
+        check(JSON.stringify(after.router) === JSON.stringify(before.router.slice(0, 2)) && JSON.stringify(after.native) === JSON.stringify(after.router.slice(1)) && after.presentation === 'modal',
+          `${host} native: ${how} pops Detail in Sheet with one Back, the router's stack and the native one agreeing: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+      }
+    } catch (error) {
+      check(false, `${host} native: the drive in Sheet's stack stopped: ${error.stack ?? error.message}`);
+    } finally { await d.close(); }
+  }
   // Two drives of the same steps agree on what the hatches did (LLP
   // 1075.003.000.001 §4.6, §8 stage 1): every call's count, every counter,
   // each span's count and time on the session clock, and the journal's
