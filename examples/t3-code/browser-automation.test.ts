@@ -432,6 +432,20 @@ describe('the host on the client', () => {
     expect(Object.keys(browserHost(client).store.read({ environmentId: 'env-1', threadId: 'thread-2' }).sessions)).toEqual(['tab-7']);
     expect(surfaceStore(client).panels.get('env-1:thread-2')?.surfaces.map(surface => surface.id)).toEqual(['browser:tab-7']);
   });
+  it('keeps a tab opened with open: false out of view on the agent’s next operation (the note’s suppress)', async () => {
+    const run = async (suppress: boolean) => {
+      const note = { requestId: 'r0', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-1', epoch: 'epoch-1', present: false, suppress, snapshot: loaded('tab-7') };
+      const { client, sent } = await subscribed({ presentation: { browserAutomation: { opened: [note] } }, list: () => ({ sessions: [loaded('tab-7')], serverEpoch: 'epoch-1', revision: 4 }) });
+      await listPreviewSessions(client, module, ref);
+      adoptAutomationTabs(client);
+      previewStreamEvent(client, requestEntry('r1', { operation: 'click', tabId: 'tab-7', input: { x: 1, y: 1 } }));
+      await automationPrepare(client, module);
+      expect(plans(sent)[0]).toMatchObject({ requestId: 'r1', tabId: 'tab-7', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-7') });
+      return surfaceStore(client).panels.get('env-1:thread-1');
+    };
+    expect((await run(true))?.visible ?? false).toBe(false);
+    expect(await run(false)).toMatchObject({ active: 'browser:tab-7', visible: true });
+  });
   it('applies preview events to the threads it keeps state for', () => {
     const { client } = fakeClient();
     const opened = { type: 'opened', threadId: 'thread-1', tabId: 'tab-3', createdAt: '2026-10-09T00:00:00Z', serverEpoch: 'epoch-1', revision: 2, snapshot: loaded('tab-3') };

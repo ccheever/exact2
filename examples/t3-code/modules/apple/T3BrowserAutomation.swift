@@ -286,7 +286,8 @@ final class T3BrowserAutomation: NSObject {
                 else { failure = HostError.operation("preview.resize failed: \((resized["error"] as? [String: Any])?["message"] ?? "")") }
             }
             opened.append(["requestId": context.requestId, "connectionId": context.connectionId, "environmentId": context.environmentId, "threadId": context.threadId, "fleet": context.fleet ?? "",
-                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": adopted ?? snapshot, "present": plan["present"] as? Bool ?? false])
+                           "epoch": plan["epoch"] ?? NSNull(), "snapshot": adopted ?? snapshot, "present": plan["present"] as? Bool ?? false,
+                           "suppress": plan["suppress"] as? Bool ?? false]) // `open: false` keeps the tab out of view (adoptAutomationTabs)
             if opened.count > 16 { opened.removeFirst(opened.count - 16) }
             note("opened \(created) for \(context.requestId)")
             changed()
@@ -300,6 +301,17 @@ final class T3BrowserAutomation: NSObject {
             // waitForPreviewPresentation: settle briefly so an active-thread open reports visible=true.
             let settle = Date().addingTimeInterval(0.5)
             _ = await Self.waitForHostReadiness(deadline: settle) { [weak self] in self?.sessions?.sessions[runtimeId].map(Self.visible) ?? false }
+            // The stage mounts the page in a box that its next layout sizes, so a shown page takes its fixed size (the
+            // default, or a reused tab's own) a moment after it shows (the reference's page mounts at it); the answer
+            // reads the size the page renders.
+            let fixed = applied ?? (reused ? context.plan["viewportSetting"] as? [String: Any] : nil)
+            if let fixed, T3BrowserViewport.size(fixed) != nil, let session = sessions?.sessions[runtimeId] {
+                let rendered = min(context.deadline, Date().addingTimeInterval(2))
+                while Date() < rendered, Self.visible(session), !session.closed {
+                    if let viewport = await measure(session), T3BrowserViewport.matches(fixed, viewport) { break }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+            }
         }
         if reused, let url = (plan["url"] as? String).flatMap(URL.init(string:)), let runtimeId {
             let session = try await requireReady(context, tabId: tabId, runtimeId: runtimeId)
