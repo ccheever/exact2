@@ -1048,6 +1048,24 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
     }
     func release(_ token: UUID?) { guard let token else { return }; locked { _ = active.removeValue(forKey: token) } }
+    /// Incoming share ownership uses the same mutex as preference writes and byte cleanup.
+    func incomingShares(_ request: [String: Any]) throws -> [String: Any] {
+        try locked {
+            var value = try store()
+            let owner = T3MobileIncomingShareTransfer(root: root)
+            let answer = try owner.request(request, records: value["incomingShares"], preferences: readJSON(preferences)) { records in
+                value["incomingShares"] = records
+                try self.save(value)
+            }
+            if request["action"] as? String == "release", let id = request["adoptionId"] as? String,
+               let record = (value["incomingShares"] as? [String: [String: Any]])?[id],
+               let entry = record["entry"] as? [String: Any], let selected = record["attachmentIds"] as? [String] {
+                enqueueReleases((entry["attachments"] as? [[String: Any]] ?? []).filter { selected.contains($0["id"] as? String ?? "") }, in: &value)
+                try save(value); _ = drainReleases(&value)
+            }
+            return answer
+        }
+    }
     func writePreferences(_ text: String) throws {
         try locked {
             guard let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
@@ -1064,6 +1082,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             for operation in operations(try store()).values where unresolved(operation) {
                 if pending[operation["environmentId"] as? String ?? ""] != nil { throw refusal("Resolve the queued update before saving another pending operation.", kind: "Busy") }
             }
+            try T3MobileIncomingShareTransfer.validatePreferences(previous: readJSON(preferences), next: value, records: store()["incomingShares"])
             try replace(Self.encoded(value), preferences)
         }
     }
@@ -1195,6 +1214,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         return found
     }
     private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
+        if try T3MobileIncomingShareTransfer.protects(identifier, records: value["incomingShares"]) { return true }
         let preparing = inlinePreparations.values.contains { entry in
             let prepared = entry["prepared"] as! [String: Any]
             return (prepared["attachmentIDs"] as! [String]).contains { $0.lowercased() == identifier }
