@@ -95,6 +95,8 @@ describe('header and panels', () => {
     const client = fakeClient({ threadId: 't1', projectId: 'p1', shell: { threads: [{ id: 't1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] } });
     const rows = surfaces(client);
     expect(rows.map(row => `${row.label} ${row.shortcut}`)).toEqual(['Browser B', 'Terminal T', 'Files F', 'Diff D', 'Pull request P', 'Linked pull requests L', 'Device M']);
+    // realinput-1010-fixes RI-1: the launcher hears a row's letter in either case (surfaceShortcutActionForKey).
+    expect(rows.map(row => row.letter).join('')).toBe('btfdplm');
     expect(rows.find(row => row.id === 'diff')).toMatchObject({ available: true, reason: '' });
     // browser-surface: the Browser row needs the desktop module (its WKWebView); without one it says why.
     expect(rows.find(row => row.id === 'browser')).toMatchObject({ available: false, reason: 'Only available in the desktop app.' });

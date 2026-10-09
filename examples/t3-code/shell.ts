@@ -40,7 +40,8 @@ export type ShellToastView = {
 };
 export type ShellMenuItem = { id: string; label: string; icon: string; destructive: boolean; disabled: boolean; separated: boolean;
   submenu: string; checked: boolean; op: string; target: string; value: string; confirmTitle: string; confirmBody: string; offset: number };
-export type ShellSurface = { id: string; label: string; icon: string; shortcut: string; available: boolean; reason: string };
+// `letter`: the shortcut as the launcher hears it unshifted (surfaceShortcutActionForKey compares case-blind).
+export type ShellSurface = { id: string; label: string; icon: string; shortcut: string; letter: string; available: boolean; reason: string };
 
 /** Base UI's default toast limit: later toasts wait behind the third. */
 export const TOAST_LIMIT = 3;
@@ -157,7 +158,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
   // threadPullRequestPanelTarget (shell-pr.ts, upstream f90b77d809): the current link, the legacy link or the branch's PR.
   const target = thread ? pullRequestPanelTarget(thread) : null, can = availability(client);
   const row = (id: string, label: string, icon: string, shortcut: string, available: boolean, reason: string): ShellSurface =>
-    ({ id, label, icon, shortcut, available, reason: available ? '' : reason });
+    ({ id, label, icon, shortcut, letter: shortcut.toLowerCase(), available, reason: available ? '' : reason });
   return [
     row('browser', 'Browser', 'earth', 'B', client.available === true, 'Only available in the desktop app.'), // browser-surface: the module's WKWebView (isPreviewSupportedInRuntime)
     row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),

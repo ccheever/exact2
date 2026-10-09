@@ -91,8 +91,10 @@ component SurfacePanel
 // RightPanelEmptyState's launcher (RightPanelTabs.tsx): it takes the focus as it mounts (R8KeysLauncher.swift), and its
 // letters open their surfaces. One highlight runs over the available rows: a pointer over a row sets it, leaving that
 // row clears it, ↓ and → move it on and ↑ and ← back, wrapping (↑ with none goes to the last), and Enter on the
-// launcher itself opens the highlighted surface (`handleKeyDown`). A ⌘, ⌃ or ⌥ chord is not the launcher's. It mounts
-// afresh each time the panel has no surface, so the highlight starts with none (-1).
+// launcher itself opens the highlighted surface (`handleKeyDown`). A ⌘, ⌃ or ⌥ chord is not the launcher's. A letter of an
+// available row, either case, is the launcher's alone (the reference's capture listener prevents it and stops it): with
+// a real key the window's monitor hands it here (R8KeysLauncher.route), and nothing else hears it. It mounts afresh each
+// time the panel has no surface, so the highlight starts with none (-1).
 component SurfaceLauncher
   props
     surfaces: list<ShellSurface>
@@ -101,6 +103,7 @@ component SurfaceLauncher
   state highlight = -1
   derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)
   derive lit = length(ids) == 0 ? -1 : min(highlight, length(ids) - 1)
+  derive letters = concat(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), map(filter(surfaces, (entry) => entry.available), (entry) => entry.letter))
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
     if indexOf(ids, id) >= 0
@@ -120,6 +123,10 @@ component SurfaceLauncher
         case some(id)
           ui("choose", id)
         case none
+    else if includes(letters, k)
+      preventDefault()
+      stopPropagation()
+      ui("key", k)
     else
       ui("key", k)
   view
