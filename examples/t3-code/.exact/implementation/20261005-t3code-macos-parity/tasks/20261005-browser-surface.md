@@ -2,13 +2,13 @@
 name: 20261005-browser-surface
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
+verification: verified
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface
 pr_url: https://github.com/ccheever/exact2/pull/337
-verified_commit: null
+verified_commit: d5ba74653bada10a334aa4d79e09eb1584559f6b
 ---
 
 # Browser surface part 1: engine view, tabs and chrome
@@ -143,24 +143,24 @@ public page.
 | Criterion | Action | Expected | Result |
 | --- | --- | --- | --- |
 | Ported tests | `bun test examples/t3-code` | The ported tests pass | pass: see "Tests" |
-| Open and tabs (part 1's half) | "+" menu › Browser (B); open two tabs; switch; close one; hide and show the panel; switch threads | Tab titles and favicons follow the pages; tabs keep their pages across hide and thread switch; closing ends the session | Live (drive 2): Browser row available, a tab opens as `tab_1` with "Browser" and the globe, `t3.browser: open [env, thread, epoch, tab_1]`. Live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): the tab's title follows the page ("Page A", "Page B", "Example Domain") and the lane page's favicon is captured (`browser-tab-favicon`). Hide/show, thread switch and close: AppKit (`testATabOutlivesItsViewAndClosesWithItsSession`) and Bun (`desktopTabLifetime (through the panel)`); live hide/show and close: not reached (drive 3 stopped on #285, Attempts) |
-| Chrome row | Back, Forward, Refresh, Stop during a slow load, URL entry (bare host, `localhost:5173`, full URL, invalid), Open in system browser | States, tooltips and normalization as the reference; invalid input does nothing (`handleSubmitUrl` catches); the system browser gets the URL | pass live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): `127.0.0.1:16651` → `http://127.0.0.1:16651/` (`t3.browser: navigate`, fixture `GET /`), `/a`, `/b`; Back → Page A with Back and Forward enabled, Forward → Page B (Forward disabled); during `/slow` the button reads "Stop" and pressing it asks for the page again (a second `GET /slow`); `example.com` → `https://example.com/`, "Example Domain"; Open in system browser recorded `https://example.com/`. Also Bun and AppKit (`testBackForwardRefreshAndHardReload`, `testRefreshWhileLoadingAsksForThePendingPageAgain`) |
+| Open and tabs (part 1's half) | "+" menu › Browser (B); open two tabs; switch; close one; hide and show the panel; switch threads | Tab titles and favicons follow the pages; tabs keep their pages across hide and thread switch; closing ends the session | Live (drive 2): Browser row available, a tab opens as `tab_1` with "Browser" and the globe, `t3.browser: open [env, thread, epoch, tab_1]`. Live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): the tab's title follows the page ("Page A", "Page B", "Example Domain") and the lane page's favicon is captured (`browser-tab-favicon`). Hide/show, thread switch and close: AppKit (`testATabOutlivesItsViewAndClosesWithItsSession`) and Bun (`desktopTabLifetime (through the panel)`); pass by real input ([session 1](https://raw.githubusercontent.com/ccheever/exact2/977b726e5e447108b59e4711fa3d1cff3e5ddb46/browser-surface/real1-record.txt)): a second tab from "+" › the chevron › Default ([r1-06](https://raw.githubusercontent.com/ccheever/exact2/96be0413057c3b6a19db9511e298bc75635c7ee4/browser-surface/r1-06-profile-submenu.png)); switching tabs and hiding and showing the panel ask for nothing again and open no session ([r1-09](https://raw.githubusercontent.com/ccheever/exact2/665d4def69fa7d21ed42785f242a340f2baf7c34/browser-surface/r1-09-hide-show.png)); the chip's × closes a tab (`t3.browser: close … tab_1`, [r1-10](https://raw.githubusercontent.com/ccheever/exact2/cdcf68a4ca1750c226ab6c9315f13956e4cd6002/browser-surface/r1-10-switch-close.png)). A live thread switch was not driven (the lane's only thread is a draft, with no other thread to come back from); Bun and AppKit cover it |
+| Chrome row | Back, Forward, Refresh, Stop during a slow load, URL entry (bare host, `localhost:5173`, full URL, invalid), Open in system browser | States, tooltips and normalization as the reference; invalid input does nothing (`handleSubmitUrl` catches); the system browser gets the URL | pass live ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): `127.0.0.1:16651` → `http://127.0.0.1:16651/` (`t3.browser: navigate`, fixture `GET /`), `/a`, `/b`; Back → Page A with Back and Forward enabled, Forward → Page B (Forward disabled); during `/slow` the button reads "Stop" and pressing it asks for the page again (a second `GET /slow`); `example.com` → `https://example.com/`, "Example Domain"; Open in system browser recorded `https://example.com/`. Real input: a pasted address and a real Return load the page ([r1-01](https://raw.githubusercontent.com/ccheever/exact2/b126c802bbfc464a8f6d85dac8c12c2780f27383/browser-surface/r1-01-paste-return.png)); a real click on Open in system browser opened the Mac's default browser at the page (fixture `GET /` at 01:23:32Z; the browser tab it opened was closed again). Also Bun and AppKit (`testBackForwardRefreshAndHardReload`, `testRefreshWhileLoadingAsksForThePendingPageAgain`) |
 | Empty, loading, failed | No tabs; then a slow load, a closed port | "No preview yet"; the loading bar; LoadFailed with code and description | pass live: empty (drive 2, image 02); loading (Stop and the loading bar, [drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)); failed ([drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt)): "This site can’t be reached", "127.0.0.1:16699: Connection refused.", `ERR_CONNECTION_REFUSED`, Reload pressed. Also AppKit and Bun |
-| More menu (part 1's half) | Open the menu | Hard reload works; the rest is listed, disabled, with its part | Tree read back in drive 2: Hard reload enabled once the page exists, the six other rows disabled; drive 3 opened the menu; Hard reload pressed live: not reached (#285); Hard reload: AppKit `testBackForwardRefreshAndHardReload` |
-| Page inspection | A development build, then a release build | Development: inspectable; release: not | `isInspectable=true (development build)` read back from the app (`t3.inspection: browser web view …`, drive 2) and AppKit; release: the gate is #326's, tested there; Safari's Develop menu attaching: real-input batch |
-| Permissions and popups | A page asking for the camera; a scripted pop-up; a `target=_blank` link | Camera denied; the pop-up opens a window that keeps its opener and refuses its own; the link loads in the tab | pass: AppKit (`testTheCameraAndMicrophoneAreDenied`, `testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab`, the three `previewWindowOpenAction` tests) |
+| More menu (part 1's half) | Open the menu | Hard reload works; the rest is listed, disabled, with its part | Tree read back in drive 2: Hard reload enabled once the page exists, the six other rows disabled; drive 3 opened the menu; Hard reload by a real click: `t3.browser: hard-reload`, fixture `GET /b` ([r1-05](https://raw.githubusercontent.com/ccheever/exact2/d32372e917979b0eaf1dd2b3c1b453c7f95fb4a0/browser-surface/r1-05-hard-reload.png)); AppKit `testBackForwardRefreshAndHardReload`. Its longest row ran under its part note: fixed ([r2-02](https://raw.githubusercontent.com/ccheever/exact2/78b67b590314cf78f90e3fba21cebbfb0ba36c1b/browser-surface/r2-02-more-menu.png)) |
+| Page inspection | A development build, then a release build | Development: inspectable; release: not | `isInspectable=true (development build)` read back from the app (`t3.inspection: browser web view …`, drive 2) and AppKit; release: the gate is #326's, tested there. Safari attaching, by real input: Develop › this Mac lists "T3 Code (Lane Browser)" › "127.0.0.1 — b"; its Web Inspector opens on the page and its console runs there (`document.title` is "Page B"; the page's body repainted in the app) ([r1-11](https://raw.githubusercontent.com/ccheever/exact2/cdd16ff9e68e76836af490b14b3bd689577380b4/browser-surface/r1-11-safari-inspector.png)); Safari's setting was on from 10:36:49 to 10:38:13 KST, off again (read back) and Safari quit; the user turned it on again afterwards for their own use ([r1-12](https://raw.githubusercontent.com/ccheever/exact2/07d827317a97f7b1b13653840886ee642e162553/browser-surface/r1-12-safari-setting.png)) |
+| Permissions and popups | A page asking for the camera; a scripted pop-up; a `target=_blank` link | Camera denied; the pop-up opens a window that keeps its opener and refuses its own; the link loads in the tab | pass: AppKit (`testTheCameraAndMicrophoneAreDenied`, `testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab`, the three `previewWindowOpenAction` tests); real input: a click's `window.open('/auth', 'auth', 'width=440,height=360')` opens a 440×360 window, Approve posts back to the opener and the window closes ("Signed in: approved"); a `target=_blank` link loads in the tab, no window ([r1-07](https://raw.githubusercontent.com/ccheever/exact2/9cb7b3010c8308b66c30d4134dffc9470d376385/browser-surface/r1-07-popup.png), [r1-08](https://raw.githubusercontent.com/ccheever/exact2/eb8a005c6374eba5d9b8d3bf186d2338382a87bc/browser-surface/r1-08-blank-link.png)) |
 | Crash and recovery | Kill the tab's WebKit content process | Recovery as `webviewCrashRecovery` | pass: AppKit (`testACrashedPageRecoversAtItsURL`: SIGKILL on the content process, reload at the URL; the two ported plan tests) |
 | User agent | Read `navigator.userAgent` | WebKit's own, unchanged | pass: AppKit (`testThePageKeepsWebKitsNativeUserAgent…`) |
-| Real input `(attended session)` | Typing in the field (Korean 2-Set), Escape in it, the hover reveal, clicks in the page, a real OAuth pop-up | As the reference | deferred to the real-input batch ("Real-input batch steps") |
+| Real input `(attended session)` | Typing in the field (Korean 2-Set), Escape in it, the hover reveal, clicks in the page, a real OAuth pop-up | As the reference | pass ([session 1](https://raw.githubusercontent.com/ccheever/exact2/977b726e5e447108b59e4711fa3d1cff3e5ddb46/browser-surface/real1-record.txt), 2026-10-09 10:22–10:39 KST; the Mac stayed on Korean 2-Set, text went in by paste): a pasted address and Return navigate ([r1-01](https://raw.githubusercontent.com/ccheever/exact2/b126c802bbfc464a8f6d85dac8c12c2780f27383/browser-surface/r1-01-paste-return.png)); Escape puts the URL back, the field lets go, the panel stays ([r1-02](https://raw.githubusercontent.com/ccheever/exact2/de954efe9ea3ad798e3a8fef853bb8497fcbaa82/browser-surface/r1-02-escape.png)); a real pointer reveals Open in system browser over the address and hides it off it ([r1-03](https://raw.githubusercontent.com/ccheever/exact2/cf1876330f687f53eef9b8c76d2301c7ca91856e/browser-surface/r1-03-hover-reveal.png)); Tab and Shift-Tab reach Back, Refresh, the field (all selected), Open in system browser and More, each with AppKit's ring, and skip the disabled ones ([r1-04](https://raw.githubusercontent.com/ccheever/exact2/f1ec6140237ede90d4771f5b7d60382e847090bf/browser-surface/r1-04-focus-rings.png)); clicks in the page follow links and open the pop-up. A click into a filled field puts the caret under the pointer rather than selecting all: the reference selects on focus (`queueMicrotask(select)`), which a Chromium click undoes the same way (a single click inside a selection collapses it at mouse-up); kept, and not compared against the reference app. Three findings, fixed and re-checked by real input ([fix check](https://raw.githubusercontent.com/ccheever/exact2/3e8f28d3789dc7633a61454597fda6940e1d1e8e/browser-surface/real2-record.txt)): Open in system browser stayed invisible while it had the keyboard focus ([r2-01](https://raw.githubusercontent.com/ccheever/exact2/cad5141787422022cfd7a095320cbb00689c6865/browser-surface/r2-01-external-focus.png)); the More menu's longest row ran under its note ([r2-02](https://raw.githubusercontent.com/ccheever/exact2/78b67b590314cf78f90e3fba21cebbfb0ba36c1b/browser-surface/r2-02-more-menu.png)); a long page title lost its start in the tab chip (X57, [r2-03](https://raw.githubusercontent.com/ccheever/exact2/024a0aa4e1c0fc3557559c288b2ca4745ccdabb8/browser-surface/r2-03-tab-title.png)) |
 | Standard gates | Clone checks, `bun scripts/caps.mjs`, the five repository checks | Green | see "Checks" |
 
 Tests (`bun:test`; reference names unless marked "clone"): `browser-url.test.ts` 17 (preview.test.ts's
 `isLoopbackHost` 9, its `it.each` rows, and `normalizePreviewUrl` 6; clone: the load-failed page's words 2),
 `browser-state.test.ts` 32 (`previewStateStore.test.ts` 26, `previewRuntimeTabId` 3, `shouldShowPreviewEmptyState` 2,
-clone `readSnapshot` 1), `browser-surface.test.ts` 20 (`openPreviewSession` 3 of 4, `addBrowserSurface` 2,
+clone `readSnapshot` 1), `browser-surface.test.ts` 22 (`openPreviewSession` 3 of 4, `addBrowserSurface` 2,
 `closePreviewSession` 2; clone rows for reconcile, tab title and favicon, `projectDesktopState`, `buildReportInput`,
 profiles, the chrome row's ops, the live set, `desktopTabLifetime` through `panelView`, and the two let-go answers of
-review round 1). AppKit `macos/tests/browser` 23 (`webviewCrashRecovery` 2 and `previewWindowOpenAction` 3 ported; 18
+review round 1; two Contract-shape rows for the real-input fixes). AppKit `macos/tests/browser` 23 (`webviewCrashRecovery` 2 and `previewWindowOpenAction` 3 ported; 18
 against a loopback fixture, three of them from review round 1). Substitutions are in each file's header. Not ported here (owned by parts 2–5): the rest of the original
 list.
 
@@ -173,6 +173,10 @@ navigation from the URL field never reached the page, fixed after the drive (Att
 The coordinator allowed a third agent-mode session on the fixed build (screen locked): it passed the navigation rows and
 stopped before Hard reload, hide/show and close, on the agent driver's `clock +N real` bug (#285, fixed on main by #304,
 not yet in this branch).
+2026-10-09 (later): the user asked for the remaining work and the ready flip. With the screen unlocked, the real-input
+batch ran on a normal launch of a lane copy: every remaining row passed (Hard reload, hide/show and close among them),
+Safari's setting was turned on for the inspector check and off again, and three findings were fixed and re-checked by
+real input on the rebuilt bundle.
 
 ## Attempts and evidence
 
@@ -207,30 +211,26 @@ can run without the app:
    and one tab's draft carried over to another. The focus is now kept by tab, and the chrome row is mounted per tab.
 
 | Drive 3 (agent mode, coordinator go-ahead, screen locked) | `cf53202c4` (bundle rebuilt) | Ops 1–54 of 71: the lane page, `/a`, `/b`, Back and Forward, Stop during `/slow` (a second `GET /slow`), `example.com`, Open in system browser (recorded), the failed page for 16699 and its Reload, `/a` again, the More menu opened. Op 55 (`clock +1000 real`) refused by the agent driver: "the clock cannot go backwards (73800.0 → 73799.99999999999)" | [drive 3](https://raw.githubusercontent.com/ccheever/exact2/b3f0a2582919aa7cbf99fd6bcfd6230acbef9fab/browser-surface/drive3-record.txt) (trees, host logs, fixture log; agent captures are blank while the screen is locked) | Hard reload, hide/show and close not reached: exact2 [#285](https://github.com/ccheever/exact2/issues/285), fixed on main by #304, adopted with round 7 (blocked by #320); AppKit and Bun cover them |
+| Real-input session 1 (normal launch, the user's go-ahead) | `cf53202c4` bundle, copied as "T3 Code (Lane Browser)" (own bundle id), launched by path in the lane environment ([lane-app.sh](https://raw.githubusercontent.com/ccheever/exact2/a1beeefc46c91a000532d1d4c3d11b87f74cb52f/browser-surface/lane-app.sh.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/1ff038d45e90cd7bfb24679d1bb547f52cf7d640/browser-surface/fixture-r.mjs.txt)) | Every remaining row passed: paste and Return, Escape, the hover reveal, Tab and its rings, Hard reload, "+" › chevron › Default, hide/show, switch and close, a real pop-up and a `target=_blank` link, Safari's Web Inspector. Open in system browser, clicked for real, opened the Mac's default browser (its tab closed again at once). Three findings: fixes 1–3 below | [record](https://raw.githubusercontent.com/ccheever/exact2/977b726e5e447108b59e4711fa3d1cff3e5ddb46/browser-surface/real1-record.txt); r1-01 to r1-12 | fixes 1–3 |
+| Real-input fix check | the branch with fixes 1–3 (`d5ba74653`), bundle rebuilt | Fix 1: Open in system browser shows with its ring under keyboard focus, pointer away, and hides when the focus leaves; fix 2: the More menu holds its longest row, end-aligned, Escape closes it with the ring on More; fix 3: "Pop-up test: sign…" keeps its start | [record](https://raw.githubusercontent.com/ccheever/exact2/3e8f28d3789dc7633a61454597fda6940e1d1e8e/browser-surface/real2-record.txt); r2-01 to r2-03 (before and after) | none |
 
 ## Real-input batch steps
 
-Deferred to the real-input batch — screen locked (user away) at the time of writing, and the live session limit. Build:
-`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle` (after
-`terminal-host/build.mjs` and `stage-runtime.mjs`); copy the bundle as "T3 Code (Lane Browser)" with its own bundle id;
-launch with the lane environment above (`--env PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin`), the fixture server on
-16651, a seeded home.
-1. **The rows drive 3 did not reach (agent mode is enough; after round 7 brings #304, or a person).** Open a Browser
-   tab and load `127.0.0.1:16651/a`. More › Hard reload: the fixture logs another `GET /a`. "+" › Browser (a second
-   tab). Hide the panel (its toggle) and show it (the chat header's toggle); select the first tab: Page A shows with no
-   new request. Close it: `t3.browser: close …` in the host log, the server's `preview.list` no longer names it. "+" ›
-   chevron › Default: a third tab. The script is `target/browser-surface/drive.sh` (copy: evidence branch
-   `browser-surface/drive3.sh.txt`); after round 7 its `clock +N real` steps are safe again.
-2. **Keyboard in the field.** Click the field (all of it selected), type with the Korean 2-Set source switched to ABC,
-   Return; then type, Escape: the URL comes back and the panel stays open; Tab through the chrome buttons (focus ring
-   on each).
-3. **Safari Web Inspector.** Needs Safari › Settings › Advanced › "Show features for web developers", which the user
-   approved toggling on (and back off afterwards) for #326, the same here. Safari › Develop › the lane app › the tab's
-   page: the inspector attaches (development build); a release bundle does not list it.
-4. **A real pop-up.** A page's "Sign in" `window.open(url, name, "width=500,height=600")` from a click: a window opens
-   and posts back to its opener; a `target=_blank` link loads in the tab.
+Done on 2026-10-09 (Attempts: real-input session 1 and the fix check). For a rerun: build with
+`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle` (after `terminal-host/build.mjs`
+and `stage-runtime.mjs`); copy the bundle as "T3 Code (Lane Browser)" with its own bundle id and launch its executable
+with the lane environment ([lane-app.sh](https://raw.githubusercontent.com/ccheever/exact2/a1beeefc46c91a000532d1d4c3d11b87f74cb52f/browser-surface/lane-app.sh.txt): the seeded home, `T3_LOCAL_PORT=16650`,
+`T3_LOCAL_RUNTIME_DIR`, `HOME` and `CFFIXED_USER_HOME` in the lane dir, the lane PATH), the fixture on 16651
+([fixture](https://raw.githubusercontent.com/ccheever/exact2/1ff038d45e90cd7bfb24679d1bb547f52cf7d640/browser-surface/fixture-r.mjs.txt): `/`, `/a`, `/b`, `/slow`, `/popup`, `/auth`, `/long`). Take the real-input lock.
+Click by window coordinates (`orca computer click`), put text in with `paste-text` (never switch the Korean 2-Set
+source; a click in a filled field leaves a caret, so select all first or Tab into it), move the pointer with
+`cliclick m:x,y` (screen coordinates), and capture a focus ring about 0.9 s after the key (AppKit fades it in).
+Read effects back from the fixture log, the host's `t3.browser:` lines and the AX focus. On a normal launch Open in
+system browser really opens the Mac's default browser: close the tab it opens. Safari: open it, Settings › Advanced ›
+"Show features for web developers" on (approved for #326 and here), Develop › this Mac › "T3 Code (Lane Browser)" ›
+the page, then the setting off (read back) and quit Safari if it was not running. After: quit the copy (an Apple
+Event quit stops its server), stop the fixture, `defaults delete com.exact.t3code.macos.lanebrowser`, release the lock.
 
 ## Next action
 
-The coordinator: step 1 above (Hard reload, hide/show, close) in a session after round 7 (or by a person), and the
-real-input batch steps 2–4. Parts 2–5 start after this PR merges.
+None for part 1: review and merge #337. Parts 2–5 start after it merges.
