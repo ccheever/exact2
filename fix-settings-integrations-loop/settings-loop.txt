@@ -1,0 +1,101 @@
+# fix-settings-integrations-loop: Settings › Integrations reads, base vs branch (2026-10-09, agent mode)
+
+Lane (target/fsil-lane in this worktree): the app's embedded server ("This machine") on 127.0.0.1:16800 from the staged
+runtime t3 v0.0.46-nightly.20261005.2667 (T3_LOCAL_RUNTIME_DIR), T3_LOCAL_HOME a fresh copy per run of a home seeded by
+`t3 project add` (project "work"), HOME and CFFIXED_USER_HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_* and TMPDIR in the lane
+dir, T3CODE_TELEMETRY_ENABLED=false, PATH = the lane bin, rustup proxies for the driver, the pinned Bun, /usr/bin:/bin.
+No provider is installed. Driver: scripts/agent.mjs macos --json --size 1280x840 (drive.sh.txt beside this file).
+Steps, both builds: launch; wait 21 s; tap connection-settings; wait 1.5 s; tap settings-integrations; wait 3 s;
+screenshot 20; wait 30 s; screenshot 21; tree; tap settings-go-to-threads; wait 3 s; screenshot 30; wait 10 s;
+screenshot 31; logs. ("t3 app" failed in both runs: its socket path under the lane TMPDIR is longer than a Unix socket
+allows. It only opens a project; the app connected to the embedded server without it in both runs.)
+Counted (rate.mjs.txt): the lane server's ws.rpc spans (userdata/logs/server.trace.ndjson*) that start between the
+screenshots' write times; op times are the driver's own "real" ms for each clock op.
+
+Builds: base = the evidence-base worktree detached at c603c22d6 (the feature branch after #351), built under its
+.build-lock; branch = this worktree, c603c22d6 + the fix (source-control-view.ts).
+
+## run base-1 (setup failure, no app launched)
+  The driver refused at its start ("rustc did not report its host target"): the lane HOME hid rustup's toolchains.
+  drive.sh then gave the driver rustup proxies with RUSTUP_HOME/CARGO_HOME (the app has no use for them).
+
+## run base-2
+  driver pipeline pid 28335
+  t3 app exit 1
+  server pid 28592
+  driver exit 0
+ws.rpc spans in the trace: 7861 (2026-10-09T07:24:47.880Z … 2026-10-09T07:26:53.128Z)
+Settings › Integrations open: 2026-10-09T07:25:48.744Z → 2026-10-09T07:26:49.736Z (61.0 s)
+    1556    25.51/s  ws.rpc.server.getSettings
+    1556    25.51/s  ws.rpc.device.list
+    1555    25.50/s  ws.rpc.server.getConfig
+       2     0.03/s  ws.rpc.server.reportClientActivity
+  getConfig + getSettings + device.list: 4667 (76.52/s)
+after leaving Settings: 2026-10-09T07:26:52.882Z → 2026-10-09T07:27:02.984Z (10.1 s)
+       1     0.10/s  ws.rpc.server.reportClientActivity
+  getConfig + getSettings + device.list: 0 (0.00/s)
+op answer times (s since the previous op answered):
+   2    6.0  clock +6000 real
+   3    0.1  screenshot base-2/00-start.png window
+   4    0.2  tap connection-settings
+   5    1.5  clock +1500 real
+   6    0.0  tap settings-integrations
+   7   40.2  clock +3000 real
+   8    0.2  screenshot base-2/20-integrations.png window
+   9   60.8  clock +30000 real
+  10    0.2  screenshot base-2/21-integrations-30s.png window
+  11    0.0  tree
+  12    0.0  tap settings-go-to-threads
+  13    3.0  clock +3000 real
+  14    0.1  screenshot base-2/30-left.png window
+  15   10.0  clock +10000 real
+  16    0.1  screenshot base-2/31-left-10s.png window
+  17    0.0  logs
+
+## run branch-1
+  driver pipeline pid 38170
+  t3 app exit 1
+  server pid 38327
+  driver exit 0
+ws.rpc spans in the trace: 19 (2026-10-09T07:27:26.974Z … 2026-10-09T07:28:17.221Z)
+Settings › Integrations open: 2026-10-09T07:27:50.802Z → 2026-10-09T07:28:20.907Z (30.1 s)
+       2     0.07/s  ws.rpc.server.reportClientActivity
+  getConfig + getSettings + device.list: 0 (0.00/s)
+after leaving Settings: 2026-10-09T07:28:24.052Z → 2026-10-09T07:28:34.151Z (10.1 s)
+  getConfig + getSettings + device.list: 0 (0.00/s)
+op answer times (s since the previous op answered):
+   2    6.0  clock +6000 real
+   3    0.1  screenshot branch-1/00-start.png window
+   4    0.2  tap connection-settings
+   5    1.5  clock +1500 real
+   6    0.1  tap settings-integrations
+   7    3.0  clock +3000 real
+   8    0.1  screenshot branch-1/20-integrations.png window
+   9   30.0  clock +30000 real
+  10    0.1  screenshot branch-1/21-integrations-30s.png window
+  11    0.0  tree
+  12    0.0  tap settings-go-to-threads
+  13    3.0  clock +3000 real
+  14    0.1  screenshot branch-1/30-left.png window
+  15   10.0  clock +10000 real
+  16    0.1  screenshot branch-1/31-left-10s.png window
+  17    0.0  logs
+
+## The device rows read the same in both runs (the tree after 30 s, op 11)
+Both: Device hub "Not installed", Running "Not running", Required 0.12.0, Installed None, "Update to v0.12.0",
+"Check versions"; Agent device "Not installed", Required 0.21.12, "Update to v0.21.12", "Check versions"; Device hosts
+"No device hosts." The branch reads them from the subscribeDeviceState stream the shell opened at connect.
+
+## The lane server's spans over the whole session
+base-2:   ws.rpc.server.getConfig 2614, ws.rpc.server.getSettings 2613, ws.rpc.device.list 2613,
+          DeviceToolchain.inspect 5232 (two hosts' tools per inspection), ws.rpc.subscribeDeviceState 1
+branch-1: ws.rpc.server.getConfig 1 (the connection's own, at connect), ws.rpc.subscribeServerConfig 1,
+          ws.rpc.subscribeDeviceState 1, no getSettings, no device.list, DeviceToolchain.inspect 6 (at startup)
+
+## The runner's log
+base-2:   322,232 log lines in the session (the driver's ring kept the last 4,096: 31 "query integrations" among them)
+branch-1: 3,827 log lines in the session (19 "query integrations", all answered without a server read)
+
+Result: on the base the page asks getConfig, getSettings and device.list 25.5 times a second each while it is open
+and the runner is busy (the 3-s wait took 40.2 s, the 30-s wait 60.8 s). On the branch it reads nothing from the
+server while open (0 in 30.1 s), and the waits take 3.0 s and 30.0 s. Leaving Settings: 0 reads in both.
