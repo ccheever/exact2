@@ -634,6 +634,9 @@ fn settled(core: &Core) -> bool {
         && state.fenced.is_empty()
         && state.fenced_bytes == 0
         && state.discard.is_empty()
+        && state.light == 0
+        && state.agains == 0
+        && state.waiting.is_empty()
 }
 
 fn until_settled(core: &Core) {
@@ -1373,6 +1376,9 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
 
 #[path = "executor_timeout_tests.rs"]
 mod timeout;
+
+#[path = "executor_again_tests.rs"]
+mod again;
 
 #[path = "executor_body_tests.rs"]
 mod body_from;

@@ -1,23 +1,22 @@
-//! More answers than the ordered lane admits, each awaiting one shared load
-//! that fetches through the host before its own fetch: the Bluesky clone's
-//! Home at launch (its sources `await loadModeration()`), through the Apple
-//! host's actual Bridge, executor and pump, with the app's TypeScript module
-//! and a scripted transport (LLP 1041 §8.4, the proposed amendment of
-//! 2026-10-09).
+//! More answers than the ordered lane's sixteen, each awaiting one shared
+//! load that fetches through the host before its own fetch: the Bluesky
+//! clone's Home at launch (its sources `await loadModeration()`), through the
+//! Apple host's actual Bridge, executor and pump, with the app's TypeScript
+//! module and a scripted transport (LLP 1041 §8.4, amended 2026-10-09).
 //!
-//! What happens on main (2eca0ad80): the first answer starts the shared load
-//! (its fetch); every later answer parks as waiting on it. Each answer that
-//! began before another is asked again at once (a new answer's JavaScript
-//! may have settled what it waits for), and each re-ask is an opaque ordered
-//! continuation, counted against the sixteen-ticket bound, not the 128 that
-//! plain reads get. The seventeenth is refused. A waiting answer's refusal
-//! is not shaped by the source: it fails, keeps its last value (none), and
-//! is never asked again, so its row stays on its placeholder for good. When
-//! the shared load's second fetch lands, the waiters are asked again all at
-//! once and one more is refused. Nothing deadlocks; the refused rows are
-//! simply never asked again. (Their JavaScript still runs: every row's own
-//! fetch reaches the transport, the refused rows' under other answers'
-//! tickets, and those replies go nowhere.)
+//! Before the amendment (2eca0ad80): every answer begun before another is
+//! asked again at once, and each re-ask was an opaque ordered job, counted
+//! against the sixteen. The sixteenth re-ask was refused, the refusal failed
+//! its answer for good ("keeps its last value"), and with twenty rows, rows
+//! 15 and 16 stayed on their placeholders on every run. Now a re-ask is
+//! `Dispatch::Again`: settled in its ordered place with no work, never
+//! counted against the sixteen, and kept pending when the 128-ticket window
+//! is full, so every row loads, each from its own fetch, each answer begun
+//! once.
+//!
+//! The run is event-driven: the shared load's first fetch waits at a gate
+//! the test opens after boot has dispatched every answer, and the pump runs
+//! on the executor's wakes, not on sleeps.
 
 #![cfg(all(exact_js_engine, target_os = "macos"))]
 
@@ -26,22 +25,32 @@ use exact_apple::executor::{Executor, Io, WakeFn};
 use exact_apple::link::{IoLinks, Links};
 use exact_apple::store::Endowed;
 use exact_js::Module;
+use exact_runner::DataSource;
 use ibex2::boundary::HostError;
 use ibex2::stdlib::abort::AbortSignal;
 use ibex2::stdlib::fetch::{Headers, Response, StreamingResponse, Transport};
 use std::ffi::c_void;
-use std::sync::Mutex;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/shared-load.hbc"));
 const APP: &str = "test.shared-load";
 const GRANTS: &str = "net.fetch https://shared-load.test\n";
 
-/// Every URL the transport was asked for, in order.
+/// One drive at a time: the transport, the gate and the wake are the
+/// process's (a `fn` pointer starts the executor), so each test has them to
+/// itself.
+static DRIVE: Mutex<()> = Mutex::new(());
+/// Every URL the transport was asked for in this drive, in order.
 static ASKED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Whether the shared load's first fetch may answer.
+static GATE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+/// The executor's wake, for the pump loop.
+static WOKE: Mutex<Option<Sender<()>>> = Mutex::new(None);
 
-/// The network: the shared load's two fetches take a little while, as a
-/// real one's do, so the answers that await it are all parked first.
+/// The network: answers at once, except the shared load's first fetch,
+/// which waits for the gate, so every answer is parked on it first.
 struct Scripted;
 impl Transport for Scripted {
     fn open(
@@ -51,8 +60,13 @@ impl Transport for Scripted {
     ) -> Result<StreamingResponse, HostError> {
         ASKED.lock().unwrap().push(request.url.clone());
         let path = request.url.trim_start_matches("https://shared-load.test");
-        let wait = if path.starts_with("/row/") { 2 } else { 30 };
-        std::thread::sleep(Duration::from_millis(wait));
+        if path == "/prefs" {
+            let (open, opened) = &GATE;
+            let held = opened
+                .wait_timeout_while(open.lock().unwrap(), Duration::from_secs(30), |o| !*o)
+                .unwrap();
+            assert!(*held.0, "the gate never opened");
+        }
         signal.check()?;
         let body = path.trim_start_matches('/').replace('/', "-");
         Ok(Response {
@@ -83,10 +97,16 @@ fn start(
     Box::new(Executor::start(Some(bindings), grants, wake))
 }
 
-fn contract(n: usize) -> String {
+extern "C" fn woke(_: *mut c_void) {
+    if let Some(wake) = WOKE.lock().unwrap().as_ref() {
+        let _ = wake.send(());
+    }
+}
+
+fn contract(source: &str, n: usize) -> String {
     let mut src = String::from("shape Row\n  text: string\n\ncomponent App\n");
     for i in 0..n {
-        src += &format!("  resource r{i} = row({i}) as shape Row\n");
+        src += &format!("  resource r{i} = {source}({i}) as shape Row\n");
     }
     src += "  view\n    column\n";
     for i in 0..n {
@@ -95,76 +115,166 @@ fn contract(n: usize) -> String {
     src
 }
 
-fn agent(bridge: &mut Bridge<Module>, op: &str) -> String {
+fn agent<D: DataSource>(bridge: &mut Bridge<D>, op: &str) -> String {
     let n = bridge.input_write(op.as_bytes());
     let len = bridge.agent(n) as usize;
     String::from_utf8_lossy(bridge.output_bytes(len)).into_owned()
 }
 
-/// Boot `n` rows and pump as a presenter does until every row shows its
-/// own fetch's text or `within` passes; the rows still without it.
-fn missing_after(n: usize, within: Duration) -> (Vec<usize>, String) {
-    ASKED.lock().unwrap().clear();
-    let plan = contract::compile(&contract(n))
-        .expect("the fixture's Contract compiles")
-        .encode();
+fn module() -> Module {
     let mut module = Module::loaded(HBC.to_vec(), APP, GRANTS).expect("the fixture loads");
     module.set_budget_ms(f64::INFINITY);
+    module
+}
+
+/// What a drive came to: the rows without their own text, the URLs the
+/// transport saw, the pumps it took, and what the runner said of refusals.
+struct Drove {
+    missing: Vec<usize>,
+    asked: Vec<String>,
+    pumps: usize,
+    said: String,
+    /// The runner's last lines, for a drive that did not finish.
+    tail: String,
+}
+
+/// Boot `n` rows over `data`, open the gate once boot has dispatched, and
+/// pump on the executor's wakes until every row shows its own fetch's text,
+/// from an answer begun once, or `within` passes.
+fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Drove {
+    let _one = DRIVE.lock().unwrap_or_else(|e| e.into_inner());
+    ASKED.lock().unwrap().clear();
+    *GATE.0.lock().unwrap() = false;
+    let (wake, wakes): (Sender<()>, Receiver<()>) = channel();
+    *WOKE.lock().unwrap() = Some(wake);
+    let plan = contract::compile(&contract(source, n))
+        .expect("the fixture's Contract compiles")
+        .encode();
     let links = Links {
         io: Some(IoLinks { endow, start }),
         ..Links::ALL
     };
     let mut bridge = Bridge::with_links(links);
-    bridge.boot(&plan, module, Hooks::none(), 390., 844.);
+    let hooks = Hooks {
+        wake: Some(woke),
+        ..Hooks::none()
+    };
+    bridge.boot(&plan, data, hooks, 390., 844.);
     let begun = Instant::now();
-    let missing = |bridge: &mut Bridge<Module>| {
+    let mut pumps = 0;
+    let missing = |bridge: &mut Bridge<D>| {
         let tree = agent(bridge, r#"{"op":"tree"}"#);
         (0..n)
-            .filter(|i| !tree.contains(&format!("row-{i} after prefs+labelers")))
+            .filter(|i| !tree.contains(&format!("\"{source}-{i} after prefs+labelers #1\"")))
             .collect::<Vec<_>>()
     };
-    loop {
+    let mut gate = false;
+    let left = loop {
         bridge.pump(begun.elapsed().as_secs_f64() * 1e3);
+        pumps += 1;
+        if !gate {
+            // Boot's requests have all been dispatched by now.
+            *GATE.0.lock().unwrap() = true;
+            GATE.1.notify_all();
+            gate = true;
+        }
         let left = missing(&mut bridge);
         if left.is_empty() || begun.elapsed() > within {
-            // The runner's lines that say what became of the rows left.
-            let logs = agent(&mut bridge, r#"{"op":"logs"}"#);
-            let said: Vec<&str> = logs
-                .split("\",\"")
-                .filter(|line| line.contains("refused") || line.contains("no longer pending"))
-                .collect();
-            let asked = ASKED.lock().unwrap().len();
-            return (
-                left,
-                format!(
-                    "{asked} fetches reached the transport; the runner said:\n{}",
-                    said.join("\n")
-                ),
-            );
+            break left;
         }
-        std::thread::sleep(Duration::from_millis(1));
+        // A wake, or a beat to look again: the pump decides, not the clock.
+        let _ = wakes.recv_timeout(Duration::from_millis(100));
+    };
+    let logs = agent(&mut bridge, r#"{"op":"logs"}"#);
+    let said = logs
+        .split("\",\"")
+        .filter(|line| line.contains("refused") || line.contains("no longer pending"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lines: Vec<&str> = logs.split("\",\"").collect();
+    let tail = lines[lines.len().saturating_sub(20)..].join("\n");
+    *WOKE.lock().unwrap() = None;
+    let asked = ASKED.lock().unwrap().clone();
+    Drove {
+        missing: left,
+        asked,
+        pumps,
+        said,
+        tail,
     }
 }
 
-/// The control: twelve answers awaiting the shared load fit the lane, and
-/// every row loads.
+/// The URLs a drive of `n` rows must ask for, each once (`row` fetches its
+/// own; `quiet` nothing).
+fn expected(n: usize) -> Vec<String> {
+    let mut urls: Vec<String> = ["prefs", "labelers"]
+        .iter()
+        .map(|p| format!("https://shared-load.test/{p}"))
+        .chain((0..n).map(|i| format!("https://shared-load.test/row/{i}")))
+        .collect();
+    urls.sort();
+    urls
+}
+
+fn assert_all_loaded(drove: Drove, n: usize, own: bool) {
+    assert!(
+        drove.missing.is_empty(),
+        "rows {:?} never loaded after {} pumps; {} fetches\nthe runner said:\n{}\nits last lines:\n{}",
+        drove.missing,
+        drove.pumps,
+        drove.asked.len(),
+        drove.said,
+        drove.tail
+    );
+    assert!(drove.said.is_empty(), "nothing is refused:\n{}", drove.said);
+    let mut asked = drove.asked;
+    asked.sort();
+    assert_eq!(
+        asked,
+        expected(if own { n } else { 0 }),
+        "each fetch once, each row its own"
+    );
+    // The baseline for LLP 1041 §8.4 Q6 (the herd): pumps to load every row.
+    eprintln!("{n} rows loaded in {} pumps", drove.pumps);
+}
+
+/// Twelve answers awaiting the shared load: every row loads.
 #[test]
 fn twelve_answers_awaiting_a_shared_load_all_load() {
-    let (missing, report) = missing_after(12, Duration::from_secs(10));
-    assert!(
-        missing.is_empty(),
-        "rows {missing:?} never loaded\n{report}"
+    assert_all_loaded(
+        drive(module(), "row", 12, Duration::from_secs(10)),
+        12,
+        true,
     );
 }
 
-/// The repro: twenty answers awaiting the shared load. Every row should
-/// load, as it does in a browser and with twelve; on main some never do.
+/// The repro: twenty answers awaiting the shared load. Failed before the
+/// amendment (rows 15 and 16 refused for good); every row loads now.
 #[test]
-#[ignore = "repro, fails on main (2eca0ad80): answers awaiting a shared load past the 16-ticket ordered bound are refused and stay on their placeholders; LLP 1041 §8.4 proposed amendment (2026-10-09). Run: cargo test -p exact-js --test it admission -- --ignored --nocapture"]
 fn twenty_answers_awaiting_a_shared_load_all_load() {
-    let (missing, report) = missing_after(20, Duration::from_secs(10));
-    assert!(
-        missing.is_empty(),
-        "rows {missing:?} never loaded\n{report}"
+    assert_all_loaded(
+        drive(module(), "row", 20, Duration::from_secs(10)),
+        20,
+        true,
+    );
+}
+
+/// 300 answers awaiting the shared load and fetching nothing of their own,
+/// through the storage composer (whose dispatch consumes its continuation
+/// mapping): more re-asks than the markers' window of 128 at every wave. The
+/// ones past it wait pending in the executor and are placed as room frees;
+/// none is refused, none is begun again, and the shared load's own second
+/// fetch is admitted beside them. (Rows that each fetched would be more than
+/// 128 real reads at once, which the lane still refuses past its backlog.)
+#[test]
+fn more_waiting_answers_than_the_window_all_load_once() {
+    let mut unloaded = Module::new(HBC.to_vec(), APP, GRANTS);
+    unloaded.set_budget_ms(f64::INFINITY);
+    let mut data = exact_data_host::Storage::new(unloaded);
+    data.activate().expect("the fixture loads");
+    assert_all_loaded(
+        drive(data, "quiet", 300, Duration::from_secs(60)),
+        300,
+        false,
     );
 }

@@ -858,3 +858,90 @@ fn a_send_held_behind_a_refused_background_round_runs_on_the_wake() {
         "the refused round settled"
     );
 }
+
+/// Every answer waits on shared work: its continuation is a re-ask
+/// (`Dispatch::Again`), asked once, then the answer settles.
+#[derive(Default)]
+struct Waiting {
+    asked: std::collections::HashSet<String>,
+    settled: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl DataSource for Waiting {
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+        let i = match args[0] {
+            Value::Number(n) => n as u64,
+            _ => 0,
+        };
+        Ok(Answer::Later(exact_runner::Request::continuation(i + 1)))
+    }
+    fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
+        exact_runner::Dispatch::Again
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        args: &[Value],
+        _: exact_runner::Outcome,
+    ) -> Result<Answer, DataError> {
+        let i = match args[0] {
+            Value::Number(n) => n as u64,
+            _ => 0,
+        };
+        // Asked again once more, as a waiter re-parks before its work lands.
+        if self.asked.insert(i.to_string()) {
+            return Ok(Answer::Later(exact_runner::Request::continuation(1000 + i)));
+        }
+        self.settled
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Answer::Now(Value::Number(i as f64)))
+    }
+}
+
+/// Two hundred answers re-asked twice each, more than the re-ask markers'
+/// window of 128: driven only by the executor's wake, as the display loop
+/// is, every one settles and none is refused (LLP 1041 §8.4, amended
+/// 2026-10-09). Before, each re-ask was opaque work against the sixteen.
+#[test]
+#[cfg(unix)]
+#[allow(unsafe_code)] // poll(2) on the executor's wake, as the display loop waits
+fn re_asks_past_their_window_settle_on_the_wake_alone() {
+    const N: usize = 200;
+    let source = Waiting::default();
+    let settled = source.settled.clone();
+    let mut src = String::from("component App\n");
+    for i in 0..N {
+        src += &format!("  resource w{i} = wait({i}) as shape number\n");
+    }
+    src += "  view\n    column width=200 height=200\n      text \"waiting\"\n";
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&src).unwrap().encode(),
+        source,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let mut fds = libc::pollfd {
+        fd: p.executor_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    while settled.load(std::sync::atomic::Ordering::SeqCst) < N {
+        // SAFETY: one valid pollfd for the duration of the call.
+        let ready = unsafe { libc::poll(&mut fds, 1, 2000) };
+        assert!(
+            ready > 0,
+            "no wake with {} of {N} settled",
+            settled.load(std::sync::atomic::Ordering::SeqCst)
+        );
+        p.pump(p.host().now());
+    }
+    assert!(p.host().runner().failed_resources().is_empty());
+    assert!(!p.host().runner().has_pending());
+}
