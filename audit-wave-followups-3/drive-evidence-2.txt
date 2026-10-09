@@ -1,0 +1,38 @@
+audit-wave-followups-3, review round (FW-3): Escape in a Filters submenu, where the focus goes, and ArrowDown after it. 1280x840.
+Before: the feature tip b8e36d476 (worktree t3-code-awf3-before), lane audit-wave-followups-3-before, storage awf3-before-2.
+After: this branch's bundle f7bc361b9, lane audit-wave-followups-3, storage awf3-after-3 (the one retry; the first run, on 44eaec895, showed ArrowDown from the returned Author row going to State, fixed in f7bc361b9).
+Reference: T3 Code 1e2ecbd975 Electron over CDP (Playwright mouse and keyboard), app Light.
+Drive: tools/drive-fw3.sh (A: tap Author with the pointer moved onto it, Escape in the field, ArrowDown; B: pointer moved into the field, Escape; D: State, pointer onto Closed, Escape).
+
+== Clone before (tree facts after each tree op) ==
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=['pull-requests-filters'] open=[] expanded={'pr-filter-author': True}
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=['pull-requests-filters'] open=[] expanded={'pr-filter-author': True}
+TREE focus=[789] open=['pr-filters-layer'] expanded={'pr-filter-state': True}
+TREE focus=['pull-requests-filters'] open=[] expanded={'pr-filter-state': True}
+
+== Clone after, first run (44eaec895) ==
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=['pr-filter-author'] open=['pr-filters-layer'] expanded={}
+TREE focus=['pr-filter-state'] open=['pr-filters-layer'] expanded={}
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=[] open=['pr-filters-layer'] expanded={}
+TREE focus=[789] open=['pr-filters-layer'] expanded={'pr-filter-state': True}
+TREE focus=[] open=['pr-filters-layer'] expanded={}
+
+== Clone after (f7bc361b9) ==
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=['pr-filter-author'] open=['pr-filters-layer'] expanded={}
+TREE focus=['pr-filter-labels'] open=['pr-filters-layer'] expanded={}
+TREE focus=['pr-author-search'] open=['pr-filters-layer'] expanded={'pr-filter-author': True}
+TREE focus=[] open=['pr-filters-layer'] expanded={}
+TREE focus=[789] open=['pr-filters-layer'] expanded={'pr-filter-state': True}
+TREE focus=[] open=['pr-filters-layer'] expanded={}
+
+== Reference (CDP) ==
+ A: click Filters, click Author -> focus 'Search authors' [INPUT]; Escape -> focus 'Author Anyone' [menuitem], highlighted [Author], menus [Filters]; ArrowDown -> focus 'Labels Any', highlighted [Labels]; Escape -> no menu
+ B: click Filters, click Author, click into 'Search authors'; Escape -> focus BODY, highlighted [], menus [Filters]; ArrowDown -> focus BODY, highlighted []; Escape -> no menu (focus the Filters button)
+ D: click Filters, click State (focus 'State Open'), hover Closed (focus 'Closed' [menuitemradio]); Escape -> focus BODY, highlighted [], menus [Filters]; ArrowDown -> BODY; Escape -> no menu
+ Keyboard (c): Filters, ArrowDown x3 (Author), ArrowRight -> focus 'Anyone' [menuitemradio]; Escape -> focus 'Author Anyone' [menuitem]; Escape -> no menu
+ Why (Base UI 1.5.0 floating-ui-react FloatingFocusManager): a submenu's popup returns the focus to its trigger on close (MenuPopup returnFocus true with a trigger), unless the trigger saw a mouseleave (reason triggerHover, event mouseleave) since it opened (preventReturnFocusRef).
