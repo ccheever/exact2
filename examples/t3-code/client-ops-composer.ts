@@ -9,7 +9,7 @@ import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
-import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
+import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
@@ -71,7 +71,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
     else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
-    else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
+    else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
     else if (op === 'stop') {
@@ -173,7 +173,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await this.openThread(native, this.threadId);
   }
 }
-async function changeModel(this: T3Client, native: Native, storage: Files, op: string, id: string, instance = ''): Promise<void> {
+async function changeModel(this: T3Client, native: Native, storage: Files, op: string, id: string, instance = '', shift = false, toggled = false): Promise<void> {
   const providerId = op === 'provider' ? id : instance || this.providerId;
   const provider = arr(this.config.providers).find(provider => provider.instanceId === providerId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
@@ -185,8 +185,14 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   }
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
-  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it.
-  if (op === 'model' && await additiveGesture(this, native)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId); }
+  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says so
+  // (model-picker-parity CO-7, the press's own shiftKey); the native gesture covers a press it could not see. That press is
+  // taken on every pick, first (T3ComposerIntent hands it out once): left behind, it would toggle again the one model a
+  // removal leaves, or make the next pick within 2 s (a ⌘N jump) additive. The model a toggle leaves is a plain pick.
+  if (op === 'model' && !toggled) {
+    const pressed = await additiveGesture(this, native);
+    if ((shift && fanoutSupported(this)) || pressed) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
+  }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);
   if (stagesChanges(this)) { stage(this, { providerId, modelId, options: remembered }); return; }

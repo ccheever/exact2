@@ -8,8 +8,9 @@
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
 import { arr, obj, str, num, type Obj } from './domain';
 import type { T3Client } from './client';
-import { providerAvailable, type Native } from './protocol';
+import type { Native } from './protocol';
 import { providerBadge } from './presentation';
+import { triggerModelName } from './r3-composer-controls-model';
 import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { liveEnvironments, watchLive, type LiveEnvironment } from './live-streams';
 import { letGo } from './let-go';
@@ -33,6 +34,27 @@ export function defaultModelKey(config: Obj, projectId: string, project: Obj | n
 }
 
 type Choice = { value: string; label: string; selected: boolean };
+type TaskModelMark = { value: string; name: string; driver: string; badge: string; accent: string };
+
+/**
+ * The Model trigger's label and mark for any `instance:model` the editor holds (model-picker-parity S2-4, ProviderModelPicker's
+ * trigger over getCustomModelOptionsByInstance): every instance's models, the draft's own key when no instance lists it (its
+ * slug), and "" for no model: the first instance's first model, or "Choose model" (activeInstanceId falls back to the first).
+ */
+export function taskModelMarks(providers: Obj[], draftKey: string): TaskModelMark[] {
+  const mark = (provider: Obj | undefined, value: string, name: string): TaskModelMark => {
+    const badge = provider ? providerBadge(provider, providers) : { providerBadge: '', providerBadgeColor: '' };
+    return { value, name, driver: str(provider?.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
+  };
+  const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model) || str(model.slug))));
+  if (draftKey && !marks.some(entry => entry.value === draftKey)) {
+    const at = draftKey.indexOf(':');
+    marks.push(mark(providers.find(provider => provider.instanceId === draftKey.slice(0, at)), draftKey, draftKey.slice(at + 1)));
+  }
+  const first = providers[0], firstModel = arr(first?.models)[0];
+  marks.push(mark(first, '', firstModel ? triggerModelName(firstModel) || str(firstModel.slug) : 'Choose model'));
+  return marks;
+}
 type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };
 /**
  * BranchPickerRefItem: the name and its tag (current, worktree, remote, default). `remote` is the ref's own isRemote, which
@@ -88,8 +110,8 @@ const editorRefs = new WeakMap<T3Client, { key: string; branches: Refs[] }>();
 export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[],
-    editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
-    branches: [] as Refs[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+    editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
+    branches: [] as Refs[], marks: [] as TaskModelMark[] };
   if (!active || editor !== 'task') editorRefs.delete(client);
   if (!active) return empty;
   try {
@@ -115,14 +137,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const projects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
     const firstProject = projects[0] ?? null;
     const draft = editorDraft(task, str(firstProject?.id), defaultModelKey(config, str(firstProject?.id), firstProject), editing.environmentId);
-    const providers = arr(config.providers).filter(provider => providerAvailable(provider) && obj(provider.auth).status !== 'unauthenticated');
-    const models = providers.flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => ({ value: `${provider.instanceId}:${model.slug}`, label: `${str(model.name, str(model.slug))} · ${str(provider.displayName, str(provider.instanceId))}`, selected: false })));
-    // The trigger shows the model's name with its provider mark (ProviderModelPicker).
-    const marks = providers.flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => {
-      const badge = providerBadge(provider, arr(config.providers));
-      return { value: `${provider.instanceId}:${model.slug}`, name: str(model.name, str(model.slug)), driver: str(provider.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
-    }));
-    if (draft.modelKey && !models.some(model => model.value === draft.modelKey)) models.unshift({ value: draft.modelKey, label: draft.modelKey.slice(draft.modelKey.indexOf(':') + 1), selected: false });
+    const marks = taskModelMarks(arr(config.providers), draft.modelKey);
     // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), and the base when the chosen
     // project's page does not list it: the picker's selectedRefQuery asks for it by name (limit 10), so a local branch past
     // the first page still reads "From origin/<ref>". The base is the draft's in its project, and the editor's after it
@@ -156,7 +171,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const missing = !!target && !!all && !task;
     return { ...base, missing,
       editors: [{ ...draft, key, missing }],
-      projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })), models,
+      projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })),
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
       environments: environments.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),
       branches, marks };

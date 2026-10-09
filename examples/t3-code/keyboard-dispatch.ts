@@ -8,6 +8,7 @@
 import { settingsForward } from './r8-pointer-forward';
 import { arr, obj, str, type Obj } from './domain';
 import { modelCatalog } from './presentation';
+import { adjacentPickerProvider } from './model-catalog';
 import type { T3Client } from './client';
 import { undoLive } from './sidebar-state';
 import { addStripShortcuts } from './composer-controls-branch';
@@ -234,10 +235,9 @@ function turnRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProv
 function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   if (context.modelPickerOpen) {
     const catalog = modelCatalog(client, browseProvider, modelQuery, context.modelTarget ?? '');
-    const rail = ['favorites', ...catalog.providers.map(provider => provider.id)];
-    const at = Math.max(0, catalog.railIndex);
-    add('modelPicker.previousProvider', 'provider', rail[at <= 0 ? rail.length - 1 : at - 1], 'Previous Provider');
-    add('modelPicker.nextProvider', 'provider', rail[at >= rail.length - 1 ? 0 : at + 1], 'Next Provider');
+    // adjacentModelPickerProvider (model-picker-parity CO-4): a rail button that cannot be chosen is skipped.
+    add('modelPicker.previousProvider', 'provider', adjacentPickerProvider(catalog, -1), 'Previous Provider');
+    add('modelPicker.nextProvider', 'provider', adjacentPickerProvider(catalog, 1), 'Next Provider');
     // modelJumpCommandByKey: a disabled model (getModelDisabledReason) takes no jump number.
     catalog.models.filter(row => row.kind === 'model' && !row.reason).slice(0, 9).forEach((row, index) => add(`modelPicker.jump.${index + 1}`, 'model', row.id, `Model ${index + 1}`, row.providerId));
   }

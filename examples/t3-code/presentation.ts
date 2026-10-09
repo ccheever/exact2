@@ -19,7 +19,12 @@ import { composerSnapshot } from './composer-presentation';
 import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import { triggerModelName } from './r3-composer-controls-model';
-import { pickerCatalog } from './model-catalog';
+import { pickerCatalog, withJumpLabels } from './model-catalog';
+import { effectiveShortcut } from './r4-polish-shortcuts'; // model-picker-parity CO-1: the rows' ⌘1–⌘9
+import { ariaChord } from './keyboard-dispatch';
+import { shortcutInput } from './keybinding-settings';
+import { shortcutLabel } from './keybinding-view';
+import { terminalOpen } from './terminal-drawer-view';
 import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
@@ -171,5 +176,11 @@ export function snapshot(client: T3Client, now = 0) {
  * A target names the Settings → General row the picker chooses for (settings-model-picker.ts).
  */
 export function modelCatalog(client: T3Client, providerId: string, query: string, target = '') {
-  return target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
+  const catalog = target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
+  // ModelPickerContent modelJumpLabelByKey: each jump command's shortcut in the open picker's context.
+  const context = { modelPickerOpen: true, terminalOpen: terminalOpen(client) };
+  return withJumpLabels(catalog, command => {
+    const shortcut = effectiveShortcut(client.config, command, context);
+    return shortcut ? { label: shortcutLabel(shortcutInput(shortcut)), chord: ariaChord(shortcut) } : { label: '', chord: '' };
+  });
 }

@@ -73,7 +73,7 @@ component ShortcutDispatch
         when item.kind == "provider"
           ShortcutButton(item=item, press=selectProvider(item.target))
         when item.kind == "model"
-          ShortcutButton(item=item, press=selectModel(item.target, item.extra))
+          ShortcutButton(item=item, press=selectModel(item.target, item.extra, false))
         when item.kind == "back"
           ShortcutButton(item=item, press=back)
         when item.kind == "copy-thread"
