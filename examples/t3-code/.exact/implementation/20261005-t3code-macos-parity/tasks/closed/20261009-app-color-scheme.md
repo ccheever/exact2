@@ -3,12 +3,12 @@ name: 20261009-app-color-scheme
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-app-color-scheme
 pr_url: https://github.com/ccheever/exact2/pull/369
-verified_commit: null
+verified_commit: 8dceddfa4b7e0cce534ad7899f856dd4479498d5
 ---
 
 # Every surface draws in the app's appearance, not the macOS appearance
@@ -193,3 +193,7 @@ None: every row is agent mode.
 ## Next action
 
 None: review and merge.
+
+## Delivery
+
+Merged on 2026-10-10 as `8dceddfa4` (#369, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

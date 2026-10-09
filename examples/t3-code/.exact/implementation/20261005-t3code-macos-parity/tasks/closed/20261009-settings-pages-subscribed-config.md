@@ -3,12 +3,12 @@ name: 20261009-settings-pages-subscribed-config
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-pages-subscribed-config
 pr_url: https://github.com/ccheever/exact2/pull/366
-verified_commit: null
+verified_commit: 284254a7203d878a9f7526b7bce36ab665a99589
 ---
 
 # The other Settings pages read the subscribed server config, not a server request per answer
@@ -143,3 +143,7 @@ first attempt.
 ## Next action
 
 Coordinator review of the draft PR. No real-input rows: the change is about requests, which agent mode measures.
+
+## Delivery
+
+Merged on 2026-10-10 as `284254a72` (#366, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

@@ -98,12 +98,12 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 
 | Id | Finding | Record |
 | --- | --- | --- |
-| SH-1 | ⌘N and ⇧⌘N do nothing while a sidebar row has the focus | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) |
-| SH-2 | ⇧⌘S settles with no undo notice and no undo step | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) |
-| SH-3 | "New thread in…" rows have no ⌘1–⌘9 hints or picks | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) |
-| SH-4 | No-projects header shows Filter and Add project | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) |
-| SH-5 | Palette row path is clipped at its start | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) (root cause X57, #291; clone `text-align="left"`) |
-| SH-6 | No "Check for updates" in the sidebar footer | blocked: [blocked-desktop-update-controls](../tasks/20261009-blocked-desktop-update-controls.md) |
+| SH-1 | ⌘N and ⇧⌘N do nothing while a sidebar row has the focus | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
+| SH-2 | ⇧⌘S settles with no undo notice and no undo step | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
+| SH-3 | "New thread in…" rows have no ⌘1–⌘9 hints or picks | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
+| SH-4 | No-projects header shows Filter and Add project | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
+| SH-5 | Palette row path is clipped at its start | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) (root cause X57, #291; clone `text-align="left"`) |
+| SH-6 | No "Check for updates" in the sidebar footer | blocked: [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md) |
 | SH-7 | Blue focus ring on the palette field | existing: [X61](../issues/20261008-x61-field-focus-ring-opt-out.md) (#302, waits for main fix) |
 | SH-8 | View › Toggle Developer Tools is absent | existing: [X2](../issues/20261005-x02-app-developer-tools.md) (permanent declared difference; `rules/DEFERRED.md:722`) |
 | TH-1 | Fork shows on a message with no run and only errors | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
@@ -112,8 +112,8 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | TH-4 | Expanded group stays capped at 18rem | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-5 | Search and file-change rows lack the inspector details | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-6 | Subagent card icon and elapsed format | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
-| TH-7 | Expanded Mermaid preview on a black box | [app-color-scheme](../tasks/20261009-app-color-scheme.md) (one root cause with PG-1, PA-11) |
-| TH-8 | Custom snooze date is a stepper, not a calendar button | [shell-sidebar-palette-keys](../tasks/20261009-shell-sidebar-palette-keys.md) |
+| TH-7 | Expanded Mermaid preview on a black box | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) (one root cause with PG-1, PA-11) |
+| TH-8 | Custom snooze date is a stepper, not a calendar button | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
 | TH-9 | Relative `:line` links render as extra, dead chips | [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md) (decision needed) |
 | TH-10 | Tool image icons not muted | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | CO-1 | Model rows have no ⌘1–⌘9 badge | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
@@ -133,43 +133,43 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | PA-3 | Files rendered Markdown uses a reduced renderer | [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md) |
 | PA-4 | No "Open file in preview browser" | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-5 | Image preview shows a word-wrap toggle | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
-| PA-6 | No base-ref label or comparison picker | [diff-panel-parity](../tasks/20261009-diff-panel-parity.md) |
-| PA-7 | Scope menu hides Latest turn and Turn | [diff-panel-parity](../tasks/20261009-diff-panel-parity.md) |
-| PA-8 | File header stats show deletions first | [diff-panel-parity](../tasks/20261009-diff-panel-parity.md) |
+| PA-6 | No base-ref label or comparison picker | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) |
+| PA-7 | Scope menu hides Latest turn and Turn | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) |
+| PA-8 | File header stats show deletions first | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) |
 | PA-9 | No Workspace select on an unstarted server thread | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | PA-10 | Terminal tab has no icon | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
-| PA-11 | Terminal dark while the app is light | [app-color-scheme](../tasks/20261009-app-color-scheme.md) |
-| PA-12 | ⌘Enter does not save a diff comment | [diff-panel-parity](../tasks/20261009-diff-panel-parity.md) (regression) |
+| PA-11 | Terminal dark while the app is light | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |
+| PA-12 | ⌘Enter does not save a diff comment | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) (regression) |
 | PA-13 | Launcher Browser row has no profile chevron | existing: [browser-surface-profiles](../tasks/20261005-browser-surface-profiles.md) (#354) |
-| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
+| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/closed/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
 | S1-1 | Escape in a field's popup closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (one root cause with S1-2, S2-1) |
 | S1-2 | Escape in the custom model field closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (regression) |
 | S1-3 | Escape while recording closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
 | S1-4 | Recording a bound chord runs its command | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
-| S1-5 | Duplicate and Edit open the editor in simple mode | [settings-appearance-and-skill-chip](../tasks/20261009-settings-appearance-and-skill-chip.md) |
-| S1-6 | Open VSX results show the login, not the namespace | [settings-appearance-and-skill-chip](../tasks/20261009-settings-appearance-and-skill-chip.md) |
+| S1-5 | Duplicate and Edit open the editor in simple mode | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
+| S1-6 | Open VSX results show the login, not the namespace | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
 | S1-7 | No colour usage highlight or "N uses" | blocked: [blocked-theme-usage-highlight](../tasks/20261009-blocked-theme-usage-highlight.md); new issue [X69](../issues/20261009-x69-paint-role-node-query.md) |
-| S1-8 | Restore defaults button reads "Restore defaults" | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
-| S1-9 | Background activity popover shows "Balanced" | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
+| S1-8 | Restore defaults button reads "Restore defaults" | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S1-9 | Background activity popover shows "Balanced" | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S1-10 | Colour picker covers the editor header | existing: [X17](../issues/20261005-x17-popover-position-try.md) (#112; no per-site flip arithmetic) |
 | S1-11 | Font pickers offer a fixed catalog | existing: [installed-font-picker](../tasks/20261007-installed-font-picker.md) (X48, #318) |
-| S1-12 | Skill chip opens no details popover | [settings-appearance-and-skill-chip](../tasks/20261009-settings-appearance-and-skill-chip.md) |
-| S1-13 | Update track disabled; no nav "Check for updates" | blocked: [blocked-desktop-update-controls](../tasks/20261009-blocked-desktop-update-controls.md) |
+| S1-12 | Skill chip opens no details popover | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
+| S1-13 | Update track disabled; no nav "Check for updates" | blocked: [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md) |
 | S1-14 | Days of inactivity is a text field | existing: [X60](../issues/20261008-x60-number-field-semantics.md) (#301) |
 | S1-15 | Theme editor has no Inspect | existing: [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) line 137 (U18, waits for X68, #321) |
-| S1-16 | No hover tooltip on Background policy details | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
+| S1-16 | No hover tooltip on Background policy details | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-1 | Escape in a Settings dialog also leaves Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
 | S2-2 | Diagnostics stays empty (request forgotten) | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) (high; regression) |
-| S2-3 | Checkout-path toast title and description | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
+| S2-3 | Checkout-path toast title and description | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-4 | New task and writer model use a flat list | [model-picker-parity](../tasks/20261009-model-picker-parity.md) |
 | S2-5 | Settings sidebar has no resize rail | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
-| S2-6 | Base branch says "From origin/main" for an unknown ref | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
-| S2-7 | Git details row title and missing info button | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
-| S2-8 | Invalid host error text | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
-| S2-9 | Icon submenu opens below, rows centred | existing: [X17](../issues/20261005-x17-popover-position-try.md) for the placement (Charlie, line 13); the row alignment is in [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
-| S2-10 | Accessible names and roles differ | [settings-rows-and-labels](../tasks/20261009-settings-rows-and-labels.md) |
+| S2-6 | Base branch says "From origin/main" for an unknown ref | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S2-7 | Git details row title and missing info button | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S2-8 | Invalid host error text | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S2-9 | Icon submenu opens below, rows centred | existing: [X17](../issues/20261005-x17-popover-position-try.md) for the placement (Charlie, line 13); the row alignment is in [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S2-10 | Accessible names and roles differ | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-11 | Diagnostics switches the scope to one environment | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) |
-| PG-1 | Usage colours follow macOS, not the app | [app-color-scheme](../tasks/20261009-app-color-scheme.md) |
+| PG-1 | Usage colours follow macOS, not the app | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |
 | PG-2 | USD half cents round down | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
 | PG-3 | Unpriced popover does not open on hover | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
 | PG-4 | Toggles have no shortcut tooltips | [usage-and-pr-pages](../tasks/20261009-usage-and-pr-pages.md) |
@@ -228,7 +228,7 @@ Seen before but never tracked:
   [markdown-links-and-files-preview](../tasks/20261009-markdown-links-and-files-preview.md).
 - SH-6, S1-13 (the reference's no-feed update controls): the user's call. The coordinator builds option (a) as a draft
   PR; merging it builds them, closing it keeps them out under the X40 scope decision. Details:
-  [blocked-desktop-update-controls](../tasks/20261009-blocked-desktop-update-controls.md).
+  [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md).
 
 ## Observations not filed
 
@@ -238,7 +238,7 @@ Seen before but never tracked:
     (`host/apple/Sources/ExactKit/DisplayPreferences.swift:91-94`).
   - `prefer` sets `Agent.systemAppearance` (`host/apple/Sources/ExactKit/Mac/AgentMac.swift:967-971`).
   - Why the window drew light was not found. No one-file repro was made, so nothing was filed.
-  - [app-color-scheme](../tasks/20261009-app-color-scheme.md) verifies under an explicit mode. If the mismatch still
+  - [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) verifies under an explicit mode. If the mismatch still
     shows after it, the coordinator gets a one-file repro.
 - **Clone composer data in agent storage.** In `--storage audit-composer` the clone never wrote `app:/data/t3-code.json`,
   so favorites, stash and drafts were gone after each relaunch. The reference keeps them. This may be X50 (#284). Confirm
@@ -247,7 +247,7 @@ Seen before but never tracked:
   details card and some toolbars. The Nightly toast's Dismiss does not persist in agent mode (per-process data, X50). This
   is a version difference.
 - **Settings reads.** STATUS's "Found, not in scope" Integrations loop is fixed by #353 (merged as `950e8e2e5`). The other
-  Settings pages' server reads are in the planned [settings-pages-subscribed-config](../tasks/20261009-settings-pages-subscribed-config.md),
+  Settings pages' server reads are in the planned [settings-pages-subscribed-config](../tasks/closed/20261009-settings-pages-subscribed-config.md),
   which coordinates with settings-diagnostics-and-scope.
 - **Driver limits:**
   - A testId that contains "/" fails as a tap target; tap by label instead.

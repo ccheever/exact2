@@ -3,12 +3,12 @@ name: 20261009-fix-provider-dialog-focus
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fix-provider-dialog-focus
 pr_url: https://github.com/ccheever/exact2/pull/347
-verified_commit: null
+verified_commit: 0fe34a3b0
 ---
 
 # Add provider keeps the keyboard focus when "Continue to sign-in" gives way to the Sign in step
@@ -87,3 +87,7 @@ The same day (13:37 KST, the screen unlocked): real keys pass. A Space meant for
 ## Next action
 
 None: review and merge.
+
+## Delivery
+
+Merged on 2026-10-10 as `0fe34a3b0` (#347, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

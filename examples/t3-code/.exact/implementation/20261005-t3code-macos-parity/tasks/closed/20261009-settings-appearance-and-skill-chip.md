@@ -3,12 +3,12 @@ name: 20261009-settings-appearance-and-skill-chip
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-appearance-and-skill-chip
 pr_url: https://github.com/ccheever/exact2/pull/364
-verified_commit: null
+verified_commit: 678b6421198662d453c1c7f0fe4d66fcb25e8319
 ---
 
 # Appearance: theme editor opens Advanced for a copy or an edit, Open VSX publisher names, and the skill chip popover
@@ -219,3 +219,7 @@ palette keeps them as the reference does, and the details read the `$` menu's pr
 
 The coordinator runs the real-input batch steps, reviews the draft PR and merges it. The two items under "Found, not in
 this task" are for the plan to schedule.
+
+## Delivery
+
+Merged on 2026-10-10 as `678b64211` (#364, squash). Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
