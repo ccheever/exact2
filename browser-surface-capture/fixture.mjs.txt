@@ -1,0 +1,15 @@
+// browser-surface-capture lane fixture: pages on 127.0.0.1:16721 (not committed).
+const port = Number(process.env.FIXTURE_PORT || 16721);
+const page = (title, body, extra = '') => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font:15px -apple-system,sans-serif;margin:32px;color:#222}a{color:#1b4ed8}.card{border:1px solid #ddd;border-radius:10px;padding:16px;margin:16px 0;max-width:420px}button{font-size:15px;padding:8px 14px}${extra}</style></head><body><h1>${title}</h1>${body}</body></html>`;
+const html = (body) => new Response(body, { headers: { 'content-type': 'text/html' } });
+Bun.serve({ port, hostname: '127.0.0.1', async fetch(request) {
+  const url = new URL(request.url);
+  console.log(`${new Date().toISOString()} ${request.method} ${url.pathname}`);
+  if (url.pathname === '/') return html(page('Capture fixture', '<div class="card" id="card" style="position:absolute;left:32px;top:110px;width:360px;height:150px;box-sizing:border-box"><h2 id="headline" style="margin:0 0 8px">Pricing</h2><p id="copy" style="margin:0 0 12px">Three plans, one price each.</p><button id="save" style="position:absolute;left:16px;top:90px;width:180px;height:40px">Save changes</button></div><p style="position:absolute;top:290px;left:32px"><a href="/anim">Animated page</a> · <a href="/download">Downloads</a></p>'));
+  if (url.pathname === '/anim') return html(page('Animated page', '<div id="box" style="width:120px;height:120px;background:#1b4ed8;border-radius:12px"></div><p>Name <input id="name"></p><p>Password <input id="secret" type="password"></p><script>let t=0;setInterval(()=>{t++;box.style.transform=`translateX(${(t*6)%300}px)`;box.style.background=t%40<20?"#1b4ed8":"#e40014"},33)</script>'));
+  if (url.pathname === '/download') return html(page('Downloads', '<a id="file" href="/report.bin" style="position:absolute;left:32px;top:120px;width:220px;height:40px;display:block;font-size:22px;line-height:40px;background:#eef">report.bin</a><a id="csv" href="/export.csv" style="position:absolute;left:32px;top:190px;width:220px;height:40px;display:block;font-size:22px;line-height:40px;background:#efe">export.csv</a>'));
+  if (url.pathname === '/report.bin') return new Response(new Uint8Array(2048).fill(7), { headers: { 'content-type': 'application/octet-stream' } });
+  if (url.pathname === '/export.csv') return new Response('plan,price\npro,20\n', { headers: { 'content-type': 'text/csv', 'content-disposition': 'attachment; filename="export.csv"' } });
+  return new Response(page('Not found', '<p>No such page.</p>'), { status: 404, headers: { 'content-type': 'text/html' } });
+} });
+console.log(`fixture on ${port}`);
