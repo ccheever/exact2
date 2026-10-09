@@ -1,0 +1,52 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// Pure presentation transitions. App retains requests, guards and route commits.
+use ArchiveChromeEvent from "./archive-chrome.contract"
+
+shape TerminalCaptureSelection
+  text: string
+  key: string
+  start: number
+  end: number
+  anchor: number
+fn terminalCaptureStart(text: string, key: string): TerminalCaptureSelection = (
+  TerminalCaptureSelection(text=text, key=key, start=0, end=-1, anchor=-1)
+)
+fn terminalCaptureSelect(previous: TerminalCaptureSelection, index: number): TerminalCaptureSelection = (
+  previous.anchor < 0
+    ? TerminalCaptureSelection(previous, start=index, end=index, anchor=index)
+    : TerminalCaptureSelection(previous, start=min(previous.anchor, index), end=max(previous.anchor, index), anchor=-1)
+)
+fn terminalCaptureAttached(previous: TerminalCaptureSelection): TerminalCaptureSelection = (
+  TerminalCaptureSelection(previous, text="", key="")
+)
+
+shape ArchiveFilters
+  query: string
+  environment: string
+  sort: string
+fn archiveFiltersChange(previous: ArchiveFilters, reply: option<ArchiveChromeEvent>, routeName: string, routeId: string): ArchiveFilters = match reply {
+  case some(event) => routeName != "archive" or event.routeKey != routeId ? previous :
+    event.kind == "search" ? ArchiveFilters(previous, query=event.value) :
+    event.kind == "environment" ? ArchiveFilters(previous, environment=event.value) :
+    event.kind == "sort" ? ArchiveFilters(previous, sort=event.value) : previous,
+  case none => previous
+}
+shape ArchiveDeleteTarget
+  environment: string
+  project: string
+  thread: string
+
+shape GitForm
+  message: string
+  branch: string
+  worktreeBase: string
+  worktreeBranch: string
+fn gitFormField(previous: GitForm, key: string, value: string): GitForm = (
+  key == "message" ? GitForm(previous, message=value) :
+  key == "branch" ? GitForm(previous, branch=value) :
+  key == "base" ? GitForm(previous, worktreeBase=value) :
+  key == "worktree" ? GitForm(previous, worktreeBranch=value) : previous
+)
+fn gitFormBranches(previous: GitForm, initialBase: string): GitForm = (
+  GitForm(previous, branch="", worktreeBranch="", worktreeBase=initialBase)
+)

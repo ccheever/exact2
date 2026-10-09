@@ -1,0 +1,13 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// Shape declarations only; share delivery and route ownership remain in App.
+shape IncomingShareInbox
+  ready: bool
+  available: bool
+  error: string
+  revision: number
+shape IncomingSharePresentation
+  inboxRevision: number
+  previousState: string
+  state: string
+  location: string
+  requestRoute: string
