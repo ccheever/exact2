@@ -1,0 +1,121 @@
+Restore defaults in a project or checkout scope (review follow-up on PR #379)
+
+Fixture: environment enableAgentBrowserAccess=false; project overrides p1 {enableAgentBrowserAccess: true, responseStreamingMode: 'token'}, p2 {sidebarAutoSettleAfterDays: 7};
+a device setting changed (diffLayout split). Restore device defaults in the project scope ('repo') and the checkout scope ('repo|p1').
+
+Each clone run: bun test examples/t3-code/settings-core.test.ts -t 'checkout scope restores' with that commit's settings-core.ts.
+
+== Reference (T3 Code 1e2ecbd975): its own planScopedSettingsPatch run on useSettingsRestore's patch (keys read from SettingsPanels.tsx) ==
+Fixture: environment off, p1 overridden on.
+restore patch keys: 61 includes enableAgentBrowserAccess: true
+all scope kind: all {"hasClientWrite":true,"serverWrites":[{"enableAgentBrowserAccess":true,"keys":16}],"unavailableReason":null}
+project scope kind: project {"hasClientWrite":true,"serverWrites":[],"unavailableReason":null}
+checkout scope kind: checkout {"hasClientWrite":true,"serverWrites":[],"unavailableReason":null}
+
+== Clone on the feature-branch tip (settings-core.ts at e4647764f, before this PR): the same test ==
+The inherited project-scope clear: p1 keeps only its agent browser access override, p2's entry is removed.
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,14 @@
+  [
+-   [],
++   [
++     {
++       "patch": {
++         "projectSettingsOverrides": {
++           "p1": {
++             "enableAgentBrowserAccess": true,
++           },
++           "p2": null,
++         },
++       },
++     },
++   ],
+    "stacked",
+
+- Expected  - 1
++ Received  + 12
+
+      at <anonymous> (examples/t3-code/settings-core.test.ts:263:107)
+(fail) writes through the command > a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore) [1.72ms]
+
+ 0 pass
+ 21 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [133.00ms]
+
+== Clone before this fix (settings-core.ts at 4e71a812c, the PR head the review read): the same test ==
+The review's case: both entries cleared, so p1 falls back to the environment's off.
+263 |       expect([client.writes, (client.local.clientSettings as Obj).diffLayout, toasts(as(client)).length]).toEqual([[], 'stacked', notices]);
+                                                                                                                ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,12 @@
+  [
+-   [],
++   [
++     {
++       "patch": {
++         "projectSettingsOverrides": {
++           "p1": null,
++           "p2": null,
++         },
++       },
++     },
++   ],
+    "stacked",
+
+- Expected  - 1
++ Received  + 10
+
+      at <anonymous> (examples/t3-code/settings-core.test.ts:263:107)
+(fail) writes through the command > a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore) [6.74ms]
+
+ 0 pass
+ 21 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [124.00ms]
+
+== Clone after (this fix): the same test ==
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 21 filtered out
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [125.00ms]
+
+== Reference probe script (bun run, imports the reference source by path) ==
+// Runs the reference's own planScopedSettingsPatch on useSettingsRestore's patch (keys read from SettingsPanels.tsx).
+import { readFileSync } from "node:fs";
+import { DEFAULT_SERVER_SETTINGS, EnvironmentId, ProjectId } from "<t3-ref>/packages/contracts/src/index.ts";
+import { DEFAULT_UNIFIED_SETTINGS } from "<t3-ref>/packages/contracts/src/settings.ts";
+import { planScopedSettingsPatch } from "<t3-ref>/apps/web/src/components/settings/scopedSettings.ts";
+import { resolveSettingsScope } from "<t3-ref>/apps/web/src/components/settings/settingsScope.ts";
+
+const source = readFileSync("<t3-ref>/apps/web/src/components/settings/SettingsPanels.tsx", "utf8");
+const block = source.slice(source.indexOf("    updateSettings({\n      appearanceContrast"), source.indexOf("    onRestored?.();"));
+const keys = [...block.matchAll(/(\w+): DEFAULT_UNIFIED_SETTINGS\.\1/g)].map((m) => m[1]!);
+const patch = Object.fromEntries(keys.map((k) => [k, (DEFAULT_UNIFIED_SETTINGS as Record<string, unknown>)[k]]));
+const projectId = ProjectId.make("p1");
+const env = {
+  environmentId: EnvironmentId.make("env1"), label: "Studio", connection: { phase: "connected" as const },
+  serverConfig: { settings: { ...DEFAULT_SERVER_SETTINGS, enableAgentBrowserAccess: false, projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: true } } },
+    environment: { capabilities: { projectSettingsOverrides: true } } },
+};
+const member = { id: projectId, environmentId: env.environmentId, title: "Parity fixture", workspaceRoot: "/a", physicalProjectKey: "env1:/a", environmentLabel: "Studio",
+  defaultModelSelection: null, scripts: [], createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z" };
+const group = { ...member, projectKey: "repo", displayName: "Parity fixture", memberProjects: [member], memberProjectRefs: [{ environmentId: env.environmentId, projectId }],
+  groupedProjectCount: 1, environmentPresence: "local-only", allRemoteMembersAreDesktopLocal: false, allRemoteMembersAreWsl: false, remoteEnvironmentLabels: [] };
+const scopes = {
+  all: resolveSettingsScope({}, [group as never], [env as never]),
+  project: resolveSettingsScope({ project: "repo" }, [group as never], [env as never]),
+  checkout: resolveSettingsScope({ project: "repo", machine: env.environmentId, checkout: "env1:/a" }, [group as never], [env as never]),
+};
+console.log("restore patch keys:", keys.length, "includes enableAgentBrowserAccess:", keys.includes("enableAgentBrowserAccess"));
+for (const [name, scope] of Object.entries(scopes)) {
+  const plan = planScopedSettingsPatch(scope, [env as never], patch as never);
+  console.log(name, "scope kind:", scope.kind, JSON.stringify({ hasClientWrite: plan.hasClientWrite, serverWrites: plan.serverWrites.map((w) => w.patch.enableAgentBrowserAccess === undefined ? Object.keys(w.patch) : { enableAgentBrowserAccess: w.patch.enableAgentBrowserAccess, keys: Object.keys(w.patch).length }), unavailableReason: plan.unavailableReason }));
+}
