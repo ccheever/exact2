@@ -10,7 +10,7 @@ import { textWidth as estimate14 } from './composer-controls-view';
 import { textWidth as pagesWidth } from './pages-text-width';
 
 export type Probe = { key: string; text: string; size: number; weight: number };
-export const probeKey = (text: string, size: number, weight: number) => `t:${size}:${weight}:${text}`;
+export function probeKey(text: string, size: number, weight: number): string { return `t:${size}:${weight}:${text}`; }
 export function probe(text: string, size: number, weight: number): Probe { return { key: probeKey(text, size, weight), text, size, weight }; }
 
 /** The probes' unique entries (a menu may repeat a text). */
