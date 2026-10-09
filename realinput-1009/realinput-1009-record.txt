@@ -46,3 +46,25 @@ the fix-hover-cards worktree), #310 (a host finding; a table reply needs a signe
 Cleanup: the posted comments, the reply and the label removed (read back: #132 and #158 have no comments, #158 no labels, #168 two
 review comments as seeded); both lane servers stopped; the copy's keychain items, preferences, Application Support, caches and
 the copy itself removed; nothing listens on 16650-16699; the lock released.
+
+Session 3 (coordinator's go-ahead for Reduce motion, user-approved), 2026-10-09 KST 12:37-12:48. Lock 03:37:24Z-03:48:31Z.
+"T3 Code (Lane RIG)" (fixed bundle) paired with the primary lane server only (127.0.0.1:16660); text by real key events.
+- #308 Reduce motion: System Settings > Accessibility > Motion > Reduce motion was already ON when the session began (it is under
+  Motion on this macOS, not Display). The off-diff chevron filmed at ~10 frames/s (scoped to "Rename the text helpers" so the
+  conversations are off the diff): ON, it swaps v to > with no frame between; turned OFF (12:47:05), a turned frame shows mid-way
+  on opening and on closing; turned back ON (12:47:30), read back on (switch value 1, defaults reduceMotion 1). System Settings,
+  not running before, quit. PASS (ri-11).
+- #308 line comments: a press on line 3 and a Shift-press on new line 5 select the range; the gutter "+" opens the draft (labelled
+  docs/usage.md:5, the anchor line, as the reference); Command-Return adds it as pending (badge 1, no write); a second draft and
+  Escape send nothing; Submit review posts it: read back path docs/usage.md, line 5, side RIGHT; the comment deleted (the review
+  record stays). PASS (ri-12). FINDING: a drag across the line numbers selects nothing (real HID drag and orca drag): the clone
+  selects by press and Shift-press only; the reference's Pierre gutter also takes a drag. A drag across rows needs the pointer
+  delivered to other rows while the button is held (X13) or a hatch; left open.
+- #308 step 7: Load more files x3 (310 files), then a click on docs/usage.md in the tree brings it into view. PASS (ri-13).
+- #311 B: the scope note tip shows on a single-commit scope. PASS. The age tip did not show under a resting pointer (two tries,
+  2.5 s rests) while the path and author tips do: left open with the reaction tooltip (hover rows on #327). Step 4: stopping the
+  lane server shows "reconnecting" and keeps the boxes, no viewed-error tip: needs a fixture that fails only the viewed read, as
+  the record predicted. Step 5: after 310 files no viewed-short or withheld tip shows: the sandbox has no such file. Step 6 needs
+  a non-GitHub host. Step 3 (push a commit to #115, the Changed tip) not run, to keep the session short.
+Cleanup: the review comment deleted (#168 back to its two seeded review comments); the server stopped; the copy's keychain item,
+preferences, data and the copy removed; nothing on 16650-16699; the lock released; Reduce motion as found (on).
