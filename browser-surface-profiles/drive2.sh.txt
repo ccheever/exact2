@@ -1,0 +1,81 @@
+#!/bin/zsh
+# browser-surface part 4 (profiles), after part 2's re-land (#352): the live drive (agent mode, lane env). Not committed;
+# uploaded as evidence. Usage: drive2.sh <run name> <layout|full>
+#   layout: the defaults (iPhone 12 Pro, 125%), then the launcher (↓ ×3 lights Files, ↑ ×2 Browser, Enter): a new tab
+#           at the default viewport and zoom; part 2's first-layout fixture (16782) logs the page's first layout.
+#   full:   layout, plus the launcher chevron's Enter (after ArrowDown ×3 lit Files), then the part 4 regression
+#           (drive.sh's final mode: the Chrome and Firefox imports, the defaults rows, the profile tabs, Clear cookies).
+# Ports (part 4's 16750-16799): the embedded server on 16780, the cookie probe on 16781, the first-layout fixture on
+# 16782. Fixture browser stores only (make-browser-home.mjs, T3_BROWSER_IMPORT_HOME); no real browser data.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-profiles
+L=$W/target/lane
+P=${1:-drive}; MODE=${2:-layout}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+APPW=$W
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$APPW/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16780 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export T3_BROWSER_IMPORT_HOME=$L/browser-home
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+$BUN $L/make-browser-home.mjs $T3_BROWSER_IMPORT_HOME > $OUT/browser-home.log 2>&1
+FIXTURE_PORT=16781 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+FIXTURE_PORT=16782 $BUN $L/fixture-first.mjs > $OUT/fixture-first.log 2>&1 &
+FF=$!; echo "first-layout fixture pid $FF" >> $OUT/pids.txt
+cd $APPW
+S=$OUT
+OPS=("clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window"
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real"
+  "tap settings-content-scroll wheel 0 500" "clock +1000 real"
+  "tap browser-default-viewport" "clock +1000 real" "tap browser-default-viewport-option-iphone-12-pro" "clock +1500 real"
+  "tap browser-default-zoom" "clock +1000 real" "tap browser-default-zoom-option-1.25" "clock +1500 real"
+  "screenshot $S/50-defaults.png window"
+  "tap settings-go-to-threads" "clock +3000 real" "tap toast-dismiss-2" "clock +1000 real" "tap toast-dismiss-1" "clock +1000 real"
+  "tap toggle-right-panel" "clock +2000 real"
+  "type surface-chooser key ArrowDown" "clock +300 real" "type surface-chooser key ArrowDown" "clock +300 real" "type surface-chooser key ArrowDown" "clock +500 real"
+  "screenshot $S/51-launcher-files-lit.png window" tree)
+if [ $MODE = full ]; then OPS+=("type surface-browser-profiles key Enter" "clock +1500 real" "screenshot $S/52-chevron-enter.png window" tree); fi
+OPS+=("type surface-chooser key ArrowUp" "clock +300 real" "type surface-chooser key ArrowUp" "clock +500 real" "type surface-chooser key Enter" "clock +3000 real"
+  "screenshot $S/53-browser-tab.png window" tree
+  "type browser-url 127.0.0.1:16782/" "type browser-url key Enter" "clock +5000 real" "screenshot $S/54-first-layout.png window" tree logs state)
+if [ $MODE = full ]; then OPS+=(
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real" "screenshot $S/10-integrations.png window" tree
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-chrome" "clock +2000 real" "screenshot $S/20-chrome-configure.png window"
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/21-chrome-done.png window" "tap browser-import-done" "clock +1500 real"
+  "tap browser-profiles-add" "clock +5000 real" "tap browser-import-source-firefox" "clock +2000 real" "tap browser-import-tile-existing:default" "clock +800 real"
+  "tap browser-import-run" "clock +4000 real" "screenshot $S/29-firefox-done.png window" "tap browser-import-done" "clock +1000 real" tree
+  "tap settings-content-scroll wheel 0 500" "clock +1000 real"
+  "tap browser-default-viewport" "clock +1000 real" "screenshot $S/40-viewport-menu.png window" "tap browser-default-viewport-option-iphone-12-pro" "clock +1500 real"
+  "tap browser-default-zoom" "clock +1000 real" "tap browser-default-zoom-option-1.25" "clock +1500 real"
+  "tap browser-default-appearance" "clock +1000 real" "tap browser-default-appearance-option-dark" "clock +1500 real"
+  "tap browser-recording-frame-rate" "clock +1000 real" "tap browser-recording-frame-rate-option-60" "clock +1500 real"
+  "tap browser-recording-key-presses" "clock +1500 real" "tap browser-auto-show-floating-preview" "clock +1500 real"
+  "screenshot $S/41-defaults-set.png window" tree
+  "tap reset-browser-default-frame-rate" "clock +1000 real" "tap reset-browser-default-auto-show" "clock +1000 real" "screenshot $S/42-defaults-reset.png window" tree
+  "tap settings-go-to-threads" "clock +3000 real"
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser-profiles" "clock +1000 real" "screenshot $S/31-plus-profiles-chrome.png window" tree
+  'tap "Chrome"' "clock +3000 real" "screenshot $S/32-chrome-tab.png window" tree
+  "type browser-url 127.0.0.1:16781/cookies" "type browser-url key Enter" "clock +4000 real" "screenshot $S/33-chrome-cookies.png window" logs
+  "tap browser-more" "clock +1000 real" "screenshot $S/34-more-profile.png window" tree
+  "tap browser-more-clear-cookies" "clock +2000 real" "tap browser-refresh" "clock +3000 real" "screenshot $S/35-cleared.png window" logs
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser-profiles" "clock +1000 real" "screenshot $S/36-plus-profiles.png window" tree
+  "tap browser-profile-incognito" "clock +3000 real"
+  "type browser-url 127.0.0.1:16781/set" "type browser-url key Enter" "clock +3000 real" "tap browser-refresh" "clock +3000 real" "screenshot $S/37-incognito.png window" tree
+  "tap panel-add-surface" "clock +1000 real" "tap add-surface-browser" "clock +3000 real"
+  "type browser-url 127.0.0.1:16781/cookies" "type browser-url key Enter" "clock +4000 real" "screenshot $S/38-default-tab.png window" tree logs state)
+fi
+printf '%s\n' "${OPS[@]}" > $OUT/ops.txt
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt 1 ]; do kill -0 $AG 2>/dev/null || break; sleep 0.2; done
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX $FF 2>/dev/null
+cp $T3_LOCAL_HOME/userdata/logs/server.trace.ndjson* $OUT/ 2>/dev/null
+echo DRIVE-DONE
