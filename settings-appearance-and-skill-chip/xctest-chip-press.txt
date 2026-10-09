@@ -1,0 +1,11 @@
+Test Suite 'ComposerChipPressTests' started at 2026-10-10 00:50:22.215.
+Test Case '-[T3composerTests.ComposerChipPressTests testAPressOnThePreviewsSkillChipReportsItsDetailsAtTheChip]' started.
+Test Case '-[T3composerTests.ComposerChipPressTests testAPressOnThePreviewsSkillChipReportsItsDetailsAtTheChip]' passed (0.033 seconds).
+Test Case '-[T3composerTests.ComposerChipPressTests testEscapeAnEditTheAppsCloseAndTheEditorLeavingCloseIt]' started.
+Test Case '-[T3composerTests.ComposerChipPressTests testEscapeAnEditTheAppsCloseAndTheEditorLeavingCloseIt]' passed (0.019 seconds).
+Test Case '-[T3composerTests.ComposerChipPressTests testTheChipIsAnAccessibilityButtonThatOpensItsDetails]' started.
+Test Case '-[T3composerTests.ComposerChipPressTests testTheChipIsAnAccessibilityButtonThatOpensItsDetails]' passed (0.013 seconds).
+Test Case '-[T3composerTests.ComposerChipPressTests testTheNewestPressWinsAcrossTheComposerAndThePreview]' started.
+Test Case '-[T3composerTests.ComposerChipPressTests testTheNewestPressWinsAcrossTheComposerAndThePreview]' passed (0.017 seconds).
+Test Suite 'ComposerChipPressTests' passed at 2026-10-10 00:50:22.297.
+Composer: 56 tests, 0 failures
