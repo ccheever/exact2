@@ -1,0 +1,23 @@
+settings-escape-and-nav: agent-mode drives (macOS, 1280x840, screen locked; one live drive of this branch's bundle)
+
+Before: feature tip 950e8e2e5 (worktree t3-code-evidence-base), lane settings-escape-and-nav-before.
+  Drive 1 stopped at op 107 (`tap connection-settings`: "view 97 is hidden or inert"): after S2-1's Escape the New task
+  dialog's restEditor stayed "task" behind the closed Settings, so the whole window stayed inert. Add host and the rail
+  ran in two more sessions (same steps). Add device host's dialog stayed open in Settings after its Escape left Settings.
+After: this branch (bundle of 527ec4c2e), lane settings-escape-and-nav, one session, all 135 ops answered, exit 0
+  (each scenario ends with a second Escape that leaves Settings, then `tap connection-settings` reopens it).
+Reference: T3 Code 1e2ecbd975 Electron production build over CDP (ref-flow.mjs), lane settings-escape-and-nav.
+
+S1-4 tree after `type keybinding-recorder key Meta+K` (new keybinding, command Diff: Toggle):
+  before: save-new-keybinding disabled=true; palette-input "Search commands, projects, and threads..." shown (palette open)
+  after:  keybinding-capture-Diff: Toggle text "mod+k"; keybinding-conflict aria-label "Conflicts with Command Palette: Toggle.";
+          its tooltip text "Conflicts with Command Palette: Toggle. The most recent matching binding wins when both
+          conditions can apply."; save-new-keybinding disabled=false; no palette node
+  reference: field "mod+k", warning "Conflicts with Command Palette: Toggle.", tooltip as above, Save enabled
+
+S2-5 layout (points):
+  before: drag 120 from (255,420): no rail in Settings, the nav stays 257 wide
+  after:  sidebar-resize rail x 247-263 under the nav's edge; after the drag settings-navigation w=377, rail x=367;
+          `tap sidebar-resize hover` shows "Drag to resize sidebar"; `tap sidebar-resize dblclick` resets w=257, rail x=247
+  reference: Resize Sidebar rail x 247 w 16; sidebar container 256 -> 376 after the 120 drag; dblclick resets to 256
+  (the clone's nav is 1 pt wider than its width, content-box plus its 1 pt border, on both builds)
