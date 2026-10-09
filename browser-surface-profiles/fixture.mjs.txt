@@ -1,0 +1,16 @@
+// browser-surface part 4 lane: a page that names the cookies it receives (127.0.0.1:16781), never their values, and
+// what the page sees of the tab's defaults (prefers-color-scheme, its CSS viewport, devicePixelRatio). Not committed.
+const port = Number(process.env.FIXTURE_PORT || 16781);
+const names = header => header.split(';').map(part => part.split('=')[0].trim()).filter(Boolean).join(', ');
+const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>${title}</title><style>body{font:15px -apple-system,sans-serif;margin:28px;color:#222;background:#fff}code{font-size:14px;background:#f3f3f3;padding:2px 4px}@media (prefers-color-scheme: dark){body{color:#eee;background:#1d1d1f}code{background:#333}}</style></head><body><h1>${title}</h1>${body}</body></html>`;
+Bun.serve({ port, hostname: '127.0.0.1', fetch(request) {
+  const url = new URL(request.url), header = request.headers.get('cookie') ?? '';
+  console.log(`${new Date().toISOString()} ${request.method} ${url.pathname} cookie names=[${names(header)}]`);
+  const show = `<p>Cookies the server received (names): <code id="server">${names(header) || '(none)'}</code></p>`
+    + `<p>document.cookie (names): <code id="doc"></code></p><p>Page sees: <code id="env"></code></p>`
+    + `<script>document.getElementById('doc').textContent = document.cookie.split(';').map(p => p.split('=')[0].trim()).filter(Boolean).join(', ') || '(none)';`
+    + `document.getElementById('env').textContent = (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') + ' · ' + innerWidth + ' × ' + innerHeight + ' CSS px · devicePixelRatio ' + devicePixelRatio</script>`;
+  if (url.pathname === '/set') return new Response(page('Cookie set', show), { headers: { 'content-type': 'text/html', 'set-cookie': 'incognito_probe=1; Path=/; Max-Age=3600' } });
+  return new Response(page('Cookie probe', show), { headers: { 'content-type': 'text/html', 'cache-control': 'no-store' } });
+} });
+console.log(`fixture on ${port}`);
