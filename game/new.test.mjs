@@ -511,6 +511,14 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
   // Two versions of one name: only the one exact2's crates reach is named (the game's own foo 2 is its choice).
   const two=lock([['x-logic','0.1.0',null,['exact-game','foo 2.0.0']],['exact-game','0.1.0',null,['foo 1.0.0']],['foo','1.0.0','ii'],['foo','2.0.0','jj']]);
   assert.deepEqual(lockDrift(two,lock([['exact-game','0.1.0',null,['foo']],['foo','1.1.0','kk']])).updated,['foo 1.0.0 → 1.1.0']);
+  // A moved version is paired with the SDK's in its series, not every series the SDK lock holds.
+  const series=lock([['exact-game','0.1.0',null,['glam 0.33.7']],['glam','0.30.10','mm'],['glam','0.33.7','nn']]);
+  assert.deepEqual(lockDrift(lock([['exact-game','0.1.0',null,['glam']],['glam','0.33.6','oo']]),series).updated,['glam 0.33.6 → 0.33.7']);
+  // Two sources of one name and version: the walk follows the source each dependency names, so
+  // the git fork's libm, which only the game reaches, is not named.
+  const crates='registry+https://github.com/rust-lang/crates.io-index', fork='git+https://example.com/foo#aaa';
+  const sourced=`version = 4\n\n[[package]]\nname = "exact-game"\nversion = "0.1.0"\ndependencies = [\n "foo 1.0.0 (${crates})",\n]\n\n[[package]]\nname = "x-logic"\nversion = "0.1.0"\ndependencies = [\n "exact-game",\n "foo 1.0.0 (${fork})",\n]\n\n[[package]]\nname = "foo"\nversion = "1.0.0"\nsource = "${crates}"\nchecksum = "pp"\ndependencies = [\n "libm 0.2.16",\n]\n\n[[package]]\nname = "libm"\nversion = "0.2.16"\nsource = "${crates}"\nchecksum = "qq"\n\n[[package]]\nname = "libm"\nversion = "0.1.4"\nsource = "${crates}"\nchecksum = "rr"\n\n[[package]]\nname = "foo"\nversion = "1.0.0"\nsource = "${fork}"\ndependencies = [\n "libm 0.1.4",\n]\n`;
+  assert.deepEqual(lockDrift(sourced,lock([['exact-game','0.1.0',null,['foo']],['foo','1.0.0','pp',['libm']],['libm','0.2.16','qq']])),{added:[],updated:[]});
   const refreshed=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.9.1','hh']]);
   assert.deepEqual(lockChanges(captured,refreshed),['harfrust 0.5.2 → 0.12.0','added parley 0.6.0','added fontique 0.5.0']);
   assert.deepEqual(lockChanges(refreshed,captured),['harfrust 0.12.0 → 0.5.2','removed parley 0.6.0','removed fontique 0.5.0']);

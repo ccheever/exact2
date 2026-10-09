@@ -355,9 +355,10 @@ const lockVersions = text => (text ? Bun.TOML.parse(text).package ?? [] : [])
 /** What exact2's move did to a game's captured lock (LLP 1046.011 D2), named
  * from the SDK lock. exact2's own crates are the path packages (no source) the
  * SDK lock holds. `added`: what they now depend on that the captured lock
- * lacks, with everything that pulls in. `updated`: registry packages they
- * reach in the captured graph whose every version the SDK lock has replaced.
- * A package only the game's own crates reach is the game's choice, unnamed. */
+ * lacks, with everything that pulls in. `updated`: each registry package they
+ * reach in the captured graph at a version the SDK lock does not hold, with the
+ * SDK's versions in its semver series (all of them for a new series). A package
+ * only the game's own crates reach is the game's choice, unnamed. */
 export function lockDrift(captured, sdk) {
   const mine = Bun.TOML.parse(captured).package ?? [], theirs = Bun.TOML.parse(sdk).package ?? [];
   const have = lockVersions(captured), want = lockVersions(sdk), named = dep => dep.split(' ')[0];
@@ -374,10 +375,14 @@ export function lockDrift(captured, sdk) {
     added.add(name);
     for (const version of want.get(name)) queue.push(...(edges.get(`${name} ${version}`) ?? []));
   }
-  // What exact2's crates reach in the captured graph, package by package: a
-  // lock's dependency names a version when the name alone is ambiguous.
-  const id = pkg => `${pkg.name} ${pkg.version}`, byId = new Map(mine.map(pkg => [id(pkg), pkg]));
-  const targets = dep => { const [name, version] = dep.split(' '); return version ? [`${name} ${version}`] : (have.get(name) ?? []).map(v => `${name} ${v}`); };
+  // What exact2's crates reach in the captured graph, package by package. A
+  // lock's dependency is "name", or "name version" when the name is ambiguous,
+  // or "name version (source)" when even that is (a git fork beside a crate).
+  const id = pkg => `${pkg.name} ${pkg.version} ${pkg.source ?? ''}`, byId = new Map(mine.map(pkg => [id(pkg), pkg]));
+  const targets = dep => {
+    const [, name, version, from] = /^(\S+)(?: (\S+))?(?: \((.*)\))?$/.exec(dep) ?? [];
+    return mine.filter(pkg => pkg.name === name && (!version || pkg.version === version) && (!from || pkg.source === from)).map(id);
+  };
   const reached = new Set(), stack = mine.filter(pkg => !pkg.source && exact2.has(pkg.name)).map(id);
   while (stack.length) {
     const key = stack.pop();
@@ -385,12 +390,15 @@ export function lockDrift(captured, sdk) {
     reached.add(key);
     stack.push(...(byId.get(key).dependencies ?? []).flatMap(targets));
   }
-  const moved = new Map();
+  // What replaced a moved version: the SDK's in its semver series, else (a new series) all of them.
+  const moved = new Set();
   for (const key of reached) {
     const pkg = byId.get(key);
-    if (pkg.source && want.has(pkg.name) && !want.get(pkg.name).includes(pkg.version)) moved.set(pkg.name, [...(moved.get(pkg.name) ?? []), pkg.version].sort());
+    if (!pkg.source || !want.has(pkg.name) || want.get(pkg.name).includes(pkg.version)) continue;
+    const same = want.get(pkg.name).filter(version => series(version) === series(pkg.version));
+    moved.add(`${pkg.name} ${pkg.version} → ${(same.length ? same : want.get(pkg.name)).join(', ')}`);
   }
-  const updated = [...moved].map(([name, versions]) => `${name} ${versions.join(', ')} → ${want.get(name).join(', ')}`);
+  const updated = [...moved];
   return {added:[...added].sort(), updated:updated.sort()};
 }
 /** What a lock refresh changed, by package name, for `lock` to print: the
