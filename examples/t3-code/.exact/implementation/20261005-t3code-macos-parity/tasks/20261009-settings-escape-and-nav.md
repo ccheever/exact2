@@ -1,12 +1,12 @@
 ---
 name: 20261009-settings-escape-and-nav
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-settings-escape-and-nav
 pr_url: null
 verified_commit: null
 ---
@@ -88,8 +88,71 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | S1-4 | ⌘K while recording reads "mod+k" with the conflict warning; Save is enabled; no palette opens. | `s1-4-record-bound-chord.png` | agent, then needs_real_input (real ⌘K) |
 | S2-5 | The rail shows; a 120 px drag widens the nav as the reference (agent `tap … drag`). | `s2-5-settings-rail.png` | agent drag, then needs_real_input (a real drag) |
 
+## Cause and fix
+
+The root cause of S1-1, S1-2, S1-3 and S2-1: an `aria-keyshortcuts` button hears its chord before any `key` handler
+(docs/contract-grammar.md "Shortcuts"), and among several the host presses the lowest node (`ShortcutsMac.perform`:
+`nodes().first`), so Settings' Back took every Escape unless `menuOpen` named the owner, and it named only some. The web's
+order differs (the page's Escape runs only when nothing prevented it), so each owner has to be known at the window.
+
+- `app-settings.contract` `SettingsWindow`: one `derive escapeOwned` (the old `menuOpen` terms, plus the Keybindings
+  search, a recording shortcut, the licence search, and an open "Add custom model" field) feeds Back's `menuOpen`. The
+  "Add custom model" field's open state moved from `ProviderModels` into the window (`modelAdding`, set through the
+  Providers page's `ui("model-adding", id)`; a route change or another provider clears it, as the reference's section
+  unmounts); its Cancel keeps its Escape shortcut, now the only one heard. The slug field and the Keybindings search have
+  `autofocus` (the reference's `autoFocus`); both searches `preventDefault()` their Escape.
+- The When editor and the font list are `aria-modal` popovers (the host's frontmost-modal rule, `Shortcuts.swift`): no
+  shortcut outside them hears a key while they show, so the host's light dismiss closes them on Escape (the theme colour
+  picker's pattern). A Settings dialog (`restEditor`, `settingsCore.saOpen`: Add device host and the confirms, the
+  archive confirm) makes `settings-dialog` inert, so the dialog's own Escape (Close, Cancel) is the only one heard.
+- The recorder's row is `aria-modal` while it records, so it takes every chord (Back's Escape, ⌘K, "/"), and
+  `ShortcutDispatch` gets no items while it records on the Keybindings route, so no ⌘ menu item can run either (the
+  reference's shortcut listeners skip `[data-keybinding-capture]`). Leaving the recorder (`blur`) stops recording and keeps
+  the draft (the reference input's `onBlur`); `captureKeybinding`'s `"blur"` keeps `keybindingKey`. The conflict warning
+  now has the reference's tooltip sentence (`WarningTooltipIcon`), and the unknown-condition warning its own.
+- S2-5: the Settings nav takes the shared `sidebarWidth` (clamped as AppSidebarLayout's: 13rem or the brand, up to the
+  window less 40rem), not `min(sidebarWidth, viewport / 5)`, and `SettingsWindow` mounts the thread sidebar's
+  `SidebarWindowRail` (Resize Sidebar: drag, double-click reset) with its "Drag to resize sidebar" tip.
+- `EXACT2-GAPS.md` "Escape inside Settings" is corrected to this mechanism.
+
+## Acceptance results
+
+Before = feature tip `950e8e2e5` (`t3-code-evidence-base`), after = this branch's bundle (`527ec4c2e`, one live
+agent-mode drive, 135 ops), reference = T3 Code `1e2ecbd975` Electron over CDP. Each image: before | after | reference.
+
+| Id | Result | Proof |
+| --- | --- | --- |
+| S1-1 | pass (agent): the Keybindings search clears and closes (79 bindings, Keybindings stays); the When popover closes and the new row stays; the font list closes and Appearance stays; a second Escape with nothing open leaves Settings | [s1-1-keybinding-search.png](https://raw.githubusercontent.com/ccheever/exact2/d2b0760601310adc16d4a89b40b79f5e90b93dbf/settings-escape-and-nav/s1-1-keybinding-search.png), [s1-1-when-editor.png](https://raw.githubusercontent.com/ccheever/exact2/6bee534636d4d32110e5c40d230be7f1e159c161/settings-escape-and-nav/s1-1-when-editor.png), [s1-1-font-search.png](https://raw.githubusercontent.com/ccheever/exact2/b7cb7928ca70aed24977a12fccaa69515c672e82/settings-escape-and-nav/s1-1-font-search.png), [s1-1-second-escape.png](https://raw.githubusercontent.com/ccheever/exact2/ad3854e4f08605ded3c7cadc56fe519b7fee7fb0/settings-escape-and-nav/s1-1-second-escape.png) |
+| S1-2 | pass (agent): Escape in the slug field cancels "Add custom model"; Providers stays. `EXACT2-GAPS.md:386` corrected | [s1-2-custom-model.png](https://raw.githubusercontent.com/ccheever/exact2/cf981cd7e4b2c8b73da0243e9f78c81bc196ea87/settings-escape-and-nav/s1-2-custom-model.png) |
+| S2-1 | pass (agent): Escape in New task's Name and in Add device host's Name closes only the dialog. Before, the closed New task left `restEditor` set, so the whole window stayed inert ([drive record](https://raw.githubusercontent.com/ccheever/exact2/14cd2fa3001434a50cd405d7b00263b5518854fb/settings-escape-and-nav/drive-record.txt)) | [s2-1-new-task.png](https://raw.githubusercontent.com/ccheever/exact2/1043e8f0512604af6a867809a6614d6d409bec42/settings-escape-and-nav/s2-1-new-task.png), [s2-1-add-host.png](https://raw.githubusercontent.com/ccheever/exact2/136e37b1cf4e5b55beeac43bc8e57dc21e1e4a8e/settings-escape-and-nav/s2-1-add-host.png) |
+| S1-3 | pass (agent, the agent's Escape through the platform route into the native recorder): recording cancels, ⌘N is back, Keybindings stays. Real Escape: open (real-input step 1) | [s1-3-recorder-escape.png](https://raw.githubusercontent.com/ccheever/exact2/96e660b21f124fc1aec52a1e87010229bed3157f/settings-escape-and-nav/s1-3-recorder-escape.png) |
+| S1-4 | pass (agent, the agent's ⌘K): the field reads `mod+k`, the warning "Conflicts with Command Palette: Toggle." with the reference's tooltip sentence, Save enabled, no palette (tree in the drive record). Real ⌘K: open (real-input step 2) | [s1-4-record-bound-chord.png](https://raw.githubusercontent.com/ccheever/exact2/4366c0a7ff1078103b1b83e2535f36c0a6282444/settings-escape-and-nav/s1-4-record-bound-chord.png) |
+| S2-5 | pass (agent drag with the mouse from the nav's edge): the rail is at x 247-263, a 120 pt drag widens the nav 257 → 377 (reference 256 → 376), the tip shows on hover, double-click resets. Real drag: open (real-input step 3) | [s2-5-settings-rail.png](https://raw.githubusercontent.com/ccheever/exact2/63ce07cb69225494731bfd4736d5a9ca13137625/settings-escape-and-nav/s2-5-settings-rail.png) |
+
+Drive scripts: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/4e9c607297ced3a4f6df887f58d1f2262ab20d2a/settings-escape-and-nav/drive.sh.txt) (both builds, same steps;
+the before build needed three sessions because of its S2-1 bug), [ref-flow.mjs](https://raw.githubusercontent.com/ccheever/exact2/9c3b1d1cb507624a715682cf1a119779ddad03f1/settings-escape-and-nav/ref-flow.mjs.txt).
+
+Tests: `settings-escape.test.ts` (10 tests: every Escape owner in `escapeOwned`, the modal popovers and recorder, the
+inert page under a dialog, the window's "Add custom model" state, ShortcutDispatch off while recording, the warning
+tooltip, the shared width and the rail); `theme-color-picker.test.ts` still pins Back's line. Checks: see the PR.
+
+## Real-input batch steps
+
+Build this branch's bundle (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`) and
+launch it on the audit lane, not agent mode: `T3_LOCAL_HOME=<A>/lanes/settings-escape-and-nav/clone-t3-home
+T3_LOCAL_PORT=16902 EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle --run`
+(`<A>` = `target/t3-audit` of the base checkout; never port 3773 or `~/.t3`).
+1. **S1-3.** Settings › Keybindings, click the ⌘N chips of the first "Chat: New" (the field reads "Press shortcut"),
+   press Escape. Expect: the chips read ⌘N again and Keybindings stays. Press Escape again: Settings closes.
+2. **S1-4.** Settings › Keybindings › + › Command: Diff: Toggle › click "Unassigned", press ⌘K. Expect: the field reads
+   `mod+k`, an amber triangle (hover: "Conflicts with Command Palette: Toggle. The most recent matching binding wins
+   when both conditions can apply."), Save enabled, no command palette. Click "Unassigned"/the field again, then click an
+   empty part of the page: recording stops and the field keeps its text. Do not press Save.
+3. **S2-5.** Settings › General. Hover the nav's right edge: the cursor is a resize arrow and "Drag to resize sidebar"
+   shows. Drag the edge 120 pt right: the nav is about 376 pt wide. Back (or Escape): the thread sidebar has the same
+   width. Settings again, double-click the edge: 256 pt.
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Build and unit-test the "Escape owned" value. Then do one batched live
-drive at the end for every row's before/after pair, and the real-input rows when the screen is unlocked. Close every row
-in this PR, or record the blocker of a row that cannot pass.
+Review the draft PR. The three real-input steps above (S1-3 real Escape, S1-4 real ⌘K, S2-5 real drag) go into the next
+real-input batch; every row passes in agent mode.
