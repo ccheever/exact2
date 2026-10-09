@@ -1,0 +1,39 @@
+# A chat link and a terminal link clicked while the client's settings are unread (Open links in = T3 Code saved)
+# script: links-probe.ts (below), run with Bun 1.4.2 on each checkout's examples/t3-code
+
+== before: 24d5ad2e7
+chat link (openLink), settings unread: resolved "system"; preview.open sent: false; system browser: remoteEditorsOpen https://example.com/docs
+terminal link, settings unread: resolved undefined; preview.open sent: false; system browser: terminalOpenExternal http://localhost:5173/
+  openPreview received {"threadId":"thread-1","url":"http://localhost:5173/","viewport":{"_tag":"fill"},"profileId":"default"}
+openTerminalLinkInPreview without defaults (the old stub): opened
+
+== after: eb8daccda
+chat link (openLink), settings unread: rejected BrowserSettingsReadError: Browser settings could not be read.; preview.open sent: false; system browser: none
+terminal link, settings unread: rejected BrowserSettingsReadError: Browser settings could not be read.; preview.open sent: false; system browser: none
+openTerminalLinkInPreview without defaults (the old stub): rejected TypeError
+
+== reference: useOpenLink awaits resolveBrowserLinkTargetPreference (ensureClientSettingsHydrated) and rethrows BrowserSettingsReadError without opening a browser (apps/web/src/browser/useOpenLink.ts:46-60); openTerminalLinkInPreview awaits the preference and resolveBrowserDefaults before the open, outside its fallback (components/preview/openTerminalLinkInPreview.ts:46-80)
+
+---- links-probe.ts
+// A chat link and a terminal link clicked while the client's settings are unread ("Open links in" = T3 Code saved), on a given checkout.
+const dir = process.argv[2];
+const { T3Client } = await import(`${dir}/client.ts`);
+const links = await import(`${dir}/browser-links.ts`);
+const { terminalLinkAction } = await import(`${dir}/terminal-integrations.ts`);
+function client() {
+  const c = new T3Client(), rpcs: string[] = [], ops: string[] = [];
+  c.environmentId = 'local'; c.threadId = 'thread-1'; c.projectId = 'p';
+  c.local.clientSettings = { ...c.local.clientSettings, browserLinkTarget: 'app' };
+  c.request = async (_n: unknown, method: string) => { rpcs.push(method); return method === 'preview.list' ? { sessions: [], serverEpoch: 'e', revision: 1 } : { threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Idle' }, canGoBack: false, canGoForward: false, updatedAt: '' }; };
+  const native = { available: true, watch() {}, async later(r: { op: string; url?: string }) { if (r.op === 'remoteEditorsOpen' || r.op === 'terminalOpenExternal') ops.push(`${r.op} ${r.url}`); return { ok: true, generation: 0, value: { opened: true } }; } };
+  return { c, native, rpcs, ops };
+}
+for (const [name, run] of [['chat link (openLink)', (k: ReturnType<typeof client>) => links.openLink(k.c, k.native, 'https://example.com/docs')],
+  ['terminal link', (k: ReturnType<typeof client>) => terminalLinkAction(k.c, k.native, { text: 'http://localhost:5173/', threadId: 'thread-1', environmentId: 'local', terminalId: 'term-1' })]] as const) {
+  const k = client();
+  let outcome: string;
+  try { outcome = `resolved ${JSON.stringify(await run(k))}`; } catch (e) { outcome = `rejected ${(e as Error).name}: ${(e as Error).message}`; }
+  console.log(`${name}, settings unread: ${outcome}; preview.open sent: ${k.rpcs.includes('preview.open')}; system browser: ${k.ops.length ? k.ops.join(', ') : 'none'}`);
+}
+console.log(`openTerminalLinkInPreview without defaults (the old stub): ${await links.openTerminalLinkInPreview({ url: 'http://localhost:5173/', threadRef: { environmentId: 'local', threadId: 'thread-1' }, forceBrowser: false, supported: true, preference: () => 'app',
+  openPreview: async (r: { input: unknown }) => { console.log(`  openPreview received ${JSON.stringify(r.input)}`); return {}; }, fallbackToBrowser: () => {} }).then(() => 'opened', (e: Error) => `rejected ${e.name}`)}`);
