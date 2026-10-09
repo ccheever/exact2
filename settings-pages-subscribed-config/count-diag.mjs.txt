@@ -1,0 +1,34 @@
+// settings-pages-subscribed-config, review round: the lane server's ws.rpc spans per Diagnostics open (openN-before.png →
+// openN.png write times: the tap and 3 s) and in the 30-s hold (open3.png → open3-30s.png), with each telemetry span's
+// start and end relative to the open's first span. Usage: bun count-diag.mjs <run dir>. Not committed.
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+const [dir] = process.argv.slice(2);
+const mtimes = Object.fromEntries(readFileSync(join(dir, 'png-mtimes.txt'), 'utf8').trim().split('\n').map(line => { const [t, name] = line.split(' '); return [name, Number(t) * 1000]; }));
+const spans = [];
+for (const file of readdirSync(dir).filter(name => name.startsWith('server.trace.ndjson'))) {
+  for (const line of readFileSync(join(dir, file), 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let record; try { record = JSON.parse(line); } catch { continue; }
+    if (typeof record.name !== 'string' || !record.name.startsWith('ws.rpc.') || record.startTimeUnixNano == null) continue;
+    spans.push({ name: record.name, start: Number(BigInt(record.startTimeUnixNano) / 1000n) / 1000, end: Number(BigInt(record.endTimeUnixNano ?? record.startTimeUnixNano) / 1000n) / 1000 });
+  }
+}
+let renames = [];
+try { renames = readFileSync(join(dir, 'renames.log'), 'utf8').trim().split('\n').filter(Boolean).map(line => Date.parse(line.split(' ')[0] + 'Z')); } catch {}
+const windows = [1, 2, 3].map(i => [`open ${i} (tap + 3 s)`, mtimes[`open${i}-before.png`], mtimes[`open${i}.png`]]);
+windows.push(['open 3, held 30 s', mtimes['open3.png'], mtimes['open3-30s.png']]);
+const rows = [];
+for (const [label, from, to] of windows) {
+  if (!from || !to) { console.log(`${label}: missing screenshots`); continue; }
+  const inside = spans.filter(span => span.start >= from && span.start < to).sort((a, b) => a.start - b.start);
+  const counts = new Map(); for (const span of inside) counts.set(span.name, (counts.get(span.name) ?? 0) + 1);
+  const wakes = renames.filter(at => at >= from - 1000 && at < to).length;
+  console.log(`${label}: ${new Date(from).toISOString()} → ${new Date(to).toISOString()} (${((to - from) / 1000).toFixed(1)} s, ${wakes} renames)`);
+  for (const [name, count] of [...counts].sort((a, b) => b[1] - a[1])) console.log(`  ${String(count).padStart(4)}  ${name}`);
+  const first = inside.find(span => span.name.includes('ResourceTelemetry'))?.start ?? from;
+  for (const span of inside.filter(span => span.name.includes('ResourceTelemetry'))) console.log(`        ${span.name.replace('ws.rpc.', '')} start +${(span.start - first).toFixed(1)} ms, end +${(span.end - first).toFixed(1)} ms`);
+  rows.push({ window: label, history: counts.get('ws.rpc.server.getResourceTelemetryHistory') ?? 0, subscribe: counts.get('ws.rpc.subscribeResourceTelemetry') ?? 0,
+    config: counts.get('ws.rpc.server.getConfig') ?? 0, settings: counts.get('ws.rpc.server.getSettings') ?? 0, wakes });
+}
+console.log('\nTABLE ' + JSON.stringify(rows));
