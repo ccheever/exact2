@@ -97,7 +97,7 @@ describe('command palette root', () => {
     const projects = commandView(c, { page: 'new-thread-in', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     expect(projects.rows.map(entry => entry.title)).toEqual(['Parity fixture', 'Second']);
     expect(projects.rows[0]!.header).toBe('Projects');
-    expect(projects.rows[0]!.shortcut).toBe(''); // thread.jump.N holds only isDesktop: the served reference shows none.
+    expect(projects.rows.map(entry => entry.shortcut)).toEqual(['⌘1', '⌘2']); // thread.jump.N holds isDesktop: the desktop reference numbers them (SH-3).
     expect(projects.back).toBe(true);
     expect(projects.placeholder).toBe('Search...');
     const themes = commandView(c, { page: 'theme', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });

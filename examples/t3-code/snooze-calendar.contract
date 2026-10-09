@@ -1,0 +1,63 @@
+use SidebarIcon from "./sidebar-icons.contract"
+use SnoozeCalendar, CalendarDay from "./sidebar-shapes.contract"
+
+// Custom snooze's date (shell-sidebar-palette-keys TH-8; MIT reference, see LICENSE-T3):
+// CustomSnoozeDialog.tsx's outline Button (the date, "Oct 9, 2026", and a calendar glyph,
+// justify-between) opens a Popover (align start, 4pt below) holding ui/calendar.tsx's DayPicker:
+// p-2 in a rounded-xl glass card, a 36pt cell, the caption between the month buttons, the
+// weekday row, then the weeks. snooze-calendar.ts builds the month; a pick sets the date and
+// closes the popover. The popup is modal for shortcuts while it shows, so Escape closes it
+// before the dialog's Cancel hears Escape. The arrows, Home, End and Page Up/Down go to
+// snooze-calendar.ts, which moves the focus (the root's `snoozeCalendarFocus` task focuses
+// the day once it is drawn); a click on a day keeps the focus where it was (retainFocus).
+component SnoozeDateField
+  props
+    cal: SnoozeCalendar
+    local: action
+  state current = ""
+  action dayFocus(day: string)
+    current = day
+  action gridKey(k: string, e: KeyboardEvent)
+    if current != "" and not e.metaKey and not e.ctrlKey and not e.altKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "ArrowUp" or k == "ArrowDown" or k == "Home" or k == "End" or k == "PageUp" or k == "PageDown")
+      preventDefault()
+      local("calendar-key", current, (e.shiftKey and (k == "PageUp" or k == "PageDown")) ? `Shift+${k}` : k)
+  view
+    box position="relative" width="100%"
+      button id="snooze-date" popovertarget="snooze-calendar" press=local("calendar-open", "", "") aria-label="Date" aria-haspopup="dialog" testId="snooze-date" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.5rem" text-align="left"
+        text cal.dateLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        SidebarIcon(name="calendar", size=16, color="light-dark(#71717b, #818181)")
+      column id="snooze-calendar" popover="auto" role="dialog" aria-label="Choose snooze date" position="absolute" position-area="bottom span-right" margin-top="0.25rem" padding="0.5rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c" testId="snooze-calendar"
+        column aria-modal=true retainFocus=true tabindex=-1 key=gridKey width="15.75rem"
+          // The caption between the month buttons (nav: absolute, top 0, justify-between).
+          row height="2.25rem" margin-bottom="0.25rem" align-items="center" justify-content="space-between"
+            button press=local("calendar-month", "", "previous") autofocus=true aria-label="Go to the Previous Month" testId="snooze-calendar-previous" width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" opacity=0.8
+              SidebarIcon(name="chevron-left", size=16, color="light-dark(#27272a, #f5f5f5)")
+            text cal.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="status" testId="snooze-calendar-title"
+            button press=local("calendar-month", "", "next") aria-label="Go to the Next Month" testId="snooze-calendar-next" width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" opacity=0.8
+              SidebarIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
+          column role="grid" aria-label=cal.title testId="snooze-calendar-grid"
+            // The weekday row is aria-hidden in DayPicker 10; a day's label names its weekday.
+            row aria-hidden=true
+              each w in cal.weekdays key=w.id
+                text w.short width="2.25rem" height="2.25rem" font-size="0.75rem" font-weight=500 line-height="2.25rem" text-align="center" color="light-dark(#71717bb8, #818181b8)"
+            each week in cal.weeks key=week.id
+              // `day`: the cell is 36pt with 1pt above and below (py-px).
+              row role="row" padding-top=1 padding-bottom=1
+                each d in week.days key=d.id
+                  CalendarDayButton(d=d, pick=local("dialog-field", "date", d.id), focused=dayFocus(d.id))
+
+// day_button: size-9, rounded-lg; selected bg-primary; outside and disabled muted/72; disabled
+// line-through at 64%; today a 3pt dot 4pt above the bottom (the background's colour when selected).
+component CalendarDayButton
+  props
+    d: CalendarDay
+    pick: action
+    focused: action
+  state over = false
+  action hover(on: bool)
+    over = on
+  view
+    button id=`snooze-day-${d.id}` press=pick popovertarget="snooze-calendar" popovertargetaction="hide" hover=hover focus=focused disabled=d.disabled tabindex=(d.stop ? 0 : -1) role="gridcell" aria-label=d.aria aria-selected=d.selected testId=`snooze-day-${d.id}` position="relative" width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(d.selected ? "light-dark(#1b4ed8, #346bf1)" : (over and not d.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")) display="flex" align-items="center" justify-content="center" opacity=(d.disabled ? 0.64 : 1)
+      text d.label font-size="0.875rem" line-height="1.25rem" text-decoration-line=(d.disabled ? "line-through" : "none") color=(d.selected ? "#ffffff" : (d.outside or d.disabled ? "light-dark(#71717bb8, #818181b8)" : "light-dark(#27272a, #f5f5f5)"))
+      when d.today
+        box position="absolute" bottom="0.25rem" left="1.03125rem" width=3 height=3 border-radius=2 background-color=(d.selected ? "light-dark(#ffffff, #0b0b0b)" : (d.disabled ? "light-dark(#27272a4d, #f5f5f54d)" : "light-dark(#1b4ed8, #346bf1)"))
