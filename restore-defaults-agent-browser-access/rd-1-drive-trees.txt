@@ -1,0 +1,54 @@
+RD-1 drive, read from the agent trees (scripts/agent.mjs macos --json) and the reference's ARIA snapshots.
+Steps (same on both clone builds, 1280x840): Settings > Integrations, dismiss the Nightly notice, switch Agent browser access off; General, switch Snooze limited threads on; Restore device defaults; Confirm; Integrations.
+Lanes: no provider CLIs on either clone lane (codex/claude binaryPath set to missing lane paths), so no provider-update toast covers the switch.
+
+== Before (evidence base 950e8e2e5)
+tree#9
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": true, "disabled": false} | 
+tree#13
+   reset-enableAgentBrowserAccess {"disabled": false} | 
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": false, "disabled": false} | 
+tree#19
+   restore-device-defaults {"disabled": false} | Restore device defaults
+tree#23
+   restore-device-defaults {"disabled": false} | Restore device defaults
+   restore-defaults-dialog {} | Restore default settings? This will reset: Snooze limited threads. Cancel Restore defaults
+   restore-defaults-list {} | This will reset: Snooze limited threads.
+tree#27
+   restore-device-defaults {"disabled": true} | Restore device defaults
+tree#31
+   reset-enableAgentBrowserAccess {"disabled": false} | 
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": false, "disabled": false} | 
+server settings.json after the drive: {'enableAgentBrowserAccess': False, 'projectSettingsFolded': True}
+
+== After (d877f8e83, this branch)
+tree#9
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": true, "disabled": false} | 
+tree#13
+   reset-enableAgentBrowserAccess {"disabled": false} | 
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": false, "disabled": false} | 
+tree#19
+   restore-device-defaults {"disabled": false} | Restore device defaults
+tree#23
+   restore-device-defaults {"disabled": false} | Restore device defaults
+   restore-defaults-dialog {} | Restore default settings? This will reset: Snooze limited threads, Agent browser access. Cancel Confirm
+   restore-defaults-list {} | This will reset: Snooze limited threads, Agent browser access.
+tree#27
+   restore-device-defaults {"disabled": true} | Restore device defaults
+tree#31
+   scoped-enableAgentBrowserAccess {"accessibilityChecked": true, "disabled": false} | 
+server settings.json after the drive: {'projectSettingsFolded': True}
+
+== Reference (T3 Code 1e2ecbd975, Electron over CDP)
+after the switch:
+48:  - heading "Agent browser access" [level=3]
+52:  - switch "Agent browser access"
+the confirmation:
+- alertdialog "Restore default settings?":
+  - heading "Restore default settings?" [level=2]
+  - paragraph: "This will reset: Snooze limited threads, Agent browser access."
+  - button "Cancel"
+  - button "Confirm"
+after Confirm (Integrations):
+48:  - heading "Agent browser access" [level=3]
+51:  - switch "Agent browser access" [checked]
