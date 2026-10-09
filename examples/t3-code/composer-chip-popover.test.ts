@@ -92,15 +92,15 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
   });
-  test('Settings, a page, the palette or a dialog over the chip hide it at once and close the native press', async () => {
+  test('Settings or a page over the composer\'s chip hides it at once and closes the native press; the palette does not', async () => {
     const window = await source('app-window.contract');
     expect(window).toContain('derive chipShown = chip.open and chip.seq != chipClosed and not chipCovered');
     const root = await source('app.contract');
-    // The composer stays mounted under Settings and the palette, so nothing else would close it (⌘, or ⌘K from the keyboard).
-    expect(root).toContain('derive chipCovered = chip.open and (paletteOpen or (chip.surface == "composer" and (modal or pageCover or confirmOp != "" or data.sidebar.dialog != "")))');
+    // The composer stays mounted under Settings and the pages (T3 Code unmounts it on the route change), so ⌘, alone left it open.
+    expect(root).toContain('derive chipCovered = chip.open and chip.surface == "composer" and (settingsOpen or pageCover)');
     expect(root).toContain('task chipCover when chipCovered key=chip.seq\n    after(1, chipCoverClose)\n  action chipCoverClose\n    editorOp("chip-close", `${chip.seq}`, "")');
     expect(root).toContain('chip=chip, chipCovered=chipCovered,');
-    // `modal` covers Settings (settingsOpen), so the sample's chip is covered by the palette only.
-    expect(root).toMatch(/derive modal = [^\n]*\bsettingsOpen\b/);
+    // T3 Code keeps the popover open above the palette and after its Escape (both surfaces): no paletteOpen or modal term.
+    expect(root).not.toMatch(/derive chipCovered = [^\n]*(paletteOpen|modal)/);
   });
 });

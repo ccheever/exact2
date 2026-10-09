@@ -507,12 +507,11 @@ component T3Code
   resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
   resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
-  // A chip's details close when the composer leaves the screen or an overlay takes the focus: T3 Code's /settings route
-  // and its pages unmount the composer with its popover, and the palette or a dialog moves the focus out of the
-  // non-modal popup, which closes it. So Settings, a page, the palette or a dialog over the composer's chip, and the
-  // palette over the Settings prompt sample's (T3Window hides it at once; this closes the native press, so it does not
-  // come back when the overlay closes).
-  derive chipCovered = chip.open and (paletteOpen or (chip.surface == "composer" and (modal or pageCover or confirmOp != "" or data.sidebar.dialog != "")))
+  // A composer chip's details close when Settings or a page covers the chat: there T3 Code's route change unmounts the
+  // composer with its popover, while the clone keeps the composer mounted under them, so ⌘, alone left it open over
+  // Settings. T3Window hides it at once; this closes the native press, so it does not come back on return. The palette
+  // and dialogs leave it open and under it, as T3 Code's (portaled last, it stays above them and open after Escape).
+  derive chipCovered = chip.open and chip.surface == "composer" and (settingsOpen or pageCover)
   task chipCover when chipCovered key=chip.seq
     after(1, chipCoverClose)
   action chipCoverClose
