@@ -1,0 +1,135 @@
+right-panel-launcher-and-files: the drives behind the before/after/reference images (2026-10-09).
+
+Fixture: the lane's work project plus docs/logo.png (copied from the panel audit lane) and docs/guide.pdf (a one-page PDF);
+"Audit work thread" made by thread.create only (no turn) in each T3 home, its bearer session revoked.
+
+== Before: base build 950e8e2e5 (t3-code-evidence-base), clone-drive.sh right-panel-launcher-and-files-before 16860
+  clock +20000 real
+  clock +3000 real
+  tap toast-dismiss-2
+  clock +1500 real
+  tap toast-dismiss-1
+  clock +500 real
+  tap thread-835705ac-4c81-4e99-af58-316332e0cc9d
+  clock +2500 real
+  tap toggle-right-panel
+  clock +1500 real
+  screenshot right-panel-launcher-and-files-before/shots/pa2-0.png window
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  clock +300 real
+  screenshot right-panel-launcher-and-files-before/shots/pa2-arrows.png window
+  type surface-chooser key ArrowUp
+  type surface-chooser key ArrowUp
+  type surface-chooser key ArrowUp
+  clock +300 real
+  screenshot right-panel-launcher-and-files-before/shots/pa2-wrap.png window
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key Enter
+  clock +2500 real
+  screenshot right-panel-launcher-and-files-before/shots/pa2-enter.png window
+  type surface-chooser key f
+  clock +2500 real
+  tap tree-docs
+  clock +1500 real
+  tap "page.html"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files-before/shots/pa4-html.png window
+  tap "guide.pdf"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files-before/shots/pa4-pdf.png window
+  tap "logo.png"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files-before/shots/pa5-png.png window
+  tap panel-add-surface
+  clock +800 real
+  tap add-surface-terminal
+  clock +3000 real
+  screenshot right-panel-launcher-and-files-before/shots/pa10-terminal.png window
+  tap new-thread
+  clock +1500 real
+  type palette-input key Enter
+  clock +2500 real
+  screenshot right-panel-launcher-and-files-before/shots/pa1-launcher.png window
+  tap surface-device hover
+  clock +800 real
+  screenshot right-panel-launcher-and-files-before/shots/pa1-hover.png window
+  type surface-chooser key m
+  clock +3000 real
+  screenshot right-panel-launcher-and-files-before/shots/pa1-m.png window
+  tree right-panel
+  logs
+  result: exit 0
+
+== After: this branch (93d86a3bb, bundle built once), clone-drive.sh right-panel-launcher-and-files 16860: one live drive
+  clock +20000 real
+  clock +3000 real
+  tap toast-dismiss-2
+  clock +1500 real
+  tap toast-dismiss-1
+  clock +500 real
+  tap thread-c3f98c40-7999-47e7-bb08-bff2bde33dc6
+  clock +2500 real
+  tap toggle-right-panel
+  clock +1500 real
+  screenshot right-panel-launcher-and-files/shots/pa2-0.png window
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  clock +300 real
+  screenshot right-panel-launcher-and-files/shots/pa2-arrows.png window
+  type surface-chooser key ArrowUp
+  type surface-chooser key ArrowUp
+  type surface-chooser key ArrowUp
+  clock +300 real
+  screenshot right-panel-launcher-and-files/shots/pa2-wrap.png window
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key ArrowDown
+  type surface-chooser key Enter
+  clock +2500 real
+  screenshot right-panel-launcher-and-files/shots/pa2-enter.png window
+  tap tree-docs
+  clock +1500 real
+  tap "page.html"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots/pa4-html.png window
+  tap "guide.pdf"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots/pa4-pdf.png window
+  tap "logo.png"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots/pa5-png.png window
+  tap panel-add-surface
+  clock +800 real
+  tap add-surface-terminal
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots/pa10-terminal.png window
+  tap tab-file:docs/page.html
+  clock +2000 real
+  tap file-toggle-open-browser
+  clock +5000 real
+  screenshot right-panel-launcher-and-files/shots/pa4-browser.png window
+  tree right-panel
+  tap new-thread
+  clock +1500 real
+  type palette-input key Enter
+  clock +2500 real
+  screenshot right-panel-launcher-and-files/shots/pa1-launcher.png window
+  tap surface-device hover
+  clock +800 real
+  screenshot right-panel-launcher-and-files/shots/pa1-hover.png window
+  type surface-chooser key m
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots/pa1-m.png window
+  tree right-panel
+  logs
+  result: exit 0; 26 platform-delivered taps and keys; no error lines in the app log (4096 lines)
+
+== Reference: ref-app.sh right-panel-launcher-and-files 16860, ref-cdp.mjs 16861 "size 1280 840" …
+  thread: Dismiss notification, Audit work thread, Toggle right panel, ArrowDown x3, ArrowUp x3, ArrowDown x3, Enter
+  files: treeitem page.html / guide.pdf / logo.png; Add panel surface > Terminal T; Files F > docs > page.html > Open file in preview browser
+  draft: New thread > Enter (work) > Toggle right panel > hover Device > press m ("Set up devices" dialog)
