@@ -71,19 +71,35 @@ export function updateCommand(client: T3Client, row: string, part: string): stri
   throw new ClientError('Unsupported update action.');
 }
 
+/** DesktopUpdates.ts DesktopUpdateChannelPersistenceError: setChannel's wrap of a failed settings write. */
+export class DesktopUpdateChannelPersistenceError extends Error {
+  readonly _tag = 'DesktopUpdateChannelPersistenceError';
+  override readonly name = 'DesktopUpdateChannelPersistenceError';
+  constructor(readonly channel: DesktopUpdateChannel, readonly cause: unknown) { super(`Failed to persist the ${channel} desktop update channel.`); }
+}
+
+/**
+ * What the reference's renderer reads when `bridge.setUpdateChannel` rejects: Electron's `ipcRenderer.invoke` wraps the
+ * main process's `error.toString()` (the tagged error's name, then its message) in its own Error.
+ */
+export const setUpdateChannelFailure = (error: Error): string => `Error invoking remote method 'desktop:update-set-channel': ${String(error)}`;
+
 /**
  * settings-core row `update-track` (handleUpdateChannelChange): the same track does nothing; another is saved
  * through `desktopSettingsSet` (DesktopAppSettings.setUpdateChannel, which also marks it the user's choice).
- * A failed write changes nothing and says so in the reference's toast.
+ * A failed write changes nothing and says so in the reference's toast: DesktopUpdates.setChannel's persistence
+ * error, as the renderer reads it across the IPC.
  */
 export async function updateTrackCommand(client: T3Client, native: Native, value: string): Promise<string> {
   if (value !== 'latest' && value !== 'nightly') throw new ClientError('Unsupported update track.');
   if (updatesEnabled(factsOf(client)) || value === savedChannel(client)) return '';
   try {
-    await writeDesktopSettings(native, { updateChannel: value }, client);
+    await writeDesktopSettings(native, { updateChannel: value }, client).catch((cause: unknown) => {
+      throw cause instanceof ClientError && cause.kind === 'DesktopSettings' ? new DesktopUpdateChannelPersistenceError(value, cause) : cause;
+    });
   } catch (error) {
     if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: 'Could not change update track', description: error instanceof Error && error.message ? error.message : 'Update track change failed.', stacked: true });
+    pushToast(client, { kind: 'error', title: 'Could not change update track', description: error instanceof Error ? setUpdateChannelFailure(error) : 'Update track change failed.', stacked: true });
   }
   return '';
 }

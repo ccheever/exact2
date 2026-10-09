@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { applyCoreSetting, generalSections, resolveScope, serverContext } from './settings-core';
-import { rememberDelivery, updateConfirmation } from './settings-a-about';
+import { DesktopUpdateChannelPersistenceError, rememberDelivery, updateConfirmation } from './settings-a-about';
 import { fakeClient, fakeNative } from './settings-a.test';
 import { parseLocalBackendStatus } from './local-backend';
 import { toasts } from './toast';
@@ -79,14 +79,20 @@ describe('about: the Update track with no feed', () => {
     expect(aboutRows(client)[0]).toMatchObject({ label: 'Check for Updates', disabled: true }); // still no feed to check
     await expect(applyCoreSetting(as(client), native, 'update-track:|||', 'beta')).rejects.toThrow('Unsupported update track.');
   });
-  test('a failed save keeps the track and shows "Could not change update track"', async () => {
+  // DesktopUpdates.setChannel wraps the write failure (DesktopUpdates.ts:92-101); the renderer reads it through
+  // Electron's invoke, which prefixes the channel and the error's toString (SettingsPanels.tsx:302-311).
+  test('a failed save keeps the track and shows "Could not change update track" with the persistence error', async () => {
     const client = withBackend(), path = '/lane/userdata/desktop-settings.json';
     const { native } = desktopNative(`Desktop settings write failed during replace-settings-file at ${path}.`);
     rememberDelivery(as(client), 'embedded', false);
     await applyCoreSetting(as(client), native, 'update-track:|||', 'latest');
     expect(aboutRows(client)[1]).toMatchObject({ label: 'Nightly', value: 'nightly' });
     expect(toasts(as(client)).map(toast => [toast.kind, toast.title, toast.description, toast.stacked])).toEqual([
-      ['error', 'Could not change update track', `Desktop settings write failed during replace-settings-file at ${path}.`, true]]);
+      ['error', 'Could not change update track',
+        "Error invoking remote method 'desktop:update-set-channel': DesktopUpdateChannelPersistenceError: Failed to persist the latest desktop update channel.", true]]);
+    const error = new DesktopUpdateChannelPersistenceError('nightly', new Error('write'));
+    expect([error._tag, error.message, String(error)]).toEqual(['DesktopUpdateChannelPersistenceError', 'Failed to persist the nightly desktop update channel.',
+      'DesktopUpdateChannelPersistenceError: Failed to persist the nightly desktop update channel.']);
   });
   test('a linked stream fixes the track: a change sends nothing', async () => {
     const client = withBackend(), { native, requests } = desktopNative();
