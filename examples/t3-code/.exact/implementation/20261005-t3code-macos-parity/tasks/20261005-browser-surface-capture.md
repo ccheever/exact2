@@ -3,7 +3,7 @@ name: 20261005-browser-surface-capture
 plan: 20261005-t3code-macos-parity
 implementation: done
 verification: partial
-delivery: draft-pr
+delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-capture
@@ -113,20 +113,30 @@ captures are blank, so the live rows are read from trees, state and host logs ([
 | Criterion | Action | Expected | Result |
 | --- | --- | --- | --- |
 | Ported tests | `bun test examples/t3-code`; the AppKit binaries | The ported tests pass | pass: see "Tests" |
-| Annotate | Fixture page; Annotate; select, marquee, draw, erase; Esc; Enter, ⌘Return | Payload with elements, regions, strokes, style changes and a crop; the chip in the composer; Esc cancels; ⌘Return sends | AppKit (real clicks, keys and drags into a page): select + Return gives the element (tag, selector, preview), the comment and a PNG crop of the target plus 20 px; a fake React fiber gives "SubmitButton", its source and owner stack; ⌘Return "send"; Escape cancels and removes the overlay; marquee over empty space a region, drags two strokes, erase removes one each; a style change records 1 → 0.5 and is undone at teardown; a navigation settles nothing; the page cannot see the overlay ([select](https://raw.githubusercontent.com/ccheever/exact2/2fb539b683765a32d2a95e96fcd9f92a3d38fd8a/browser-surface-capture/annotate-select.png), [style panel](https://raw.githubusercontent.com/ccheever/exact2/7a7f4ff605315b360c04907f73f1f530948e4f82/browser-surface-capture/annotate-style-panel.png), [region and drawing](https://raw.githubusercontent.com/ccheever/exact2/934b46af1a358a97a7d93a88c4b454367614d537/browser-surface-capture/annotate-region-draw.png)). Bun: the chip at the caret once per pick, the crop on the shelf, the dropped-crop toast, ⌘Return's send, a new thread's draft. Live (drive 2): Annotate on the lane page, a click on `#save`, a comment and Return: `t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok`; the chip did **not** reach the composer: the drive's thread was a new thread's draft (finding below, fixed and Bun-tested, not re-driven). Real drags and Escape by real keys: real-input batch |
+| Annotate | Fixture page; Annotate; select, marquee, draw, erase; Esc; Enter, ⌘Return | Payload with elements, regions, strokes, style changes and a crop; the chip in the composer; Esc cancels; ⌘Return sends | AppKit (real clicks, keys and drags into a page): select + Return gives the element (tag, selector, preview), the comment and a PNG crop of the target plus 20 px; a fake React fiber gives "SubmitButton", its source and owner stack; ⌘Return "send"; Escape cancels and removes the overlay; marquee over empty space a region, drags two strokes, erase removes one each; a style change records 1 → 0.5 and is undone at teardown; a navigation settles nothing; the page cannot see the overlay ([select](https://raw.githubusercontent.com/ccheever/exact2/2fb539b683765a32d2a95e96fcd9f92a3d38fd8a/browser-surface-capture/annotate-select.png), [style panel](https://raw.githubusercontent.com/ccheever/exact2/7a7f4ff605315b360c04907f73f1f530948e4f82/browser-surface-capture/annotate-style-panel.png), [region and drawing](https://raw.githubusercontent.com/ccheever/exact2/934b46af1a358a97a7d93a88c4b454367614d537/browser-surface-capture/annotate-region-draw.png)). Bun: the chip at the caret once per pick, the crop on the shelf, the dropped-crop toast, ⌘Return's send, a new thread's draft. Live (drive 2): Annotate on the lane page, a click on `#save`, a comment and Return: `t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok`; the chip did **not** reach the composer: the drive's thread was a new thread's draft (finding below). Drive 3, after the fix, on a new thread's draft: `annotate applied 1 chip+image`, and the composer holds `[Tighten the button spacing](t3-context://v1/preview-annotation/…)`. Real drags and Escape by real keys: real-input batch |
 | Screenshot | Open tab; Capture | Image ≤ 1,280 px wide; "Screenshot saved" with Copy image, Copy path (and Reveal); clipboard | Live (drives 1 and 2): `t3.browser: screenshot browser-screenshot-127-0-0-1-….png` in the lane's `userdata/browser-artifacts`, 1,078 px wide ([the saved file](https://raw.githubusercontent.com/ccheever/exact2/68c014d7efdf8a70e6ccff58a5120459ffd8c7c9/browser-surface-capture/live-screenshot-artifact.png)); "Copy path" and "Reveal in Finder" pressed by label (`artifact copy-path`, `artifact reveal`; an agent run writes a private pasteboard and opens no Finder). AppKit: an 1,800-px page saves ≤ 1,280 px; actions refuse files outside the directory. Bun: the toast's three buttons, "Copied!" for 2 s, the error titles. The clipboard read with a real Copy image: real-input batch |
 | Recording | Frame rate 60, keys and mouse on (set in Settings); Shift-click Capture; interact; Stop | Pulsing dot; file saved; "Recording saved" with Reveal and Copy path; overlays show keys and presses, never password input; conflicts | Live (drive 2): the drive set keys, mouse and 60 fps through Integrations rows this branch had then (since left to part 4; `record arm keys=true mouse=true`, `record capture 60fps 1078x1496`); while recording the button reads "Stop recording" with `browser-capture-dot`; the stop saved `browser-recording-….mp4` (267 frames in 4.5 s, about 59 fps) and the tree shows "Recording saved" ([frames](https://raw.githubusercontent.com/ccheever/exact2/4e28229bbe6648ac44cfbf7a77a50f7976eb25da/browser-surface-capture/live-recording-frames.png): the drawn cursor and a press ring; [the file](https://raw.githubusercontent.com/ccheever/exact2/910fdc5008af528cfda8626788d04d38aaff693a/browser-surface-capture/live-recording.mp4)). AppKit: 30 fps vs 60 fps frame counts, a playable MP4 of the snapshot's size, key labels and a nil label in a password field, the cursor re-installed after a navigation ([decorations](https://raw.githubusercontent.com/ccheever/exact2/fcb11b165a57b6220e032d8f3b08aa4766b345ed/browser-surface-capture/decorated-last-frame.png)). Bun: the lifecycle's 36 rows (conflicts, one stop, startup waits). The upload's oversize and deadline errors are ported; its caller is part 5 |
-| Separate window and player | More › Open separate preview window; Float preview; drag; Open in right panel; close the panel | 480×320, min 240×160, about 12 fps; the player borrows the page; "Reconnecting preview…"; closing the panel floats the tab | Live: the More row opened the window (`capture.separateWindow: true`) and closed it. Float preview did nothing live (finding below, fixed and Bun-tested). AppKit: the window's title "Preview · <title>", floating level, all spaces, minimum size, no minimize/zoom, ≥ 3 frames, the page's aspect ratio, frames continue with the panel hidden, closing releases the hold; the two `fitPictureInPictureContentSize` rows. Bun: float/unfloat, the panel hides, the player shows unless the panel shows the tab, sized by its page; closing the panel floats it. A drag and a thread switch: real-input batch |
-| Downloads | A page's download links | To the artifact directory | AppKit: `browser-download-<id>-<name>` in the directory, content intact; a redirected download ends its load. Live: not reached in drive 2 (it stopped at op 82) |
-| States | Each surface | Focus ring on every chrome button; Escape cancels one thing; no pulse with reduced motion | The dot's pulse and the player's dot are `none` under reduced motion (Contract `still`); the buttons are `button`s with AppKit's ring; real keyboard focus and Escape by real keys: real-input batch |
+| Separate window and player | More › Open separate preview window; Float preview; drag; Open in right panel; close the panel | 480×320, min 240×160, about 12 fps; the player borrows the page; "Reconnecting preview…"; closing the panel floats the tab | Live: the More row opened the window (`capture.separateWindow: true`) and closed it (drive 2). Float preview did nothing in drive 2 (finding below); in drive 3 it floated the page (`browser-mini-player`, panel hidden), and in drive 4: the pill's Open in right panel restored the tab to the panel, its Pop into separate window opened and closed the window (`browserMini.separateWindow` true, then false), closing the panel on the Browser tab floated it, and Close closed the player. The pill's hover holds (drive 4: no render while the pointer rests; drive 3 found it flipping, finding below). AppKit: the window's title "Preview · <title>", floating level, all spaces, minimum size, no minimize/zoom, ≥ 3 frames, the page's aspect ratio, frames continue with the panel hidden, closing releases the hold; the two `fitPictureInPictureContentSize` rows. Bun: float/unfloat, the panel hides, the player shows unless the panel shows the tab, sized by its page; closing the panel floats it. A drag and a thread switch: real-input batch |
+| Downloads | A page's download links | To the artifact directory | AppKit: `browser-download-<id>-<name>` in the directory, content intact; a redirected download ends its load. Live (drive 4): the fixture's attachment and `<a download>` links saved `browser-download-…-0-report.bin` and `browser-download-…-1-export.csv` in the lane's artifact directory (`t3.browser: download …`) |
+| States | Each surface | Focus ring on every chrome button; Escape cancels one thing; no pulse with reduced motion | The dot's pulse and the player's dot are `none` under reduced motion (Contract `still`); the buttons are `button`s with AppKit's ring; a failed page's Annotate tip live (drive 4, closed port 16749: "Page didn’t load — pick unavailable until the page renders"); real keyboard focus and Escape by real keys: real-input batch |
 | Standard gates | Clone checks, caps, the five checks | Green | see "Checks" |
 
-**Finding of drive 2 (fixed, not re-driven).** The drive's thread was a new thread's draft: `client.threadId` is empty
-while the Browser tab names the id `addBrowserSurface` allocated for the draft. Annotate's chip went to that id's stored
-draft rather than the open composer (`composerText` stayed empty), and Float preview did nothing (no thread key for the
-player). Both now key by the open thread (`browser-capture.ts` `playerThreadKey`; `applyAnnotation` compares with
-`activeRef`), with a Bun row for the draft case; the module now logs `annotate applied <serial> <outcome>`. A third
-live session (the brief allows one retry) would re-check both: in the real-input batch below.
+**Finding of drive 2 (fixed, re-driven in drive 3).** The drive's thread was a new thread's draft: `client.threadId` is
+empty while the Browser tab names the id `addBrowserSurface` allocated for the draft. Annotate's chip went to that id's
+stored draft rather than the open composer (`composerText` stayed empty), and Float preview did nothing (no thread key
+for the player). Both now key by the open thread (`browser-capture.ts` `playerThreadKey`; `applyAnnotation` compares
+with `activeRef`), with a Bun row for the draft case; the module logs `annotate applied <serial> <outcome>`. Drive 3
+passed both on a new thread's draft.
+
+**Finding of drive 3 (fixed, re-driven in drive 4).** Hovering the floating player's handle started a render storm
+(epochs 38 → 106 in 0.6 s, then 109 → 387 in 2.5 s; 3 in 2.5 s before the hover), and the pill's Open in right panel
+did nothing. The handle and the pill were sibling hover boxes: the host hands a hover over as two events (the handle
+out, then the pill in), so between them neither was hovered, the pill hid and refused the pointer, the resting
+pointer's next hit-test found the handle again, and it showed the pill: a flip every frame, and a tap that landed on a
+hidden pill. The pill is now the handle's child, as the reference's `group` (`browser-capture.contract`), so it is one
+hover; a shape row fails before the fix. Drive 4: no render while the pointer rests, and restore, close and the
+separate window from the pill work. The floating device player (`r6-device.contract`, another task's) has the same two
+sibling boxes; the same change would fix it there (a follow-up, not made here).
 
 Tests (`bun:test`; reference names unless marked clone): `browser-recording.test.ts` 36 (browserRecording.test.ts 31:
 27 tests and the it.each's 4 rows; browserRecordingScope.test.ts 5), `browser-annotation.test.ts` 25
@@ -140,21 +150,23 @@ Substitutions are in each file's header.
 
 ## Checks
 
-At the PR's head (after merging `origin/feat(example)/t3-code` at `0fe34a3b0`): `bun test examples/t3-code --timeout
-60000` 3,631 pass, 0 fail; strict `tsc` clean; `contract build` of `app.contract` OK (1,237 lines);
-`cargo test -p t3-code-macos --lib` 13 pass; the README's AppKit recipe over every directory: all pass (browser-capture
-34, browser 23, composer-files 4, …) but `mermaid`, which needs `T3_SERVER` (a running T3 server's origin, unset here; no
-file it reads changed); `timeline-keyboard` (its own recipe) not touched; `git add -A && bun scripts/caps.mjs` within
-caps; the five checks (`cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests --no-fail-fast`,
-`cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt --all -- --check`, caps, `bun scripts/boot.mjs`)
-pass.
+At the PR's head (after merging `origin/feat(example)/t3-code` at `5f0ae7dca`, #346, and the pill fix): `bun test
+examples/t3-code --timeout 60000` 3,739 pass, 0 fail; strict `tsc` clean; `contract build` of `app.contract` OK (1,237
+lines); `cargo test -p t3-code-macos --lib` 13 pass; AppKit after the merge: `browser-capture` 34, `browser` 23 and part
+5's `browser-automation` 17 pass (before the merge the README's recipe over every directory passed but `mermaid`, which
+needs `T3_SERVER`, a running T3 server's origin, unset here; no Swift changed after the merge); `git add -A && bun
+scripts/caps.mjs` within caps; the five checks (`cargo build --all-targets --keep-going`, `cargo test --lib --bins
+--tests --no-fail-fast`, `cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt --all -- --check`, caps,
+`bun scripts/boot.mjs`) pass.
 
 ## Progress
 
 2026-10-09: written at part 1's `prepare` (planned split). Built the same day: the frame-source and content-world
 decisions above; the overlay and the recorder were written in parallel by two forks with fixed interfaces, then wired
 into the session (`T3BrowserSession.swift`, `T3BrowserSessions.swift`, `T3BrowserView.swift`), the data module and the
-views. Two live agent-mode drives (the screen was locked); drive 2 found the draft-thread bug, fixed after it.
+views. Four live agent-mode drives (the screen was locked): drive 2 found the draft-thread bug, drive 3 confirmed its fix
+after merging part 5 (#346) and found the pill's hover flip, drive 4 confirmed that fix and ran the remaining ops. At the
+merge, part 5's planner was given the Auto-show floating preview setting (`browser-automation.ts`, with a Bun row).
 `app.contract`: 1,230 → 1,237 lines (the annotation send task and its state, the canvas re-ask key, the toast keep rule).
 
 ## Attempts and evidence
@@ -163,6 +175,8 @@ views. Two live agent-mode drives (the screen was locked); drive 2 found the dra
 | --- | --- | --- | --- | --- |
 | Drive 1 (agent mode) | branch at `fa62589a3` + the app.contract provide fix (bundle `d1ae77d7…`) | Ops 1–38 of 112: Settings › Integrations (the rows this branch had then), the Browser tab, a screenshot (artifact saved), Copy path, Reveal; stopped at op 39 on a driver word (`tap … at` is `tap … clicks 1 at`) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/ba5e74bc3022370db26c6932383a5e1257f9e6aa/browser-surface-capture/drive-record.txt) | the drive script |
 | Drive 2 (agent mode, the retry) | same bundle | Ops 1–81 of 118: screenshot and its toast buttons, Annotate (picked with a crop), recording at 60 fps with overlays (saved, "Recording saved"), the separate window open and closed; the chip and Float preview failed on a new thread's draft; stopped at op 82 (no floating player) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/ba5e74bc3022370db26c6932383a5e1257f9e6aa/browser-surface-capture/drive-record.txt), [recording frames](https://raw.githubusercontent.com/ccheever/exact2/4e28229bbe6648ac44cfbf7a77a50f7976eb25da/browser-surface-capture/live-recording-frames.png), [screenshot artifact](https://raw.githubusercontent.com/ccheever/exact2/68c014d7efdf8a70e6ccff58a5120459ffd8c7c9/browser-surface-capture/live-screenshot-artifact.png) | fixed after the drive (draft-thread key); re-check in the real-input batch |
+| Drive 3 (agent mode) | after merging #346 (`a0527085c`), bundle rebuilt | Ops 1–40 of 81: the screenshot, Annotate on a new thread's draft (`annotate applied 1 chip+image`, the chip in the composer), Float preview (the player shows, the panel hides); stopped at op 41: the pill's Open in right panel did nothing, and the hover flipped every frame (finding of drive 3) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/ac612296529cc97d375ddbd2cad063f8f7b367a6/browser-surface-capture/drive-record-3-4.txt) | fixed after the drive |
+| Drive 4 (agent mode) | the pill fix (`8a6020496`), bundle rebuilt | All 69 ops: the hover holds (epoch 30 for 2 s), restore, two downloads saved, the failed page's Annotate tip, closing the panel floats the tab, the separate window from the pill opens and closes, Close | [drive record](https://raw.githubusercontent.com/ccheever/exact2/ac612296529cc97d375ddbd2cad063f8f7b367a6/browser-surface-capture/drive-record-3-4.txt), [drive script](https://raw.githubusercontent.com/ccheever/exact2/fdd9795b50fa3d9c749bd661674ffbde18b7bc92/browser-surface-capture/drive4.sh.txt) | none (real-input rows below) |
 
 ## Real-input batch steps
 
@@ -170,20 +184,22 @@ Needs an unlocked screen, the real-input lock and a normal launch of a lane copy
 steps", with the lane on 16720/16721). Each step reads its effect back (host `t3.browser:` lines, the artifact directory,
 the AX focus):
 1. A new thread's draft: Browser tab, the fixture page, Annotate, click `#save`, type a comment, Return: the amber chip at
-   the composer's caret, the crop on the shelf (`annotate applied 1 chip+image`); again with ⌘Return: the message sends
-   with the annotation.
+   the composer's caret and the crop on the shelf, as seen (agent mode passed in drive 3); again with ⌘Return: the
+   message sends with the annotation.
 2. Annotate's real drags: marquee over empty space (a region), Draw (a stroke), Erase; Escape by a real key cancels.
-3. Float preview: the player floats the page over the chat; drag and resize it; Open in right panel; close the panel on a
-   Browser tab (it floats); Pop into separate window from the pill.
+3. Float preview: the player floats the page over the chat; a real pointer moving from the handle onto the pill keeps it
+   shown, with no flicker; drag and resize it; Open in right panel; close the panel on a Browser tab (it floats); Pop into
+   separate window from the pill (agent mode passed restore, close, the panel's float and the window in drive 4).
 4. Capture: Copy image and Copy path by real clicks (the person's clipboard; restore it after), Reveal in Finder opens
    Finder at the file (close it).
-5. A page's download by a real click: the save panel asks (cancel it); in an agent run it saves to the artifact
-   directory.
+5. A page's download by a real click: the save panel asks (cancel it); an agent run saves to the artifact directory
+   (drive 4 passed).
 6. Tab and Shift-Tab reach Annotate, Capture, Float preview with AppKit's ring; reduced motion on: no pulse.
 7. Before/after images of the chrome row, the More menu, the toasts and the player (the screen was
    locked for the agent drives).
 
 ## Next action
 
-Draft PR [#349](https://github.com/ccheever/exact2/pull/349) open; the coordinator flips it after a conflict check. Then the real-input batch above (STATUS "Next real-input
-batch").
+PR [#349](https://github.com/ccheever/exact2/pull/349) ready for review (checks green, the branch clean against
+`feat(example)/t3-code`); merge it again with the base once part 2 (#348) lands. Then the real-input batch above (STATUS
+"Next real-input batch").
