@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { gameDefaults } from './app/shells.mjs';
+import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
@@ -54,7 +54,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
     // The GPU-only hooks crate (LLP 1046.008, game.render): an empty pass set and
     // an explicitly declared shader root, reflected at build.
     const files = {
-      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
+      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n# Its workspace, ../.shells, is generated: \`bun exact.mjs test-rust\` (or any build) writes it.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
       'render/build.rs': `//! Reflect the shader inventory the game bake assembles (gpu.shaderRoots, each\n//! after its gpu.shaderPreludes) in EXACT_GAME_SHADERS: \`shaders::SHADERS\`\n//! names the interfaces the hosts register.\nfn main() {\n    println!("cargo:rerun-if-env-changed=EXACT_GAME_SHADERS");\n    let dir = std::path::PathBuf::from(std::env::var_os("EXACT_GAME_SHADERS").expect("build through the game bake"));\n    println!("cargo:rerun-if-changed={}", dir.display());\n    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");\n    std::fs::write(out, generated.rust).unwrap();\n}\n`,
       'render/src/lib.rs': `//! ${title}'s render hooks: implement exact_game_render::Hooks stages here.\n\n/// The reflected shader registry of render/shaders.\npub mod shaders {\n    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));\n}\n\n/// The game's passes; every stage defaults to drawing nothing.\n#[derive(Default)]\npub struct Passes;\nimpl exact_game_render::Hooks for Passes {}\n`,
     };
@@ -476,7 +476,8 @@ The world is Rust: \`logic/src/lib.rs\` implements \`Game\` (its \`Options\` are
 canvas's arguments, \`setup\` and \`tick\` its gameplay). Menus, the HUD and accessible
 controls are \`app.contract\` (Contract). \`app.json\` is optional and holds only keys
 you author (a title, \`game.audio\`, \`game.assets\`, a data crate). The bake generates
-the hosts under \`.shells/\` (ignored; never edit it). The game uses the exact2 checkout
+the hosts under \`.shells/\` (ignored; never edit it), and so does \`bun exact.mjs test-rust\`:
+run that once before \`cargo\` in \`render/\` or a render example, whose workspace it is. The game uses the exact2 checkout
 at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 Read before writing code:
@@ -500,7 +501,8 @@ Commands, from this directory:
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
 | \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
-| \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block |
+| \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
+| \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
 
 The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
@@ -604,6 +606,7 @@ const verbs = {
   feedback: ['scripts/feedback.mjs'],${game ? `
   // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
   'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
+  lock: ['game/app/shells.mjs', import.meta.dir, '--lock'],
   windows: ['host/windows/build.mjs', '${name}'],
   prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
@@ -691,7 +694,13 @@ function updateApp(dir, name) {
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
     if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
-    return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}`;
+    // A captured lock exact2 has moved past is said now, not at the next build (LLP 1046.011 D2).
+    let drift = null;
+    if (existsSync(resolve(dir, 'Cargo.lock'))) try {
+      gameShells(dir, gameDefaults(dir).game, resolve(ROOT, 'game'));
+      drift = capturedLockDrift(dir);
+    } catch { /* The next build says what is wrong. */ }
+    return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}${drift ? `\n${drift}` : ''}`;
   }
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
   // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`

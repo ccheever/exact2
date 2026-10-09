@@ -86,11 +86,26 @@ struct Shared {
     state: Mutex<State>,
     ready: Condvar,
     abort: AbortController,
-    /// The app's files, for a body read from one (`Request::body_from`):
-    /// their directory handles, opened once when the host names them and
-    /// pinned from then on, as storage's are, or why they would not open;
-    /// unset on a host or drive that has none.
+    /// Where the app's files are, as the host names them; unset on a host or
+    /// drive that has none.
+    root_paths: std::sync::OnceLock<[std::path::PathBuf; 3]>,
+    /// Their directory handles, for a body read from one
+    /// (`Request::body_from`): opened at the first such request and pinned
+    /// from then on, as storage's are, or why they would not open. Not at
+    /// boot: opening makes the directories, and a cold boot opens no app
+    /// storage (fieldnotes' `apple_module_replacement_…` test).
     roots: std::sync::OnceLock<Result<ibex2::stdlib::app_fs::AppDirectories, String>>,
+}
+
+impl Shared {
+    /// The app's directories for `request`: opened by the first request,
+    /// worker's or stream's, whose body is an app file; `None` for any other
+    /// request, which leaves them unopened, or when the host named none.
+    pub(super) fn roots_for(&self, request: &Request) -> body::Roots<'_> {
+        request.body_from.as_ref()?;
+        let paths = self.root_paths.get()?;
+        Some(self.roots.get_or_init(|| body::open(paths)))
+    }
 }
 
 /// Count/byte reservations last until the UI takes the result, not merely
@@ -150,6 +165,7 @@ impl Core {
             }),
             ready: Condvar::new(),
             abort: AbortController::new(),
+            root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
         });
         let reserve = || {
@@ -206,7 +222,7 @@ impl Core {
     /// whose body is one of the app's files (LLP 1108 D6 R2). Set once,
     /// before the first request; without it such a request is refused.
     pub(super) fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
-        let _ = self.shared.roots.set(body::open(&roots));
+        let _ = self.shared.root_paths.set(roots);
     }
 
     #[cfg(test)]
@@ -779,7 +795,7 @@ fn worker(
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let files = Files {
-                roots: shared.roots.get(),
+                roots: shared.roots_for(&request),
                 grants: &grants,
             };
             match scoped_bindings(&grants, request.grants.as_deref(), &host) {

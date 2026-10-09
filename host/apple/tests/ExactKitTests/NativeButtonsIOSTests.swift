@@ -13,10 +13,11 @@ import XCTest
 final class NativeButtonsIOSTests: XCTestCase {
     private var window: UIWindow!
 
-    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
+    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:],
+                           options: SelectMenu = SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0)) -> Presenter {
         let p = Presenter()
         p.buttonFace = { faces[$0] ?? ButtonFace() }
-        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0) }
+        p.selectOptions = { _ in options }
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -219,11 +220,13 @@ final class NativeButtonsIOSTests: XCTestCase {
                              .init(value: "off", label: "Unavailable", disabled: true)], chosen: 0)
     }
 
+    private let selectOps: [[String: Any]] = [["op": "create", "id": 3, "kind": "control", "props": ["type": "select"],
+                                               "handlers": ["input", "change"], "style": [:]],
+                                              ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0],
+                                              ["op": "roots", "ids": [3]]]
+
     private func selectPresenter(_ menu: SelectMenu) -> Presenter {
-        let p = presenter([["op": "create", "id": 3, "kind": "control", "props": ["type": "select"],
-                            "handlers": ["input", "change"], "style": [:]],
-                           ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0],
-                           ["op": "roots", "ids": [3]]])
+        let p = presenter(selectOps)
         p.selectOptions = { _ in menu }
         var batch = wireBatch([])
         batch.controls = true
@@ -356,6 +359,42 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertNotNil(p.controls.type(node, "off")?["error"], "disabled menu options stay unavailable")
         XCTAssertEqual(heard, ["input:wide", "change:wide"], "a refused choice emits nothing")
         XCTAssertEqual(select.currentTitle, "Chocolate Strawberry")
+    }
+
+    /// App farm 008: a select with no options was given an empty UIMenu,
+    /// which UIKit refuses under `changesSelectionAsPrimaryAction` ("Menu
+    /// does not have a valid element for default selection"), aborting the
+    /// app. It holds no menu and shows no title until options come.
+    func testASelectWithNoOptionsHoldsNoMenuUntilItHasSome() throws {
+        var menu = SelectMenu()
+        let p = presenter(selectOps, options: menu)
+        p.selectOptions = { _ in menu }
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        var batch = wireBatch([])
+        batch.controls = true
+        func expectEmpty(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertNil(select.menu, "\(when): no options, no menu")
+            XCTAssertNil(select.configuration?.title, "\(when): no title drawn")
+            XCTAssertNil(p.controls.valueObservation(select)?["title"] as? String, "\(when): no title observed")
+            XCTAssertNotNil(p.controls.type(node, "plain")?["error"], "\(when): nothing to choose")
+        }
+        func expectOptions(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertEqual(select.menu?.children.count, 3, when)
+            XCTAssertEqual(select.currentTitle, "Plain", when)
+            XCTAssertEqual(p.controls.valueObservation(select)?["title"] as? String, "Plain", when)
+        }
+        expectEmpty("at creation")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when options come")
+        menu = SelectMenu()
+        p.apply(batch)
+        expectEmpty("when they go")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when they come back")
     }
 
     func testAGlassButtonIsIsolatedInItsGroupAndGivenBack() throws {

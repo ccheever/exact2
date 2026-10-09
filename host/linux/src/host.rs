@@ -995,6 +995,25 @@ impl<D: DataSource> Host<D> {
         std::mem::take(&mut self.renewed)
     }
 
+    /// The safe-area insets (top, right, bottom, left; points) that
+    /// `env(safe-area-inset-*)` resolves to, laid out again when a node
+    /// uses one. Whether anything changed.
+    pub fn set_safe_area(&mut self, [top, right, bottom, left]: [f32; 4]) -> Result<bool, String> {
+        let kernel = self.runner.kernel_mut();
+        let env = exact_kernel::Env {
+            top,
+            right,
+            bottom,
+            left,
+            ..kernel.env().clone()
+        };
+        match kernel.set_env(env) {
+            Ok(true) => self.layout().map(|_| true).map_err(|e| e.to_string()),
+            Ok(false) => Ok(false),
+            Err(e) => Err(format!("safe area: {e:?}")),
+        }
+    }
+
     /// Several nodes' natural sizes (pictures a sync decoded), then one
     /// layout, when any of them changed: not a layout per picture.
     pub fn set_intrinsics(
