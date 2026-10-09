@@ -18,6 +18,7 @@ import { composerSelection } from './composer-provider-selection'; // composer-p
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
+import { takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
 import { sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
@@ -99,7 +100,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
-  const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
+  const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null, annotationSend = takeAnnotationSend(this);
   // The turn runs on the instance and model the composer shows (composer-provider-selection.ts): a stored model the
   // catalog no longer lists sends the instance's default, as deriveEffectiveComposerModelState does.
   const chosen = composerSelection(this, !!fanoutSelections(this));
@@ -115,7 +116,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
   const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
-  const intent = sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
+  // browser-surface part 3: an annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
+  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
   if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
@@ -144,7 +146,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
-      const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const mode = submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
       const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
         dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)));
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };

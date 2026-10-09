@@ -17,7 +17,8 @@ import { shellState, toastViews, copiedActions, copiedToasts } from './shell';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import type { Obj } from './domain';
-import { opened } from './composer-controls-fixture';
+import { connected, opened, running } from './composer-controls-fixture';
+import { markAnnotationSend, takeAnnotationSend } from './browser-annotation';
 import { snapshot } from './presentation';
 import { DEFAULT_SEND_RULES } from './composer-editor-intent';
 import { activeRef } from './terminal-drawer-view';
@@ -156,6 +157,39 @@ describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () 
     // Another thread's overlay, or one that has closed, leaves the shortcut alone.
     (client.presentation as Obj).browserTabs = { [previewRuntimeTabId({ ...ref, threadId: 'other' }, 'epoch-1', 'tab-1')]: { pick: { active: true } }, [tab]: { pick: { active: false } } };
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
+  });
+  // ChatView's onSendAnnotation: onSend(undefined, "auto", "foreground", …). The window's key monitor saw the page's ⌘↩,
+  // which in a draft resolves to composer.sendBackground (drive 7 found the thread started out of view).
+  it('sends a new thread\'s draft in the foreground, whatever ⌘↩ the window saw', async () => {
+    const { client, native, command } = await connected();
+    client.config.keybindings = DEFAULT_SEND_RULES;
+    native.gesture = { modifiers: 'meta', source: 'key', ageMs: 3 };
+    markAnnotationSend(client);
+    await command('send', '', 'Send this one too');
+    expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread' });
+    expect(client.threadId).not.toBe('');
+    expect(toasts(client).map(toast => toast.title)).not.toContain('Started in background');
+    // The mark is spent: the next ⌘↩ in a draft is the composer's own, and starts in the background.
+    await command('new-thread', client.projectId);
+    native.gesture = { modifiers: 'meta', source: 'key', ageMs: 3 };
+    await command('send', '', 'Background from command return');
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Started in background' });
+  });
+  it('dispatches "auto" while the thread runs, not the follow-up queue', async () => {
+    const { client, native, command } = await opened();
+    running(client);
+    markAnnotationSend(client);
+    await command('send', '', 'Look at this');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } });
+    expect(client.threadId).toBe('t1');
+  });
+  it('a mark older than 10 s is dropped', () => {
+    const client = {} as T3Client;
+    markAnnotationSend(client, 1_000);
+    expect(takeAnnotationSend(client, 11_001)).toBe(false);
+    markAnnotationSend(client, 1_000);
+    expect(takeAnnotationSend(client, 2_000)).toBe(true);
+    expect(takeAnnotationSend(client, 2_000)).toBe(false);
   });
 });
 

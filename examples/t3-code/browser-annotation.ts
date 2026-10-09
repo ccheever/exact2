@@ -11,6 +11,7 @@
 // `preview-annotation` record a send carries. The sent chip is drawn by r4-timeline-chips.ts.
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
+import { composerNow } from './composer-controls'; // the window's clock: a data source reads no wall clock
 import { contextId, contextLabel, contextLink, contextReferences } from './composer-editor-menu';
 
 // ── PickedElementPayload.ts: the strict structural validators ──────────────────────────────────
@@ -214,4 +215,17 @@ export function annotatingInThread(client: T3Client, environmentId: string, thre
  *  out and the key reaches the page (composer-presentation.ts). */
 export function sendChordsWhileAnnotating(chords: string, annotating: boolean): string {
   return annotating ? chords.split(' ').filter(chord => chord !== '' && chord !== 'Meta+Enter').join(' ') : chords;
+}
+
+/** PreviewView's onSendAnnotation (ChatView: `onSend(undefined, "auto", "foreground", …)`): the send an annotation's ⌘↩
+ *  asks for is a foreground send with the "auto" dispatch mode. The ⌘↩ was the page's key, not the composer's, but the
+ *  window's key monitor saw it (T3ComposerIntent), and in a draft ⌘↩ resolves to composer.sendBackground: drive 7 found
+ *  the thread started out of view. `applyAnnotation` marks the send; the client's send takes the mark (once, within
+ *  10 s, so a send its guards refused does not mark a later one). */
+const annotationSends = new WeakMap<object, number>();
+export function markAnnotationSend(client: T3Client, at = composerNow(client)): void { annotationSends.set(client, at); }
+export function takeAnnotationSend(client: T3Client, at = composerNow(client)): boolean {
+  const marked = annotationSends.get(client);
+  annotationSends.delete(client);
+  return marked !== undefined && at >= marked && at - marked <= 10_000;
 }

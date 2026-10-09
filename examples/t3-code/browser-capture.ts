@@ -22,7 +22,7 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from './t
 import { activeRef } from './terminal-drawer-view';
 import { previewRuntimeTabId } from './browser-state';
 import { BrowserRecordings, type RecordingArtifact, type RecordingBlob, type RecordingHost, type RecordingRecorder, type RecordingStream } from './browser-recording';
-import { isPreviewAnnotationPayload, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
+import { isPreviewAnnotationPayload, markAnnotationSend, previewAnnotationLink, savePreviewAnnotation, type PreviewAnnotationPayload } from './browser-annotation';
 import { browserMiniPlayerSource, previewMiniPlayerSourceKey } from './previewMiniPlayerStore';
 import { deviceThreadId, miniStoreOf } from './r6-media-device'; // the thread's floating player (previewMiniPlayerStore)
 import { contextReferences } from './composer-editor-menu';
@@ -353,7 +353,7 @@ async function applyAnnotation(client: T3Client, native: Native, host: Host, thr
   if (image) client.local.snapshotDrafts[draftKey] = [...(client.local.snapshotDrafts[draftKey] ?? []).filter(entry => str(entry.id) !== image.id), image];
   const placed = await insertAnnotationChip(client, native, draftKey, annotation);
   if (cropDropped) pushToast(client, { kind: 'error', title: 'Could not capture the picked element', description: 'The annotation was kept without the screenshot.', stacked: true });
-  if (result.submission === 'send' && draftKey === client.draftKey) host.sendSerial += 1;
+  if (result.submission === 'send' && draftKey === client.draftKey) { markAnnotationSend(client); host.sendSerial += 1; } // a foreground send (browser-annotation.ts)
   return `${placed}${image ? '+image' : ''}${cropDropped ? ' crop-dropped' : ''}${result.submission === 'send' ? ' send' : ''}`;
 }
 
