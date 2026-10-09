@@ -94,6 +94,7 @@ How part 2 is built (2026-10-09):
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
+| merge order (coordinator) | [20261005-browser-surface-automation](20261005-browser-surface-automation.md) (part 5) | [#346](https://github.com/ccheever/exact2/pull/346) | Merges first; this PR then wires its `_resize` hook and the agent default | merged as `5f0ae7dca` (2026-10-09), merged in |
 | framework issue | [X21](../issues/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `subscribeDiscoveredLocalServers` is a stream; the Swift transport carries it until #126 | — |
 | framework issue | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | #140 | nonblocking: the preview keys are native monitors while the page has focus | — |
 
@@ -160,6 +161,15 @@ follows); the view's `appearance` is the page's `prefers-color-scheme`. One live
 screen locked mid-way, so no window images); an independent review; one repair round (below); verification attempt 2.
 2026-10-09 (user decision, after the PR): Recently used matches the reference (`de34391427`): the clone's registration of
 the thread's project was removed; item 10 moved to browser-surface-profiles (part 4) (coordinator).
+2026-10-09 (after #346, part 5, merged as `5f0ae7dca`; coordinator): merged the base keeping both parts, and wired part
+5's `previewAutomation` host to the viewport. `preview_resize` resolves a preset with `resolvePreviewViewport` (part 5
+sent a preset without its size) and renders freeform and preset sizes: a page the panel shows is sized by the stage from
+the tab's snapshot, a page no stage holds by the host (`T3BrowserViewport.hold`: `width × zoom` by `height × zoom`, also
+on every later operation, so a zoom change keeps it). A tab an agent opens on Fill is resized to 1280×800 before the data
+module adopts it (`previewAutomationDefaultViewport`). A size not rendered in time goes back to the previous one
+(`shouldRollbackPreviewViewport` without the latest-setting and epoch checks, declared). The two parts each set the
+page's appearance; now one mechanism (`setColorScheme`), and the host's status reads the page's own, so the More menu's
+Appearance shows an agent's choice and part 5's overlay no longer reports System over it.
 
 ## Attempts and evidence
 
