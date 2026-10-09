@@ -1,0 +1,68 @@
+# browser-surface-navigation-v2: Charlie's check 4 (Rotate/Lock by real input) on 26f5c9066, 2026-10-09 13:39:08-13:41:31Z
+Lock: target/t3-ui-parity/lanes/.realinput-lock taken 13:39:08Z (owner: realinput-20261009b coordinator). Screen unlocked (ioreg
+CGSSessionScreenIsLocked absent). An earlier start at 13:24:30Z stopped when the screen locked at 13:25Z (no step read back then).
+App: a normal launch of a lane copy 'T3 Code (Lane Nav 1009b)' (bundle id com.exact.t3code.macos.lanenav1009b, ad-hoc signed)
+of target/clients/e2416b381aa012047eb1a569/com.exact.t3code.macos/macos/T3 Code (Exact).app in the PR worktree (built 09:38:26Z,
+after 26f5c9066 at 09:29:39Z), embedded server on 16960, fixture (fixture.mjs.txt in this folder) on 16961, isolated
+HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3_LOCAL_HOME, telemetry off, env -i launch. Input: `orca computer click` at window
+coordinates (real pointer events); read back from the accessibility tree (`orca computer get-app-state`). No keys typed, no
+paste, input source and system settings untouched.
+
+r01-toast-dismissed: click (1240, 91): the "Update Available: Codex v0.162.0" toast x (a second toast came up)
+    77 heading Nightly needs the beta mobile app
+r02-toasts-dismissed: click (1240, 91): its x; no toast left (no 'Dismiss notification' in the tree)
+    17 heading New thread
+r03-panel: click (1252, 26): Toggle right panel -> "Open a surface"
+    36 heading Open a surface
+r04-browser-tab: click (912, 334): Browser -> empty state with Local servers (rows of other local servers on this Mac omitted)
+    56 heading Local servers
+    59 button t3 localhost:16960
+    60 button bun localhost:16961
+r05-page: click (900, 370): "bun localhost:16961" -> the fixture page, 539 x 748 (fill)
+    33 button Close Lane fixture
+    34 button Lane fixture
+    57 HTML content Lane fixture
+    58 heading Lane fixture
+    59 text 539 × 748 · dpr 2 · dark
+r06-more: click (1259, 71): Preview menu -> Show device toolbar, Appearance, Zoom rows
+    88 button Show device toolbar
+    89 button Appearance
+    90 text Zoom
+r07-toolbar: click (1078, 158): Show device toolbar -> Responsive 519 x 706
+    55 button Browser device preset
+    57 text field (settable) Viewport width, Value: 519
+    59 text field (settable) Viewport height, Value: 706
+    60 toggle button Lock viewport aspect ratio, Value: 0
+    61 button Rotate viewport
+    67 text 519 × 706 · dpr 2 · dark
+r08-presets: click (815, 107): the preset list
+    99 button (selected) Responsive
+    103 button iPhone 12 Pro 390 × 844
+r09-iphone12pro: click (828, 248): iPhone 12 Pro -> 390 x 844 (toolbar label 'iPhone 12 Pro' in the window image)
+    55 button Browser device preset
+    57 text field (settable) Viewport width, Value: 390
+    59 text field (settable) Viewport height, Value: 844
+    60 toggle button Lock viewport aspect ratio, Value: 0
+    61 button Rotate viewport
+    67 text 390 × 844 · dpr 2 · dark
+r10-rotated: click (1056, 107): Rotate viewport (toolbar label stays 'iPhone 12 Pro' in the window image)
+    55 button Browser device preset
+    57 text field (settable) Viewport width, Value: 844
+    59 text field (settable) Viewport height, Value: 390
+    60 toggle button Lock viewport aspect ratio, Value: 0
+    61 button Rotate viewport
+    67 text 844 × 390 · dpr 2 · dark
+r11-locked: click (1030, 107): Lock viewport aspect ratio
+    55 button Browser device preset
+    57 text field (settable) Viewport width, Value: 844
+    59 text field (settable) Viewport height, Value: 390
+    60 toggle button Unlock viewport aspect ratio, Value: 1
+    61 text Unlock aspect ratio
+    62 button Rotate viewport
+    68 text 844 × 390 · dpr 2 · dark
+
+Result: pass. Rotate turned iPhone 12 Pro 390 x 844 into 844 x 390 with the preset kept (label 'iPhone 12 Pro'), and the page
+measured 844 x 390; Lock turned the button into 'Unlock viewport aspect ratio', Value 1 (pressed), size unchanged.
+Window image: c4-rotate-lock-26f5c9066.png (after r11). Host log: t3.browser: open, navigate http://localhost:16961/.
+After: the copy quit by an Apple Event (app and its server exited), the fixture stopped, ports 16960-16961 free,
+`defaults delete com.exact.t3code.macos.lanenav1009b`, no keychain item created.
