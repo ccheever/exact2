@@ -23,6 +23,19 @@ enum T3MobileNavigation {
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
+        // @ref llp/1109.010-mobile-browser-devices.decision.md#presentation-and-root-seam
+        // The browser's nested source stack uses a 17-point semibold title.
+        if route.element("browser-title") != nil, let bar = route.navigation?.controller.navigationBar {
+            func browserAppearance(_ existing: UINavigationBarAppearance?) -> UINavigationBarAppearance {
+                let result = existing?.copy() as? UINavigationBarAppearance ?? UINavigationBarAppearance()
+                result.titleTextAttributes[.font] = UIFont.systemFont(ofSize: 17, weight: .semibold)
+                return result
+            }
+            item.standardAppearance = browserAppearance(bar.standardAppearance)
+            item.scrollEdgeAppearance = browserAppearance(bar.scrollEdgeAppearance ?? bar.standardAppearance)
+            item.compactAppearance = browserAppearance(bar.compactAppearance ?? bar.standardAppearance)
+            item.compactScrollEdgeAppearance = browserAppearance(bar.compactScrollEdgeAppearance ?? bar.standardAppearance)
+        }
         if route.element("new-task-cancel") != nil {
             item.hidesBackButton = true
             item.leftItemsSupplementBackButton = false
