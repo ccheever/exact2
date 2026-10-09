@@ -61,10 +61,13 @@ describe('Add environment with nothing connected', () => {
       expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add backend', message]]);
     }
     await expect(runConnectionOp(new Transport(), 'environment-add', 'not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
-    // A pairing link in the code field: its #token= is still the code, so the request fails as above.
-    const linked = new Transport();
-    await expect(runConnectionOp(linked, 'environment-add', '', 'https://not a url/pair#token=abc', true, disconnected())).rejects.toThrow(message);
-    expect(linked.calls).toEqual([]);
+    // A pairing link pasted into Host: the dialog splits it as the reference does (pairingFields below), and the link
+    // itself, if sent whole, still names its #token=; either way the request fails as above.
+    for (const [host, code] of [['https://not%20a%20url', 'abc'], ['https://not a url/pair#token=abc', '']]) {
+      const linked = new Transport();
+      await expect(runConnectionOp(linked, 'environment-add', host, code, true, disconnected())).rejects.toThrow(message);
+      expect(linked.calls).toEqual([]);
+    }
     fleet.entries.clear();
   });
   test('Add route to a host with spaces fails the same way, after its pairing code check', async () => {
@@ -177,5 +180,10 @@ describe('Add Environment fills both fields from a pasted pairing URL (parsePair
     expect(pairingFields('http://127.0.0.1:14987/pair#token=')).toMatchObject({ host: '' });
     expect(pairingFields('')).toEqual({ source: '', host: '', code: '' });
     expect(pairingFields('http://[bad')).toMatchObject({ host: '' });
+    // settings-rows-and-labels S2-8: a link whose host has spaces splits as Chromium's URL splits it (escaped host, token).
+    expect(pairingFields('https://not a url/pair#token=abc')).toEqual({ source: 'https://not a url/pair#token=abc', host: 'https://not%20a%20url', code: 'abc' });
+    expect(pairingFields('not a url/pair?token=XYZ')).toMatchObject({ host: 'https://not%20a%20url', code: 'XYZ' });
+    expect(pairingFields('https://not a url/pair?host=box.example.com#token=XYZ')).toMatchObject({ host: 'box.example.com', code: 'XYZ' });
+    expect(pairingFields('not a url')).toMatchObject({ host: '', code: '' });
   });
 });

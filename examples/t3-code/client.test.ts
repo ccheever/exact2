@@ -472,6 +472,8 @@ describe('connection and bootstrap', () => {
     expect(parsePairing('https://not a url/pair#token=abc', '')).toEqual({ origin: 'https://not%20a%20url', credential: 'abc', unreachable: true });
     expect(parsePairing('', 'https://not a url/pair?token=query')).toEqual({ origin: 'https://not%20a%20url', credential: 'query', unreachable: true });
     expect(parsePairing('https://not a url/pair?host=http%3A%2F%2F127.0.0.1%3A3773#token=secret', '')).toEqual({ origin: 'http://127.0.0.1:3773', credential: 'secret' });
+    expect(parsePairing('https://not%20a%20url', 'abc')).toEqual({ origin: 'https://not%20a%20url', credential: 'abc', unreachable: true });
+    expect(parsePairing('ws://My Host:3773', 'ABC')).toEqual({ origin: 'http://my%20host:3773', credential: 'ABC', unreachable: true });
     expect(() => parsePairing('http://[::1', 'ABC')).toThrow('Backend URL is invalid.');
     expect(() => parsePairing('http://[::1?host=127.0.0.1#token=abc', '')).toThrow('Backend URL is invalid.');
     expect(environmentFetchFailure('https://not%20a%20url')).toBe('Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).');
