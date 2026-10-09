@@ -13,6 +13,7 @@ import { settingsCore } from './settings-core-view';
 import { archivedSettings, licenseSettings, storageSettings } from './settings-data';
 import { T3Client } from './client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './composer-editor';
+import { chipPopoverView } from './composer-chip-popover'; // a skill chip's details popover
 import { composerBranches } from './composer-controls-branch';
 import { providerFieldValues } from './providers';
 import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './providers-scope'; // fix-providers-environment-scope
@@ -81,6 +82,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') return composerEditorView(client, native, Number(args[1]) || 0);
+  if (source === 'composerChip') return chipPopoverView(client, native); // composer-chip-popover.ts: args[0] re-asks on each revision
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   if (source === 'archivedSettings') return archivedSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, Number(args[3]) || 0);
   if (source === 'licenseSettings') return licenseSettings(client, native, String(args[0] || ''), String(args[1] || ''), Number(args[2]) || 0, args[3] === true);
