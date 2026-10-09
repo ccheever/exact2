@@ -19,8 +19,9 @@ The Browser tab built in [part 1](closed/20261005-browser-surface.md) gains the 
 "Recently used" and "Local servers", the full unreachable page, the history store, target resolution, page zoom, the
 appearance preference sent to the page, the device toolbar (fill, freeform, the 17 presets, rotate, resize handles) and
 the preview keys. The More menu's Show/Hide device toolbar, Appearance and Zoom rows, disabled and marked "Part 2" by
-part 1, work. Settings › Integrations › Browser's default viewport, zoom and appearance rows (item 10) are not built here
-(below, "Not built"); new tabs open at the reference's defaults (fill, 100%, System).
+part 1, work. Settings › Integrations › Browser's default viewport, zoom and appearance rows (item 10) moved to
+[browser-surface-profiles](20261005-browser-surface-profiles.md) (part 4); until then new tabs open at the reference's
+defaults (fill, 100%, System).
 
 Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 2). It starts
 after part 1 merges into `feat(example)/t3-code`; the engine (`T3BrowserSession.swift`), the state store
@@ -53,9 +54,8 @@ From the parent's scope (its numbering):
    them as `PreviewKeyboard.ts` does).
 10. **Settings rows, part 2's.** Default browser viewport, Default browser zoom, Default browser appearance
     (`settings-source-control.contract` BrowserDefaults, `settings.ts:314-357`); new tabs open with them
-    (`browserDefaultOpenViewport`, `browserDefaultTabState`). **Not built** (2026-10-09): the coordinator's part-2 scope
-    list leaves it out; the group's other rows are parts 3–5's, and it stays as part 1 left it (inert, "Only available in
-    the desktop app."). Proposed: build the whole Integrations › Browser group in one follow-up once parts 3–5 land.
+    (`browserDefaultOpenViewport`, `browserDefaultTabState`). **Moved to browser-surface-profiles (part 4)**
+    (coordinator, 2026-10-09); the group stays as part 1 left it until then (inert, "Only available in the desktop app.").
 
 Excluded: annotate, capture, recording, picture in picture (part 3); profiles, cookie import, clearing (part 4); the
 `previewAutomation.*` host, links, Mute (part 5).
@@ -71,8 +71,8 @@ The More menu rows marked "Part 2" lose the mark when they work.
 
 How part 2 is built (2026-10-09):
 - **Data module.** `browser-history.ts` (browserHistoryStore as one store per client, saved with `client.local` as
-  `browserHistory` and read back through `mergeBrowserHistoryState`; the thread registers its project's logical key,
-  `r6-polish-groups.ts logicalKey`), `browser-targets.ts` (browserTargetResolver over the client's connected origin;
+  `browserHistory` and read back through `mergeBrowserHistoryState`; nothing registers a thread's project, as at
+  `1e2ecbd975`), `browser-targets.ts` (browserTargetResolver over the client's connected origin;
   `mergeServers`, `boundConfiguredLocalServerUrls`, `getConfiguredPreviewUrls`; the `subscribeDiscoveredLocalServers`
   stream on the focused connection while a Browser tab shows its empty state, one dispatch line in `client.ts`),
   `browser-viewport.ts` (the presets, the layout, the commit queue, readiness and rollback for part 5, the zoom ladder,
@@ -119,7 +119,7 @@ command log ([drive record](https://raw.githubusercontent.com/ccheever/exact2/10
 | --- | --- | --- | --- |
 | Ported tests | `bun test examples/t3-code` | The ported tests pass | pass (see "Tests") |
 | Local servers | A new Browser tab | The live loopback servers, configured ones first; the hint; a row opens its server in the tab | pass live (drive ops 8–12): the fixture `localhost:16701` "bun" and the lane server "t3" listed with the hint; tapping 16701 navigates the tab (`t3.browser: navigate http://localhost:16701/`). Bun: `mergeServers` 13, the stream's lifecycle |
-| Recently used | Visit pages; a second tab; remove one; open one | At most 8, newest first, title or address with the visit's age; × removes; a row opens | pass live (ops 95–109): four rows (Page B, 127.0.0.1:16749, Page A, Lane fixture, "just now"), Remove 127.0.0.1:16749 leaves three, Page A opens (`navigate http://localhost:16701/a`). Bun: 35 history tests, `PreviewEmptyState` 4 |
+| Recently used | Visit pages; a second tab; remove one; open one | At most 8, newest first, title or address with the visit's age; × removes; a row opens | The list, its rows, removal and opening passed live (ops 95–109: four rows, Remove 127.0.0.1:16749 leaves three, Page A opens `http://localhost:16701/a`) on the build that still registered the thread's project. After the user's decision (match the reference) a newly opened thread's visits wait unregistered and its list stays empty, as at `1e2ecbd975`; the list shows for a thread with a saved project mapping. Bun: 35 history tests, `PreviewEmptyState` 4, the unregistered and saved-mapping rows |
 | Unreachable Details | A closed port, then Details | The checklist and "Hide details" | pass live (op 23: `browser-failed-details`). Bun projection |
 | History store and targets | — | 50 per project, 20 projects, URL ≤ 2,048, title ≤ 512; loopback and environment ports resolve as the reference | pass: Bun 35 + 21 (`browserTargetResolver` 19, `boundConfiguredLocalServerUrls` 2) |
 | More menu | Open it; Zoom in twice; Appearance › Dark; Show device toolbar | Rows enabled; zoom row keeps the menu open; Dark checked | pass live (ops 27–51): 125% in the row and the pill, Dark checked from the module's report, the toolbar opens |
@@ -135,18 +135,20 @@ Tests: `browser-history.test.ts` 35 (`browserHistoryStore.test.ts` 33; clone 2),
 `portDiscoveryState` `boundConfiguredLocalServerUrls` 2; clone 3: the stream), `browser-viewport.test.ts` 30
 (`previewViewport` 3, `browserViewportLayout` 12, `browserViewportActions` 4, `BrowserDeviceToolbar` 2,
 `previewViewportReadiness` 3, `previewViewportRollback` 2; clone 4: the ladder, the toggle, the bounds),
-`browser-navigation.test.ts` 19 (`PreviewEmptyState` 4; clone 15), AppKit `macos/tests/browser` 27 (part 1's 23 with two
+`browser-navigation.test.ts` 20 (`PreviewEmptyState` 4; clone 16), AppKit `macos/tests/browser` 27 (part 1's 23 with two
 of its title waits made race-free, and 4 for part 2). Not ported, with their owner: `browser/browserDefaults` (4: three
-are profile resolution, part 4; one is the settings read, with item 10), `browserSurfaceStore` (9: the Electron slot's
+are profile resolution and one the settings read, all with part 4, which now holds item 10), `browserSurfaceStore` (9: the Electron slot's
 positioning; the page is borrowed by `T3BrowserView`, part 1, and fit-to-source is part 3's mini player),
 `previewClickFocus` (8: agent clicks, part 5), `apps/desktop` `PreviewKeyboard` (12: it builds the automation's key
 events, `previewAutomation.press`, part 5; the preview chords here are the module's monitor, AppKit).
 
-Provisional decision (user decision pending): **Recently used's project registration.** At `1e2ecbd975` nothing calls
-`registerThreadProject` (#2829, `de34391427`, dropped ChatView's effect), so the reference's list stays empty for a
-thread registered after that change. The clone registers the active thread's project as `72d673a855` did (the
-feature's design and this record's scope), by the sidebar's logical project key; it does not borrow a sibling row's
-identity (`buildPhysicalToLogicalProjectKeyMap`).
+User decision 2026-10-09: match the reference (de34391427). **Recently used's project registration.** At
+`1e2ecbd975` nothing calls `registerThreadProject` (#2829, `de34391427`, dropped ChatView's effect), so a thread's
+visits wait in the store's pending queue and Recently used lists only the history of a thread whose project mapping was
+saved before that change; newly opened threads do not fill it. The clone does the same: the registration it first
+made (as `72d673a855` did) was removed; the list's UI, its limits, removal, the visits recorded on submit and on opening
+a server, and the titles stay as the reference has them (Bun: `records a typed address, which waits unregistered as at
+1e2ecbd975`).
 
 ## Progress
 
@@ -156,6 +158,8 @@ WebKit mechanisms measured first (a probe): a host whose bounds scale the web vi
 (presentation only, as the reference's CSS transform); `pageZoom` behaves as Chromium's zoom (the viewport narrows, dpr
 follows); the view's `appearance` is the page's `prefers-color-scheme`. One live drive and its retry (agent mode; the
 screen locked mid-way, so no window images); an independent review; one repair round (below); verification attempt 2.
+2026-10-09 (user decision, after the PR): Recently used matches the reference (`de34391427`): the clone's registration of
+the thread's project was removed; item 10 moved to browser-surface-profiles (part 4) (coordinator).
 
 ## Attempts and evidence
 
@@ -166,6 +170,7 @@ screen locked mid-way, so no window images); an independent review; one repair r
 | Verification attempt 1 | the staged change on `d564a5c02` | 11 required checks passed, source unchanged (runner `run_checks.py`): Bun 3,661 run / 0 fail, strict tsc, contract build, `cargo test -p t3-code-macos --lib`, AppKit 27/27, caps, `cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests --no-fail-fast` (94 test binaries ok), clippy `-D warnings`, fmt, boot | runner report | review findings (below) |
 | Verification attempt 2 | after review round 1 | Stopped after 4 passing checks: review round 2's fixes changed the source | runner report (partial) | none |
 | Verification attempt 3 | the staged change on `d564a5c02` after both review rounds; source fingerprint `ffe6a1cd44c2…` (sha256 over the 25 task-owned files), unchanged by the run | 11 required checks passed (`run_checks.py`): Bun 3,662 pass / 1 skip / 0 fail (3,663 tests, 261 files); strict tsc; contract build (5,882 slots); `cargo test -p t3-code-macos --lib` 13 passed; AppKit `macos/tests/browser` 27/27; caps; `cargo build --all-targets --keep-going`; `cargo test --lib --bins --tests --no-fail-fast` (94 binaries ok: 3,521 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings`; `cargo fmt --all -- --check`; boot. Optional, recorded as unavailable: the live drive (session limit used) and real input (screen locked) | runner report | real-input batch |
+| User decision applied (Recently used matches the reference; item 10 moved to part 4) | after the PR's `2cb4c271a` (base `0fe34a3b0`) | The project registration removed (`browser-navigation.ts`), its tests updated (an unregistered thread's visit waits and the list stays empty; a saved mapping lists and titles). Bun 3,664 pass / 1 skip / 0 fail (3,665 tests), strict tsc, contract build (5,882 slots), caps. No Swift, Rust or Contract change, so the cargo and AppKit checks were not run again; no new live session (coordinator) | Bun and checks above | real-input batch |
 | Part-1 test flake found | — | Two part-1 AppKit assertions read a page's title the moment its load ends; WebKit's title KVO can trail it (base `7ce613206`: 1 of 6 runs failed; the branch before the fix 2–4 of 9). Their waits now include the title: 10 of 10 clean | AppKit runs | none |
 
 ### Independent review, round 1 (2026-10-09)
@@ -232,5 +237,5 @@ release the lock.
 
 ## Next action
 
-Review and merge the draft PR. Then the real-input batch (steps above). Parts 3 (capture) and 4 (profiles) start after
-this merges; the Integrations › Browser group (item 10 with parts 3–5's rows) is a proposed follow-up.
+Review and merge the draft PR. Then the real-input batch (steps above). Parts 3 (capture) and 4 (profiles, which now
+holds item 10's Settings rows) start after this merges.

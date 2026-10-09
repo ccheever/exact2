@@ -13,9 +13,9 @@
 // queues stay in memory, as the reference's `partialize` leaves them out.
 //
 // Registration: at 1e2ecbd975 nothing calls `registerThreadProject` (#2829, de34391427, dropped ChatView's
-// effect), so the reference's Recently used list stays empty for a thread whose project was never registered
-// before that change. The clone registers the active thread's project as 72d673a855 did (the feature as built;
-// provisional, user decision pending: browser-surface-navigation record).
+// effect), so a thread's visits wait in the pending queue and Recently used lists only the history of a thread whose
+// project mapping was saved before that change. The clone does the same (user decision 2026-10-09: match the
+// reference, de34391427): the store keeps the reference's API, and nothing registers a thread's project.
 import { normalizePreviewUrl } from './browser-url';
 import { isLocalLoopbackHost, normalizeHostname } from './host-classification';
 import { scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';

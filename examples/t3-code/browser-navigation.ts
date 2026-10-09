@@ -17,7 +17,6 @@ import { letGo } from './let-go';
 import { pushToast } from './toast';
 import { activeRef } from './terminal-drawer-view';
 import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
-import { logicalKey } from './r6-polish-groups';
 import { chordWinners, type DispatchAdd } from './keyboard-dispatch';
 import { panelState, type PanelState, type Surface } from './r4-surfaces-panel';
 import { readSnapshot, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
@@ -47,17 +46,11 @@ export const tabColorScheme = (tab: NativeTab | null): 'system' | 'light' | 'dar
 const viewportOf = (snapshot: PreviewSessionSnapshot | null): PreviewViewportSetting => snapshot?.viewport && typeof snapshot.viewport === 'object' ? snapshot.viewport : FILL_PREVIEW_VIEWPORT;
 
 // ── Effects before the projection (PreviewView's effects, PreviewEmptyState's query) ───────────
-/** The active project's logical key (deriveLogicalProjectKeyFromSettings under the sidebar's grouping). */
-function projectKeyOf(client: T3Client): string {
-  const project = client.shell.projects.find(entry => entry.id === client.projectId);
-  return project && client.environmentId ? logicalKey(client, client.environmentId, project) : '';
-}
-
 export async function navigationPrepare(client: T3Client, native: Native, state: PanelState): Promise<void> {
   const ref = activeRef(client), history = browserHistory(client.local);
   if (!ref) return;
-  const projectKey = projectKeyOf(client);
-  if (projectKey) history.registerThreadProject(ref, projectKey);
+  // No project registration here: at 1e2ecbd975 nothing calls registerThreadProject (de34391427 removed ChatView's
+  // effect), so a thread's visits wait unregistered (user decision 2026-10-09: match the reference).
   // PreviewView: a settled page titles the visit it came from (agent-driven pages only enrich an existing one).
   const host = environmentHostname(client), sessions = browserHost(client).store.read(ref).sessions;
   if (history.threadRecentHistory(ref, 1).length) for (const tabId of Object.keys(sessions)) {

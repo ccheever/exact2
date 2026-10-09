@@ -42,7 +42,7 @@ export const browserProfileName = (profiles: readonly BrowserProfileChoice[], pr
   profiles.find(profile => profile.id === profileId)?.name ?? 'Removed profile';
 /** RightPanelEmptyState: the launcher's Browser row shows its profile chevron only with a choice to make. */
 export const launcherOffersProfiles = (profiles: readonly BrowserProfileChoice[]): boolean => profiles.length > 1;
-/** browserDefaultOpenViewport: fill, the reference's default (the Settings row that changes it is not built: browser-surface-navigation record). */
+/** browserDefaultOpenViewport: fill, the reference's default (the Settings row that changes it moved to browser-surface-profiles, part 4). */
 export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
 // ── The data module's browser host, one per client ─────────────────────────────────────────────

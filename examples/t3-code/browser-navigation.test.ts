@@ -162,6 +162,7 @@ describe('PreviewEmptyState', () => {
     const s = setup({ nav: { _tag: 'Idle' } });
     const history = browserHistory(s.client.local);
     await navigationPrepare(s.client, module, { ...s.state, visible: true });
+    history.registerThreadProject(ref, 'proj'); // a thread whose project mapping was saved before de34391427
     for (let i = 9; i >= 0; i--) history.recordVisitForThread(ref, `http://localhost:${3000 + i}/`, Date.now() - i * 120_000);
     history.setTitleForThreadUrl(ref, 'http://localhost:3000/', 'Home');
     discoveredServersEvent(s.client, { subscriptionId: 'sub-1', value: { servers: [
@@ -186,15 +187,27 @@ describe('PreviewEmptyState', () => {
 });
 
 describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
-  it('records a typed address and titles it once it settles', async () => {
+  it('records a typed address, which waits unregistered as at 1e2ecbd975 (nothing registers the thread\'s project)', async () => {
     const s = setup();
-    await navigationPrepare(s.client, module, s.state); // registers the thread's project
+    await navigationPrepare(s.client, module, s.state);
+    await local(s, 'navigate', 'localhost:5173');
+    await navigationPrepare(s.client, module, s.state);
+    const history = browserHistory(s.client.local);
+    expect(history.state.projectKeyByThreadKey).toEqual({});
+    expect(history.state.pendingVisitsByThreadKey['local:thread-1']?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
+    expect(history.threadRecentHistory(ref, 8)).toEqual([]);
+    expect(browserView(s.client, s.surface, Date.now()).recents).toEqual([]);
+  });
+  it('records and titles a typed address for a thread whose project mapping was saved', async () => {
+    const s = setup();
+    browserHistory(s.client.local).registerThreadProject(ref, 'proj');
     await local(s, 'navigate', 'localhost:5173');
     await navigationPrepare(s.client, module, s.state);
     expect(browserHistory(s.client.local).threadRecentHistory(ref, 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
   });
   it('opens a local server at the environment\'s host and keeps the address it was found at', async () => {
     const s = setup({ origin: 'http://192.168.1.25:3773' });
+    browserHistory(s.client.local).registerThreadProject(ref, 'proj'); // a saved mapping
     await navigationPrepare(s.client, module, s.state);
     await local(s, 'open-url', 'http://localhost:5173/app');
     expect(s.native.find(request => request.op === 'browserNavigate')).toMatchObject({ url: 'http://192.168.1.25:5173/app' });
