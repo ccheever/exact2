@@ -146,6 +146,23 @@ export function mobileEditorDocumentCommit(client:T3Client,c:EditorDocumentInten
   const d=mobileEditorDocument(client,c.key)!;if(d.revision===Number.MAX_SAFE_INTEGER)return false;
   client.local.drafts[d.draftKey]=next.value;d.value=next.value;d.selection={...next.selection};d.revision++;store(client).revision++;client.revision++;return true;
 }
+/** Internal mounted publication primitive. The concrete owner must additionally prove current
+ * mount/queued claim/fence. Native's retained terminal proves the replacement; latest is the
+ * admitted observation, which may include text typed after that terminal. No IO or callbacks. */
+export function mobileEditorDocumentCommitMounted(client:T3Client,c:EditorDocumentIntent,
+  proof:{command:import('./composer-editor-state').ComposerEditorCommand;terminal:import('./composer-editor-state').ComposerEditorEvent;
+    latest:import('./composer-editor-state').ComposerEditorEvent},next:{value:string;selection:{start:number;end:number}}):boolean {
+  const {command,terminal,latest}=proof;
+  const identity=(v:import('./composer-editor-state').ComposerMountedIdentity)=>canonical([v.owner,v.editorId,v.routeVisit,v.renderEpoch,v.mountId]);
+  if(identity(command)!==identity(terminal)||identity(command)!==identity(latest)
+    ||terminal.commandId!==command.commandId||terminal.commandRevision!==command.commandRevision
+    ||!['commandApplied','commandRejected'].includes(terminal.kind)||terminal.eventCount<=command.expected.eventCount
+    ||latest.eventCount<terminal.eventCount||next.value!==latest.value||canonical(next.selection)!==canonical(latest.selection)
+    ||terminal.kind==='commandApplied'&&(terminal.value!==command.next.value||canonical(terminal.selection)!==canonical(command.next.selection)||terminal.composing)
+    ||!mobileEditorDocumentIntentCurrent(client,c)||next.value.length>MAX_TEXT||!range(next.selection,next.value.length))return false;
+  const d=mobileEditorDocument(client,c.key)!;if(d.revision===Number.MAX_SAFE_INTEGER)return false;
+  client.local.drafts[d.draftKey]=next.value;d.value=next.value;d.selection={...next.selection};d.revision++;store(client).revision++;client.revision++;return true;
+}
 const messageSend=(p:Pending)=>p.method==='orchestration.dispatchCommand'&&p.payload.type==='message.dispatch'&&!!p.threadId&&p.payload.threadId===p.threadId;
 const payloadFingerprint=(p:Pending)=>canonical({method:p.method,payload:p.payload,threadId:p.threadId,text:p.text});
 function receiptID(client:T3Client,p:Pending,environmentId=client.environmentId){return JSON.stringify([home(client),environmentId,p.method,str(p.payload.commandId)])}

@@ -9,6 +9,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { ClientError, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { mobileThreadSendCaptureDraft, mobileThreadSendApplyQueuedDraft } from './thread-send-handoff-draft';
+import {mobileThreadMountedSendCapture,mobileThreadMountedSendCheck,mobileThreadMountedSendApplyQueued,mobileThreadMountedSendRevoke,type MountedSendAdmission} from './thread-send-mounted';
 import { threadSendTransferDecodeCapture, type ThreadSendTransferClaim } from './thread-send-transfer-model';
 import type { ThreadSendRecord } from './thread-send-admission';
 import { mobileOutboxEncode } from './mobile-outbox-model';
@@ -21,6 +22,7 @@ export interface ThreadTransferResult {
   claim:ThreadSendTransferClaim|null;message:string;
 }
 export interface ThreadTransferInput {
+  editor?:MountedSendAdmission;
   target:MobileComposerTarget;record:ThreadSendRecord;now:number;
   /** Route identity only. Text/settings captured at the tap are immutable payloads. */
   current():boolean;
@@ -57,14 +59,15 @@ async function status(client:MobileDraftClient,native:Native,target:MobileOutbox
   if(!read.claim)throw new ClientError('The saved message transfer is unavailable. Keep the draft until it is recovered.');
   return read.claim;
 }
-async function finish(client:MobileDraftClient,native:Native,storage:Files,check:()=>void,claim:ThreadSendTransferClaim):Promise<ThreadTransferResult> {
+async function finish(client:MobileDraftClient,native:Native,storage:Files,check:()=>void,claim:ThreadSendTransferClaim,editor?:MountedSendAdmission):Promise<ThreadTransferResult> {
   check();
+  if(!editor||claim.state!=='queued')mobileThreadMountedSendRevoke(client,claim.transferId);
   if(['completed','queued'].includes(claim.state)&&!mobileOutboxSnapshot(client).complete)
     return result('recovery-required','Resolve the incomplete pending-message inventory before finishing this transfer.',claim);
   if(claim.state==='completed')return result('completed','',claim);
   if(claim.state==='prepared')return result('recovery-required','Resolve the interrupted local save before sending this draft again.',claim);
   if(claim.state!=='queued')return result('failed','The message was not queued. Your draft has been kept.',claim);
-  const applied=mobileThreadSendApplyQueuedDraft(client,claim);
+  const applied=editor?await mobileThreadMountedSendApplyQueued(client,claim,editor,native,storage):mobileThreadSendApplyQueuedDraft(client,claim);
   if(applied.status==='blocked')return result('cleanup-pending',applied.reason,claim);
   try {
     // The concrete reduction prepared the proof with the draft. Persist both before native completion.
@@ -72,6 +75,7 @@ async function finish(client:MobileDraftClient,native:Native,storage:Files,check
     if(!await mobileOutboxCompleteThreadTransfer(client,native,claim))
       return result('cleanup-pending','The message is queued. Its saved draft retirement still needs to finish.',claim);
     const completed=mobileOutboxSnapshot(client).threadTransfers.find(item=>item.transferId===claim.transferId);
+    if(completed?.state==='completed')mobileThreadMountedSendRevoke(client,claim.transferId);
     return completed?.state==='completed'?result('completed','',completed)
       :result('recovery-required','Read the completed transfer before submitting again.',claim);
   }catch(error){
@@ -93,7 +97,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     const current=()=>{check();if(!input.current()||!mobileEditorContextTargetCurrent(client,input.target))
       throw new ClientError('The selected draft changed before the message was queued.','superseded')};
     current();
-    const captured=mobileThreadSendCaptureDraft(client,input.target);
+    const captured=input.editor?mobileThreadMountedSendCapture(client,input.target,input.editor):mobileThreadSendCaptureDraft(client,input.target);
     if(captured.status==='blocked')return result('blocked',captured.reason);
     // Detach the source-resolved settings and payload before any asynchronous work.
     const proposed=JSON.parse(JSON.stringify(input.record)) as ThreadSendRecord;
@@ -101,6 +105,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     // the real IDs below; this validation record is never stored or admitted.
     threadSendTransferDecodeCapture(captured.capture,mobileOutboxEncode({...proposed,
       messageId:'capture-check-message',commandId:'capture-check-command',createdAt:new Date(input.now).toISOString()}));
+    if(input.editor)await mobileThreadMountedSendCheck(client,input.target,input.editor,native);
     await mobileOutboxRead(client,native);check();
     let lookup=await mobileOutboxThreadTransferLookup(client,native,target,captured.capture);check();
     if(!lookup.complete||!mobileOutboxSnapshot(client).complete)return result('blocked','Resolve the incomplete pending-message inventory before sending.');
@@ -108,7 +113,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     if(active.length>1)return result('recovery-required','More than one transfer claims this draft. Recover its storage first.');
     if(active[0]){
       const claim=await status(client,native,target,active[0].transferId);check();
-      if(claim.state!=='failed'||!input.retryFailed)return await finish(client,native,storage,check,claim);
+      if(claim.state!=='failed'||!input.retryFailed)return await finish(client,native,storage,check,claim,input.editor);
       current();
       if(!await mobileOutboxReleaseFailedThreadTransfer(client,native,claim))return result('failed','The failed local save is still retained.',claim);
       await mobileOutboxRead(client,native);check();
@@ -118,7 +123,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     }
     if(!lookup.complete||!mobileOutboxSnapshot(client).complete)return result('blocked','Resolve the incomplete pending-message inventory before sending.');
     const duplicate=lookup.claims.find(claim=>claim.state==='completed'&&claim.fingerprint===lookup.fingerprint);
-    if(duplicate)return finish(client,native,storage,check,await status(client,native,target,duplicate.transferId));
+    if(duplicate)return finish(client,native,storage,check,await status(client,native,target,duplicate.transferId),input.editor);
     current();
     await client.persist(storage);current();
     const [messageId,commandId]=await client.ids(native,2);current();
@@ -127,7 +132,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     const capture=threadSendTransferDecodeCapture(captured.capture,record);
     const admitted=await mobileOutboxEnqueueThreadTransfer(client,native,record,capture);check();
     if(!admitted.claim||admitted.disposition==='unknown')return result('recovery-required','The local save reply was interrupted. Recover this draft before retrying.');
-    return await finish(client,native,storage,check,admitted.claim);
+    return await finish(client,native,storage,check,admitted.claim,input.editor);
   }catch(error){
     if(letGo(error))throw error;
     return result('blocked',error instanceof Error?error.message:'Could not queue the message.');
@@ -135,7 +140,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
 }
 /** Fresh native discovery owns recovery. No repeated enqueue or guessed rollback. */
 export async function mobileThreadTransferResume(client:MobileDraftClient,nativeInput:Native|null|undefined,storage:Files,
-  target:MobileOutboxThreadTarget,transferId:string,decision?:'commit'|'rollback'|'retry'):Promise<ThreadTransferResult> {
+  target:MobileOutboxThreadTarget,transferId:string,decision?:'commit'|'rollback'|'retry',editor?:MountedSendAdmission):Promise<ThreadTransferResult> {
   if(!client.preferencesLoaded)return result('blocked','Wait for saved drafts to load.');
   const release=acquire(client,target);if(!release)return result('busy','This message transfer is already being recovered.');
   try {
@@ -154,7 +159,7 @@ export async function mobileThreadTransferResume(client:MobileDraftClient,native
       await mobileOutboxRead(client,native);check();
       claim=await status(client,native,target,transferId);check();
     }
-    return await finish(client,native,storage,check,claim);
+    return await finish(client,native,storage,check,claim,editor);
   }catch(error){if(letGo(error))throw error;return result('blocked',error instanceof Error?error.message:'Could not recover the message.')}
   finally{release()}
 }

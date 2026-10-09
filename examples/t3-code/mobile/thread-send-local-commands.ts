@@ -80,6 +80,16 @@ export function mobileThreadLocalUsageDismiss(owner:object,scope:ThreadLocalScop
   const s=state(owner);if(!s.panel||s.panel.scope!==scopeKey(scope)||s.panel.key!==usageKey)return false;
   s.panel=null;s.revision++;return true;
 }
+/** Menu selection already replaced its trigger through the native editor. This opens the
+ * same report without clearing the rest of that draft or granting any Send authority. */
+export function mobileThreadLocalUsageOpen(owner:object,input:{scope:ThreadLocalScope;usageKey:string;instanceId:string;config:Obj;now:number}):{opened:boolean;message:string} {
+  const key=scopeKey(input.scope);
+  if(!key||!input.usageKey||!Number.isFinite(input.now)||Math.abs(input.now)>8.64e15)
+    return {opened:false,message:'The selected usage report changed.'};
+  const collected=report(input.config,input.instanceId,input.now),s=state(owner);
+  s.panel=collected?{scope:key,key:input.usageKey,now:input.now}:null;s.revision++;
+  return {opened:!!collected,message:collected?'':'This provider does not currently report limits.'};
+}
 /** Typed Send only. Command-menu /usage-limits has a different range replacement/clear order.
  * No outbox completion proof, Native, callback, or Promise enters the retained plain state. */
 export async function mobileThreadSendLocalCommand(owner:object,ctx:ThreadLocalCommandContext):Promise<ThreadLocalCommandResult> {
