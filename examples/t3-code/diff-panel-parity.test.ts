@@ -6,15 +6,18 @@ import { T3Client } from './client';
 import { snapshot } from './presentation';
 import { obj, type Obj } from './domain';
 import type { Native, Files } from './protocol';
-import { baseRefView, buildBaseRefChoices, filterBaseRefChoices, normalizeBaseRef, type BaseRefPicker } from './diff-base-ref';
+import { baseRefView, buildBaseRefChoices, emptyBaseRefPicker, filterBaseRefChoices, loadBaseRefs, normalizeBaseRef, type BaseRefPicker } from './diff-base-ref';
 import { headerStat } from './diff';
 
 const smallPatch = 'diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -3,3 +3,7 @@\n }\n-export const answer = 42;\n+export const answer = 43;\n+\n+export function bye(name: string): string {\n+  return `Bye, ${name}`;\n+}\n';
 const local = [{ name: 'feature/audit', remoteName: null }, { name: 'main', remoteName: null }];
 const remote = [{ name: 'origin/feature/audit', remoteName: 'origin' }, { name: 'origin/main', remoteName: 'origin' }, { name: 'origin/release/2026-10', remoteName: 'origin' }];
 
+const otherPatch = 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,2 @@\n # Fixture\n+A line.\n';
+
 function harness(large = false) {
   const calls: Obj[] = [];
+  let patch = smallPatch;
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request);
     const payload = obj(request.payload);
@@ -26,10 +29,10 @@ function harness(large = false) {
     if (request.op === 'request' && request.method === 'review.getDiffPreview') {
       const file = obj(payload.file);
       const baseRef = typeof payload.baseRef === 'string' ? payload.baseRef : 'origin/main';
-      if (typeof file.path === 'string') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff: smallPatch, truncated: false, diffHash: 'f', baseRef, headRef: 'feature/audit' }] } };
-      return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'working-tree', diff: smallPatch, truncated: false, diffHash: 'w' },
+      if (typeof file.path === 'string') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff: patch, truncated: false, diffHash: 'f', baseRef, headRef: 'feature/audit' }] } };
+      return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'working-tree', diff: patch, truncated: false, diffHash: 'w' },
         large ? { kind: 'branch-range', diff: '', truncated: true, diffHash: 'h1', baseRef, headRef: 'feature/audit', files: [{ path: 'src/app.ts', previousPath: null, additions: 5, deletions: 1 }, { path: 'data/rows.txt', previousPath: null, additions: 2400, deletions: 0 }] }
-          : { kind: 'branch-range', diff: smallPatch, truncated: false, diffHash: 'h2', baseRef, headRef: 'feature/audit' }] } };
+          : { kind: 'branch-range', diff: patch, truncated: false, diffHash: patch === smallPatch ? 'h2' : 'h3', baseRef, headRef: 'feature/audit' }] } };
     }
     if (request.op === 'editorInsert' || request.op === 'editorEdit') return { ok: true, generation: 1, value: { applied: true } };
     return { ok: true, generation: 1, value: {} };
@@ -44,7 +47,8 @@ function harness(large = false) {
   const command = (op: string, id = '', value = '', n = 0) => client.command(op, id, value, n, native, storage);
   const previews = () => calls.filter(call => call.method === 'review.getDiffPreview' && !obj(obj(call.payload).file).path).map(call => obj(call.payload));
   const listRefs = () => calls.filter(call => call.method === 'vcs.listRefs').map(call => obj(call.payload));
-  return { client, command, previews, listRefs, calls };
+  const serve = (next: string) => { patch = next; };
+  return { client, command, previews, listRefs, calls, serve };
 }
 
 describe('PA-6: the comparison target', () => {
@@ -58,7 +62,7 @@ describe('PA-6: the comparison target', () => {
   });
 
   test('the rows leave the head out, mark the remote column, and say when nothing matches', () => {
-    const picker: BaseRefPicker = { query: '', cwd: '/repo', local, remote, loading: false };
+    const picker: BaseRefPicker = { query: '', cwd: '/repo', local, remote, reads: 1 };
     const view = baseRefView(picker, '/repo', 'feature/audit', null);
     expect(view.automatic).toBe(true);
     expect(view.empty).toBe(false);
@@ -98,6 +102,20 @@ describe('PA-6: the comparison target', () => {
     await command('diff-base', '', '__automatic_base_ref__');
     expect(previews().at(-1)).not.toHaveProperty('baseRef');
     expect(snapshot(client)).toMatchObject({ diffBase: 'origin/main', diffBaseAutomatic: true });
+  });
+
+  test("only the newest read lands: another thread's older answer for the same query is dropped", async () => {
+    const picker = emptyBaseRefPicker();
+    const answers = new Map<string, (value: Obj) => void>();
+    const send = (_method: string, payload: Obj) => new Promise<Obj>(resolve => answers.set(`${payload.cwd}:${payload.refKind}`, resolve));
+    const refs = (names: string[]) => ({ refs: names.map(name => ({ name, remoteName: null })) });
+    const older = loadBaseRefs(picker, '/a', send), newer = loadBaseRefs(picker, '/b', send);
+    answers.get('/b:local')!(refs(['b-main'])); answers.get('/b:remote')!(refs([]));
+    await newer;
+    answers.get('/a:local')!(refs(['a-main'])); answers.get('/a:remote')!(refs([]));
+    await older;
+    expect(picker).toMatchObject({ cwd: '/b', local: [{ name: 'b-main', remoteName: null }], reads: 2 });
+    expect(baseRefView(picker, '/b', null, null).rows.map(row => row.label)).toEqual(['b-main']);
   });
 });
 
@@ -161,5 +179,37 @@ describe('PA-12: ⌘↩ in a line comment draft', () => {
     // A focus report with no draft open never holds the chord.
     await command('diffreview', 'focus');
     expect(snapshot(client).composer.sendChords).toContain('Meta+Enter');
+  });
+
+  test('a draft that left the tree without a blur holds no chord: another thread, a diff without its line, its file collapsed', async () => {
+    const { client, command, serve } = harness();
+    const chords = () => snapshot(client).composer.sendChords;
+    await command('diff');
+    await command('diff-view', 'file', 'src/app.ts');
+    await command('diffreview', 'comment:additions', 'src/app.ts', 7);
+    expect(chords()).toBe('');
+    // A keyboard thread switch closes the panel and keeps the draft; no blur comes (LLP 1008). The Diff reopened on
+    // another thread draws the same file and line under the same scope, but the focus was this thread's.
+    client.threadId = 't2';
+    client.diffOpen = false;
+    await command('diff');
+    expect(snapshot(client).diffCommentOpen).toBe(true);
+    expect(chords()).toContain('Meta+Enter');
+    // Back on the first thread the card mounts again with the focus (autofocus reports it).
+    client.threadId = 't1';
+    await command('diff');
+    await command('diffreview', 'focus');
+    expect(chords()).toBe('');
+    // A refresh whose diff no longer has the draft's file: the card is gone, and so is the hold.
+    serve(otherPatch);
+    await command('diff-refresh');
+    expect(snapshot(client).diffFiles.map(file => file.path)).toEqual(['README.md']);
+    expect(chords()).toContain('Meta+Enter');
+    // The file back, then collapsed: no card is drawn, so ⌘↩ is Send's again.
+    serve(smallPatch);
+    await command('diff-refresh');
+    expect(chords()).toBe('');
+    await command('diff-view', 'file', 'src/app.ts');
+    expect(chords()).toContain('Meta+Enter');
   });
 });

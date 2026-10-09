@@ -46,8 +46,10 @@ export class DiffState {
   selection: { scope: string; path: string; range: SelectedLineRange } | null = null;
   draft: { scope: string; path: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
-  /** The open draft's textarea holds the focus: the composer's Send then leaves ⌘↩ to it (composer-presentation.ts). */
-  draftFocused = false;
+  /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it
+   * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
+   * on that thread and while the draft's card is drawn (draftHoldsCommandEnter). */
+  draftFocus = '';
   /** diffPanelStore branchBaseRefByThreadKey: each thread's comparison target, kept while another scope shows. */
   branchBaseRefs: Record<string, string | null> = {};
   /** The comparison target picker's ref lists (diff-base-ref.ts). */
@@ -432,10 +434,26 @@ export function headerStat(file: { additions: number; deletions: number }, align
   if (aligned) return { statAligned: true, addText: `+${compactCount(additions)}`, delText: `-${compactCount(deletions)}` };
   return { statAligned: false, addText: additions > 0 || deletions === 0 ? `+${additions}` : '', delText: deletions > 0 || additions === 0 ? `-${deletions}` : '' };
 }
-/** A Diff comment draft on show holds the focus, so ⌘↩ is its own (composer-presentation.ts gives the Send button no chords then). */
+/** The open draft's textarea took the focus (true) or let it go (false), on the thread that shows. */
+export function noteDraftFocus(client: T3Client, focused: boolean): void {
+  client.diffState.draftFocus = focused && client.diffState.draft !== null ? threadKey(client) : '';
+}
+/** diffSnapshot draws the draft's card: its scope shows, its file is listed with its patch in and expanded, and its end line is one the file numbers. */
+function draftDrawn(client: T3Client): boolean {
+  const state = client.diffState, draft = state.draft;
+  if (!client.diffOpen || !draft || draft.scope !== state.scopeKey || diffNotGit(client)) return false;
+  const file = diffFiles(client).find(entry => entry.path === draft.path);
+  if (!file || file.pending || file.binary || (state.lazy !== null && state.lazy.patches.get(file.path)?.state !== 'loaded')) return false;
+  if ((state.expanded[`${state.scopeKey}::${file.path}`] ?? state.defaultExpanded) !== true) return false;
+  return lineIndex(reviewLinesOf(state, file)).has(sideKey(draft.range.endSide, draft.range.end));
+}
+/**
+ * A Diff comment draft on show holds the focus, so ⌘↩ is its own (composer-presentation.ts gives the Send button no chords
+ * then). A draft that is no longer drawn (another thread, a diff without its line, its file collapsed) holds nothing, though
+ * no blur said so.
+ */
 export function draftHoldsCommandEnter(client: T3Client): boolean {
-  const state = client.diffState;
-  return client.diffOpen && state.draftFocused && state.draft !== null && state.draft.scope === state.scopeKey;
+  return client.diffState.draftFocus !== '' && client.diffState.draftFocus === threadKey(client) && draftDrawn(client);
 }
 export function diffPaths(client: T3Client): string[] { return diffFiles(client).map(file => file.path); }
 export function turnNumber(projection: Obj, ordinal: number): boolean { return turnSummaries(projection).some(turn => turn.count === num(ordinal, -1)); }

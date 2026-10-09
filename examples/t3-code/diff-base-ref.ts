@@ -10,11 +10,11 @@ import { arr, str, type Obj } from './domain';
 
 export type VcsRef = { name: string; remoteName: string | null };
 export type BaseRefChoice = { id: string; label: string; local: VcsRef | null; remote: VcsRef | null };
-/** The picker's last answers: the query they were asked for and the preview cwd they came from. */
-export type BaseRefPicker = { query: string; cwd: string; local: VcsRef[]; remote: VcsRef[]; loading: boolean };
+/** The picker's last answers: the query they were asked for, the preview cwd they came from, and how many reads started (the newest one lands). */
+export type BaseRefPicker = { query: string; cwd: string; local: VcsRef[]; remote: VcsRef[]; reads: number };
 export const AUTOMATIC_BASE_REF = '__automatic_base_ref__';
 
-export function emptyBaseRefPicker(): BaseRefPicker { return { query: '', cwd: '', local: [], remote: [], loading: false }; }
+export function emptyBaseRefPicker(): BaseRefPicker { return { query: '', cwd: '', local: [], remote: [], reads: 0 }; }
 
 /** diffPanelStore normalizeBaseRef: a blank ref is Automatic (null). */
 export function normalizeBaseRef(baseRef: string | null | undefined): string | null {
@@ -56,14 +56,16 @@ export function refsOf(result: Obj): VcsRef[] {
   return arr(result.refs).map(ref => ({ name: str(ref.name), remoteName: typeof ref.remoteName === 'string' ? ref.remoteName : null })).filter(ref => ref.name !== '');
 }
 
-/** Reads both lists for the picker's query; an answer for an older query or cwd is dropped, a failed read lists nothing. */
+/**
+ * Reads both lists for the picker's query at a cwd; a failed read lists nothing. Only the newest read lands: one a later
+ * read superseded (another query, or another thread's cwd after a switch) is dropped, whichever answers last.
+ */
 export async function loadBaseRefs(picker: BaseRefPicker, cwd: string, send: (method: string, payload: Obj) => Promise<Obj>): Promise<void> {
-  const query = picker.query;
-  picker.loading = true;
+  const query = picker.query, reading = ++picker.reads;
   const read = (kind: 'local' | 'remote') => send('vcs.listRefs', listRefsPayload(cwd, kind, query)).then(refsOf, () => [] as VcsRef[]);
   const [local, remote] = await Promise.all([read('local'), read('remote')]);
-  if (picker.query !== query) return;
-  Object.assign(picker, { cwd, local, remote, loading: false });
+  if (picker.reads !== reading || picker.query !== query) return;
+  Object.assign(picker, { cwd, local, remote });
 }
 
 export type BaseRefRow = { id: string; label: string; value: string; remote: string; remoteOn: boolean; other: string; selected: boolean };
