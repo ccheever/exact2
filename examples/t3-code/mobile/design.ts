@@ -147,3 +147,11 @@ export function mobileNativeComposerTheme(scheme: string, palette = 't3-code') {
   const variant = `${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`;
   return createNativeComposerTheme(themes[variant] ?? themes[scheme === 'dark' ? 'dark' : 'light']);
 }
+
+// Local feedback and usage cards use the source card and tertiary tokens.
+// @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
+export function mobileThreadLocalColors(scheme: string, palette = 't3-code') {
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`;
+  const tokens = themes[variant] ?? themes[scheme === 'dark' ? 'dark' : 'light'];
+  return { card: tokens['--color-card'], tertiary: tokens['--color-foreground-tertiary'], subtleStrong: tokens['--color-subtle-strong'] };
+}

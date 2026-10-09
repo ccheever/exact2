@@ -117,7 +117,7 @@ component NewTaskDraft
                 button disabled=true width=44 height=44 padding=0 aria-label="Resolve saved task before sending"
                   t3-symbol symbol-name="arrow.up" point-size=18 symbol-weight="semibold" symbol-tint=colors.muted width=44 height=44
               else
-                ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+                ThreadSendButton(data=data.composer, sendLabel=data.composer.sendLabel, sendSymbol=data.composer.sendSymbol, canSend=data.composer.canSend, showStop=data.composer.showStop, blockedReason=data.composer.blockedReason, action=action, colors=threadColors)
             else when dictating
               column flex=1 min-width=0
                 VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
@@ -125,4 +125,4 @@ component NewTaskDraft
               column flex=1 min-width=0
                 VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-              ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+              ThreadSendButton(data=data.composer, sendLabel=data.composer.sendLabel, sendSymbol=data.composer.sendSymbol, canSend=data.composer.canSend, showStop=data.composer.showStop, blockedReason=data.composer.blockedReason, action=action, colors=threadColors)

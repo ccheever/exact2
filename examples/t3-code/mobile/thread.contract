@@ -62,7 +62,10 @@ component ThreadMessage
           column box-sizing="border-box" min-width=0 max-width=userBubbleMaxWidth width=(length(row.media) > 0 ? userBubbleMaxWidth : "auto") gap=7 border-radius=20 padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 background-color=colors.userBubble
             each media in row.media key=media.id
               when row.kind == "pending"
-                text media.name font-size=14 line-height="19px" color=colors.userForeground
+                when media.kind == "image" and media.url != ""
+                  image media.url width=180 height=140 object-fit="cover" border-radius=14 aria-label=media.name
+                else
+                  text media.name font-size=14 line-height="19px" color=colors.userForeground
               else
                 ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
             when length(trim(row.body)) > 0
@@ -73,6 +76,11 @@ component ThreadMessage
             text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
             when length(trim(row.body)) > 0 and row.kind != "pending"
               ThreadCopy(row=row, action=action, colors=colors)
+            when row.kind == "pending" and row.toggleOp != ""
+              button press=action(row.toggleOp, row.toggleId, "") min-height=28 padding-left=7 padding-right=7 aria-label="Retry pending message"
+                text "Retry" font-size=13 line-height="17px" color=colors.primary
+          when row.kind == "pending" and row.title != ""
+            text row.title margin-top=3.5 font-size=13 line-height="17px" color=(row.failed ? colors.dangerForeground : colors.secondary)
       else when row.kind == "assistant" or row.kind == "plan" or row.kind == "meta"
         column padding-left=3.5 padding-right=3.5
           when row.kind == "plan"

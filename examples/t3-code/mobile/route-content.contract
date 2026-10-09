@@ -1,3 +1,5 @@
+use ThreadSubmission, ThreadLocalColors, ThreadSubmissionRecoveryNotice from "./thread-send-root.contract"
+use ThreadLocalFeedback, ThreadLocalUsage from "./thread-local-dock.contract"
 use ArchiveChrome, ArchiveChromeSnapshot from "./archive-chrome.contract"
 use HomeArrangement, HomeArrangementColors from "./home-arrangement.contract"
 use MobileAddProject, AddProjectSnapshot, AddProjectColors from "./add-project.contract"
@@ -53,6 +55,9 @@ use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "
 // Presentation only. The root supplies all state, resource values and actions.
 component MobileRouteContent
   props
+    threadSubmission: ThreadSubmission
+    threadLocalLook: ThreadLocalColors
+    threadLocalCommand: action
     addProjectData: AddProjectSnapshot
     addProjectLook: AddProjectColors
     editAddProject: action
@@ -359,8 +364,12 @@ component MobileRouteContent
           column pointer-events="auto"
             column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
               ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
+            column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
+              ThreadLocalFeedback(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, command=threadLocalCommand)
+              ThreadSubmissionRecoveryNotice(data=threadSubmission.recovery, colors=threadLook, card=threadLocalLook.card, busy=threadSubmission.busy or changedPending, command=threadLocalCommand)
+              ThreadLocalUsage(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, tertiary=threadLocalLook.tertiary, subtleStrong=threadLocalLook.subtleStrong, dark=appearance.scheme == "dark", command=threadLocalCommand)
             ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ThreadComposer(submission=threadSubmission, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
     else when routeName == "gitOverview"

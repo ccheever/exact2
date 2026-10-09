@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
+import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
 import { ClientError, type Files, type Native } from './shared/protocol';
 import { T3Client } from './shared/client';
 import { requestPresentation } from './shared/requests';
@@ -330,6 +330,20 @@ describe('mobile wire attribution', () => {
 });
 
 describe('bake and command boundary', () => {
+  test('the old command entry cannot bypass ordinary admission or normalize its draft', async () => {
+    const oldThread = mobileClient.threadId, oldEnvironment = mobileClient.environmentId;
+    const before = JSON.stringify(mobileClient.local), calls: unknown[] = [];
+    const native: Native = { available: true, watch() {}, async later(input) { calls.push(input); throw new Error('unexpected'); } };
+    try {
+      mobileClient.threadId = 'ordinary-send-boundary'; mobileClient.environmentId = 'ordinary-boundary-env';
+      for (const op of ['send', 'send-alternate']) {
+        const result = await mobileCommand([op, 'stale-owner'], native, unusedStorage);
+        expect(result.message).toBe('Send this draft from its current thread composer.');
+      }
+      expect(JSON.stringify(mobileClient.local)).toBe(before);
+      expect(calls).toEqual([]);
+    } finally { mobileClient.threadId = oldThread; mobileClient.environmentId = oldEnvironment; }
+  });
   test('bake snapshot is disconnected without reading files or manufacturing environments', async () => {
     const snapshot = await mobileSnapshot(undefined, unusedStorage);
     expect(snapshot.nativeAvailable).toBe(false);

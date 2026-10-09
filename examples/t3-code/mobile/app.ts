@@ -1,3 +1,6 @@
+import { mobileThreadSendRootSnapshot, mobileThreadSendRootAction } from './thread-send-root';
+import { mobileDraftRecoveryHandles } from './mobile-draft-recovery';
+import { letGoAware } from './shared/let-go';
 import { mobileKeyboardSnapshot, mobileKeyboardCopy, mobileKeyboardDismiss } from './mobile-keyboard';
 import { archiveChromeView, archiveChromeEvent } from './archive-chrome';
 import { mobileRootFaviconAdmission, mobileRootFavicons, mobileRootFaviconImages, mobileRootFaviconEvent } from './mobile-favicon-root';
@@ -60,7 +63,7 @@ import { machineKind } from './shared/connections';
 import { mobileClearClientCaches } from './mobile-cache-controls';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
-import { mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
+import { mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchive, mobileArchiveCommand } from './archive';
@@ -89,6 +92,20 @@ function storageEnvironments() {
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  threadSubmission: args => mobileThreadSendRootSnapshot(mobileClient, args[0]),
+  threadLocalColors: args => mobileThreadLocalColors(args[0], args[1]),
+  threadSubmissionAction: async (args, _store, suppliedStorage, nativeInput) => {
+    const input = sourceNative('threadSubmissionAction', args, nativeInput);
+    const handle = input?.available ? letGoAware(mobileNative(input)) : input;
+    const { native, storage } = mobileDraftRecoveryHandles(mobileClient, handle,
+      handle?.available ? nativeFiles(handle) : suppliedStorage!);
+    if (!native?.available) return { visit: args[5], owner: args[4], revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad.' };
+    const op = (['send', 'send-alternate', 'recovery-read', 'recovery-action', 'feedback-dismiss', 'feedback-copy', 'usage-close', 'open-link', 'reset-credit'] as const).find(value => value === args[1]);
+    if (!op) return { visit: args[5], owner: args[4], revision: mobileClient.revision, message: 'This composer action is unavailable.' };
+    const result = await mobileThreadSendRootAction(mobileClient, native, storage,
+      { ...args[0], now: args[6] }, { op, key: args[2], value: args[3], expectedOwner: args[4], visit: args[5] });
+    return { visit: args[5], owner: args[4], revision: result.revision, message: result.stale ? '' : result.message };
+  },
   keyboardSnapshot: args => mobileKeyboardSnapshot(mobileClient, str(args[0]), str(args[1])),
   keyboardCopy: (args, _store, _storage, native) => {
     mobileKeyboardSnapshot(mobileClient, str(args[1]), str(args[2]));

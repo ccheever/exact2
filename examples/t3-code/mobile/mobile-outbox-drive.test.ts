@@ -58,6 +58,7 @@ function fixture(input = queued()) {
   let held = false, complete = true, cold = false, minted = 0, ids = 0, mutationMode = 'committed';
   let cleanupFails = false, sendState = 'acknowledged';
   let extras: MobileOutboxRecord[] = [];
+  let transfers: unknown[]=[];
   let session: Obj = { authenticated: true, permissions: ['orchestration:operate'] };
   let intercept: ((request: Obj) => void | Promise<void>) | undefined;
   const calls: Obj[] = [], outcomes: Obj[] = [];
@@ -81,7 +82,7 @@ function fixture(input = queued()) {
     if (r.op === 'mobileOutbox') {
       if (r.action === 'read') value = { ownerEpoch: 'epoch', sequenceFloor: floor, complete, errors: [], records: [...(record ? [row()] : []), ...extras.map(record => ({ record, revision: 1, token: 'epoch:1', pending: false, held: false }))],
         revisions: { message: revision, ...Object.fromEntries(extras.map(record => [record.messageId, 1])) },
-        tokens: { message: token, ...Object.fromEntries(extras.map(record => [record.messageId, 'epoch:1'])) }, outcomes, mutations: [], transfers: [] };
+        tokens: { message: token, ...Object.fromEntries(extras.map(record => [record.messageId, 'epoch:1'])) }, outcomes, mutations: [], transfers };
       else if (r.action === 'confirmQueued') value = { current: !!record && !held && r.token === token && r.expectedRevision === revision, revision };
       else if (r.action === 'acknowledge') {
         const index = outcomes.findIndex(item => item.mutationId === r.mutationId);
@@ -159,7 +160,7 @@ function fixture(input = queued()) {
   } };
   return { get client() { return client; }, native, calls, deliveries, inlines, failures,
     run: (options?: { recover?: boolean; retryCleanupRevision?: number }) => mobileOutboxDeliverOne(client, native, owner, options),
-    disk: () => record, setHeld(value = true) { held = value; }, setSendState(value: string) { sendState = value; }, setExtras(value: MobileOutboxRecord[]) { extras = value; }, setComplete(value: boolean) { complete = value; },
+    disk: () => record, setHeld(value = true) { held = value; }, setTransfers(value:unknown[]){transfers=value}, setSendState(value: string) { sendState = value; }, setExtras(value: MobileOutboxRecord[]) { extras = value; }, setComplete(value: boolean) { complete = value; },
     setSession(value: Obj) { session = value; }, setMutation(value: string) { mutationMode = value; }, setCleanupFailure(value: boolean) { cleanupFails = value; },
     intercept(value: typeof intercept) { intercept = value; }, edit() { record = { ...record!, text: 'newer' }; revision++; token = `epoch:${++floor}`; },
     restart() { client = makeClient(); cold = true; calls.length = 0; },
@@ -580,4 +581,50 @@ for (const signal of ['run', 'failed', 'cancelled', 'interrupted'] as const) tes
     expect(completed(f.client)).toEqual([]); expect(f.client.environmentId).toBe('different');
     entry.shell.threads = []; expect(completed(f.client)).toEqual([]);
   } finally { fleet.entries.clear(); for (const [key, entry] of before) fleet.entries.set(key, entry); }
+});
+
+test('ordinary ACK stays in its thread feed until the matching authoritative echo', async () => {
+  const { mobileThreadOutbox } = await import('./thread-outbox');
+  const f=fixture(),first=await loaded(f);
+  const {queuedEditRefreshOrigin}=await import('./queued-edit-origin');
+  await queuedEditRefreshOrigin(f.native,f.client);
+  f.client.threadId='thread';
+  expect(mobileThreadOutbox(f.client,now)).toHaveLength(1);
+  await run(f.client,f.native,first.next,now);
+  expect(snapshot(f.client,now).count).toBe(0);
+  expect(mobileThreadOutbox(f.client,now)).toMatchObject([{record:{messageId:'message'},acknowledged:true}]);
+  f.client.threadId='other';
+  f.client.thread={sequence:1,historyCursor:null,hasMore:false,latestLocalTurnOrdinal:null,
+    projection:{thread:{id:'other'},messages:[{id:'message'}],visibleTurnItems:[]}};
+  expect(mobileThreadOutbox(f.client,now)).toEqual([]);
+  f.client.threadId='thread';
+  expect(mobileThreadOutbox(f.client,now)).toHaveLength(1);
+  f.client.thread.projection.thread={id:'thread'};
+  f.client.threadLive=true;
+  const prior=f.client.thread;
+  f.client.adoptStatus({state:'connected',origin:f.client.origin,environmentId:'env',message:''},f.client.generation+1);
+  expect(f.client.thread).toBe(prior);expect(f.client.threadLive).toBe(false);
+  // Generation replacement also invalidates the native home-origin observation.
+  await queuedEditRefreshOrigin(f.native,f.client);
+  expect(mobileThreadOutbox(f.client,now)).toHaveLength(1);
+  f.client.threadLive=true;
+  expect(mobileThreadOutbox(f.client,now)).toEqual([]);
+  f.client.thread.projection.messages=[];
+  expect(mobileThreadOutbox(f.client,now)).toEqual([]);
+});
+
+
+test('ordinary draft retirement blocks scheduled and manual delivery until completed',async()=>{
+  const record={...queued(),runtimeMode:'full-access' as const,interactionMode:'default' as const};
+  const claim={kind:'ordinary',...owner,transferId:owner.messageId,draftKey:'env:thread',fingerprint:'c'.repeat(64),mutationId:'epoch:1',state:'queued',record,
+    capture:{version:2,kind:'ordinary',draft:{key:'env:thread',origin:owner.origin,environmentId:'env',threadId:'thread',
+      document:{incarnation:'document-1',revision:0,selection:null},text:'original',context:null,contextRevision:0,images:[],files:[],attachmentIds:[],attachmentOrder:null}}};
+  const f=fixture(record);f.setTransfers([claim]);
+  const pending=await loaded(f);
+  expect(pending).toMatchObject({next:'',items:[{status:'retirement-pending',canRetry:false}]});
+  await run(f.client,f.native,pending.items[0]!.owner,now,true);expect(f.calls).toEqual([]);
+  f.setTransfers([{...claim,state:'completed',record:null,capture:null}]);await read(f.client,f.native);f.calls.length=0;
+  const ready=snapshot(f.client,now);expect(ready.next).not.toBe('');
+  await run(f.client,f.native,ready.next,now);expect(snapshot(f.client,now).count).toBe(0);
+  expect(stages(f)).toEqual(['mobileOutboxDelivery:reserve:command','mobileOutboxDelivery:send:command','mobileOutboxDelivery:complete:command']);
 });
