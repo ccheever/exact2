@@ -50,7 +50,7 @@ final class T3MobileModule: ExactModule {
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-composer-material": T3MobileComposerMaterial.factory,
         "t3-composer-editor": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
-            let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, fileHolds: module.composerFileHolds, events: events)
+            let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, fileHolds: module.composerFileHolds, paste: module.composerPaste, events: events)
             try instance.setProps(props); return instance
         },
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
@@ -95,6 +95,7 @@ final class T3MobileModule: ExactModule {
     private let voice: T3MobileVoice
     private lazy var composerFileHolds = T3MobileComposerFileHolds(coordinator: queuedEdits)
     private let composerOperations = T3MobileComposerOperations()
+    private let composerPaste = T3MobileComposerPaste()
     let terminal: T3MobileTerminal
     private let documentRoot: URL
     private let information = T3MobileInformation()
@@ -188,6 +189,29 @@ final class T3MobileModule: ExactModule {
         guard alive else { reply.fail("The mobile session was closed."); return }
         if request["op"] as? String == "composerFileHold" {
             composerFileHolds.perform(request) { reply.send($0) }; return
+        }
+        if request["op"] as? String == "composerEditorPasteFiles" {
+            do {
+                let input = try T3ComposerPasteRequest(request)
+                let claimed = input.action == "stage" ? try composerPaste.claim(input) : nil
+                let store = queuedEdits, leases = composerPaste
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let value = try store.composerPasteFiles(input, inputs: claimed)
+                        DispatchQueue.main.async {
+                            if ["staged", "adopted", "discarded", "retired"].contains(value["status"] as? String ?? "") { leases.completed(input) }
+                            reply.send(["ok": true, "generation": input.generation, "value": value])
+                        }
+                    } catch {
+                        let problem = error as? T3ComposerPasteError ?? .recovery
+                        reply.send(["ok": false, "generation": input.generation, "error": ["kind": problem.kind, "message": problem.message]])
+                    }
+                }
+            } catch {
+                let problem = error as? T3ComposerPasteError ?? .arguments
+                reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": ["kind": problem.kind, "message": problem.message]])
+            }
+            return
         }
         if request["op"] as? String == "composerEditorApply" {
             reply.send(composerOperations.perform(request)); return
@@ -539,6 +563,7 @@ final class T3MobileModule: ExactModule {
         alive = false
         composerFileHolds.destroy()
         composerOperations.destroy()
+        composerPaste.destroy()
         keyboard.destroy()
         faviconDownload?.shutdown(); faviconDownload = nil
         if let shareForegroundObserver { NotificationCenter.default.removeObserver(shareForegroundObserver) }; shareForegroundObserver = nil

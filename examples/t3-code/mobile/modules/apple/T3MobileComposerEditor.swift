@@ -21,6 +21,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     private weak var voice: T3MobileVoiceEditor?
     private weak var fileHolds: T3MobileComposerFileHolds?
     private weak var operations: T3MobileComposerOperations?
+    private weak var paste: T3MobileComposerPaste?
     private var editor: T3MobileOwnedComposerView?
     private var state: T3ComposerProtocolState?
     private var control: T3ComposerControl?
@@ -44,10 +45,11 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
 
     var composerFileHoldEligible: Bool { alive && root.window != nil && control?.active == true && control?.readOnly == false }
 
-    init(voice: T3MobileVoiceEditor, operations: T3MobileComposerOperations? = nil, fileHolds: T3MobileComposerFileHolds? = nil, events: ExactNativeEvents) {
+    init(voice: T3MobileVoiceEditor, operations: T3MobileComposerOperations? = nil, fileHolds: T3MobileComposerFileHolds? = nil, paste: T3MobileComposerPaste? = nil, events: ExactNativeEvents) {
         self.voice = voice
         self.operations = operations
         self.fileHolds = fileHolds
+        self.paste = paste
         super.init(events: events)
         root.isAccessibilityElement = false
     }
@@ -67,7 +69,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         if state.terminalID.isEmpty { terminalCommand = nil; terminalEnvelope = nil }
         configureInteraction(next, acknowledged: acknowledged)
         guard acknowledged else { return }
-        editor.textView.adoptPasteURIs(next.adoptedPasteURIs ?? [])
+        if paste == nil { editor.textView.adoptPasteURIs(next.adoptedPasteURIs ?? []) }
         // Presentation can change independently, but every forced attributed rebuild is IME guarded.
         applying = true
         configurePresentation(next.presentation, editor: editor)
@@ -153,13 +155,18 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
             observation = state.event("selection", snapshot: snapshot)
             self.state = state
         } else { observation = nil }
+        let richEventId = UUID().uuidString
         var data = payload
+        if kind == "pasteImages", let paste, let uris = payload["uris"] as? [String] {
+            do { data = ["files": try paste.issue(identity: identity, event: richEventId, uris: uris, take: sender.textView.claimPasteURIs)] }
+            catch { data = ["files": [[String: String]](), "error": (error as? T3ComposerPasteError)?.message ?? "Pasted image ownership is unavailable."] }
+        }
         if observation != nil {
             data.removeValue(forKey: "eventCount"); data.removeValue(forKey: "value"); data.removeValue(forKey: "selection")
         }
         var message: [String: Any] = ["owner": identity.owner, "editorId": identity.editorId, "routeVisit": identity.routeVisit,
             "renderEpoch": identity.renderEpoch, "mountId": identity.mountId, "eventCount": state.count,
-            "kind": kind, "richEventId": UUID().uuidString, "value": snapshot.value,
+            "kind": kind, "richEventId": richEventId, "value": snapshot.value,
             "selection": ["start": snapshot.selection.start, "end": snapshot.selection.end],
             "composing": snapshot.composing, "focused": snapshot.focused, "payload": data]
         if let observation { message["editorEvent"] = observation; send(observation, rich: false) }
@@ -265,6 +272,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
     }
     private func retireEditor() {
         fileHolds?.unregister(self)
+        if let identity = state?.identity { paste?.retire(identity) }
         operations?.unregister(self)
         voice?.unregister(self)
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil

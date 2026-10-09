@@ -106,6 +106,11 @@ final class ComposerTextView: UITextView {
     super.unmarkText()
     onCompositionChanged?()
   }
+  func claimPasteURIs(_ uris: [String]) -> Bool {
+    guard Set(uris).count == uris.count, uris.allSatisfy({ ownedPasteURIs.contains($0) }) else { return false }
+    for uri in uris { ownedPasteURIs.remove(uri) }
+    return true
+  }
   func adoptPasteURIs(_ uris: [String]) { for uri in uris { ownedPasteURIs.remove(uri) } }
   func invalidatePendingPaste() {
     pasteSerial += 1
