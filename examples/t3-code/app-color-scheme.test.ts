@@ -6,6 +6,10 @@
 // Contract sources. The palettes themselves are proven by the macOS drive in tasks/20261009-app-color-scheme.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
+import type { T3Client } from './client';
+import type { Native } from './protocol';
+import { decodeClientPrefs } from './settings-core';
+import { settingsCore } from './settings-core-view';
 
 const dir = new URL('./', import.meta.url);
 const source = (file: string) => Bun.file(new URL(file, dir)).text();
@@ -72,5 +76,24 @@ describe('one resolved colour scheme', () => {
     expect(terminal.match(/border-color="light-dark\(#e4e4e7cc, #ffffff0c\)"/g)?.length).toBe(2);
     // TH-7: the expanded Mermaid diagram's card.
     expect(await source('app-overlays.contract')).toContain('DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)');
+  });
+
+  // The theme editor's first appearance is useTheme's resolvedTheme (SettingsPanels.tsx:1189 ThemeLibrary
+  // initialAppearance, CommandPalette.tsx:557 themeEditor.toggle), not the mode: System on a dark Mac opens Dark.
+  test('the theme editor opens on the resolved scheme', async () => {
+    expect(await source('app.contract')).toContain('settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore');
+    expect(await source('app.ts')).toContain("String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));");
+    const native = { available: true } as unknown as Native;
+    const opened = async (mode: string, scheme: string, kind: string, subject: string) => {
+      const client = { local: { deviceSettings: { appearanceMode: mode }, clientSettings: decodeClientPrefs({}), customThemes: [] }, ready: true, environmentId: 'env1', revision: 0,
+        config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;
+      return (await settingsCore(client, native, '', '', '', '', 'appearance', '', true, kind, subject, 'embedded', false, scheme)).editor.appearance;
+    };
+    for (const kind of ['create', 'duplicate']) {
+      expect(`${kind} system/dark: ${await opened('system', 'dark', kind, 't3-chat#1')}`).toBe(`${kind} system/dark: dark`);
+      expect(`${kind} system/light: ${await opened('system', 'light', kind, 't3-chat#1')}`).toBe(`${kind} system/light: light`);
+      expect(`${kind} dark/dark: ${await opened('dark', 'dark', kind, 't3-chat#1')}`).toBe(`${kind} dark/dark: dark`);
+      expect(`${kind} light/light: ${await opened('light', 'light', kind, 't3-chat#1')}`).toBe(`${kind} light/light: light`);
+    }
   });
 });

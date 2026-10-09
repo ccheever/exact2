@@ -463,7 +463,7 @@ component T3Code
   state settingsThemeSubject = ""
   state settingsThemeRequest = 0
   resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
-  resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged) as shape SettingsCore
+  resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore
   resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen) as shape Settings
   resource projectsSettings = projectsView(settingsProjectKey, settingsCheckout, settingsProjectId, settingsOpen and settingsRoute == "projects", settingsRefresh, data.revision) as shape ProjectsPage
   state sbQuery = ""
