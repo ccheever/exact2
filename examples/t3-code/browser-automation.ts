@@ -190,6 +190,14 @@ export function adoptAutomationTabs(client: T3Client): void {
     client.revision++;
   }
 }
+/** The notes this client has adopted, of those the module still lists (it keeps 16): `browserSync` carries them, and
+ *  the module answers an open only once its note is among them, so the agent's next request is planned with the tab
+ *  adopted and its suppression recorded (T3BrowserAutomation `open`). */
+export function adoptedAutomationNotes(client: T3Client): string[] {
+  const seen = adopted.get(client), notes = obj(obj(client.presentation).browserAutomation).opened;
+  if (!seen || !Array.isArray(notes)) return [];
+  return notes.map(raw => { const note = obj(raw); return `${str(note.connectionId)}\u0000${str(note.requestId)}`; }).filter(key => seen.has(key));
+}
 
 async function subscribe(link: Link, state: Stream, key: string, method: string, payload: Obj): Promise<void> {
   if (state.id || state.tried) return;
