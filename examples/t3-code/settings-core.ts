@@ -201,6 +201,7 @@ export const SERVER_DEFAULTS: Record<string, Json> = {
   snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: false, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
+  enableAgentBrowserAccess: true,
 };
 const FILE_BACKED: Record<string, [string, string]> = { defaultThreadEnvMode: ['defaultThreadEnvMode', 'local'], worktreeSubmodules: ['worktreeSubmodules', 'recursive'] };
 // Effect's Equal.equals on decoded settings: structural, independent of key order.
@@ -601,6 +602,10 @@ const SERVER_LABELS: Record<string, string> = {
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from origin', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
 };
+/** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
+ *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
+const AGENT_BROWSER_LABELS: Record<string, string> = { enableAgentBrowserAccess: 'Agent browser access' };
+const RESTORED_SERVER_KEYS = [...Object.keys(SERVER_LABELS), ...Object.keys(AGENT_BROWSER_LABELS)];
 /** useSettingsRestore: the labels it lists in its confirmation, device values first, then the environment's. */
 export function restoreLabels(local: LocalPrefs, settings: Obj, connected: boolean): string[] {
   const names: Record<string, string> = { appearanceMode: 'Follow system', theme: 'Theme', appearanceContrast: 'Contrast', glassOpacity: 'Glass opacity', diffColorScheme: 'Diff colors',
@@ -613,9 +618,9 @@ export function restoreLabels(local: LocalPrefs, settings: Obj, connected: boole
     composerRichTextEnabled: 'Rich text composer', sendShortcut: 'Send shortcut', followUpBehavior: 'Follow-up behavior', contextWindowMeterEnabled: 'Context window indicator',
     confirmThreadUnpin: 'Unpin confirmation', confirmThreadArchive: 'Archive confirmation', confirmThreadDelete: 'Delete confirmation', confirmQuit: 'Quit shortcut' };
   const device = changedDeviceLabels(local).filter(key => key in names && key !== 'themeLight' && key !== 'themeDark').map(key => names[key]!);
-  const server = connected ? Object.keys(SERVER_LABELS).filter(key => key in settings && !same(settings[key], SERVER_DEFAULTS[key])).map(key => SERVER_LABELS[key]!) : [];
-  // getChangedBrowserSettingLabels, after "Text generation model" as in the reference (browser-defaults.ts).
-  return [...new Set([...device, ...server, ...changedBrowserSettingLabels({ local })])];
+  const changed = (labels: Record<string, string>) => connected ? Object.keys(labels).filter(key => key in settings && !same(settings[key], SERVER_DEFAULTS[key])).map(key => labels[key]!) : [];
+  // getChangedBrowserSettingLabels after "Text generation model" (browser-defaults.ts), then "Agent browser access", as in the reference.
+  return [...new Set([...device, ...changed(SERVER_LABELS), ...changedBrowserSettingLabels({ local }), ...changed(AGENT_BROWSER_LABELS)])];
 }
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
@@ -658,12 +663,13 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   let plan: ScopedSettingsPlan;
   if (restore) {
     restoreDeviceDefaults(local);
+    // useSettingsRestore sends one useUpdateScopedSettings patch that always carries environment-wide keys, so in a project or
+    // checkout scope planScopedSettingsPatch plans no server write (no override is set or cleared) and, its device keys saved, warns nothing.
+    if (project) return 'Device settings restored';
     const targets = serverContext(client, scope, new Map(), settings).targets;
-    const keys = Object.keys(SERVER_LABELS).filter(name => (!project || PROJECT_SCOPED.has(name))
-      && targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
+    const keys = RESTORED_SERVER_KEYS.filter(name => targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
     if (keys.length === 0 || scope.kind === 'unavailable' || !scope.connected) return 'Device settings restored';
-    plan = project ? planScopedSettingsClear(scope.resolved, connectedOf(client, scope, settings), keys)
-      : planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
+    plan = planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
   } else if (scope.kind === 'unavailable') {
     plan = { clientPatch: {}, hasClientWrite: false, serverWrites: [], unavailableReason: scope.message };
   } else {
