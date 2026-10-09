@@ -251,6 +251,22 @@ describe('writes through the command', () => {
     await applyCoreSetting(as(only), native, 'restore-device-defaults:|||', '');
     expect(only.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
   });
+  test('a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore)', async () => {
+    // The reference's one patch carries environment-wide keys, so planScopedSettingsPatch plans no server write there; the
+    // device keys save, so no warning. Clearing p1's override here would turn its agent browser access off (the environment's).
+    const overrides = { p1: { enableAgentBrowserAccess: true, responseStreamingMode: 'token' }, p2: { sidebarAutoSettleAfterDays: 7 } };
+    const client = fake({ enableAgentBrowserAccess: false, projectSettingsOverrides: overrides });
+    for (const id of ['restore-device-defaults:||repo|', 'restore-device-defaults:||repo|p1']) {
+      applyDeviceSetting(client.local as never, 'diffLayout', 'split');
+      const notices = toasts(as(client)).length;
+      expect(await applyCoreSetting(as(client), native, id, '')).toBe('Device settings restored');
+      expect([client.writes, (client.local.clientSettings as Obj).diffLayout, toasts(as(client)).length]).toEqual([[], 'stacked', notices]);
+      expect((client.config.settings as Obj).projectSettingsOverrides).toEqual(overrides);
+    }
+    // The environment scope still re-grants it on the environment.
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();
     client.files['/a'] = '{"worktreeSubmodules":"none"}';

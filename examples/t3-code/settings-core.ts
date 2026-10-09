@@ -663,12 +663,13 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   let plan: ScopedSettingsPlan;
   if (restore) {
     restoreDeviceDefaults(local);
+    // useSettingsRestore sends one useUpdateScopedSettings patch that always carries environment-wide keys, so in a project or
+    // checkout scope planScopedSettingsPatch plans no server write (no override is set or cleared) and, its device keys saved, warns nothing.
+    if (project) return 'Device settings restored';
     const targets = serverContext(client, scope, new Map(), settings).targets;
-    const keys = RESTORED_SERVER_KEYS.filter(name => (!project || PROJECT_SCOPED.has(name))
-      && targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
+    const keys = RESTORED_SERVER_KEYS.filter(name => targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
     if (keys.length === 0 || scope.kind === 'unavailable' || !scope.connected) return 'Device settings restored';
-    plan = project ? planScopedSettingsClear(scope.resolved, connectedOf(client, scope, settings), keys)
-      : planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
+    plan = planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
   } else if (scope.kind === 'unavailable') {
     plan = { clientPatch: {}, hasClientWrite: false, serverWrites: [], unavailableReason: scope.message };
   } else {
