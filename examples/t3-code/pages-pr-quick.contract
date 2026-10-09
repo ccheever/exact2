@@ -218,6 +218,8 @@ component PqStackItem
 
 // One check: its status (the spinner while it runs), its name (the host's description as its tooltip), the label and Details.
 component PqCheckRow
+  inject
+    linkOpen: action
   props
     check: R6Check
   view
@@ -233,5 +235,5 @@ component PqCheckRow
           text check.name min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=pqInk()
       text check.label flex-shrink=0 font-size="0.75rem" line-height="1rem" color=pqMuted()
       when check.url != ""
-        link cursor="pointer" href=check.url aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
+        link cursor="pointer" href=check.url press=linkOpen("button", check.url) aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
           text "Details" font-size="0.75rem" line-height="1rem" color="light-dark(#1b4ed8, #346bf1)"
