@@ -9,6 +9,7 @@
 
 /// Advance widths of the system UI font at 12pt (printable ASCII), as measured
 /// in the reference's canvas (pages-text-width.ts R12); others count 6.9.
+#[allow(clippy::approx_constant)] // 6.28 is a measured advance, not τ
 const R12: [f64; 95] = [
     3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66,
     7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15,

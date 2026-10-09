@@ -8,7 +8,11 @@ fn main() {
         std::path::Path::new(".."),
         "macos",
         &markdown::Markdown,
-        &["renderMarkdown", "renderPullRequestMarkdown", "renderFileMarkdown"],
+        &[
+            "renderMarkdown",
+            "renderPullRequestMarkdown",
+            "renderFileMarkdown",
+        ],
         |javascript| Box::new(markdown::mixed(javascript, exact_runner::Placement::Main)),
     )
     .expect("bake T3 Code for macOS");

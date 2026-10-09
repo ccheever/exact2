@@ -70,7 +70,11 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "welcome",
             "timelineAttachments",
         ],
-        &["renderMarkdown", "renderPullRequestMarkdown", "renderFileMarkdown"],
+        &[
+            "renderMarkdown",
+            "renderPullRequestMarkdown",
+            "renderFileMarkdown",
+        ],
     )
     .expect("T3 presentation sources have distinct owners")
     .with_embedded_rust(|placed| Ok(exact_data::Placed::new(Markdown, placed.given_placement())))

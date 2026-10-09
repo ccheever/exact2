@@ -348,7 +348,9 @@ mod link_tests {
             Value::str(""),
             Value::str(text),
         ])]);
-        let answer = Markdown.query("renderFileMarkdown", &[source]).expect("answer");
+        let answer = Markdown
+            .query("renderFileMarkdown", &[source])
+            .expect("answer");
         let Value::Record(answer) = answer else {
             panic!("answer")
         };
