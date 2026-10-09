@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-profiles
-pr_url: PRURL
+pr_url: https://github.com/ccheever/exact2/pull/354
 verified_commit: null
 ---
 
@@ -112,7 +112,7 @@ branch-6), which differs from `827470bbc` only by the Browser defaults rows' tes
 
 2026-10-09: written at part 1's `prepare` (planned split). Planned; starts after part 1 merges.
 
-2026-10-09 (`prepare` and implementation, draft PR PRURL):
+2026-10-09 (`prepare` and implementation, draft PR [#354](https://github.com/ccheever/exact2/pull/354)):
 
 - **Profiles** (`browser-profiles.ts`): the reference's `browserProfile.ts` rules (Default and Incognito built in, up to 24
   named profiles of up to 48 characters, Incognito never the default), kept at the preference file's root
