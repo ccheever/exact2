@@ -522,12 +522,13 @@ describe('connection and bootstrap', () => {
     expect(client.error).toBe('');
     for (const key of ['config', 'shell', 'thread']) expect(native.subscriptions[key]).not.toBe(previous[key]);
   });
-  test('requires explicit model selection when the configured default is unavailable', async () => {
+  test('a configured default on a missing instance falls back to a ready one (resolveComposerProviderSelection)', async () => {
     const client = new T3Client(), native = new Backend(), disk = storage();
-    native.config.settings = { defaultModelSelection: { instanceId: 'missing', model: 'model-a' } };
+    native.config.settings = { defaultModelSelection: { instanceId: 'missing', model: 'model-b' } };
     await client.refresh(native, disk.files);
     expect(client.providerId).toBe(''); expect(client.modelId).toBe('');
-    expect(snapshot(client).canSend).toBe(false);
+    // The composer's own choice stays empty; the ready instance runs the turn with the default's model where it offers it.
+    expect(snapshot(client)).toMatchObject({ canSend: true, modelLabel: 'Model B', providerDriver: 'codex' });
     await client.command('provider', 'codex-personal', '', 0, native, disk.files);
     expect(client.modelId).toBe('model-a');
   });

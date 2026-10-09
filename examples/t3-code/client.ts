@@ -565,7 +565,10 @@ export class T3Client {
     if (!pending) return false;
     const payload = pending.payload;
     let completed = false;
-    if (pending.method === 'orchestration.launchThread') {
+    if (pending.method === 'orchestration.launchThread' && payload.reuseExistingThread === true) {
+      // An unstarted server thread's first message in a new worktree: done once that message is on the thread.
+      completed = pending.threadId === this.threadId && this.threadLive && arr(this.projection.messages).some(value => value.id === obj(payload.initialMessage).messageId);
+    } else if (pending.method === 'orchestration.launchThread') {
       completed = this.shell.threads.some(thread => thread.id === payload.threadId);
     } else if (payload.type === 'thread.fork') {
       completed = this.shell.threads.some(thread => thread.id === payload.targetThreadId);
@@ -586,12 +589,11 @@ export class T3Client {
   private finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
-    if (pending.text) {
-      const key = pending.method === 'orchestration.launchThread'
-        ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
-      if (this.local.drafts[key] === pending.text) delete this.local.drafts[key];
-    }
-    const key = pending.method === 'orchestration.launchThread' ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
+    // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message (PA-9:
+    // launchThread with reuseExistingThread) owns that thread's composer, its text and its images alike.
+    const key = pending.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true
+      ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
+    if (pending.text && this.local.drafts[key] === pending.text) delete this.local.drafts[key];
     const sent = arr(pending.method === 'orchestration.launchThread' ? obj(pending.payload.initialMessage).attachments : pending.payload.attachments);
     if (sent.length) this.local.snapshotDrafts[key] = (this.local.snapshotDrafts[key] || []).filter(image => {
       if (!sent.some(attachment => attachment.id === image.uploadId)) return true;

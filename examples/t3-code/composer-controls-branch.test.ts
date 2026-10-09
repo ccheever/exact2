@@ -1,7 +1,7 @@
 // Lane composer-controls: the workspace / branch strip under the composer
 // (BranchToolbar, BranchToolbarBranchSelector, BranchToolbar.logic).
 import { describe, expect, test } from 'bun:test';
-import { obj, str } from './domain';
+import { obj, str, type Obj } from './domain';
 import { composerBranches, sanitizeNewRefName, previousWorktree, stripShortcuts } from './composer-controls-branch';
 import { keyboardDispatch } from './keyboard-dispatch';
 import { connected, thread } from './composer-controls-fixture';
@@ -34,6 +34,10 @@ describe('workspace strip details', () => {
   test('a started thread shows the locked row: Local checkout, or Worktree', async () => {
     const { client, native, command } = await connected();
     client.local.clientSettings.persistComposerContextStrip = true;
+    // envLocked: a message (or a runtime) starts it; an unstarted server thread still picks (canOverrideServerThreadEnvMode).
+    await command('select-thread', 't2');
+    expect(await composerBranches(client, native, false, '')).toMatchObject({ show: true, envLocked: false, envLabel: 'Current checkout', envIcon: 'folder' });
+    (native.details.t1!.projection as Obj).messages = [{ id: 'm1', role: 'user', text: 'Earlier' }];
     await command('select-thread', 't1');
     expect(await composerBranches(client, native, false, '')).toMatchObject({ show: true, envLocked: true, envLabel: 'Local checkout', envIcon: 'folder', previous: false });
     obj(client.thread!.projection.thread).worktreePath = '/repo-wt/t1';

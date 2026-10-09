@@ -204,7 +204,10 @@ describe('docked banners, activity and the provider control', () => {
   });
   test('the provider control replaces the picker when nothing is available', async () => {
     const { client, command } = await opened();
+    // resolveComposerProviderSelection: an enabled, available instance the thread asked for stays selected whatever its probe status.
     for (const entry of arr(client.config.providers)) entry.status = 'error';
+    expect(snapshot(client).composer).toMatchObject({ noProvider: '', providerSetupId: '' });
+    for (const entry of arr(client.config.providers)) entry.enabled = false;
     expect(snapshot(client).composer).toMatchObject({ noProvider: 'Open provider settings', providerSetupId: 'codex' });
     client.config.providers = [];
     // The thread still asks for its own instance (unavailableProviderInstanceId).

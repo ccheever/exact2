@@ -10,7 +10,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { fanoutSelections } from './r3-composer-controls-fanout';
-import { defaultRefName, originLabel, resetOrigin, startFromOrigin } from './r4-git-branch'; // lane r4-git: Start from origin, the default base ref
+import { defaultRefName, originDefault, originLabel, resetOrigin, startFromOrigin } from './r4-git-branch'; // lane r4-git: Start from origin, the default base ref
 import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './r5-composer-paging';
 import { NO_STRIP_PR, stripPr } from './r7-handoff-strip'; // lane r7-handoff: the strip's pull request badge
 import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
@@ -43,6 +43,69 @@ export function patchDraftContext(client: T3Client, patch: Partial<DraftContext>
   contexts(client)[key] = { ...draftContext(client, key), ...patch };
 }
 const projectRoot = (client: T3Client) => str(client.shell.projects.find(entry => entry.id === client.projectId)?.workspaceRoot);
+
+// ── An unstarted server thread's workspace (ChatView canOverrideServerThreadEnvMode, pendingServerThreadEnvMode) ──
+type ServerEnv = { threadId: string; envMode: string; branch: string };
+const serverEnvs = new WeakMap<T3Client, ServerEnv>();
+// pendingServerThreadStartFromOriginByThreadId: each thread's own choice, kept while the client lives; neither a
+// workspace switch nor a thread change clears it (ChatView resets only the mode and the branch).
+const serverOrigins = new WeakMap<T3Client, Map<string, boolean>>();
+/** envLocked: a server thread with a message or a runtime (a run or a provider thread) keeps its workspace. */
+export function threadEnvLocked(client: T3Client): boolean {
+  if (!client.threadId) return false;
+  const projection = client.projection;
+  return arr(projection.messages).length > 0 || arr(projection.runs).length > 0 || !!str(obj(projection.thread).activeProviderThreadId);
+}
+/** canOverrideServerThreadEnvMode: a server thread with no message, no runtime and no worktree still picks its workspace. */
+export function canOverrideServerEnv(client: T3Client): boolean {
+  return !!client.threadId && !threadEnvLocked(client) && !str(obj(client.projection.thread).worktreePath)
+    && !str(client.shell.threads.find(thread => thread.id === client.threadId)?.worktreePath);
+}
+/** The thread's pending mode and base; they end when the thread changes or starts (the reference resets them then). */
+function serverEnv(client: T3Client): ServerEnv | null {
+  const entry = serverEnvs.get(client);
+  if (entry && entry.threadId === client.threadId && canOverrideServerEnv(client)) return entry;
+  if (entry) serverEnvs.delete(client);
+  return null;
+}
+/** The workspace an unstarted server thread will start in: Current checkout until New worktree is chosen. */
+export function serverEnvMode(client: T3Client): string { return serverEnv(client)?.envMode ?? 'local'; }
+/** activeThreadBranch while the thread can still choose: the picked base, else the thread's branch. */
+export function serverEnvBranch(client: T3Client): string { return serverEnv(client)?.branch || str(obj(client.projection.thread).branch); }
+function setServerEnv(client: T3Client, patch: Partial<ServerEnv>): void {
+  const current = serverEnv(client) ?? { threadId: client.threadId, envMode: 'local', branch: '' };
+  serverEnvs.set(client, { ...current, ...patch });
+}
+/** Picking the base ref of the thread's new worktree only records it (setPendingServerThreadBranch). */
+export function pickServerBase(client: T3Client, branch: string): boolean {
+  if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return false;
+  setServerEnv(client, { branch });
+  return true;
+}
+/** Start from origin for the thread's new worktree: its own choice, else the project's setting (pendingServerThreadStartFromOrigin). */
+export function serverOrigin(client: T3Client): boolean {
+  if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return false;
+  return serverOrigins.get(client)?.get(client.threadId) ?? originDefault(client);
+}
+/** onStartFromOriginChange on an unstarted server thread; false when the thread cannot choose. */
+export function toggleServerOrigin(client: T3Client): boolean {
+  if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return false;
+  const origins = serverOrigins.get(client) ?? new Map<string, boolean>();
+  origins.set(client.threadId, !serverOrigin(client));
+  serverOrigins.set(client, origins);
+  return true;
+}
+/**
+ * startThreadTurn's bootstrap for the first message of an unstarted server thread in New worktree:
+ * launchThread on the existing thread (reuseExistingThread) with a worktree from its base ref; null otherwise.
+ */
+export function serverThreadWorkspace(client: T3Client): Obj | null {
+  if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return null;
+  const entry = repos.get(client)?.get(projectRoot(client));
+  const base = serverEnvBranch(client) || defaultRefName(client) || (entry?.refName ?? '');
+  if (!base) throw new ClientError('Select a base branch before sending in New worktree mode.');
+  return { type: 'worktree', baseRef: base, ...(serverOrigin(client) ? { startFromOrigin: true } : {}) };
+}
 /** The thread's (or draft's) worktree, else null: the strip's activeWorktreePath. */
 function activeWorktree(client: T3Client): string {
   return client.threadId ? str(obj(client.projection.thread).worktreePath) : draftContext(client).worktreePath;
@@ -61,7 +124,7 @@ export function stripWorkspace(client: T3Client): string {
 /** resolveEffectiveEnvMode: a draft pointed at an existing worktree is local to it; a thread with a worktree is a worktree. */
 function effectiveEnvMode(client: T3Client): string {
   const path = activeWorktree(client);
-  if (client.threadId) return path ? 'worktree' : 'local';
+  if (client.threadId) return path ? 'worktree' : canOverrideServerEnv(client) ? serverEnvMode(client) : 'local';
   return path ? 'local' : draftContext(client).envMode;
 }
 /** resolvePreviousWorktreeSeed: the project's most recently updated worktree the composer is not already in. */
@@ -147,9 +210,9 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   // forceNewWorktree: a multi-model draft starts each model in its own new worktree.
   const forceWorktree = !client.threadId && !!fanoutSelections(client);
   const worktreePath = forceWorktree ? '' : activeWorktree(client), envMode = forceWorktree ? 'worktree' : effectiveEnvMode(client);
-  // A started thread (messages or a runtime) keeps its workspace: the locked row.
-  const locked = !!client.threadId;
-  const threadBranch = client.threadId ? str(thread.branch) : context.branch;
+  // A started thread (messages or a runtime) keeps its workspace: the locked row (envModeLocked).
+  const locked = !!client.threadId && !canOverrideServerEnv(client);
+  const threadBranch = client.threadId ? (locked ? str(thread.branch) : serverEnvBranch(client)) : context.branch;
   // resolveBranchToolbarValue: a new worktree starts from the chosen base, else the checkout's current branch.
   const branch = envMode === 'worktree' && !worktreePath ? threadBranch || defaultRefName(client) || entry.refName : entry.refName || threadBranch;
   const created = sanitizeNewRefName(query);
@@ -179,7 +242,7 @@ export function stripShortcuts(client: T3Client): { workspace: boolean; branch: 
   if (client.threadId && (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip !== true) return none;
   const cwd = cwdFor(client), entry = cwd ? repos.get(client)?.get(cwd) : undefined;
   if (!entry || (entry.checked && !entry.isRepo)) return none; // a checkout whose status has not arrived is assumed Git
-  return { workspace: !client.threadId, branch: true, previous: !!previousWorktree(client) };
+  return { workspace: !client.threadId || canOverrideServerEnv(client), branch: true, previous: !!previousWorktree(client) };
 }
 
 /** keyboard-dispatch.ts: the strip's three chords, as its `add` builder takes them. */
@@ -192,7 +255,13 @@ export function addStripShortcuts(client: T3Client, add: (command: string, kind:
 
 /** The workspace menu: Current checkout, New worktree, or the previous worktree (a draft only). */
 export function setEnvMode(client: T3Client, mode: string): void {
-  if (client.threadId) throw new ClientError('A started thread keeps its workspace.');
+  if (!client.threadId && fanoutSelections(client)) return; // onEnvModeChange: several models always start in new worktrees
+  if (client.threadId) {
+    if (!canOverrideServerEnv(client) || mode === 'previous') throw new ClientError('A started thread keeps its workspace.');
+    if (mode !== 'local' && mode !== 'worktree') throw new ClientError('Choose Current checkout or New worktree.');
+    setServerEnv(client, { envMode: mode }); // onEnvModeChange: setPendingServerThreadEnvMode only
+    return;
+  }
   const key = client.draftKey, current = draftContext(client, key);
   if (mode === 'previous') {
     const seed = previousWorktree(client);
@@ -228,7 +297,8 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
   if (!cwd || !name.trim()) throw new ClientError('Choose a ref.');
   const entry = repo(client, cwd), worktreePath = activeWorktree(client), envMode = effectiveEnvMode(client);
   const ref = known ?? entry.refs.find(candidate => candidate.name === name);
-  // Choosing the base of a new worktree only records it.
+  // Choosing the base of a new worktree only records it (an unstarted server thread's too).
+  if (client.threadId && !create && pickServerBase(client, name)) return '';
   if (!client.threadId && envMode === 'worktree' && !worktreePath && !create) {
     contexts(client)[client.draftKey] = { envMode: 'worktree', branch: name, worktreePath: '' };
     return '';

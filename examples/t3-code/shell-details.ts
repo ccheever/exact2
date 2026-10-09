@@ -9,7 +9,8 @@ import type { Native } from './protocol';
 import { lineageView } from './shell-lineage';
 import { inlineOpen, shellPrefs } from './shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
-import { draftContext, previousWorktree, stripWorkspace } from './composer-controls-branch';
+import { canOverrideServerEnv, draftContext, previousWorktree, serverEnvMode, stripWorkspace } from './composer-controls-branch';
+import { fanoutSelections } from './r3-composer-controls-fanout'; // composer-provider-state-and-details: CO-8
 import { focusedOnPrimary } from './local-primary';
 import { machineKind } from './connections';
 import { commandShortcut } from './shell';
@@ -108,8 +109,12 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const thread = client.shell.threads.find(entry => entry.id === threadId);
   const project = client.shell.projects.find(entry => entry.id === (thread ? thread.projectId : client.projectId));
   const draft = thread ? null : draftContext(client);
-  const worktree = thread ? str(thread.worktreePath) : str(draft?.worktreePath);
-  const cwd = worktree || str(project?.workspaceRoot);
+  // forceNewWorktree: a multi-model draft starts each model in its own new worktree (the composer strip's rule).
+  const forced = !thread && !!fanoutSelections(client);
+  // canOverrideServerThreadEnvMode: a server thread with no message, runtime or worktree still picks its workspace.
+  const override = !!thread && threadId === client.threadId && canOverrideServerEnv(client);
+  const cwd = (thread ? str(thread.worktreePath) : str(draft?.worktreePath)) || str(project?.workspaceRoot);
+  const worktree = forced ? '' : thread ? str(thread.worktreePath) : str(draft?.worktreePath);
   const raw: unknown[] = Array.isArray(client.config.availableEditors) ? client.config.availableEditors : [];
   const available = raw.filter((value): value is string => typeof value === 'string' && EDITORS.some(([id]) => id === value));
   // Remote mode ignores the server's PATH probe: what matters is what runs on this Mac (OpenInPicker effectiveEditors).
@@ -122,10 +127,11 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const action = quickAction(status);
   // The Changes row reads the branch's totals when the server reports them (upstream d1034d62b2).
   const totals = obj(status?.branchChanges ?? status?.workingTree);
-  // BranchToolbarEnvModeSelector: a draft picks Current checkout / New worktree here; a thread's workspace is locked.
-  const envMode = worktree ? (thread ? 'worktree' : 'local') : draft?.envMode === 'worktree' ? 'worktree' : 'local';
-  const creating = !thread && envMode === 'worktree' && !worktree;
-  const previous = thread ? null : previousWorktree(client);
+  // BranchToolbarEnvModeSelector (panel): a draft or an unstarted server thread picks Current checkout / New worktree
+  // here; several models force New worktree; a started thread's workspace is locked.
+  const envMode = forced ? 'worktree' : override ? serverEnvMode(client) : worktree ? (thread ? 'worktree' : 'local') : draft?.envMode === 'worktree' ? 'worktree' : 'local';
+  const creating = (!thread || override) && envMode === 'worktree' && !worktree;
+  const previous = thread || forced ? null : previousWorktree(client);
   const environment = obj(client.config.environment);
   const env = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: environmentOptions(client).length, environmentId: client.environmentId,
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
@@ -136,7 +142,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.
     folderLabel: creating ? 'Create' : worktree ? 'Worktree' : '', cwd,
-    envModeSelect: !thread, envMode, envIcon: envMode === 'worktree' && !worktree ? 'folder-git-2' : worktree ? 'folder-git' : 'folder',
+    envModeSelect: !thread || override, envMode, envIcon: envMode === 'worktree' && !worktree ? 'folder-git-2' : worktree ? 'folder-git' : 'folder',
     previousLabel: previous?.branch ?? '', actionIcon: quickActionIcon(action, status),
     // ChatView passes onOpenChanges only for a server thread in a Git repository.
     changesEnabled: !!thread && status?.isRepo !== false, // GitActionsControl's isRepo is true until status says otherwise

@@ -13,7 +13,8 @@ import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout 
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
-import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
+import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from './composer-controls-branch';
+import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6, the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
@@ -99,7 +100,11 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
   const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
-  const rawText = promptForSend(this, selection.providerId, selection.modelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
+  // The turn runs on the instance and model the composer shows (composer-provider-selection.ts): a stored model the
+  // catalog no longer lists sends the instance's default, as deriveEffectiveComposerModelState does.
+  const chosen = composerSelection(this, !!fanoutSelections(this));
+  const sendProviderId = chosen.instanceId || selection.providerId, sendModelId = chosen.entry ? chosen.model : selection.modelId;
+  const rawText = promptForSend(this, sendProviderId, sendModelId, JSON.parse(selection.options), submission ? submission.text : value || this.draft);
   const terminalSubmission = omitExpiredTerminalContexts(this, rawText, this.snapshotDrafts.length > 0);
   if (terminalSubmission.empty) return;
   const text = terminalSubmission.text;
@@ -111,12 +116,14 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
   const intent = sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
-  const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
+  const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
-  if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');
+  if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
+  // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend, PA-9).
+  const serverWorkspace = selection.threadId ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // r7-handoff: a draft launches as its own id
@@ -128,11 +135,21 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       assertOwner();
       await this.dispatch(native, storage, { ...command, commandId: modeCommandId, threadId: selection.threadId }, 'Change mode', assertOwner);
     }
-    const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
-    const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
-      dispatchSelection(this, selection.providerId, selection.modelId, JSON.parse(selection.options)));
-    if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
-    await this.dispatch(native, storage, payload, 'Send', assertOwner);
+    if (serverWorkspace) {
+      // startThreadTurn with bootstrap.prepareWorktree: launchThread on the existing thread (reuseExistingThread).
+      const payload = launchPayload(commandId, selection.threadId, messageId, selection.projectId, text,
+        dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, submission?.interactionMode || selection.interactionMode, attachments);
+      Object.assign(payload, { reuseExistingThread: true, workspaceStrategy: serverWorkspace,
+        title: launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)) });
+      await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
+        description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
+    } else {
+      const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
+        dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)));
+      if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
+      await this.dispatch(native, storage, payload, 'Send', assertOwner);
+    }
     clearStaged(this, key);
     if (submission) this.interactionMode = submission.interactionMode;
     await acknowledgeWoke(this, selection.threadId, native);
@@ -143,7 +160,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await sendFanout(this, native, storage, { text, attachments, ...fanoutBase(this), runtimeMode: selection.runtimeMode, interactionMode: selection.interactionMode });
   } else {
     const payload = launchPayload(commandId, threadId, messageId, selection.projectId, text,
-      dispatchSelection(this, selection.providerId, selection.modelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
+      dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)), selection.runtimeMode, selection.interactionMode, attachments);
     payload.workspaceStrategy = workspaceStrategy(this);
     payload.title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // composer-editor-title.ts
     const result = await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
@@ -183,17 +200,21 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
 }
 async function changeModelOption(this: T3Client, native: Native, storage: Files, id: string, value: string): Promise<void> {
   if (ultrathinkChoice(this, id, value)) return; // composer-fidelity G9: an injected effort rewrites the prompt
-  const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
-  const model = arr(provider?.models).find(model => model.slug === this.modelId);
+  // The traits menu shows the model the turn runs on (composer-provider-selection.ts); its option change keeps that model.
+  const chosen = composerSelection(this, !!fanoutSelections(this));
+  const providerId = chosen.instanceId || this.providerId, modelId = chosen.entry ? chosen.model : this.modelId;
+  const provider = arr(this.config.providers).find(provider => provider.instanceId === providerId);
+  const model = arr(provider?.models).find(model => model.slug === modelId);
   const options = applyOptionChoice(arr(obj(model?.capabilities).optionDescriptors), this.modelOptions, id, value);
   if (this.threadId && provider?.requiresNewThreadForModelChange === true) throw new ClientError('Start a new thread to change this model option.');
-  rememberOptions(this, this.providerId, this.modelId, options);
-  if (stagesChanges(this)) { stage(this, { options }); return; }
+  rememberOptions(this, providerId, modelId, options);
+  if (stagesChanges(this)) { stage(this, { providerId, modelId, options }); return; }
   if (this.threadId) {
     const [commandId] = await this.ids(native, 1);
     await this.dispatch(native, storage, { type: 'thread.model-selection.set', commandId, threadId: this.threadId,
-      modelSelection: modelSelection(this.providerId, this.modelId, options) }, 'Change reasoning effort');
+      modelSelection: modelSelection(providerId, modelId, options) }, 'Change reasoning effort');
   }
+  this.providerId = providerId; this.modelId = modelId;
   this.modelOptions = options;
 }
 async function changeMode(this: T3Client, native: Native, storage: Files, op: string, value: string): Promise<void> {

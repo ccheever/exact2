@@ -11,6 +11,7 @@ import type { T3Client } from './client';
 import { triggerModelName } from './r3-composer-controls-model';
 import { dispatchSelection } from './composer-ultrathink';
 import { letGo } from './let-go';
+import { composerPair } from './composer-provider-selection'; // composer-provider-state-and-details: the seed is the shown model
 
 export type FanoutSelection = { instanceId: string; model: string; options: Obj[] };
 // draftFanoutStateAtom: per draft route, in memory.
@@ -37,12 +38,15 @@ export function setFanout(client: T3Client, list: FanoutSelection[] | null): voi
  * Returns the single model to select, or null when the fan-out holds.
  */
 export function toggleFanout(client: T3Client, instanceId: string, model: string): FanoutSelection | null {
-  const current = fanoutSelections(client) ?? [{ instanceId: client.providerId, model: client.modelId, options: client.modelOptions.map(option => ({ ...option })) }];
+  // selectedModelSelection: the instance and model the composer shows and sends (composer-provider-selection.ts), not its raw choice.
+  const shown = composerPair(client);
+  const single = { instanceId: shown.providerId, model: shown.modelId, options: client.modelOptions.map(option => ({ ...option })) };
+  const current = fanoutSelections(client) ?? [single];
   const exists = current.some(selection => selection.instanceId === instanceId && selection.model === model);
   const next = exists ? current.filter(selection => !(selection.instanceId === instanceId && selection.model === model)) : [...current, { instanceId, model, options: [] }];
   if (next.length > 1) { setFanout(client, next); return null; }
   setFanout(client, null);
-  return next[0] ?? { instanceId: client.providerId, model: client.modelId, options: client.modelOptions };
+  return next[0] ?? single;
 }
 
 /** A Shift-click or Shift+Return in the picker (the newest pointer or Return press, T3ComposerIntent). */

@@ -11,7 +11,7 @@
 import type { T3Client } from './client';
 import { arr, obj, str, num, type Obj } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
-import { composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch } from './composer-controls-branch';
+import { canOverrideServerEnv, composerBranches, draftContext, refBadge, sanitizeNewRefName, selectBranch, serverEnvBranch, serverEnvMode, serverOrigin, toggleServerOrigin } from './composer-controls-branch';
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './r5-composer-paging';
 import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
@@ -34,7 +34,7 @@ export function originDefault(client: T3Client): boolean {
 }
 /** A draft creating a new worktree starts it from origin unless the switch turned that off. */
 export function startFromOrigin(client: T3Client, key = client.draftKey): boolean {
-  if (client.threadId) return false;
+  if (client.threadId) return serverOrigin(client); // an unstarted server thread choosing New worktree (composer-controls-branch.ts)
   const context = draftContext(client, key);
   if (context.envMode !== 'worktree' || context.worktreePath) return false;
   return branchState(client).origin.get(key) ?? originDefault(client);
@@ -93,16 +93,18 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
   const thread = client.threadId ? obj(client.projection.thread) : null;
   const context = draftContext(client);
   const worktreePath = thread ? str(thread.worktreePath) : context.worktreePath;
-  // forceNewWorktree (a multi-model draft) and an unstarted New worktree draft pick a base ref instead of checking out.
+  // forceNewWorktree (a multi-model draft), an unstarted New worktree draft and an unstarted server thread
+  // choosing New worktree (canOverrideServerThreadEnvMode) pick a base ref instead of checking out.
   const forceWorktree = !client.threadId && !!fanoutSelections(client);
-  const selectingBase = !client.threadId && (forceWorktree || (context.envMode === 'worktree' && !worktreePath));
+  const serverBase = !!client.threadId && canOverrideServerEnv(client) && serverEnvMode(client) === 'worktree';
+  const selectingBase = serverBase || (!client.threadId && (forceWorktree || (context.envMode === 'worktree' && !worktreePath)));
   // resolveLiveThreadBranchUpdate: a draft on a checkout follows the checkout's branch, so a later New
   // worktree starts from it (the default ref is the base only for a draft that never had one).
   if (!client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {
     const contexts = ((client.local as { composerControls: { contexts?: Record<string, Obj> } }).composerControls.contexts ??= {});
     contexts[client.draftKey] = { ...context, branch: strip.branch };
   }
-  const value = state.pendingBranch || (selectingBase ? (context.branch || defaultRefName(client) || strip.branch) : strip.branch);
+  const value = state.pendingBranch || (selectingBase ? ((serverBase ? serverEnvBranch(client) : context.branch) || defaultRefName(client) || strip.branch) : strip.branch);
   const label = !value ? 'Select ref' : selectingBase ? `From ${originLabel(client, value)}` : value;
   const query = state.query.trim(), created = sanitizeNewRefName(query);
   const list = (refs?.refs ?? []).filter(ref => includeRef(str(ref.name), query));
@@ -128,7 +130,7 @@ export function branchLocal(client: T3Client, op: string, id: string, value: str
   if (op === 'open') { state.open = id; state.query = ''; state.picked = false; if (state.refs) state.refs.stale = true; return ''; }
   if (op === 'query') { state.query = value.slice(0, 256); return ''; }
   if (op === 'origin') {
-    if (client.threadId) throw new ClientError('A started thread keeps its workspace.');
+    if (client.threadId) { if (!toggleServerOrigin(client)) throw new ClientError('A started thread keeps its workspace.'); return ''; }
     state.origin.set(client.draftKey, !startFromOrigin(client));
     return '';
   }
