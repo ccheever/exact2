@@ -2,8 +2,10 @@ use TerminalDrawerView from "./terminal.contract"
 // The right panel's tabbed surfaces (lane r4-surfaces, r4-surfaces-panel.ts):
 // the tab strip, the Files surface (tree and preview), the Linked pull requests
 // surface and the device hub's setup wizard, as ShellView.panel carries them.
-use ChatDocument from "./markdown.contract"
 use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use MermaidDiagram from "./markdown.contract"
+use AttachmentUrl from "./timeline-attachments.contract"
 use R5PrSurface from "./r5-panels-shapes.contract"
 use R5Attachment from "./r5-panels-shapes.contract"
 use R6DeviceView from "./r6-device-shapes.contract"
@@ -78,6 +80,12 @@ shape R4TableRow
   id: string
   header: bool
   cells: list<R4CodeRun>
+// renderMarkdown's message record (id, kind, a title it ignores, the text): kind "file" lets task checkboxes write.
+shape R4MarkdownSource
+  id: string
+  kind: string
+  title: string
+  body: string
 shape R4Files
   cwd: string
   project: string
@@ -118,8 +126,15 @@ shape R4Files
   editorUnavailable: string
   editors: list<R4Editor>
   absolutePath: string
-  markdown: ChatDocument
+  // markdown-links-and-files-preview PA-3: the rendered file is ChatMarkdown (app.contract's filesMarkdown answers
+  // markdownSource); md, code, diagrams, mdUrls and the Copy code check are what the transcript's answers carry.
+  markdownSource: list<R4MarkdownSource>
+  md: MarkdownEnv
   code: list<CodeHighlight>
+  diagrams: list<MermaidDiagram>
+  mdUrls: list<AttachmentUrl>
+  codeCopied: string
+  codeCopyNonce: number
   table: list<R4TableRow>
   editing: bool
   editorText: string
