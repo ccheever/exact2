@@ -1,12 +1,12 @@
 ---
 name: 20261009-settings-diagnostics-and-scope
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-settings-diagnostics-and-scope
 pr_url: null
 verified_commit: null
 ---
@@ -76,8 +76,107 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | S2-11 | Diagnostics' sentence stays "All projects across All environments". | `s2-11-scope.png` | agent |
 | PG-8 | "Project settings" from the palette, the sidebar and the thread menu opens with "work across All environments". | `pg8-project-scope.png` | agent |
 
+## Cause and fix
+
+**S2-2 (Diagnostics stays empty).** The `diagnostics` resource was asked on `data.revision`. The client's event drain
+bumps that revision on every batch, and the page opens the `subscribeResourceTelemetry` stream, which sends a sample
+every second. So every sample asked every `data.revision` reader again (about 35 resources), and Exact replaced the
+Diagnostics answer in flight (LLP 1016 D5). The next answer sent its server reads again (`request`, not shared), so no
+reply ever reached a live answer. Live, on the base: 35 "forget request … (diagnostics)" lines in the last 4,096 log lines
+and no fulfil; the agent's 4-s and 8-s waits each took about 40 s (the driver's settle cap with the request always in
+flight). Not a framework limit.
+
+The reference re-renders only `ResourceTelemetryDiagnostics` on a sample, and reads Live Processes, Resource History and
+Trace Diagnostics once per visit and on Refresh (`DiagnosticsSettings.tsx:708-760`; `client-runtime/src/state/server.ts`:
+those queries have no `refreshIntervalMs`; `resourceTelemetryHistory` has `staleTimeMs: 5_000`). Fix:
+- `client.ts` drain: a batch of resource telemetry samples alone no longer bumps `revision`. It bumps `telemetryRevision`,
+  which the snapshot exposes as `data.telemetry` (`presentation.ts`, `shapes.contract`). Mixed batches bump both.
+- `app.contract`: `diagnostics` also takes `data.telemetry`, so a sample asks only Diagnostics again.
+- `diagnostics-view.ts` and `settings-a-telemetry.ts` (`history`): the four reads are shared reads (`restAccess().read`,
+  T3Transport `share`) kept one by one. An answer asked again before a reply joins the read still pending and keeps what
+  the earlier answer never received. No timer and no throttle.
+
+**S2-11 (the scope sentence on Diagnostics).** No change. The live reference, with Settings › General › "View
+diagnostics" clicked, opens `#/settings/diagnostics?machine=<representative environment>` and reads "Applying settings
+for All projects on Daehyeon's MacBook Pro", as the clone does. The link is `SettingsPanels.tsx:3357`
+(`search={{ machine: environmentId ?? undefined }}`, `environmentId` = the General scope's representative,
+`SettingsPanels.tsx:2181`). The audit's image shows the route opened without that link (no `machine`). It is the only
+way into Diagnostics in the reference. Decided by "match the original"; no decision needed.
+
+**PG-8 (the Project page's scope).** Every Project settings entry of the clone (palette, sidebar, thread menu, details
+card, the projects popover) names the project by its id (`settingsProjectId`). The Settings scope read a bare project id
+as that project's checkout ("work on Daehyeon's MacBook Pro"). In the reference every entry navigates to
+`/projects/$projectKey`, which redirects to `/settings/projects` with `{ project: key, machine: undefined }`
+(`routes/projects.$projectKey.tsx:11-15`). Fix: a bare project id is its project group with no machine and no
+checkout, in `settingsScopeOf` (`settings-core-view.ts`: the scope sentence, the General/Project rows, Providers),
+`app.ts` (`projectsView`), `source-control-view.ts` (Integrations' device scope) and `scheduled-view.ts` (`taskScope`;
+a project in no group keeps the old checkout reading). The result is the scope the scope menu gives when the project is
+chosen there. Observed side effect: the Project page's Model row now shows the project scope's traits ("Medium · 1M"),
+as choosing "work" in the scope menu already did; before it showed the checkout's ("Medium").
+
+## Acceptance results
+
+| Id | Result | Evidence |
+| --- | --- | --- |
+| S2-2 | Pass (agent mode). Diagnostics shows all 13 sections, from Resource monitor to Top Span Names, at 4 s and at 12 s (the `diagnostics-settings` tree has 1,507 nodes; before: 1 node, empty). The 4-s and 8-s waits took 4.0 s and 8.0 s (before: 40.2 s and 40.6 s). Three "forget request … (diagnostics)" lines while the stream's first sample arrived, all in the first burst; then none: each 1-s sample asked `data` and Diagnostics only (12 and 11 asks in 12 s), with no native request from Diagnostics. Session log: 3,295 lines (before: 46,000). Bun: `settings-diagnostics-scope.test.ts`, two S2-2 tests, fail on the base sources and pass on the fix | [s2-2 pair](https://raw.githubusercontent.com/ccheever/exact2/ee2ee1042fd2882339d241bb59a624dc1563b803/settings-diagnostics-and-scope/s2-2-diagnostics.png), [live record](https://raw.githubusercontent.com/ccheever/exact2/792ab62d792b01fea88108865a17289dc01236b3/settings-diagnostics-and-scope/live-drive.txt), [test base vs fix](https://raw.githubusercontent.com/ccheever/exact2/a2e70ec46f101411fa3644a106cc79d094aeaa5e/settings-diagnostics-and-scope/test-base-vs-fix.txt), [drive steps](https://raw.githubusercontent.com/ccheever/exact2/1375b94cce24af8ffa3bf893b8d2605b819078fb/settings-diagnostics-and-scope/drive.sh.txt) |
+| S2-2, one normal launch | Not verified: the Mac's screen is locked, and a normal launch cannot be read or driven without real input | Real-input batch step 2 |
+| S2-11 | Pass, no change: before, after and the live reference all read "All projects on Daehyeon's MacBook Pro" after "View diagnostics"; the reference URL carries `machine` | [s2-11 triple](https://raw.githubusercontent.com/ccheever/exact2/79c492e18dd66fb029b41df03f2947a6d855f964/settings-diagnostics-and-scope/s2-11-scope.png), [reference record](https://raw.githubusercontent.com/ccheever/exact2/e344564cd2262f1370665898d2ea85c8d0a18b6f/settings-diagnostics-and-scope/reference.txt) |
+| PG-8, palette | Pass: "work across All environments" (before: "work on Daehyeon's MacBook Pro"); the reference reads the same | [pg8 pair](https://raw.githubusercontent.com/ccheever/exact2/6e290627d84a013a54b8e9114663fba21f591b08/settings-diagnostics-and-scope/pg8-project-scope.png) (row 1), [live record](https://raw.githubusercontent.com/ccheever/exact2/792ab62d792b01fea88108865a17289dc01236b3/settings-diagnostics-and-scope/live-drive.txt) |
+| PG-8, thread menu | Pass: "Verification fixture across All environments" (before: "… on Daehyeon's MacBook Pro") | [pg8 pair](https://raw.githubusercontent.com/ccheever/exact2/6e290627d84a013a54b8e9114663fba21f591b08/settings-diagnostics-and-scope/pg8-project-scope.png) (row 2) |
+| PG-8, sidebar | Code path passes: the sidebar sets the same bare project id, and the Bun test checks the scope a bare id gives (fails on the base, passes on the fix). Live: not verified, the row's menu is a native NSMenu | Real-input batch step 1 |
+
+## Tests
+
+- New `settings-diagnostics-scope.test.ts` (3 tests, through the app's own `answer()` with a small runner of `data` and
+  `diagnostics`; a replaced answer's native calls reject as Exact's do):
+  - a telemetry sample asks only Diagnostics again: `data.revision` stays, `data.telemetry` moves, no read is sent;
+  - a read the next answer joins lands although every answer is replaced before its reply (a sample every turn, replies
+    two turns late), with one server request per read;
+  - a bare project id gives the project scope across all environments, the same as the scope menu's project.
+  All three fail on the base sources and pass on the fix ([output](https://raw.githubusercontent.com/ccheever/exact2/a2e70ec46f101411fa3644a106cc79d094aeaa5e/settings-diagnostics-and-scope/test-base-vs-fix.txt)).
+- `settings-core.test.ts`: the bare-project-id expectation is now `project` (was `checkout`), with the reference route.
+- `settings-a-telemetry.test.ts`: its fake client has `read` as well as `request`.
+
+Checks: see the PR ("Checks").
+
+## Real-input batch steps
+
+Lane `settings-diagnostics-and-scope` (`target/t3-audit/lanes/settings-diagnostics-and-scope`, embedded server on 16802),
+the bundle built from this branch's worktree `/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-diagnostics-and-scope`.
+Launch it normally (not agent mode) from that worktree:
+
+```sh
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit L=$A/lanes/settings-diagnostics-and-scope
+T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16802 T3_LOCAL_RUNTIME_DIR=$A/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64 \
+  CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude T3CODE_TELEMETRY_ENABLED=false \
+  EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle --run
+```
+
+1. **PG-8, sidebar.** Right-click the "Timeline verification" thread row in the sidebar and choose "Project settings"
+   in the native menu. Read the scope sentence: "Applying settings for Verification fixture across All environments".
+2. **S2-2, normal launch.** Click the Settings gear, then General › "View diagnostics". Wait 12 s. The page shows Resource
+   monitor, Host & collection, Resource timeline, Live process tree, Instrumented application I/O, Live Processes,
+   Resource History and Trace Diagnostics with its tables; the Resource monitor's numbers change about once a second;
+   the window answers clicks at once (for example General in the Settings sidebar).
+
+## Progress
+
+2026-10-09: reproduced S2-2 live on the base (evidence-base) and in a Bun model of the two resources; checked S2-11 and
+PG-8 on the live reference (clicked links, read the URL); fixed, tested, built the bundle, and drove the branch once in
+agent mode with the same steps as the base. Draft PR opened.
+
+## Attempts and evidence
+
+| Attempt | Revision | Outcome | Evidence |
+| --- | --- | --- | --- |
+| Before drive 1-2 | evidence-base `950e8e2e5` | Stopped at a target name (a quoted label; then "Back" names two views); the S2-2 part had already reproduced the bug | — |
+| Before drive 3 | evidence-base `950e8e2e5` | Complete; its log file was overwritten by another lane in the shared scratch folder | — |
+| Before drive 4 | evidence-base `950e8e2e5` | Complete, the record's numbers | [live record](https://raw.githubusercontent.com/ccheever/exact2/792ab62d792b01fea88108865a17289dc01236b3/settings-diagnostics-and-scope/live-drive.txt) |
+| After drive (the one live drive) | this branch, bundle built after merging `6e2040c58` | Complete, every row passes | [live record](https://raw.githubusercontent.com/ccheever/exact2/792ab62d792b01fea88108865a17289dc01236b3/settings-diagnostics-and-scope/live-drive.txt) |
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. S2-2 is high severity: start it first. Build and unit-test. Then do one
-batched live drive at the end for every row's before/after pair. Close every row in this PR, or record the blocker of a
-row that cannot pass.
+The coordinator runs the two real-input batch steps, reviews the draft PR, and merges it. If
+[settings-pages-subscribed-config](20261009-settings-pages-subscribed-config.md) merges first and also changes
+Diagnostics' answer (`diagnostics-view.ts`), the second to merge keeps both: the shared, kept reads here and its
+subscribed config there.
