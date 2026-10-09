@@ -491,7 +491,7 @@ extension Agent {
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.menus.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
-                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
+                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active; `clock settle` first waits out a push or sheet still moving"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,

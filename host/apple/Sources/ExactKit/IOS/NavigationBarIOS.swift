@@ -37,12 +37,17 @@ struct HeaderShape: Equatable {
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
+        /// The authored colour of the item's face, light and dark: a
+        /// symbol's tint, else the text's `color` (CSS's, inherited from
+        /// the button). Nil for a platform colour, which leaves UIKit's.
+        let tint: [[Double]]?
         init(_ button: NodeView) {
-            var symbol: String?, text = ""
+            var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
                 for case let child as NodeView in node.container.subviews {
-                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name }
-                    else if child.isParagraph, text.isEmpty { text = child.accessibleText }
+                    if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty {
+                        if symbol == nil { symbol = name; ink = (child, "tint_color") }
+                    } else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? (child, "text_color") }
                     else { walk(child) }
                 }
             }
@@ -62,9 +67,16 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
+            let (node, key) = ink ?? (button, "text_color")
+            let row = [node.style[key], button.style["text_color"]].lazy.compactMap { $0 }.first { !$0.isSystemColor }
+            if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
+                tint = [light, dark]
+            } else {
+                tint = nil
+            }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? [])" }
     }
     let header: NodeView
     let title: String
@@ -637,6 +649,11 @@ extension NavigationHost {
         }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
+        // The authored `color` of a plain item's face; a prominent item's
+        // tint is its fill, which `color` is not.
+        if let tint = i.tint, !i.prominent, i.badge == nil {
+            item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
+        }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
             // A drawn face is its own shape: no glass capsule around it.
