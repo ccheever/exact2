@@ -1,0 +1,11 @@
+Before (feature tip sources):
+Duplicate T3 Chat: title "Create theme", name "T3 Chat copy", advanced false, simple rows Background #fdf7fd, Accent #db2777
+Edit "T3 Chat copy": title "Edit theme", advanced false
+Open VSX (namespace, uploader login): open-vsx · 431.5K downloads | TimDeen · 104K downloads | open-vsx · 18K downloads | Verseth · 16.9K downloads
+ 1 pass
+ 0 fail
+
+After (this branch):
+Duplicate T3 Chat: title "Create theme", name "T3 Chat copy", advanced true, simple rows Background #fdf7fd, Accent #db2777
+Edit "T3 Chat copy": title "Edit theme", advanced true
+Open VSX (namespace, uploader login): dracula-theme · 431.5K downloads | Dracula-2 · 104K downloads | bceskavich · 18K downloads | MateuszDrewniak · 16.9K downloads
