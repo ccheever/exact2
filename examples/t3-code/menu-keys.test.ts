@@ -265,3 +265,44 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     expect(await source('app.contract')).not.toContain('pr-action-dialog-cancel');
   });
 });
+
+// audit-wave-followups-3: the Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
+describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
+  test('FW-3: Escape with a submenu open closes only the submenu and gives the focus back to its row', async () => {
+    const menu = await component('pages-prs.contract', 'PrFiltersMenu');
+    expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      closeSub()');
+    // The focus goes back to the submenu's row (FloatingFocusManager's return to the trigger), unless the pointer left
+    // that row after the submenu opened: the trigger's mouseleave stops the return and the focus drops (BODY on the
+    // reference, from a row or from "Search authors").
+    expect(menu).toContain('action closeSub\n    if subLeft\n      blur()\n    else\n      focus(`pr-filter-${sub}`)\n    sub = ""');
+    expect(menu).toContain('action rowLeft(name: string)\n    if sub == name\n      subLeft = true');
+    // Each opening, by a press or by the keyboard, starts with the pointer on (or never off) the row.
+    expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    subLeft = false\n');
+    expect(menu).toContain('      subPointer = false\n      subLeft = false\n');
+    for (const row of ['state', 'involvement', 'author', 'labels', 'draft', 'review', 'checks', 'project']) {
+      expect(menu).toContain(`press=open("${row}"), keys=subKey("${row}"), leave=rowLeft("${row}"),`);
+    }
+    expect(await component('pages-prs.contract', 'PrSubTrigger')).toContain('action hover(value: bool)\n    over = value\n    if not value\n      leave()');
+    // On the row that holds the submenu and the Filters rows, so an Escape from either reaches it; the author search
+    // stops its Escape and closes the submenu the same way.
+    expect(menu).toContain('row align-items="flex-start" key=subEscape');
+    expect(menu).toContain('searchEscape=closeSub, control=control)');
+    expect(menu).not.toContain('focus("pr-filters-keys")');
+    // The menu's keys then go on from that row (from Author, ↓ is Labels, as on the reference): a Filters row moves the
+    // focus from itself, since the popup's KeyMenu knows only the rows its own keys reached.
+    expect(menu).toContain('derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"),');
+    expect(menu).toContain('KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=keyed, gap="0px", modal=true)');
+    expect(menu).toContain('  action subKey(name: string, k: string, e: KeyboardEvent)\n');
+    expect(menu).toContain('    else if not e.metaKey and not e.ctrlKey and not e.altKey\n');
+    expect(menu).toContain('      match kmTarget(filterItems, `pr-filter-${name}`, k)\n        case some(item)\n          preventDefault()\n          stopPropagation()\n          focus(item.id)\n        case none');
+    expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
+  });
+  test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
+    const sub = await component('pages-prs.contract', 'PrFilterSub');
+    expect(sub).toContain('label="Anyone", detail="", selected=(page.author == ""), tick=false,');
+    expect(sub).toContain('label="Open", detail="", selected=(page.state == "open"), tick=true,');
+    const author = await component('pages-prs.contract', 'PrAuthorItem');
+    expect(author).not.toContain('name="check"');
+    expect(author).toContain('person.selected ? "light-dark(#27272a14, #f2f2f214)"');
+  });
+});

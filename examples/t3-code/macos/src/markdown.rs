@@ -87,7 +87,8 @@ impl DataSource for Markdown {
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         // renderPullRequestMarkdown: the same parse for a pull request body and its comments (lane pages);
-        // renderFileMarkdown: a Markdown file in Files (markdown-links-and-files-preview, r4-surfaces-files.ts).
+        // renderFileMarkdown: a Markdown file in Files (markdown-links-and-files-preview, r4-surfaces-files.ts)
+        // and a sent attachment's (audit-wave-followups-3 FW-2, r5-panels-attach.ts).
         if source != "renderMarkdown"
             && source != "renderPullRequestMarkdown"
             && source != "renderFileMarkdown"
@@ -106,7 +107,12 @@ impl DataSource for Markdown {
             };
             let Some(id) = fields.first() else { continue };
             let kind = fields.get(1).and_then(Value::as_str).unwrap_or("");
-            if kind != "assistant" && kind != "plan" && kind != "user" && kind != "file" {
+            if kind != "assistant"
+                && kind != "plan"
+                && kind != "user"
+                && kind != "file"
+                && kind != "attachment"
+            {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
@@ -114,6 +120,18 @@ impl DataSource for Markdown {
             // (FileMarkdownPreview), whose task checkboxes write the file.
             if kind == "file" {
                 documents.push(document_with_tasks(id.clone(), text, None, true));
+                continue;
+            }
+            // audit-wave-followups-3 FW-2: a sent attachment's rendered Markdown
+            // (AttachmentFilePreview: ChatMarkdown with no `cwd`), its checkboxes disabled.
+            if kind == "attachment" {
+                documents.push(document_with_links(
+                    id.clone(),
+                    text,
+                    None,
+                    false,
+                    &link_href_without_cwd,
+                ));
                 continue;
             }
             // UserMessageBody renders ChatMarkdown with `lineBreaks`: a single
@@ -573,6 +591,18 @@ fn document_with_tasks(
     skill_values: Option<&Value>,
     toggle_tasks: bool,
 ) -> Value {
+    document_with_links(id, text, skill_values, toggle_tasks, &link_href)
+}
+
+/// `link`: what each destination becomes in a run's `href` (`link_href`, or
+/// `link_href_without_cwd` for a document with no workspace folder).
+fn document_with_links(
+    id: Value,
+    text: &str,
+    skill_values: Option<&Value>,
+    toggle_tasks: bool,
+    link: &dyn Fn(&str) -> String,
+) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
             .iter()
@@ -592,7 +622,7 @@ fn document_with_tasks(
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;
     let text = image_chip_links(text);
-    let mut doc = markdown_parse::parse(&text, &|href| link_href(href));
+    let mut doc = markdown_parse::parse(&text, link);
     let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);

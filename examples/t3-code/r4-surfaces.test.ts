@@ -11,7 +11,7 @@ import { toasts } from './toast';
 import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from './r4-surfaces-files';
 import { resolveChains, listLines, prsView, prCommandPayload } from './r4-surfaces-prs';
 import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from './r4-surfaces-device';
-import { markdownDocument, parseDelimited, inlineRuns } from './r4-surfaces-render';
+import { parseDelimited } from './r4-surfaces-render';
 import { surfaces } from './shell';
 import { decodeClientPrefs } from './settings-core';
 import { diagramPreviewAction, diagramPreviewView } from './timeline-mermaid';
@@ -256,13 +256,7 @@ describe('Files surface', () => {
     diagramPreviewAction(client, 'diagram-open', flow);
     expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
-  test('Markdown renders as transcript blocks; CSV keeps quoted cells', () => {
-    const document = markdownDocument('d', '# Title\n\nSome `code` here.\n\n- one\n- two\n\n```ts\nconst a = 1;\n```');
-    expect(document.blocks.map(block => `${block.kind}:${block.gap}`)).toEqual(['heading:0', 'paragraph:10.4', 'item:10.4', 'item:4', 'code:10.4']);
-    expect(document.blocks[1]!.flow).toBe(true);
-    // A sent attachment's task items draw GFM's disabled checkbox (AttachmentFilePreview's ChatMarkdown), not glyphs.
-    expect(markdownDocument('a', '- [x] done\n- [ ] open').blocks.map(block => [block.task, block.taskOffset, block.runs[0]!.text])).toEqual([['done', -1, 'done'], ['open', -1, 'open']]);
-    expect(inlineRuns('see [docs](docs/guide.md) and **bold**', false).map(run => run.kind || (run.weight === 600 ? 'bold' : 'text'))).toEqual(['text', 'file', 'text', 'bold']);
+  test('CSV keeps quoted cells', () => {
     expect(parseDelimited('name,note\n"a, b","say ""hi"""\n', ',').rows).toEqual([['name', 'note'], ['a, b', 'say "hi"']]);
   });
 });

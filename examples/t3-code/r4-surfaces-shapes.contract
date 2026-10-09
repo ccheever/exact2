@@ -4,6 +4,7 @@ use TerminalDrawerView from "./terminal.contract"
 // surface and the device hub's setup wizard, as ShellView.panel carries them.
 use CodeHighlight from "./markdown.contract"
 use MarkdownEnv from "./markdown.contract"
+use MarkdownSource from "./markdown.contract"
 use MermaidDiagram from "./markdown.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use R5PrSurface from "./r5-panels-shapes.contract"
@@ -80,12 +81,6 @@ shape R4TableRow
   id: string
   header: bool
   cells: list<R4CodeRun>
-// renderMarkdown's message record (id, kind, a title it ignores, the text): kind "file" lets task checkboxes write.
-shape R4MarkdownSource
-  id: string
-  kind: string
-  title: string
-  body: string
 shape R4Files
   cwd: string
   project: string
@@ -128,7 +123,7 @@ shape R4Files
   absolutePath: string
   // markdown-links-and-files-preview PA-3: the rendered file is ChatMarkdown (app.contract's filesMarkdown answers
   // markdownSource); md, code, diagrams, mdUrls and the Copy code check are what the transcript's answers carry.
-  markdownSource: list<R4MarkdownSource>
+  markdownSource: list<MarkdownSource>
   md: MarkdownEnv
   code: list<CodeHighlight>
   diagrams: list<MermaidDiagram>
