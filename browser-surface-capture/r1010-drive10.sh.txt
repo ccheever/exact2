@@ -1,0 +1,64 @@
+#!/bin/zsh
+# browser-surface-capture: drive 10, the review round of 2026-10-10 (agent mode, window images). The same steps as the
+# reference drive (review-1010/ref/ref-drive.mjs): Capture, Shift-click record and stop; Annotate, a pick, Return (chip);
+# Float and the pill; a second Annotate with Command-Return; Annotate then Float (the pick ends); the maximized panel's
+# screenshot size. Provider state equals the reference lane's: no provider (both CLIs pinned to a missing path), so
+# Command-Return meets ChatView onSend's guard ("Annotation attached to draft"); no provider turn can run.
+# Usage: drive10.sh <run name> <app worktree>   (ports 16720 server, 16721 fixture). Not committed.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture
+APPW=${2:-$W}
+L=$W/target/capture-lane/lane
+P=${1:-drive10}; OUT=$W/target/capture-lane/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$APPW/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home-$P T3_LOCAL_PORT=16720 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+cat > $T3_LOCAL_HOME/userdata/settings.json <<JSON
+{
+  "enableProviderUpdateChecks": false,
+  "providers": { "cursor": { "enabled": false }, "grok": { "enabled": false }, "opencode": { "enabled": false } },
+  "providerInstances": {
+    "claudeAgent": { "driver": "claudeAgent", "enabled": true, "config": { "customModels": [], "binaryPath": "$L/bin/absent/claude", "homePath": "", "launchArgs": "", "autoCompactWindow": "" } },
+    "codex": { "driver": "codex", "enabled": true, "config": { "binaryPath": "$L/bin/absent/codex", "homePath": "", "shadowHomePath": "", "launchArgs": "", "customModels": [] } }
+  }
+}
+JSON
+FIXTURE_PORT=16721 $BUN $W/target/capture-lane/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+S=$OUT/shots; mkdir -p $S
+OPS=("clock +15000 real" "clock +6000 real" tree state
+  "tap toggle-right-panel" "clock +1500 real" "tap surface-browser" "clock +3000 real"
+  "type browser-url 127.0.0.1:16721" "type browser-url key Enter" "clock +4000 real" tree "screenshot $S/01-chrome.png window"
+  "tap browser-capture" "clock +3000 real" logs "screenshot $S/03-screenshot-toast.png window"
+  "tap browser-capture modifiers Shift" "clock +2500 real" tree "screenshot $S/04-recording.png window"
+  "tap browser-capture" "clock +4000 real" tree logs "screenshot $S/05-recording-saved.png window" "clock +6000 real"
+  "tap browser-annotate" "clock +2000 real" "tap browser-page clicks 1 at 120 220" "clock +1500 real"
+  "type browser-page Tighten the button spacing" "clock +800 real" "screenshot $S/06-annotate-editor.png window"
+  "type browser-page key Enter" "clock +4000 real" tree state logs "screenshot $S/07-chip.png window"
+  "tap browser-float" "clock +2500 real" tree "screenshot $S/08-player.png window"
+  "tap browser-mini-handle hover" "clock +1000 real" state "screenshot $S/09-player-pill.png window"
+  "tap browser-mini-restore" "clock +2500 real" tree
+  "tap browser-annotate" "clock +2000 real" "tap browser-page clicks 1 at 120 220" "clock +1500 real"
+  "type browser-page Send this one too" "clock +800 real" "type browser-page key Meta+Enter" "clock +2500 real"
+  tree logs state "screenshot $S/10-sent.png window" "clock +6000 real"
+  "tap browser-annotate" "clock +2000 real" tree "tap browser-float" "clock +2500 real" tree logs state "screenshot $S/11-float-annotating.png window"
+  "tap browser-mini-handle hover" "clock +1000 real" "tap browser-mini-restore" "clock +2500 real"
+  "tap maximize-right-panel" "clock +2500 real" "tap browser-capture" "clock +3000 real" logs "screenshot $S/12-maximized-capture.png window"
+  "tap maximize-right-panel" "clock +1500 real" tree)
+cd $APPW
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $T3_LOCAL_RUNTIME_DIR/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+ls -la $T3_LOCAL_HOME/userdata/browser-artifacts > $OUT/artifacts.txt 2>&1
+for f in $T3_LOCAL_HOME/userdata/browser-artifacts/*.png; do sips -g pixelWidth -g pixelHeight "$f" >> $OUT/artifacts.txt 2>&1; done
+echo DRIVE-DONE
