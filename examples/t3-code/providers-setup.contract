@@ -185,7 +185,7 @@ component ProviderAccountRow
       row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
         column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center"
-            text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+            text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 autofocus=(idPrefix == "wizard-")
           when account.email != ""
             row max-width="36rem" min-width=0 gap="0.25rem" align-items="baseline" flex-wrap="wrap"
               text "Signed in as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
@@ -442,6 +442,10 @@ component ProviderWizardAuthStep
     busy: bool
     op: action
     askSignOut: action
+  // The step replaces the focused "Continue to sign-in" (AddProviderInstanceDialog swaps its content). Base UI's
+  // DialogPopup puts the focus back in the popup (restoreFocus "popup") and Tab goes on to the step's first control.
+  // Here the step's "Account" heading takes it at mount: a paragraph, no Tab stop and no ring, where Tab starts from
+  // (the host's key-view loop, LLP 1088 D7.3), so the next Tab reaches the first control as there.
   view
     column width="100%" min-height="18rem" testId="acp-sign-in"
       each account in auth.account key=account.key
@@ -451,7 +455,7 @@ component ProviderWizardAuthStep
           row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
             column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
               row min-height="1.25rem" align-items="center"
-                text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 autofocus=true
               text auth.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId=`wizard-provider-account-description-${auth.instanceId}`
             when auth.discovering
               SetupButton(label="Sign in", disabled=true, full=false, testId=`wizard-provider-sign-in-${auth.instanceId}`, press=op("setup:retry", auth.instanceId, "", "", false))

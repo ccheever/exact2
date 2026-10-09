@@ -139,4 +139,20 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(rows.length).toBe(2);
     for (const row of rows) expect(row).toContain('id=`thread-${t.id}`');
   });
+
+  test('Add provider keeps the focus in the dialog when "Continue to sign-in" gives way to the Sign in step', async () => {
+    // Real keys, 2026-10-09 (realinput-1009): after "Continue to sign-in" the focused button unmounted and the focus fell
+    // to the window, so Tab reached nothing in the dialog. Base UI's DialogPopup restores it to the popup (restoreFocus
+    // "popup") and Tab goes on to the step's first control. Here the step's "Account" heading takes it at mount: a
+    // paragraph, which the host's key-view loop treats as where Tab starts from, with no Tab stop and no ring.
+    const row = await component('providers-setup.contract', 'ProviderAccountRow');
+    expect(row.find(line => line.includes('text "Account"'))).toContain('role="heading" aria-level=3 autofocus=(idPrefix == "wizard-")');
+    const step = await component('providers-setup.contract', 'ProviderWizardAuthStep');
+    expect(step.find(line => line.includes('text "Account"'))).toContain('role="heading" aria-level=3 autofocus=true');
+    expect(step.join('\n')).toContain('idPrefix="wizard-")');
+    // Settings' own account rows never take the focus.
+    for (const file of ['providers-setup.contract', 'providers.contract'])
+      for (const line of (await source(file)).split('\n').filter(line => line.includes('ProviderAccountRow(') && !line.includes('idPrefix="wizard-"')))
+        expect(line).toContain('idPrefix="")');
+  });
 });
