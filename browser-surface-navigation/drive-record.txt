@@ -1,0 +1,117 @@
+browser-surface-navigation (part 2) — live drive record, agent mode, 2026-10-09.
+Build: build6 of the branch source (all implementation changes; later edits are test-only: navigation.swift page snapshots).
+Lane: 1280×840 light; T3_LOCAL_HOME seeded by the runtime's `t3 project add` (projects 'work', 'site'); T3_LOCAL_PORT=16700;
+T3_LOCAL_RUNTIME_DIR = the staged t3 v0.0.46-nightly.20261005.2667; isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*;
+T3CODE_TELEMETRY_ENABLED=false; PATH=<lane bin>:<bun>:/usr/bin:/bin:/usr/sbin:/sbin; fixture 127.0.0.1:16701 (pages /, /a, /b
+that print innerWidth × innerHeight, devicePixelRatio and prefers-color-scheme); 16749 closed (the failure). No account used.
+The screen locked at ~04:04Z (CGSSessionScreenIsLocked=1): agent window captures are blank, so the proof is the
+agent's trees (testIds, labels, values, native view props), the host's `t3.browser:` lines and the Contract command log.
+
+Drive 1 (04:00Z): stopped at op 9 — the drive's own test id was wrong (`browser-server-127.0.0.1:16701`); the scanner
+reports loopback servers as `localhost:<port>`. Its op 8 tree already listed the live servers (below).
+Drive 2, the retry (04:20Z; pids: fixture 72326, agent 72327, lane server 72666; all exited): 111 ops, agent exit 0.
+
+op 3: target=toggle-right-panel, tapped=129
+op 5: target=surface-browser, tapped=677
+op 7: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/01-empty-servers.png
+op 8: tree {"tabs": ["Browser"], "url": [""], "zoom": ["100%"], "servers": ["<another live local server, redacted>", "<another live local server, redacted>", "localhost:16700 t3 localhost:16700", "localhost:16701 bun localhost:16701", "<another live local server, redacted>"], "empty": true, "deviceRow": [null]}
+op 9: target=browser-server-localhost:16701, tapped=1032
+op 11: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/02-server-opened.png
+op 12: tree {}
+op 13: target=browser-url, value=127.0.0.1:16701/a
+op 14: target=browser-url, value=http://localhost:16701/, key=Enter
+op 16: target=browser-url, value=127.0.0.1:16749
+op 17: target=browser-url, value=http://127.0.0.1:16701/a, key=Enter
+op 19: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/03-failed.png
+op 20: target=browser-failed-details-toggle, tapped=1079
+op 22: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/04-failed-details.png
+op 23: tree {"tabs": ["Page A"], "url": ["http://127.0.0.1:16749/"], "zoom": ["100%"], "failed": true, "details": true, "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16749/", "fit-scale": "1", "chrome-focus": "false"}]}
+op 24: target=browser-url, value=127.0.0.1:16701/b
+op 25: target=browser-url, value=http://127.0.0.1:16749/, key=Enter
+op 27: target=browser-more, tapped=927
+op 29: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/05-more-menu.png
+op 30: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "false"}]}
+op 31: target=browser-zoom-in, tapped=974
+op 33: target=browser-zoom-in, tapped=974
+op 35: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/06-zoom-125.png
+op 36: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["125%"], "pill": ["125%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "false"}]}
+op 37: target=browser-zoom-reset, tapped=977
+op 39: target=browser-more-appearance, tapped=949
+op 41: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/07-appearance-menu.png
+op 42: target=browser-appearance-dark, tapped=963
+op 44: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/08-dark.png
+op 45: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "false"}]}
+op 46: target=browser-appearance-system, tapped=955
+op 48: target=browser-more-device-toolbar, tapped=946
+op 50: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/09-device-toolbar.png
+op 51: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "toolbar": true, "preset": ["Browser device preset"], "size": [["519"], ["706"]], "lock": ["Lock viewport aspect ratio"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "false"}]}
+op 52: target=browser-preset, tapped=1113
+op 54: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/10-preset-list.png
+op 55: target=browser-preset-iphone-12-pro, tapped=1134
+op 57: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/11-iphone-12-pro.png
+op 58: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "toolbar": true, "preset": ["Browser device preset"], "size": [["390"], ["844"]], "lock": ["Lock viewport aspect ratio"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "0.8364928909952607", "chrome-focus": "false"}]}
+op 59: target=browser-viewport-rotate, tapped=1205
+op 61: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/12-rotated.png
+op 62: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "toolbar": true, "preset": ["Browser device preset"], "size": [["390"], ["844"]], "lock": ["Lock viewport aspect ratio"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "0.8364928909952607", "chrome-focus": "false"}]}
+op 63: target=browser-viewport-lock, tapped=1199
+op 65: target=browser-rail-east, tapped=1216
+op 67: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/13-dragged-locked.png
+op 68: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "toolbar": true, "preset": ["Browser device preset"], "size": [["581"], ["844"]], "lock": ["Lock viewport aspect ratio"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "0.8364928909952607", "chrome-focus": "false"}]}
+op 69: target=browser-viewport-lock, tapped=1199
+op 71: target=browser-viewport-width, value=500
+op 72: target=browser-viewport-width, value=581, key=Enter
+op 74: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/14-typed-width.png
+op 75: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "toolbar": true, "preset": ["Browser device preset"], "size": [["500"], ["844"]], "lock": ["Lock viewport aspect ratio"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "0.8364928909952607", "chrome-focus": "false"}]}
+op 76: target=browser-viewport-close, tapped=1209
+op 78: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/15-fill-again.png
+op 79: target=browser-page, key=Meta+=
+op 81: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/16-key-zoom.png
+op 82: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["110%"], "pill": ["110%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "false"}]}
+op 83: target=browser-page, key=Meta+0
+op 85: target=browser-page, key=Meta+l
+op 87: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "true"}]}
+op 88: target=shortcut-preview.toggle, tapped=739
+op 90: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/17-toggled-off.png
+op 91: target=shortcut-preview.toggle, tapped=739
+op 93: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/18-toggled-on.png
+op 94: tree {"tabs": ["Page B"], "url": ["http://127.0.0.1:16701/b"], "zoom": ["100%"], "pill": ["100%"], "deviceRow": [null], "page": [{"url": "http://127.0.0.1:16701/b", "fit-scale": "1", "chrome-focus": "true"}]}
+op 95: target=panel-add-surface, tapped=754
+op 97: target=add-surface-browser, tapped=766
+op 99: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/19-recents.png
+op 100: tree {"tabs": ["Page B", "Browser"], "url": [""], "zoom": ["100%"], "servers": ["<another live local server, redacted>", "<another live local server, redacted>", "localhost:16700 t3 localhost:16700", "localhost:16701 bun localhost:16701", "<another live local server, redacted>"], "recents": ["Page B", "127.0.0.1:16701/b \u00b7 just now", "127.0.0.1:16749", "just now", "Page A", "127.0.0.1:16701/a \u00b7 just now", "Lane fixture", "localhost:16701 \u00b7 just now"], "removeLabels": ["Remove 127.0.0.1:16701/b from history", "Remove 127.0.0.1:16749 from history", "Remove 127.0.0.1:16701/a from history", "Remove localhost:16701 from history"], "empty": true, "deviceRow": [null]}
+op 101: target=Remove 127.0.0.1:16749 from history, tapped=1408
+op 103: target=Remove 127.0.0.1:16749 from history, tapped=1408
+op 105: tree {"tabs": ["Page B", "Browser"], "url": [""], "zoom": ["100%"], "servers": ["<another live local server, redacted>", "<another live local server, redacted>", "localhost:16700 t3 localhost:16700", "localhost:16701 bun localhost:16701", "<another live local server, redacted>"], "recents": ["Page B", "127.0.0.1:16701/b \u00b7 just now", "Page A", "127.0.0.1:16701/a \u00b7 just now", "Lane fixture", "localhost:16701 \u00b7 just now"], "removeLabels": ["Remove 127.0.0.1:16701/b from history", "Remove 127.0.0.1:16701/a from history", "Remove localhost:16701 from history"], "empty": true, "deviceRow": [null]}
+op 106: target=Page A, tapped=1412
+op 108: screenshot=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation/target/bsn/lane/runs/retry/20-recent-opened.png
+op 109: tree {"tabs": ["Page B", "Page A"], "url": ["http://localhost:16701/a"], "zoom": ["100%"], "deviceRow": [null], "page": [{"url": "http://localhost:16701/a", "fit-scale": "1", "chrome-focus": "false"}]}
+op 110: tree {}
+op 111: tree {}
+
+Reading of the retry:
+- op 8: a new tab's empty state lists Local servers (scanner, `subscribeDiscoveredLocalServers` over the Swift transport):
+  localhost:16700 "t3" (the lane server), localhost:16701 "bun" (the fixture), and the machine's other live loopback
+  HTML servers; "Select a live local server to open it in this browser tab." shown (browser-servers-hint).
+- op 9–12: tapping localhost:16701 opens it in the tab: host log `t3.browser: navigate http://localhost:16701/`
+  (resolveDiscoveredServerUrl: a loopback environment keeps localhost).
+- op 23: 127.0.0.1:16749 fails; the load-failed page shows, and Details opens the checklist (browser-failed-details).
+- op 30–36: More › Zoom in twice: the menu's level and the zoom pill read 125%.
+- op 45: More › Appearance › Dark: the Dark radio is checked (read back from the module's report); System again at op 94.
+- op 51: More › Show device toolbar: the toolbar opens at the panel's framed area, 519 × 706.
+- op 58: Preset › iPhone 12 Pro: 390 × 844, the page box scaled to fit (fit-scale 0.836).
+- op 59–64: Rotate and Lock aspect ratio did not take effect: their taps (x 1056 and 1030, y 107.5) landed on the lane's
+  "Updates Available: 2 providers" toast, which stayed up the whole drive in the app's top-right toast region
+  (x 888–1248 from y 84 at this window size) over those two buttons; the preset (x 819) and Close (x 1262) are outside it.
+  Covered by Bun (`chooses a preset, types a size, rotates, locks the ratio and closes`); live recheck in the real-input batch.
+- op 65–68: a drag on the east rail (+80 pt) committed 581 × 844 (resizeBrowserViewportFromRail, centred).
+- op 71–75: typing 500 in the width field and Enter: 500 × 844.
+- op 76–78: Close device toolbar: fill again (fit-scale 1).
+- op 79–82: ⌘= in the page (the module's chord path): 110% (the pill); ⌘0: 100%; ⌘L: the URL field takes the focus and
+  its text is selected (command log `focus("browser-url")`, `selectText("browser-url")`; chrome-focus true afterwards).
+  The chords come from the server's resolved keybindings: keys = "Meta+0=reset-zoom Meta+-=zoom-out Meta+Plus=zoom-in
+  Meta+==zoom-in Meta+l=focus-url Meta+r=refresh".
+- op 88–94: ⇧⌘J (the preview.toggle dispatch button) twice: the panel came back on the same tab (no new `t3.browser: open`).
+- op 95–100: "+" › Browser opens a second tab whose empty state lists Recently used: Page B (127.0.0.1:16701/b · just now),
+  127.0.0.1:16749 (just now), Page A, Lane fixture (localhost:16701), each with "Remove … from history", above Local servers.
+- op 101–105: Remove 127.0.0.1:16749: three rows left.
+- op 106–109: Page A from Recently used opens in the tab: `t3.browser: navigate http://localhost:16701/a`.
