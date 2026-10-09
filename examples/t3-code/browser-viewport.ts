@@ -243,8 +243,8 @@ export const zoomLabel = (zoomFactor: number): string => `${Math.round(zoomFacto
 export type PreviewAppearancePreference = 'system' | 'light' | 'dark';
 export type BrowserDefaults = { viewport: PreviewViewportSetting; zoomFactor: number; appearance: PreviewAppearancePreference };
 export const DEFAULT_BROWSER_DEFAULTS: BrowserDefaults = { viewport: FILL_PREVIEW_VIEWPORT, zoomFactor: DEFAULT_PREVIEW_ZOOM_FACTOR, appearance: 'system' };
-// The Settings rows that make these defaults configurable (browserDefaultTabState, browserDefaultOpenViewport) are not
-// built yet: new tabs open at the reference's defaults (fill, 100%, System); see the browser-surface-navigation record.
+// The Settings rows that make these defaults configurable (browserDefaultTabState, browserDefaultOpenViewport) moved to
+// browser-surface-profiles (part 4); until then new tabs open at the reference's defaults (fill, 100%, System).
 export const FALLBACK_RESPONSIVE_VIEWPORT_SIZE = { width: 1024, height: 768 } as const;
 /** Show device toolbar on a fill tab: a configured fixed default wins; else the panel's framed area, else 1024 × 768. */
 export function browserResponsiveViewportForToggle(input: { defaults: BrowserDefaults; panelRect: PreviewViewportSize | null; zoomFactor: number | undefined }): PreviewViewportSetting {

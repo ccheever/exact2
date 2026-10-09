@@ -8,6 +8,7 @@ import {
 import { BrowserSettingsReadError } from './browser-profiles';
 import type { Obj } from './domain';
 import { decodeClientPrefs } from './settings-core';
+import { DEFAULT_BROWSER_DEFAULTS, browserResponsiveViewportForToggle } from './browser-viewport';
 
 const owner = (local: Obj = {}) => ({ local: { ...local } as object });
 
@@ -36,6 +37,14 @@ describe('browserDefaults (a new tab is born at the configured state)', () => {
     expect(() => resolveBrowserOpenDefaults(client)).toThrow(BrowserSettingsReadError);
     client.preferencesLoaded = true;
     expect(resolveBrowserOpenDefaults(client)).toMatchObject({ profileId: 'work', viewport: { _tag: 'preset', presetId: 'ipad-mini', width: 768, height: 1024 }, zoomFactor: 1, appearance: 'system', autoShowFloatingPreview: true });
+  });
+  it('starts a fresh home at part 2’s defaults, and Show device toolbar opens at a fixed configured viewport', () => {
+    const fresh = owner();
+    expect(browserOpenDefaults(fresh)).toMatchObject({ viewport: DEFAULT_BROWSER_DEFAULTS.viewport, zoomFactor: DEFAULT_BROWSER_DEFAULTS.zoomFactor, appearance: DEFAULT_BROWSER_DEFAULTS.appearance });
+    const panelRect = { width: 900, height: 700 };
+    expect(browserResponsiveViewportForToggle({ defaults: browserOpenDefaults(fresh), panelRect, zoomFactor: 1 })).toEqual(browserResponsiveViewportForToggle({ defaults: DEFAULT_BROWSER_DEFAULTS, panelRect, zoomFactor: 1 }));
+    applyBrowserDefault(fresh, 'viewport', 'ipad-mini');
+    expect(browserResponsiveViewportForToggle({ defaults: browserOpenDefaults(fresh), panelRect, zoomFactor: 1 })).toMatchObject({ _tag: 'preset', presetId: 'ipad-mini' });
   });
 });
 

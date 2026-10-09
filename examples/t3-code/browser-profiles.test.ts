@@ -111,7 +111,7 @@ type Op = { op: string } & Obj;
 function fakeClient(local: Obj = {}, answers: (request: Op) => Obj = () => ({})) {
   const native: Op[] = [];
   const client = {
-    environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, revision: 0, presentation: {} as Obj,
+    environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, revision: 0, presentation: {} as Obj, config: { keybindings: [] } as Obj, shell: { projects: [], threads: [], sequence: 0 },
     local: { clientSettings: {}, deviceSettings: {}, ...local }, preferencesLoaded: true, savePreferences: async () => undefined,
     async raw(_native: Native, request: Op) { native.push(request); return { ok: true, generation: 0, value: answers(request) }; },
   } as unknown as T3Client;
