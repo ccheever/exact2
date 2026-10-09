@@ -73,7 +73,8 @@ Parent specification: [spec](../spec.md); engine decisions and declared differen
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X66](../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the profile submenu opens from its chevron, not on hover, until a popover can open from an action | — |
-| task PR, reverted | `20261005-browser-surface-navigation` (part 2) | [#348](https://github.com/ccheever/exact2/pull/348), reverted by #351 | Part 2 re-lands on `feat(example)/t3-code`; this branch then merges the base again | merged here at `46436acc3` before the revert (`827470bbc`); the PR's diff shows part 2's files until part 2 is back |
+| task PR, reverted and re-landed | `20261005-browser-surface-navigation` (part 2) | [#348](https://github.com/ccheever/exact2/pull/348), reverted by #351, re-landed as [#352](https://github.com/ccheever/exact2/pull/352) | Part 2 re-lands on `feat(example)/t3-code`; this branch then merges the base again | re-landed as `ab220bfdb` (2026-10-10); merged here at `e075de6e6` |
+| task PR | `20261009-fix-settings-integrations-loop` | [#353](https://github.com/ccheever/exact2/pull/353) | Settings › Integrations reads the subscribed config; part 4's Browser rows keep that | merged as `950e8e2e5`; merged here at `e075de6e6`, both sides kept |
 
 ## Acceptance and reproduction
 
@@ -89,7 +90,9 @@ as the parent's.
 Live rows ran in agent mode on fixture browser stores only (a fixture home under the worktree's `target/`, named by
 `T3_BROWSER_IMPORT_HOME`; no real browser profile, Keychain item or Full Disk Access was read, asked for or granted).
 The import and profile rows ran at `827470bbc` (drive branch-5); the defaults and tab rows at `5a7522e56` (drive
-branch-6), which differs from `827470bbc` only by the Browser defaults rows' test ids.
+branch-6), which differs from `827470bbc` only by the Browser defaults rows' test ids. On 2026-10-10, after part 2's
+re-land (#352) and #353 were merged in, part 4's rows ran again at `01da6c0d8` (all 165 ops) and the new rows at
+`289861020`; the reference (T3 Code `1e2ecbd975`, Electron, `A/ref-app.sh` on 16750) was measured on the same steps.
 
 | Row | Result | Evidence |
 | --- | --- | --- |
@@ -105,6 +108,11 @@ branch-6), which differs from `827470bbc` only by the Browser defaults rows' tes
 | Launcher chevron with more than one profile; a tab in the Chrome profile has its imported cookies, the badge, and the configured defaults | passed: the probe received `lane_chrome, lane_session`; the page saw dark, devicePixelRatio 2.5 (125% at 2×), and the iPhone 12 Pro toolbar | [before/after](https://raw.githubusercontent.com/ccheever/exact2/4103b9b5688bfe58ed078b72820b7dafb5c6bfff/browser-surface-profiles/p4-launcher.png), [image](https://raw.githubusercontent.com/ccheever/exact2/fd506fb662f1f2bc32f1c195e5d15a4272758cfb/browser-surface-profiles/p4-chrome-tab.png) |
 | More menu: "Profile: Chrome" with Clear cookies and Clear cache; Clear cookies empties that profile only | passed: after Clear cookies and a reload the probe received none | [before/after](https://raw.githubusercontent.com/ccheever/exact2/b40432d28d94e2a538f51f536d829529706a726c/browser-surface-profiles/p4-more-menu.png) |
 | "+" › Browser › the profile list; Incognito's cookie stays in Incognito; a Default tab has Firefox's cookie only | passed: Incognito received `incognito_probe` after `/set`; the Default tab received `lane_firefox` only | [before/after](https://raw.githubusercontent.com/ccheever/exact2/71f809fb2bc6d235a7aa0ceb050deb2d816b4d13/browser-surface-profiles/p4-plus-profiles.png), [image](https://raw.githubusercontent.com/ccheever/exact2/238c4d6be66144d5319281cb306ae48a1f894650/browser-surface-profiles/p4-incognito-default.png) |
+| After part 2's re-land: a tab at the default viewport (iPhone 12 Pro) and zoom (125%) lays out its first page at the zoom (the default zoom in `liveSessions`' zoom field) | passed (agent mode, `289861020`, and `01da6c0d8`): part 2's first-layout fixture got 389 × 844 at devicePixelRatio 2.5 and no resize. Before (`e075de6e6`, the merge alone): 312 × 675 at 2.5, then a resize to 389 × 844. Reference: 1280 × 840 and 488 × 1055 at 2 (two loads), then 390 × 844 at 2.5 (its zoom lands after the load) | [before/after/reference](https://raw.githubusercontent.com/ccheever/exact2/b6aa6ac94afaf8c47df12eab518d4adcd6efc504/browser-surface-profiles/p4-first-layout-125.png), [before](https://raw.githubusercontent.com/ccheever/exact2/ef2b2b5afbc7482c94f7d0cc04913e46d6251cf2/browser-surface-profiles/drive-before-e075de6e6.txt), [after](https://raw.githubusercontent.com/ccheever/exact2/b640b82a1281dcd936fa76e0271899de0d133259/browser-surface-profiles/drive-after-289861020.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/b2cf62e1e5ddd8abd2583c8c7e5b2ce7e34e0ad2/browser-surface-profiles/reference-first-layout.txt), [Bun before/after](https://raw.githubusercontent.com/ccheever/exact2/c5173ebe043f994a72a78f27252536ea4f4da2df/browser-surface-profiles/test-default-zoom.txt) |
+| The launcher's profile chevron by keys (#355's launcher keys met part 4's chevron in the merge): Enter opens its list at Default, ↑ at Incognito, Escape closes it; the launcher's lit row (Files) neither opens nor moves | passed (agent mode, `289861020`; the reference's Enter opens the list and leaves Files lit too) | [before/after/reference](https://raw.githubusercontent.com/ccheever/exact2/e8b5a417829b9d52f23004c80688b93b518ef459/browser-surface-profiles/p4-chevron-enter.png), [Bun before/after](https://raw.githubusercontent.com/ccheever/exact2/0880b306f784590003417d489bc585b14e87b08a/browser-surface-profiles/test-chevron.txt) |
+| Settings › Integrations' Browser rows keep #353's reads: the page reads the subscribed config, and the rows add no server read | passed (Bun: `settings-integrations-reads.test.ts` now also checks the answer's Browser rows, with no `server.getConfig`, `server.getSettings` or `device.list`) | [checks](https://raw.githubusercontent.com/ccheever/exact2/19bb5e5f52b437c3b03e6d882977f8dde84fc2d3/browser-surface-profiles/checks-289861020.txt) |
+| Part 4's rows again after the merges: Chrome and Firefox imports, the defaults rows, "+" › Browser › Chrome with its cookies, Clear cookies, Incognito, a Default tab | passed (agent mode, all 165 ops at `01da6c0d8`; the probe got `lane_chrome, lane_session`, then none after Clear cookies, `incognito_probe` in Incognito, `lane_firefox` in Default). At `289861020` ops 1–135 passed again before the driver failed (below) | [image](https://raw.githubusercontent.com/ccheever/exact2/1adcb78e59935f2c93db0a6cf67855717474f3a1/browser-surface-profiles/p4-after-merge-rerun.png), [image 2](https://raw.githubusercontent.com/ccheever/exact2/3a97d73c21f1782b335ad75880b7d5531bfc5611/browser-surface-profiles/p4-after-merge-rerun-2.png), [record](https://raw.githubusercontent.com/ccheever/exact2/360f68695daa976dc1164c818774cab1026dee67/browser-surface-profiles/drive-after-01da6c0d8.txt) |
+| A tab made with its URL (a link, a script's preview, an agent's tab) at 125%: its first layout | not run live: no agent-mode path in this lane opens one (Files › Open file in preview browser on a draft thread fails at the server, `AssetWorkspaceContextResolutionError`; a chat link or an agent's tab needs a provider turn). `browser-surface.test.ts` ("part 4: a page the module has not reported yet …") checks the `browserSync` it sends, #352's AppKit `testAPageSyncedAtAFixedViewportLaysOutAtItFirst` the page it makes; real-input step 5 | — |
 | A packaged build reading real browsers (Keychain prompt, Full Disk Access in System Settings) | not run: the brief forbids reading real browser data or granting Full Disk Access in a lane | — |
 | Real-input rows ("Real-input batch steps" below) | not passed yet: deferred to the next real-input batch | — |
 
@@ -144,6 +152,23 @@ branch-6), which differs from `827470bbc` only by the Browser defaults rows' tes
   (`c603c22d6`); per the coordinator this branch keeps `46436acc3` and does not merge past it. Part 4 depends on part 2's
   re-land (its `browserSet` and `browser-viewport.ts`), and merges the base again once part 2 is back.
 
+2026-10-10 (after part 2's re-land, #352):
+
+- **Merges**: `e075de6e6` (the base at `ab220bfdb`: #351's revert, #352, #353, #355–#357, #359–#362, #364–#366) and
+  `01da6c0d8` (the base at `a3bcac354`: #367–#370 and the records sync). Conflicts kept both sides: #355's
+  `SurfaceLauncher` (its keyboard highlight) passes part 4's profiles to the Browser row's chevron; `browserSync`
+  carries part 5's adopted notes and part 4's new-page defaults; Settings › Integrations keeps #353's reads beside
+  part 4's Browser rows; STATUS took the base's part 2 and #353 rows.
+- **The default zoom in `liveSessions`' zoom field** (`73aab89a0`): a page the module has not reported yet is made at
+  the default zoom, so #352's `ensure` makes it at 487.5 × 1055 points and its first layout is 390 × 844 CSS px at
+  125%; a reported zoom stays the tab's own; unread settings give 100%.
+- **The launcher's chevron** (`0f09b7574`, `289861020`): with #355's launcher keys, the chevron's Enter reached the
+  launcher, which opens its lit row. The chevron is now a keyboard menu trigger like part 4's other menus
+  (KeyMenuOpen, KeyMenu: Enter and Space open the list at its first item, ↓ and ↑ at the first and the last), and its
+  keys and its list's Enter stay out of the launcher (the reference's `handleKeyDown`).
+- **Tests**: `browser-profiles.test.ts` resets the app's primary before each row (another file left one set, and the
+  clear-in-every-environment row counted it).
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -153,6 +178,10 @@ branch-6), which differs from `827470bbc` only by the Browser defaults rows' tes
 | Live drive 4 (agent mode) | `c7a0aa02f` | Ops 1–102: add, rename, remove; Chrome import (3 imported, 2 skipped); Brave's quit step; Safari's Full Disk Access step; Arc blocked; Firefox into Default. Done and "I've quit it" missed their buttons: the dialog's test id was the button's (`browser-import-<step>`); fixed in `0af00d295` | [record](https://raw.githubusercontent.com/ccheever/exact2/2190ae19fcd99108474fc144dac23f7d69919621/browser-surface-profiles/drive-branch-4.txt) | — |
 | Live drive 5 (agent mode) | `827470bbc` (parts 2 and 5 merged) | Ops 1–102 passed, including Done and "I've quit it" → configure; stopped at op 103: each defaults row's test id was its select's, so the select did not open; fixed in `5a7522e56` | [record](https://raw.githubusercontent.com/ccheever/exact2/596efb792211934bb2ce71b68b19cd8536a2a8cd/browser-surface-profiles/drive-branch-5.txt) | — |
 | Live drive 6 (agent mode, final mode: the Chrome and Firefox imports, the defaults rows, the tabs) | `5a7522e56` | All 117 ops passed: Chrome import into a new profile and Firefox into Default; the defaults rows set and reset; the launcher chevron (Default, Incognito, Chrome); a Chrome tab at the configured iPhone 12 Pro, 125% and dark with its imported cookies (the probe names `lane_chrome, lane_session`); the More menu's Profile: Chrome group, Clear cookies then none; "+" › Browser › Incognito keeps `incognito_probe` to itself; a Default tab sees `lane_firefox` only | [record](https://raw.githubusercontent.com/ccheever/exact2/ab29fa36a2bbad9660d6040ce286e58e1fbe2c20/browser-surface-profiles/drive-branch-6.txt) | — |
+| Before drive (agent mode, the first-layout steps) | `e075de6e6` (the merge alone) | All 49 ops passed; the fixture's first layout 312 × 675 at 2.5, then 389 × 844 | [record](https://raw.githubusercontent.com/ccheever/exact2/ef2b2b5afbc7482c94f7d0cc04913e46d6251cf2/browser-surface-profiles/drive-before-e075de6e6.txt) | — |
+| Live drive 7 (agent mode, full) | `01da6c0d8` | All 165 ops passed: the chevron's Enter, the first layout at 125% (389 × 844 at 2.5, no resize), part 4's rows again | [record](https://raw.githubusercontent.com/ccheever/exact2/360f68695daa976dc1164c818774cab1026dee67/browser-surface-profiles/drive-after-01da6c0d8.txt) | The Bun suite then failed twice: `menu-keys.test.ts` held the chevron's new `key=` to the keyboard-menu rule, and `browser-profiles.test.ts` counted a primary another file left set; both fixed in `289861020` |
+| Live drive 8 (agent mode, full; the one retry) | `289861020` | Ops 1–135 passed: the chevron's Enter, ↑ and Escape, the first layout (389 × 844 at 2.5, no resize), both imports, the defaults rows, "+" › Browser › Chrome. Op 136 failed in the driver: "clock: the clock cannot go backwards (106800.0 → 106799.99999999999)" | [record](https://raw.githubusercontent.com/ccheever/exact2/b640b82a1281dcd936fa76e0271899de0d133259/browser-surface-profiles/drive-after-289861020.txt) | The driver's clock arithmetic (`scripts/agent.mjs`), not the app; ops 136–174 passed at `01da6c0d8`, which differs only by the chevron's menu |
+| Unit, AppKit and the five checks | `289861020` | see [checks](https://raw.githubusercontent.com/ccheever/exact2/19bb5e5f52b437c3b03e6d882977f8dde84fc2d3/browser-surface-profiles/checks-289861020.txt) | [checks](https://raw.githubusercontent.com/ccheever/exact2/19bb5e5f52b437c3b03e6d882977f8dde84fc2d3/browser-surface-profiles/checks-289861020.txt) | — |
 
 ## Real-input batch steps
 
@@ -166,20 +195,21 @@ CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME). A lane app copy needs its own name and
    Incognito tab's probe names none.
 2. **The profile menus by real keys.** Settings › Integrations › Browser: focus Add profile, press ↓: the menu opens at
    Blank profile; ↓ reaches the first browser under "Import from"; Escape closes it and the focus is back on Add
-   profile. The same on a row's ⋮ menu and on the launcher's chevron.
+   profile. The same on a row's ⋮ menu and on the launcher's chevron. On the launcher (Toggle right panel on a thread
+   with no surface open): press ↓ three times (Files lit), Tab to the Browser row's chevron, press Return: the list
+   opens at Default and no surface opens; Escape, then ↑ on the chevron: the list opens at Incognito; Escape; the
+   launcher still lights Files.
 3. **Real pointer.** Hover a tab's profile badge: the tooltip names the profile. "+" › Browser: the chevron opens the
    profile list (X66: by press, not on hover).
 4. **Rename by real key events** (ASCII; the input source is left as it is): type in a row's name field and press
    Return; the "+" menu shows the new name.
+5. **A tab made with its URL at 125%** (a real click; the lane's `drive2.sh` environment and `fixture-first.mjs` on
+   16782, [copy](https://raw.githubusercontent.com/ccheever/exact2/95682cec2b9dfdd2452804fb97231652fb2f822c/browser-surface-profiles/fixture-first.mjs.txt)).
+   Settings › Integrations › Browser: Default browser viewport = iPhone 12 Pro, Default browser zoom = 125%, Open links
+   in = T3 Code. Open the terminal drawer on a thread, run `echo http://127.0.0.1:16782/`, and click the printed link.
+   Read back: a Browser tab opens beside the thread at iPhone 12 Pro and 125%, and the fixture's log has
+   `/first?w=389` or `w=390`, `h=844`, `d=2.5` for that load and no `/resize` after it.
 
 ## Next action
 
-1. The real-input batch (steps 1–4 above; STATUS "Next real-input batch").
-2. When part 2 re-lands (#352), merge the base and set the default zoom in liveSessions' zoom field; re-drive a
-   default-viewport tab at 125% and check its first layout and zoom with the first-layout probe from #352's fixture.
-   (#352's `T3BrowserSessions.ensure` makes a fixed-size page at its target size before `navigate()`, from the
-   width × height × zoom that `liveSessions`/`browserSync` carry; a page the module has not reported yet gets zoom 1,
-   so without part 4's default in that field a new tab is made at 100% and then re-zoomed by `browserSet`.) Then
-   re-run the checks.
-3. After the Settings › Integrations request-loop fix (`feat(example)/t3-code-fix-settings-integrations-loop`) lands:
-   merge it, keeping both sides on the Integrations page.
+1. The real-input batch (steps 1–5 above).

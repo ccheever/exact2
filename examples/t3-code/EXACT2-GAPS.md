@@ -495,10 +495,11 @@ adds these rows:
   375 × 667"; the reference right-aligns the size and heads the presets "Standard"), and its width and height are plain
   fields committed on Return or when left (no stepper arrows). A page the module makes (from the launcher, a link, an
   agent or a relaunch) at a fixed viewport is made at the default zoom (the zoom `browserSync` carries for a page the
-  module has not reported yet), so its first layout is already at it; its appearance, and a Fill page's zoom, follow
-  right after it is made, through part 2's `browserSet`, where the reference passes both at creation. Show device
-  toolbar on a fill tab opens at the configured default viewport when it is fixed (part 2's
-  `browserResponsiveViewportForToggle`).
+  module has not reported yet), so its first layout is already at it: an iPhone 12 Pro tab at 125% lays its first page
+  out at 389 × 844 CSS px at devicePixelRatio 2.5, where the reference's guest lays it out at 488 × 1055 at 2 and takes
+  the zoom after it loads (measured 2026-10-10). Its appearance, and a Fill page's zoom, follow right after it is made,
+  through part 2's `browserSet`; the reference passes both with the tab's state at creation. Show device toolbar on a
+  fill tab opens at the configured default viewport when it is fixed (part 2's `browserResponsiveViewportForToggle`).
 - **Where the row shows.** Browser profiles is part of Settings › Integrations, which the clone draws for a connected
   environment; the reference draws its device-local rows without one.
 
