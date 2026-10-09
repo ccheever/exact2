@@ -3,12 +3,12 @@ name: 20261009-snapshot-permission-helper
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-snapshot-permission-helper
 pr_url: https://github.com/ccheever/exact2/pull/359
-verified_commit: null
+verified_commit: 4c88d6a850572a5d7be3e83cb962050774506488
 ---
 
 # The macOS permission helper window beside System Settings
@@ -145,3 +145,7 @@ Take each capture with `screencapture -x <png>` (whole screen) and compose befor
 ## Next action
 
 Coordinator: review draft PR [#359](https://github.com/ccheever/exact2/pull/359) (the review round's two should-fix problems are fixed at `ba427ae29`), then run the real-input batch steps above with the user present. Step 2 now also checks the hover after a Finder reveal and the cursor after a refused drag. They close the docked-helper and grant rows with `pg9-helper-docked.png` and `pg9-helper-closes.png`.
+
+## Delivery
+
+Merged by the coordinator on 2026-10-10 as `4c88d6a85` (#359, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
