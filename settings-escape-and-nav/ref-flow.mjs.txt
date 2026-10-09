@@ -1,0 +1,117 @@
+// The reference side of settings-escape-and-nav's scenarios, over CDP (never closes the app).
+// Usage: node ref-flow.mjs <cdpPort> <outDir> [scenario…]
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, out, ...only] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => p.url().startsWith('t3code://'));
+await page.setViewportSize({ width: 1280, height: 840 });
+const log = (o) => console.log(JSON.stringify(o));
+const wait = (ms) => page.waitForTimeout(ms);
+const shot = async (name) => { await wait(400); await page.screenshot({ path: `${out}/${name}` }); log({ shot: name, url: page.url() }); };
+const aria = async (name) => fs.writeFileSync(`${out}/${name}`, await page.locator('body').ariaSnapshot());
+const nav = (name) => page.getByRole('navigation', { name: 'Settings' }).getByRole('button', { name, exact: true });
+const openSettings = async (section) => {
+  if (!page.url().includes('#/settings')) { await page.getByRole('button', { name: 'Settings', exact: true }).first().click(); await wait(1200); }
+  await nav(section).click(); await wait(1500);
+};
+const leave = async () => { if (page.url().includes('#/settings')) { await page.keyboard.press('Escape'); await wait(800); } };
+const scenarios = {
+  async recorder() {
+    await openSettings('Keybindings');
+    await page.getByRole('button', { name: 'Edit shortcut for Chat: New: ⌘N' }).click(); await wait(500);
+    await shot('s1-3-recording.png');
+    await page.keyboard.press('Escape');
+    await shot('s1-3-recorder-escape.png');
+  },
+  async chord() {
+    await openSettings('Keybindings');
+    await page.getByRole('button', { name: 'Add keybinding' }).click(); await wait(600);
+    await aria('add.aria');
+    await page.getByRole('combobox').filter({ hasText: 'Command' }).first().click(); await wait(500);
+    await page.getByRole('option', { name: 'Diff: Toggle', exact: true }).click(); await wait(500);
+    await page.getByLabel('Keybinding for Diff: Toggle').click(); await wait(300);
+    await page.keyboard.press('Meta+K'); await wait(600);
+    await shot('s1-4-record-bound-chord.png');
+    await page.getByLabel(/^Conflicts with/).first().hover(); await wait(1200);
+    await shot('s1-4-warning-tip.png');
+    await aria('s1-4.aria');
+  },
+  async when() {
+    await openSettings('Keybindings');
+    await page.getByRole('button', { name: 'Add keybinding' }).click(); await wait(600);
+    await page.getByRole('button', { name: /Edit when clause for (new keybinding|Diff: Toggle)/i }).first().click(); await wait(500);
+    await page.getByRole('button', { name: 'Condition' }).first().click(); await wait(500);
+    await aria('when.aria');
+    await page.getByRole('textbox').filter({ hasNot: page.locator('[type=search]') }).last().focus().catch(() => {});
+    await shot('s1-1-when-open.png');
+    await page.keyboard.press('Escape');
+    await shot('s1-1-when-editor.png');
+  },
+  async search() {
+    await openSettings('Keybindings');
+    await page.getByRole('button', { name: 'Search keybindings' }).click(); await wait(400);
+    await page.keyboard.type('diff', { delay: 20 }); await wait(500);
+    await shot('s1-1-keybinding-search-typed.png');
+    await page.keyboard.press('Escape');
+    await shot('s1-1-keybinding-search.png');
+    await page.keyboard.press('Escape'); await wait(800);
+    await shot('s1-1-second-escape.png');
+  },
+  async font() {
+    await openSettings('Appearance');
+    await page.getByRole('combobox', { name: /Interface font family/i }).first().click(); await wait(500);
+    await page.keyboard.type('SF', { delay: 20 }); await wait(500);
+    await shot('s1-1-font-open.png');
+    await page.keyboard.press('Escape');
+    await shot('s1-1-font-search.png');
+  },
+  async custom() {
+    await openSettings('Providers');
+    await page.getByRole('button', { name: 'Add custom model' }).first().click(); await wait(400);
+    await page.keyboard.type('my-model', { delay: 20 }); await wait(300);
+    await shot('s1-2-custom-open.png');
+    await page.keyboard.press('Escape');
+    await shot('s1-2-custom-model.png');
+  },
+  async task() {
+    await openSettings('Scheduled Tasks');
+    for (const b of await page.getByRole('button', { name: 'Dismiss notification' }).all()) await b.click({ timeout: 2000 }).catch(() => {});
+    await wait(500);
+    await page.getByRole('button', { name: 'New task' }).first().click(); await wait(900);
+    await aria('task.aria');
+    await page.getByRole('dialog').getByRole('textbox').first().click(); await page.keyboard.type('Nightly', { delay: 20 });
+    await page.keyboard.press('Escape');
+    await shot('s2-1-new-task.png');
+  },
+  async host() {
+    await openSettings('Integrations');
+    await page.getByRole('button', { name: 'Add host' }).first().click(); await wait(700);
+    await page.getByLabel('Name', { exact: true }).first().click(); await page.keyboard.type('Mini', { delay: 20 });
+    await page.keyboard.press('Escape');
+    await shot('s2-1-add-host.png');
+  },
+  async rail() {
+    await openSettings('General');
+    await shot('s2-5-pre.png');
+    const rail = page.getByRole('button', { name: 'Resize Sidebar' }).first();
+    const box = await rail.boundingBox();
+    const side = page.locator('[data-slot="sidebar-container"]').first(); const before = await side.boundingBox();
+    const x = box.x + box.width / 2, y = 420;
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 60, y, { steps: 5 }); await page.mouse.move(x + 120, y, { steps: 5 }); await page.mouse.up(); await wait(500);
+    const after = await side.boundingBox();
+    log({ rail: box, navBefore: before, navAfter: after });
+    await shot('s2-5-settings-rail.png');
+    await rail.dblclick(); await wait(500);
+    log({ navReset: await side.boundingBox() });
+  },
+};
+for (const name of only.length ? only : Object.keys(scenarios)) {
+  for (const b of await page.getByRole('button', { name: 'Dismiss notification' }).all()) await b.click({ timeout: 2000 }).catch(() => {});
+  try { await scenarios[name](); log({ ok: name }); } catch (e) { log({ failed: name, error: String(e.message ?? e).split('\n')[0] }); await aria(`fail-${name}.aria`).catch(() => {}); }
+  await leave();
+  if (page.url().includes('#/settings')) await leave();
+}
+process.exit(0);
