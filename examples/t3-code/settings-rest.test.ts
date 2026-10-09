@@ -220,6 +220,10 @@ describe('source control and integrations (scoped rows)', () => {
     const rows = sourceControlRows(settings, '', 'Mac', [], true);
     expect(rows.repositories.map(row => [row.title, row.reset])).toEqual([['Automatically pull', 'key=defaultAutoPull&value=__default__'], ['Default merge method', '']]);
     expect(rows.text.map(row => row.title)).toEqual(['Worktree branch naming', 'Branch prefix', 'Source control writing style', 'Follow change request templates', 'Source control writer model']);
+    // settings-rows-and-labels S2-10: the controls' accessible names and SettingResetButton labels of the reference.
+    expect(rows.repositories.map(row => [row.control, row.resetLabel])).toEqual([['Default automatic pull', 'default automatic pull'], ['Default pull request merge method', 'default merge method']]);
+    expect(rows.text.map(row => row.resetLabel)).toEqual(['branch naming', 'branch prefix', 'source control writing style', 'change request templates', '']);
+    expect(sourceControlRows({ ...settings, branchNamingMode: 'custom' }, '', 'Mac', [], true).text[1]).toMatchObject({ title: 'Branch naming instructions', resetLabel: 'branch naming instructions' });
     expect(fetchInterval({})).toMatchObject({ seconds: '30', canReset: false });
     expect(fetchIntervalPatch({}, '45')).toEqual({ backgroundActivity: { schemaVersion: 1, profile: 'custom', baseProfile: 'balanced', overrides: { automaticGitFetchInterval: 45000 } } });
     expect(fetchInterval(fetchIntervalPatch({}, '45'))).toMatchObject({ seconds: '45', canReset: true });
