@@ -74,6 +74,19 @@ describe('diff panel', () => {
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
     expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // lane r12-render: Shiki's heading ink
   });
+  test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff, timeline-work-rows TH-5)', async () => {
+    const { client, command, calls } = harness();
+    expect(snapshot(client).diffOpen).toBe(false);
+    await command('turn-diff', 'fixture-result.md', 'r1', 0);
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
+    expect(snapshot(client)).toMatchObject({ diffOpen: true, diffScope: 'turn:r1', diffScopeLabel: 'Turn 1', diffLatestSelected: false, diffError: '' });
+    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md' });
+    // A change with no run asks for nothing and says so in the panel.
+    const count = requests(calls).length;
+    await command('turn-diff', 'fixture-result.md', '', 0);
+    expect(requests(calls).length).toBe(count);
+    expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
+  });
   test('scope menu, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();
     await command('diff-view', 'menu', 'scope');

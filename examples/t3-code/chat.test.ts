@@ -9,7 +9,8 @@ const at = '2026-10-03T13:13:00.000Z';
 function fakeClient(checkpoints: Obj[] = []) {
   return { threadId: 't1', projection: { checkpoints }, local: { deviceSettings: { timestampFormat: '24-hour' } } } as unknown as T3Client;
 }
-const row = (id: string, kind: string, extra: Partial<Message> = {}): Message => ({ id, kind, title: kind, body: '', createdAt: at, runId: 'r1', sourceThreadId: 't1', completed: true, ...extra });
+// An answer of run r1 the provider can fork (transcriptRows sets canFork from the projected item).
+const row = (id: string, kind: string, extra: Partial<Message> = {}): Message => ({ id, kind, title: kind, body: '', createdAt: at, runId: 'r1', sourceThreadId: 't1', completed: true, canFork: true, ...extra });
 
 describe('timeline rows', () => {
   test('the first row carries the 16pt lead and an answer owns its own actions', () => {
