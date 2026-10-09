@@ -40,6 +40,7 @@ use DiffPanel from "./diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
 use R6DeviceMiniPlayer from "./r6-device.contract"
+use BrowserMiniPlayer from "./browser-capture.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use ShellDetails from "./shell-shapes.contract"
 use ThreadDetailsInline from "./shell-details.contract"
@@ -198,6 +199,9 @@ component ChatColumn
       // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
       when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
+      // browser-surface part 3: a Browser tab floated over the chat (browser-capture.contract).
+      when shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
+        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, local=chatLocal, gesture=canvasGesture)
       when length(data.messages) == 0 and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.

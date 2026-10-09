@@ -3,8 +3,8 @@
 // PreviewEmptyState.tsx, PreviewUnreachable.tsx; index.css `.preview-loading-progress`). The chrome row
 // over the page, which is the module's `t3-browser` view (T3BrowserView.swift); the empty state for an idle
 // tab; the load-failed page. `view` is browser-surface.ts `browserView`; `local` runs `surface-browser-<op>`.
-// Annotate, Capture and Float preview are drawn disabled until part 3; the More menu's device toolbar,
-// appearance and zoom wait for part 2, its separate window for part 3 and its profile actions for part 4.
+// Annotate, Capture and Float preview and the More menu's separate window are part 3's (browser-capture.contract);
+// the More menu's device toolbar, appearance and zoom wait for part 2 and its profile actions for part 4.
 // The reference's "Open DevTools" item is absent: Safari's Web Inspector attaches to the page in a
 // development build instead, and cannot be opened from code (EXACT2-GAPS.md X1, X2).
 use TipBubble from "./shell-tip.contract"
@@ -16,6 +16,7 @@ use kmBump from "./menu-keys.contract"
 use ShellSurface from "./shell-shapes.contract"
 use BrowserPanel from "./browser-shapes.contract"
 use BrowserProfileChoice from "./browser-shapes.contract"
+use BrowserCaptureButtons from "./browser-capture.contract"
 
 keyframes bsSpin
   from rotate=0
@@ -128,10 +129,8 @@ component BrowserChrome
           // Revealed on hover, so a resting address bar reads as plain text, and while it has the focus.
           when not focused
             BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))
-        // Part 3 (browser-surface-capture): annotation, screenshots and recordings, and the floating preview.
-        BsButton(icon="mouse-pointer-click", label="Annotate preview", tip="Annotate elements, regions, and drawings (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-annotate")
-        BsButton(icon="camera", label="Capture screenshot", tip="Screenshot · Shift-click to record (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-capture")
-        BsButton(icon="picture-in-picture-2", label="Float preview over chat", tip="Float preview over chat (part 3)", disabled=true, pressed=false, spin=false, align="end", press=local("surface-browser-noop", view.tabId, ""), testId="browser-float")
+        // Part 3 (browser-surface-capture): Annotate, Capture (Shift-click records) and Float preview (browser-capture.contract).
+        BrowserCaptureButtons(view=view.capture, tabId=view.tabId, local=local)
         BrowserMore(view=view, local=local)
       // The loading bar: 2pt, the primary colour, from the left edge; it stops moving with reduced motion.
       box position="absolute" left=0 right=0 bottom=0 height="0.125rem" overflow="hidden" pointer-events="none" aria-hidden=true
@@ -210,7 +209,7 @@ component BrowserMore
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=(view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload")] : []), keyed=keyed, gap="0px", modal=true)
             BsMenuItem(id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
-            BsMenuItem(id="browser-more-window", label="Open separate preview window", note="Part 3", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
+            BsMenuItem(id="browser-more-window", label=(view.capture.separateWindow ? "Close separate preview window" : "Open separate preview window"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-window", view.tabId, ""))
             BsMenuItem(id="browser-more-device-toolbar", label="Show device toolbar", note="Part 2", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
             BsMenuItem(id="browser-more-appearance", label="Appearance", note="Part 2", chevron=true, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"

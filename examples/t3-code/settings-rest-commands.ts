@@ -18,6 +18,7 @@ import { openLogsFolder } from './diagnostics-view';
 import { bitbucketCommand } from './settings-a-bitbucket';
 import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
+import { clientValue, decodeClientPrefs, type ClientPrefs } from './settings-core'; // browser-surface part 3: the Browser defaults
 import { copyThreadReference } from './thread-reference'; // thread-commands-and-keys: ⇧⌘C copies the PR link or the thread ID
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
@@ -105,6 +106,7 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
   if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
+  if (op === 'browser-default') return browserDefault(client, storage, params(value)); // browser-surface part 3
   const access = client.restAccess(native);
   const input = params(value);
   if (op === 'storage') {
@@ -221,4 +223,16 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
   throw new ClientError(`Unknown settings action: ${op}`);
+}
+
+/** browser-surface part 3: the Browser section's client defaults (IntegrationsSettings BrowserRecordingFrameRateSetting,
+ *  BrowserRecordingInputSettings, BrowserAutoShowFloatingPreviewSetting): `key=<setting>&value=<value>`, kept on this device. */
+const BROWSER_DEFAULT_KEYS = ['browserRecordingFrameRate', 'browserRecordingShowKeyPresses', 'browserRecordingShowMousePresses', 'browserAutoShowFloatingPreview'];
+async function browserDefault(client: T3Client, storage: Files, input: Record<string, string>): Promise<string> {
+  const key = str(input.key), parsed = BROWSER_DEFAULT_KEYS.includes(key) ? clientValue(key, str(input.value)) : undefined;
+  if (parsed === undefined) throw new ClientError('Unsupported browser setting.');
+  const local = client.local as unknown as { clientSettings?: ClientPrefs };
+  local.clientSettings = { ...(local.clientSettings ?? decodeClientPrefs({})), [key]: parsed };
+  await client.savePreferences(storage);
+  return '';
 }

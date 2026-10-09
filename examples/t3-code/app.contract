@@ -1083,7 +1083,7 @@ component T3Code
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0, canvasGestureValue, shell.panel.deviceMini.key, shell.panel.deviceMini.show) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0, canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show) as shape ChatCanvasView
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer (terminal-drawer-view.ts)
   state titleDialog = false
   state confirmTitle = ""
@@ -1108,6 +1108,13 @@ component T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
+  // browser-surface part 3: ⌘Return in Annotate sends the composer with the annotation (PreviewView onSendAnnotation).
+  state annotationSendHandled = 0
+  task annotationSend when shell.panel.browser.capture.sendSerial > annotationSendHandled and not commandPending key=shell.panel.browser.capture.sendSerial
+    after(1, annotationSendNow)
+  action annotationSendNow
+    annotationSendHandled = shell.panel.browser.capture.sendSerial
+    send()
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm
@@ -1132,7 +1139,7 @@ component T3Code
   action toastHovering(over: bool)
     toastHover = over
   action toastAct(id: number, op: string, target: string, value: string)
-    toastDismissed = op == "copy" ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}`
+    toastDismissed = op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}` // browser-surface part 3: a screenshot's Copy and Reveal keep their toast
     if op == "copy"
       send localChanged = command("shelllocal:copy-error", `${id}`, value, 0)
     if op == "ui:settings" and not settingsOpen

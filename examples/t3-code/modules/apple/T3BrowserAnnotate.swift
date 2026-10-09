@@ -108,11 +108,10 @@ final class T3BrowserAnnotation: NSObject, WKScriptMessageHandler {
         settle(pick, nil)
     }
 
-    /// The settled pick for `serial`, once: the result, or `["cancelled": true]`.
+    /// The settled pick for `serial`: the result, or `["cancelled": true]`. It stays until the next pick settles, so an
+    /// answer Exact lets go before it applied the result can ask again (the data module applies each serial once).
     func take(serial: Int) -> [String: Any]? {
         guard let outcome, outcome.serial == serial else { return nil }
-        self.outcome = nil
-        changed?()
         return outcome.value
     }
 

@@ -23,6 +23,7 @@ import { parseTerminalContext, formatTerminalContextReference, saveTerminalConte
 import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 import { videoOp } from './r4-composer-attachments';
 import { folderDropTarget, primary } from './local-primary'; // the folder drop's target (folderDrop.ts)
+import { annotationChipContexts, annotationMessageRecords } from './browser-annotation'; // browser-surface part 3: Annotate's chips
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -92,7 +93,9 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
 }
 /** The message `context` for a send, or undefined when the prompt references none. */
 export function messageContext(client: T3Client, text: string): Obj | undefined {
-  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...imageContextRecords(client, text), ...terminalMessageRecords(client, text)];
+  const images = imageContextRecords(client, text);
+  const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...images, ...terminalMessageRecords(client, text),
+    ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))]; // browser-surface part 3
   return records.length ? { version: 1, records } : undefined;
 }
 /** Attach the prompt's context records to a dispatch or launch payload. */
@@ -116,7 +119,7 @@ function chipContexts(client: T3Client, text: string): Record<string, string> {
   for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}` : 'review-comment';
   for (const reference of contextReferences(text)) if (reference.kind === 'terminal') out[`terminal/${reference.id}`] = 'terminal\t\t';
   for (const record of terminalDraftRecords(client, text)) out[`terminal/${str(record.contextId)}`] = `terminal\t\t${str(record.text)}`;
-  return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text) };
+  return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text), ...annotationChipContexts(client, text) };
 }
 
 async function pathSearch(client: T3Client, native: Native, entry: EditorCache, cwd: string, query: string): Promise<Search | 'loading'> {

@@ -119,6 +119,14 @@ shape IntegrationsPage
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
   simulatorSupport: list<SimulatorSupportRow>
+  recording: BrowserCaptureDefaults // browser-surface part 3
+
+// browser-surface part 3: the Browser section's recording and floating-preview defaults (client settings on this device).
+shape BrowserCaptureDefaults
+  frameRate: string
+  showKeyPresses: bool
+  showMousePresses: bool
+  autoShow: bool
 
 component SectionTitle
   props
@@ -403,7 +411,7 @@ component IntegrationsPanel
           Card()
             column width="100%" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" background-color="light-dark(#fafafa33, #ffffff02)"
               SettingsNotice(message="Only available in the desktop app.", warning=false)
-              BrowserDefaults()
+              BrowserDefaults(defaults=data.recording, busy=busy, rest=rest, restInput=restInput)
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Devices")
@@ -440,6 +448,13 @@ component DeviceRow
 // IntegrationsSettings preview defaults: client-local and unavailable outside
 // the Electron desktop shell, shown as the reference shows them (inert at 64%).
 component BrowserDefaults
+  inject
+    rem: number
+  props
+    defaults: BrowserCaptureDefaults
+    busy: bool
+    rest: action
+    restInput: action
   view
     column width="100%" testId="browser-defaults-unavailable"
       DisabledRow(title="Browser profiles", description="Profiles separate cookies and logins. Incognito data is cleared when the app closes.", control="Add profile", kind="button")
@@ -453,11 +468,41 @@ component BrowserDefaults
       DisabledRow(title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", control="Fill panel", kind="wide-select")
       DisabledRow(title="Default browser zoom", description="Page zoom applied to new browser tabs.", control="100%", kind="select")
       DisabledRow(title="Default browser appearance", description="The color scheme pages are told to prefer. System follows your OS setting.", control="System", kind="select")
-      DisabledRow(title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", control="30 fps", kind="select")
-      DisabledRow(title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", control="", kind="switch")
-      DisabledRow(title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", control="", kind="switch")
+      // browser-surface part 3: live (BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings).
+      CaptureDefaultRow(title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", rowId="browser-recording-frame-rate", resetLabel="browser recording frame rate", resettable=(defaults.frameRate != "30"), busy=busy, reset=rest("browser-default", "key=browserRecordingFrameRate&value=30"))
+        SettingsSelect(selectId="browser-recording-frame-rate-select", label="Browser recording frame rate", valueLabel=`${defaults.frameRate} fps`, value=defaults.frameRate, width=(10 * rem), disabled=busy, options=[SelectOption(value="30", label="30 fps", selected=(defaults.frameRate == "30")), SelectOption(value="60", label="60 fps", selected=(defaults.frameRate == "60"))], choose=restInput("browser-default", "key=browserRecordingFrameRate&value="))
+      CaptureDefaultRow(title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", rowId="browser-recording-key-presses", resetLabel="", resettable=false, busy=busy, reset=rest("browser-default", ""))
+        SettingsSwitch(checked=defaults.showKeyPresses, label="Show key presses in recordings", disabled=busy, switchId="browser-recording-key-presses-switch", toggle=rest("browser-default", `key=browserRecordingShowKeyPresses&value=${defaults.showKeyPresses ? "false" : "true"}`))
+      CaptureDefaultRow(title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", rowId="browser-recording-mouse-presses", resetLabel="", resettable=false, busy=busy, reset=rest("browser-default", ""))
+        SettingsSwitch(checked=defaults.showMousePresses, label="Show mouse presses in recordings", disabled=busy, switchId="browser-recording-mouse-presses-switch", toggle=rest("browser-default", `key=browserRecordingShowMousePresses&value=${defaults.showMousePresses ? "false" : "true"}`))
       DisabledRow(title="Open links in", description="Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way.", control="Your default browser", kind="wide-select")
-      DisabledRow(title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", control="on", kind="switch")
+      CaptureDefaultRow(title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", rowId="browser-auto-show-floating-preview", resetLabel="auto-show floating preview", resettable=(not defaults.autoShow), busy=busy, reset=rest("browser-default", "key=browserAutoShowFloatingPreview&value=true"))
+        SettingsSwitch(checked=defaults.autoShow, label="Auto-show floating preview", disabled=busy, switchId="browser-auto-show-floating-preview-switch", toggle=rest("browser-default", `key=browserAutoShowFloatingPreview&value=${defaults.autoShow ? "false" : "true"}`))
+
+// browser-surface part 3: a live Browser default (SettingsRow with its control and resetAction): the title, the reset
+// button while the value differs from the default, the description, and the control at the end.
+component CaptureDefaultRow
+  props
+    title: string
+    description: string
+    rowId: string
+    resetLabel: string
+    resettable: bool
+    busy: bool
+    reset: action
+  slot
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId=`browser-default-${rowId}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            when resettable
+              button press=reset disabled=busy aria-label=`Reset ${resetLabel} to default` testId=`reset-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+        children
 
 // SettingsUnavailableGroup's inert row: titles and descriptions at 64% (its
 // [&_h3]/[&_p] opacity), controls drawn as they are but inert.

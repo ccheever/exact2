@@ -7,7 +7,7 @@ import type { T3Client } from './client';
 import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
 import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
 import { highlightPending } from './r12-render-highlight';
-import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
+import { toasts, dismissToast, type Toast, type ToastAction, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { shortcutInput } from './keybinding-settings';
@@ -35,6 +35,8 @@ export type ShellToastView = {
   actionLabel: string; actionOp: string; actionId: string; actionValue: string; actionOutline: boolean;
   secondaryLabel: string; secondaryOp: string; secondaryId: string; secondaryValue: string; secondaryGhost: boolean;
   stacked: boolean; copyText: string; copied: boolean; index: number;
+  /** browser-surface part 3: the additional action, and each button's "Copied!" state (2 s after its copy). */
+  extraLabel: string; extraOp: string; extraId: string; extraValue: string; actionDone: boolean; secondaryDone: boolean; extraDone: boolean;
   details: { id: string; title: string; subtitle: string; last: boolean }[]; expandLabel: string; collapseLabel: string;
 };
 export type ShellMenuItem = { id: string; label: string; icon: string; destructive: boolean; disabled: boolean; separated: boolean;
@@ -56,11 +58,11 @@ const TONES: Record<string, string> = {
 };
 
 type Clock = { remaining: number; last: number; timeout?: number };
-type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: NotifyStatus; now: number; copied: Map<number, number> };
+type ShellState = { clocks: Map<number, Clock>; handled: Set<string>; status: NotifyStatus; now: number; copied: Map<number, number>; copiedActions: Map<string, number> };
 const states = new WeakMap<T3Client, ShellState>();
 export function shellState(client: T3Client): ShellState {
   let state = states.get(client);
-  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, now: 0, copied: new Map() }; states.set(client, state); }
+  if (!state) { state = { clocks: new Map(), handled: new Set(), status: { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, now: 0, copied: new Map(), copiedActions: new Map() }; states.set(client, state); }
   return state;
 }
 
@@ -90,6 +92,16 @@ export const COPIED_MS = 2000;
 export function markCopied(client: T3Client, id: number): void {
   const state = shellState(client);
   state.copied.set(id, state.now);
+}
+/** A toast button's own copy (Copy image, Copy path): "Copied!" and disabled for 2 s (PreviewView's `pathCopied`). */
+export function markActionCopied(client: T3Client, id: number, op: string): void {
+  const state = shellState(client);
+  state.copiedActions.set(`${id}:${op}`, state.now);
+}
+export function copiedActions(client: T3Client): Set<string> {
+  const state = shellState(client);
+  for (const [key, at] of [...state.copiedActions]) if (state.now - at >= COPIED_MS) state.copiedActions.delete(key);
+  return new Set(state.copiedActions.keys());
 }
 export function copiedToasts(client: T3Client, now: number): Set<number> {
   const state = shellState(client);
@@ -125,20 +137,23 @@ export function advanceToasts(client: T3Client, now: number, paused: boolean): T
 }
 
 /** Newest first, as Base UI stacks them; `index` is the visible depth. */
-export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set()): ShellToastView[] {
+export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set(), copiedOps: ReadonlySet<string> = new Set()): ShellToastView[] {
   return [...queue].reverse().map((toast, index) => {
     const leading = str(toast.leading);
     const provider = leading.startsWith('provider:') ? leading.slice(9) : '';
     const [glyph, tone] = leading && !provider && leading !== 'none' ? leading.split(':') : ['', ''];
     const [kindGlyph, kindColor] = KIND_ICON[toast.kind] ?? KIND_ICON.info;
-    const action = toast.action, secondary = toast.secondary ?? null;
+    const action = toast.action, secondary = toast.secondary ?? null, extra = toast.extra ?? null;
+    const done = (entry: ToastAction | null) => !!entry && copiedOps.has(`${toast.id}:${entry.op}`);
+    const label = (entry: ToastAction | null) => (done(entry) ? 'Copied!' : entry?.label ?? '');
     return {
       id: toast.id, kind: toast.kind, title: toast.title, description: toast.description,
       icon: provider || leading === 'none' ? '' : glyph || kindGlyph, iconColor: provider || leading === 'none' ? '' : glyph ? TONES[tone ?? ''] ?? kindColor : kindColor, provider,
-      actionLabel: action?.label ?? '', actionOp: action?.op ?? '', actionId: action?.id ?? '', actionValue: action?.value ?? '',
+      actionLabel: label(action), actionOp: action?.op ?? '', actionId: action?.id ?? '', actionValue: action?.value ?? '',
       actionOutline: toast.actionVariant === 'outline',
-      secondaryLabel: secondary?.label ?? '', secondaryOp: secondary?.op ?? '', secondaryId: secondary?.id ?? '', secondaryValue: secondary?.value ?? '', secondaryGhost: toast.secondaryVariant === 'ghost',
+      secondaryLabel: label(secondary), secondaryOp: secondary?.op ?? '', secondaryId: secondary?.id ?? '', secondaryValue: secondary?.value ?? '', secondaryGhost: toast.secondaryVariant === 'ghost',
       stacked: toast.stacked === true && !!action, copyText: toast.kind === 'error' && !toast.hideCopy ? toast.description : '', copied: copied.has(toast.id), index,
+      extraLabel: label(extra), extraOp: extra?.op ?? '', extraId: extra?.id ?? '', extraValue: extra?.value ?? '', actionDone: done(action), secondaryDone: done(secondary), extraDone: done(extra),
       details: (toast.details ?? []).map((detail, at, all) => ({ ...detail, last: at === all.length - 1 })), expandLabel: toast.expandLabels?.expand ?? 'Show details', collapseLabel: toast.expandLabels?.collapse ?? 'Hide details',
     };
   });
@@ -266,7 +281,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const menu = titleMenu(client, now);
   return {
-    toasts: toastViews(queue, copiedToasts(client, now)), toastCount: queue.length, ticking: tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client),
     ...(await activationOpen(client, native, state.status)), // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),

@@ -227,7 +227,8 @@ final class BrowserAnnotateTests: XCTestCase {
         XCTAssertNil(overlay())
         XCTAssertEqual(CaptureSpin.evaluate(web, "String(document.querySelectorAll('[data-t3code-pick], [data-t3code-annotation-ui]').length)"), "0")
         XCTAssertEqual(annotation.report["active"] as? Bool, false)
-        XCTAssertNil(annotation.take(serial: annotation.serial), "a result is taken once")
+        XCTAssertNotNil(annotation.take(serial: annotation.serial), "the result stays for an answer that was let go and asks again")
+        XCTAssertNil(annotation.take(serial: annotation.serial - 1), "only the newest pick's")
     }
 
     func testReactsFiberGivesTheComponentNameSourceAndOwnerStack() throws {

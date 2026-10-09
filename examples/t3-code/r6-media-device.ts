@@ -149,7 +149,7 @@ export function r6DeviceMini(client: T3Client, state: Obj | null): R6DeviceMini 
   if (!target || !client.threadId) return emptyMini();
   const device = state ? arr(state.devices).find(entry => str(entry.hostId) === target.hostId && str(entry.id) === target.deviceId) : undefined;
   const key = deviceKey(target), platform = platformOf(target.platform);
-  return { show: true, key, sourceKey: previewMiniPlayerSourceKey(target), name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
+  return { show: true, key, sourceKey: previewMiniPlayerSourceKey(miniSource(target)), name: str(device?.name, target.name), description: `${state ? hostLabel(state, target.hostId) : 'Device host'} · ${str(device?.version, platform)}`,
     platform, deviceId: target.deviceId, hostId: target.hostId, stream: streamView(client, key, platform) };
 }
 
@@ -159,7 +159,7 @@ export const miniStoreOf = (client: T3Client): PreviewMiniPlayerStore => storeOf
 /** Lane r12-threads: previewMiniPlayerStore open / close / the thread's source, for ChatView's device effects. */
 export function miniDeviceOf(client: T3Client, threadId: string): DeviceTarget | undefined {
   const source = storeOf(client).mini.get(threadId)?.source;
-  return source ? { hostId: source.hostId, deviceId: source.deviceId, platform: source.platform, name: source.name } : undefined;
+  return source?.kind === 'device' ? { hostId: source.hostId, deviceId: source.deviceId, platform: source.platform, name: source.name } : undefined;
 }
 /** previewMiniPlayerStore.open: a new source keeps the thread's position and width. */
 export function floatMiniDevice(client: T3Client, threadId: string, target: DeviceTarget): void { storeOf(client).mini.open(threadId, miniSource(target)); }

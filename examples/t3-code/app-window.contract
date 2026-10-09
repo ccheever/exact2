@@ -308,6 +308,7 @@ component T3Window
   provide
     rem = data.look.fontSize
     still = viewport.prefersReducedMotion
+    scheme = viewport.prefersColorScheme // browser-surface part 3: the annotation overlay's theme (browser-capture.contract)
     hoverTipAt
     hoverTip
     hoverShown

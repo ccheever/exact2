@@ -696,6 +696,8 @@ final class T3ComposerUnderlay: NSView {
         "pr-closed": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
         "citation": ["#2f3b4f", "#ceddf4", "#4684e51c", "#aec5e9", "#5a91e961"],
         "terminal": ["#2c3f39", "#cbe2d6", "#009f6e1c", "#a9cdbd", "#3ba97d61"],
+        // browser-surface part 3: an Annotate chip (ContextChip "preview-annotation", oklch(0.62 0.134 70); the timeline's context-element inks).
+        "preview-annotation": ["#44382c", "#e9d9c7", "#b875011c", "#d7bfa6", "#b8750161"],
         "image": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
         // r4-composer: an attached video's file chip (ContextChip kind "video", oklch(0.62 0.16 48)).
         "video": ["#4a352e", "#f0d6c8", "#d062171c", "#e1baa7", "#d7733b61"],

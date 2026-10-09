@@ -252,7 +252,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
 export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
     hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
-    simulatorSupport: [] as SimulatorSupportRow[] };
+    simulatorSupport: [] as SimulatorSupportRow[], recording: browserCaptureDefaults(client) };
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
@@ -291,4 +291,11 @@ export function toolVersion(value: unknown): string {
 }
 function blankRow(): ScopedRow {
   return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false };
+}
+
+/** browser-surface part 3: the Browser section's recording and floating-preview defaults, from this device's client settings. */
+export function browserCaptureDefaults(client: T3Client): { frameRate: string; showKeyPresses: boolean; showMousePresses: boolean; autoShow: boolean } {
+  const prefs = obj((client.local as unknown as { clientSettings?: Obj }).clientSettings);
+  return { frameRate: prefs.browserRecordingFrameRate === 60 ? '60' : '30', showKeyPresses: prefs.browserRecordingShowKeyPresses === true,
+    showMousePresses: prefs.browserRecordingShowMousePresses === true, autoShow: prefs.browserAutoShowFloatingPreview !== false };
 }

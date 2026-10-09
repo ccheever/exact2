@@ -17,12 +17,13 @@ import { chatLaneMetrics, resolveChatCanvasLayout, type ChatCanvasPreview } from
 import { clampInterfaceFontSize } from './appearance-fonts';
 import { resolveThreadDetailsCardLayout, THREAD_DETAILS_CARD_GAP } from './thread-details-card-layout';
 import {
-  clampPreviewMiniPlayerPosition, resizePreviewMiniPlayer, resolveDeviceMiniPlayerCornerRadius, resolveDeviceMiniPlayerSourceSize,
+  clampPreviewMiniPlayerPosition, PREVIEW_MINI_PLAYER_CORNER_RADIUS, resizePreviewMiniPlayer, resolveDeviceMiniPlayerCornerRadius, resolveDeviceMiniPlayerSourceSize,
   resolvePreviewMiniPlayerPillInset, RESIZE_DIRECTIONS, type BrowserViewportResizeDirection, type DevicePlatform, type PreviewMiniPlayerFrame, type PreviewMiniPlayerSize,
 } from './previewMiniPlayerLayout';
 import { previewMiniPlayerSourceKey, type PreviewMiniPlayerState } from './previewMiniPlayerStore';
 import { deviceKey, miniStoreOf } from './r6-media-device';
-import { shownDevice } from './r4-surfaces-panel';
+import { shownBrowserTab, shownDevice } from './r4-surfaces-panel';
+import { floatingBrowserSize } from './browser-capture'; // browser-surface part 3: a floating Browser tab
 import { inlineOpen } from './shell-prefs';
 import { detailsKey } from './shell-details';
 
@@ -81,6 +82,7 @@ function visiblePlayer(client: T3Client): PreviewMiniPlayerState | null {
   if (!client.threadId) return null;
   const player = miniStoreOf(client).get(client.threadId);
   if (!player) return null;
+  if (player.source.kind === 'browser') return shownBrowserTab(client) === player.source.tabId ? null : player; // part 3
   const shown = shownDevice(client);
   return shown && shown.hostId === player.source.hostId && shown.deviceId === player.source.deviceId ? null : player;
 }
@@ -138,7 +140,8 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
   const detailsCard = preferred ? { left: preferred.x, right: preferred.x + preferred.width, bottom: preferred.y + Math.min(content ? content[3]! + 2 : preferred.height, preferred.height) } : null;
   let preview: ChatCanvasPreview | null = null, source: PreviewMiniPlayerSize | null = null;
   if (current) {
-    source = resolveDeviceMiniPlayerSourceSize(current.source.platform, screenOf(streams, current.source.hostId, current.source.deviceId));
+    source = current.source.kind === 'browser' ? floatingBrowserSize(client, previewMiniPlayerSourceKey(current.source))
+      : resolveDeviceMiniPlayerSourceSize(current.source.platform, screenOf(streams, current.source.hostId, current.source.deviceId));
     preview = { key: previewMiniPlayerSourceKey(current.source), width: current.width, position: current.position, source, lastInteraction: current.lastInteraction };
   }
   const layout = resolveChatCanvasLayout({ container, preview, ...lane, composerHeight: args.overlaid && overlay ? overlay[3]! : 0, detailsCard });
@@ -146,8 +149,8 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
   let mini = NO_MINI;
   if (current && layout.frame && preview && source) {
     state.shown = { threadKey, sourceKey: preview.key, frame: layout.frame, container, source };
-    const radius = resolveDeviceMiniPlayerCornerRadius(current.source.platform as DevicePlatform, layout.frame);
-    mini = { show: true, key: deviceKey({ hostId: current.source.hostId, deviceId: current.source.deviceId }), x: layout.frame.x, top: CHAT_HEADER_HEIGHT + layout.frame.y,
+    const radius = current.source.kind === 'browser' ? PREVIEW_MINI_PLAYER_CORNER_RADIUS : resolveDeviceMiniPlayerCornerRadius(current.source.platform as DevicePlatform, layout.frame);
+    mini = { show: true, key: current.source.kind === 'browser' ? preview.key : deviceKey({ hostId: current.source.hostId, deviceId: current.source.deviceId }), x: layout.frame.x, top: CHAT_HEADER_HEIGHT + layout.frame.y,
       width: layout.frame.width, height: layout.frame.height, radius, pillInset: resolvePreviewMiniPlayerPillInset(radius) };
   } else state.shown = null;
   return {

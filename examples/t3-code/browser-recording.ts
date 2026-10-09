@@ -501,11 +501,6 @@ async function stopRecorder(recorder: RecordingRecorder | null): Promise<void> {
 }
 function stopStream(stream: RecordingStream | null): void { for (const track of stream?.getTracks() ?? []) track.stop(); }
 
-/** recordingFileExtension (Manager.ts): the subtype without `x-` and punctuation, else "video". */
-export function recordingFileExtension(mimeType: string): string {
-  const subtype = mimeType.split(';', 1)[0]?.trim().toLowerCase().split('/')[1] ?? '';
-  return subtype.replace(/^x-/, '').replace(/[^a-z0-9]/g, '') || 'video';
-}
 
 // ── Upload (browserRecordingUpload.ts): the encoded file once, as an attachment ─────────────────
 /** PROVIDER_SEND_TURN_MAX_FILE_BYTES. */

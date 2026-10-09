@@ -128,6 +128,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         value["recording"] = recording.report
         value["pip"] = pip != nil
         value["downloads"] = downloads.entries
+        value["size"] = [Double(web.frame.width), Double(web.frame.height)] // the floating player sizes itself from the page
         if let failure { value["code"] = failure.code; value["description"] = failure.description }
         if let icon = favicon.current { value["favicon"] = ["dataUrl": icon.dataUrl, "pageUrl": icon.pageUrl, "capturedAt": icon.capturedAt] }
         return value

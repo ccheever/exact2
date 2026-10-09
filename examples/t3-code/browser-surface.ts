@@ -26,6 +26,8 @@ import {
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
+// Part 3 (browser-surface-capture): Annotate, Capture, Float preview, the separate window and the floating player.
+import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 
 // ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
 export const DEFAULT_BROWSER_PROFILE_ID = 'default';
@@ -296,11 +298,13 @@ export type BrowserView = {
   empty: boolean; failed: boolean; failHost: string; failMessage: string; failLabel: string; live: boolean;
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
   profiles: BrowserProfileChoice[];
+  /** Part 3: Annotate, Capture, Float preview and the separate window (browser-capture.ts). */
+  capture: BrowserCaptureView;
 };
 export const emptyBrowserView = (): BrowserView => ({
   tabId: '', runtimeId: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
-  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })), capture: emptyCaptureView(),
 });
 
 /** PreviewView's chrome and body for the active Browser tab. */
@@ -316,6 +320,7 @@ export function browserView(client: T3Client, surface: Surface | null): BrowserV
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
     profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+    capture: browserCaptureView(client, ref, surface.browser.tabId, runtimeId, !!tab, failed),
   };
 }
 
@@ -334,6 +339,9 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     }
     await mirrorNativeState(client, native);
     await syncNativeSessions(client, native);
+    // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
+    adoptCaptureNative(client, native);
+    await applyCaptureResults(client, native, liveTabKeys(client));
   } catch (error) { if (letGo(error)) throw error; }
 }
 
@@ -341,11 +349,15 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 export async function browserLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
   const host = browserHost(client);
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
+  // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
+  if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
+  if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, tabId => reopenBrowserTab(client, state, tabId));
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
   if (!ref || !surface?.browser) return '';
   const { nav, runtimeId, snapshot } = effectiveNav(client, ref, surface.browser.tabId);
   const profile = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID;
+  if (await captureLocal(client, native, state, op, { ref, tabId: surface.browser.tabId, runtimeId }, value)) return ''; // part 3
   switch (op) {
     case 'navigate': {
       // handleSubmitUrl: an address the rules refuse does nothing (the server's failed event, not a toast, is the
@@ -367,4 +379,28 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
     }
   }
   return '';
+}
+
+// ── Part 3: the tabs the module has, by thread, and the floating player's Open in right panel ─────────
+/** Every live tab with its thread (Annotate's results go to that thread's composer). */
+function liveTabKeys(client: T3Client): Array<{ runtimeId: string; threadKey: string }> {
+  const host = browserHost(client), out: Array<{ runtimeId: string; threadKey: string }> = [];
+  for (const [key, state] of host.store.active()) {
+    const ref = parseScopedThreadKey(key);
+    if (ref) for (const snapshot of Object.values(state.sessions)) out.push({ runtimeId: previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), threadKey: key });
+  }
+  return out;
+}
+/** ThreadPreviewMiniPlayer openInPanel: the floating tab back in the right panel (rightPanelStore.openBrowser). */
+function reopenBrowserTab(client: T3Client, state: PanelState, tabId: string): void {
+  const ref = activeRef(client);
+  if (!ref) return;
+  client.diffOpen = false;
+  openBrowserIn(state, tabId, scopedThreadKey(ref));
+}
+/** The thread's sessions as the floating player reads them (browser-capture.ts browserMiniView). */
+export function browserMiniSessions(client: T3Client, ref: ScopedThreadRef): { serverEpoch: string | null; tabs: Record<string, { url: string; profileId: string }> } {
+  const state = browserHost(client).store.read(ref), tabs: Record<string, { url: string; profileId: string }> = {};
+  for (const snapshot of Object.values(state.sessions)) tabs[snapshot.tabId] = { url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url, profileId: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID };
+  return { serverEpoch: state.serverEpoch, tabs };
 }

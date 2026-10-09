@@ -64,6 +64,9 @@ export const CLIENT_DEFAULTS = {
   sidebarProjectSortOrder: 'updated_at',
   // legacy-sidebar: the legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
   sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
+  // browser-surface part 3: the Browser section's recording and floating-preview defaults (contracts settings.ts:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on).
+  browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -76,7 +79,7 @@ const CHOICES: Record<string, readonly string[]> = {
 const BOUNDS: Record<string, [number, number, number]> = {
   appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
   fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
-  sidebarThreadPreviewCount: [1, 15, 1],
+  sidebarThreadPreviewCount: [1, 15, 1], browserRecordingFrameRate: [30, 60, 30],
 };
 const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
 const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };

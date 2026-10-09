@@ -10,6 +10,7 @@ use R6DeviceView from "./r6-device-shapes.contract"
 use R6DeviceMini from "./r6-device-shapes.contract"
 use R12TabStrip from "./r12-threads.contract"
 use BrowserPanel from "./browser-shapes.contract"
+use BrowserMini from "./browser-shapes.contract"
 use MediaView from "./media-actions.contract"
 
 shape R4Tab
@@ -250,3 +251,4 @@ shape R4Panel
   deviceMini: R6DeviceMini
   tabStrip: R12TabStrip // lane r12-threads: the tab strip's scroll (r12-threads-tabs.ts)
   browser: BrowserPanel // browser-surface: the active Browser tab (browser-surface.ts browserView)
+  browserMini: BrowserMini // browser-surface part 3: the floating player's browser tab (browser-capture.ts browserMiniView)
