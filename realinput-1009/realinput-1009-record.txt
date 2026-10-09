@@ -1,0 +1,48 @@
+realinput-1009: the deferred real-input batch rows that do not wait on main PRs #327 or #239, 2026-10-09 (KST 11:41-12:29)
+Build: feat(example)/t3-code 7ce613206, bundle signed with the development identity; the fix re-checked on the rebuilt bundle with it.
+Lock: .realinput-lock taken 02:41:02Z (owner "realinput-1009: deferred batch rows"), released 03:28:53Z.
+Input: orca computer clicks (window coordinates); real key events posted at the HID tap (a small CGEvent tool) for text and keys,
+so the active input source sees them; cliclick for pointer moves; a CGEvent scroll wheel; set-value only where noted. The Mac's
+input source was ABC throughout (com.apple.keylayout.ABC); an agent never switches it. Hover rows need the app frontmost
+(System Events), otherwise no hover card or tip shows.
+
+Session 1: "T3 Code (Lane RI)" with the embedded server (127.0.0.1:16650), lane home seeded by `t3 project add` (work, site), a
+version-only claude stand-in so a thread can be created (its turns fail; no account).
+- #299 title-custom-snooze rows 1-4: PASS (details in ri-01). Row 5 (Snooze dimmed while a turn waits on the user): not run, needs
+  a signed-in provider.
+- #312 fix-provider-auth-state: Space opens, Space closes, Return opens the Sign-in method menu, Escape closes it with the ring
+  on the select: PASS. FINDING: right after "Continue to sign-in", Tab reaches nothing in the Add provider dialog (AX focus on
+  the window, no ring), also after a click on the dialog body; the focus had to be put on the select by a click and Escape.
+
+Session 2: "T3 Code (Lane RIG)" (no embedded server; the real HOME so its credential goes to the login keychain, deleted after),
+paired with the GitHub lane: primary account server 127.0.0.1:16660, second account server 127.0.0.1:16661 (both lane homes),
+sandbox daehyeonmun2021/playground (seed re-run: --skip-bulk, then --only writes-second,writes-primary).
+- #293 header fold: #115 folded by a real wheel, then #144 opens with its header open: PASS (ri-03).
+- #261 pr-writing-and-metadata on #158: Return in the comment box makes a new line, nothing posted; Command-Return posts exactly
+  one comment "lane" (read back, deleted); pencils on hover over the description and the own comment; composer Tab order with
+  text (Comment, Review, close, box, Close with comment, Comment) and Escape back to the round button; Change labels: the
+  search focused, Down/Up move the highlight, Return applies area/docs and help (read back), Return removes it (read back),
+  Escape with the ring on the trigger; the description editor's Tab order Write, Preview, text, Cancel, Save: PASS (ri-04, ri-05).
+  Not run: Korean 2-Set composition (the source was ABC). The reaction pill's tooltip on #115 did not show under the real
+  pointer (two tries, 1.5 s and 3 s rests) while the card's pencil and other tips did: left open, hover-layer territory that
+  waits on #327 (X62) as #307's rows.
+- #311 A: onto #115 the card shows, away it goes; Command-click on the pull/116 URL keeps the panel and opens the default browser
+  (tab closed again); a plain click selects #115: PASS (ri-06). Onto the card: waits on #327. The commit link: the fixture
+  comment's c46352e is plain text (not linked) here; not run.
+- #311 B: the off-diff path tip and a thread author tip show under the real pointer (ri-09); the age tip, the scope note tip and
+  steps 3-6 not run.
+- #311 C: Check out by keys: Down to server B (ring on B, tint on A), Space selects B, Escape back to Check out: PASS (ri-07).
+  More by keys: FAIL then FIXED: Down from "Fix findings" stayed on it for each Act on row and then jumped to "Convert to draft";
+  both menus gave their Act on rows the ids pr-act-on-<key>, and the More key menu focused the hidden Check out menu's row.
+  The More rows now have pr-more-act-on-<key>; re-checked by real keys on the rebuilt bundle: Down reaches A, B, then Convert to
+  draft; Space selects B; Escape puts the ring on More (ri-08). Guard: menu-keys.test.ts (fails on 7ce613206).
+- #308 pr-code-tab on #168: a thread Reply by a real Command-Return (read back as a reply to 4216186848, then deleted); a second
+  draft and Escape: nothing sent (review comment count unchanged); Fix in a thread by a real click opens the hand-off thread
+  (ri-09, ri-10). Not run: the gutter drag (step 2), Reduce motion (step 4, a System Settings change that needs the user's
+  permission), the Submit review line/side read-back (step 6), the Load more reveal (step 7).
+
+Not in this batch: #307's two rows and #311's onto-the-card (wait on #327), #290's two rows (their usage fixture lane went with
+the fix-hover-cards worktree), #310 (a host finding; a table reply needs a signed-in provider), #296 (optional).
+Cleanup: the posted comments, the reply and the label removed (read back: #132 and #158 have no comments, #158 no labels, #168 two
+review comments as seeded); both lane servers stopped; the copy's keychain items, preferences, Application Support, caches and
+the copy itself removed; nothing listens on 16650-16699; the lock released.
