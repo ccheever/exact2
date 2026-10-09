@@ -5,7 +5,6 @@
 // window, hides while Settings is covered, and closes when the grant is detected or
 // Settings closes. Tracking reads window metadata only; it never requests a grant.
 import AppKit
-import ApplicationServices
 
 enum T3MacPermission: String {
     case screenRecording = "screen-recording", accessibility
@@ -13,7 +12,6 @@ enum T3MacPermission: String {
     var title: String { self == .screenRecording ? "Screen Recording" : "Accessibility" }
     /// Reference MAC_PERMISSION_SETTINGS_URLS.
     var settingsURL: URL { URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_" + (self == .screenRecording ? "ScreenCapture" : "Accessibility"))! }
-    var granted: Bool { self == .screenRecording ? CGPreflightScreenCaptureAccess() : AXIsProcessTrusted() }
 }
 
 /// What one look at System Settings found (reference SettingsWindow, plus the
@@ -175,6 +173,10 @@ final class T3PermissionPanel: NSPanel {
     }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    // Ordering out or in under a still pointer sends no exit or entry (a Finder reveal
+    // hides the panel under it), so the hover state is read again from the pointer.
+    override func orderOut(_ sender: Any?) { super.orderOut(sender); content.syncHover() }
+    override func orderFrontRegardless() { super.orderFrontRegardless(); content.syncHover() }
     // Reference preload: Escape anywhere in the panel closes it.
     override func cancelOperation(_ sender: Any?) { onEscape() }
     override func keyDown(with event: NSEvent) { if event.keyCode == 53 { onEscape() } else { super.keyDown(with: event) } }
@@ -240,6 +242,13 @@ final class T3PermissionHelperView: NSView {
     }
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
+    /// The pointer in screen coordinates (a seam for the AppKit tests).
+    var pointer: () -> NSPoint = { NSEvent.mouseLocation }
+    /// Reference #panel:hover, from where the pointer is; never while the panel is hidden.
+    func syncHover() {
+        guard let window, window.isVisible else { hovering = false; return }
+        hovering = window.convertToScreen(convert(card, to: nil)).contains(pointer())
+    }
     var closeVisible: Bool { closeButton.alphaValue > 0 }
 }
 
@@ -251,8 +260,10 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
     let label = NSTextField(labelWithString: "T3 Code")
     var onReveal: () -> Void = {}
     var palette = T3PermissionHelperView.palette(dark: false) { didSet { label.textColor = palette.text; needsDisplay = true } }
-    private var pressed: NSEvent?
-    private var dragging = false
+    private(set) var pressed: NSEvent?
+    private(set) var dragging = false
+    /// Reference #app:active: the press lasts until mouseUp or the drag's end.
+    var grabbing: Bool { pressed != nil }
     init(bundle: URL, icon: NSImage) {
         self.bundle = bundle; self.icon = icon
         super.init(frame: .zero)
@@ -281,8 +292,8 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: self))
     }
     // Reference cursor: grab, grabbing while pressed.
-    override func mouseEntered(with event: NSEvent) { (pressed == nil ? NSCursor.openHand : NSCursor.closedHand).set() }
-    override func mouseExited(with event: NSEvent) { if pressed == nil { NSCursor.arrow.set() } }
+    override func mouseEntered(with event: NSEvent) { (grabbing ? NSCursor.closedHand : NSCursor.openHand).set() }
+    override func mouseExited(with event: NSEvent) { if !grabbing { NSCursor.arrow.set() } }
     override func mouseDown(with event: NSEvent) { pressed = event; dragging = false; NSCursor.closedHand.set() }
     override func mouseDragged(with event: NSEvent) {
         guard let pressed, !dragging else { return }
@@ -307,6 +318,14 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
     /// Copy or link only: a drop on the Trash must never move the app.
     static func operations(_ context: NSDraggingContext) -> NSDragOperation { context == .outsideApplication ? [.copy, .link, .generic] : [] }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { Self.operations(context) }
+    /// AppKit sends the row no mouseUp after a drag, so the drag's end releases the press,
+    /// whether the drop was taken, refused or made elsewhere.
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { dragEnded(at: screenPoint) }
+    func dragEnded(at screenPoint: NSPoint) {
+        pressed = nil; dragging = false
+        guard let window, window.isVisible else { return }
+        (bounds.contains(convert(window.convertPoint(fromScreen: screenPoint), from: nil)) ? NSCursor.openHand : NSCursor.arrow).set()
+    }
 }
 
 /// The reference "#close" button: a 22 pt circle with "×", shown while the panel is

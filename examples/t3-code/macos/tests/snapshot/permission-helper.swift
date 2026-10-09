@@ -74,6 +74,7 @@ func runPermissionHelperChecks() {
     expect(panel.title == "Set up Screen Recording" && panel.level == .floating && !panel.hidesOnDeactivate && !panel.hasShadow && !panel.isOpaque, "a frameless, always-on-top panel titled for its permission")
     expect(panel.styleMask.contains(.nonactivatingPanel), "using the panel never activates T3 Code over System Settings")
     let content = panel.content
+    content.pointer = { NSPoint(x: -10_000, y: -10_000) } // the real pointer may rest where the panel docks
     expect(content.title.stringValue == "↑ Drag T3 Code into the list above" && content.appRow.label.stringValue == "T3 Code", "reference header and app row text")
     expect(content.appRow.accessibilityLabel() == "Drag T3 Code to System Settings, or click to reveal in Finder" && content.closeButton.accessibilityLabel() == "Close permission helper", "reference accessible names")
     content.layoutSubtreeIfNeeded()
@@ -97,6 +98,18 @@ func runPermissionHelperChecks() {
     expect(!content.closeVisible, "the close button is hidden until the panel is hovered")
     content.mouseEntered(with: enter); expect(content.closeVisible, "hovering the panel shows the close button")
     content.mouseExited(with: enter); expect(!content.closeVisible, "leaving the panel hides it again")
+    // Ordering out or in under a still pointer sends no exit or entry: the hover is read again.
+    content.pointer = { NSPoint(x: 700, y: 250) }; content.mouseEntered(with: enter)
+    panel.orderOut(nil); expect(!content.closeVisible, "the panel hidden under the pointer (a Finder reveal) drops its hover")
+    panel.orderFrontRegardless(); expect(content.closeVisible, "back under the pointer, × shows again")
+    panel.orderOut(nil); content.pointer = { NSPoint(x: 10, y: 10) }; panel.orderFrontRegardless()
+    expect(!content.closeVisible, "back with the pointer elsewhere, × stays hidden")
+    // AppKit sends no mouseUp after a drag: the drag's end releases the press.
+    let row = content.appRow
+    row.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 120, y: 60), modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+    expect(row.grabbing, "pressing the row grabs (closed hand)")
+    row.dragEnded(at: NSPoint(x: 10, y: 10))
+    expect(!row.grabbing && !row.dragging && helper.panel === panel && revealed.isEmpty, "a drag that ends without a grant releases the press (open hand over the row again) and reveals nothing")
     expect(content.appRow.accessibilityPerformPress() && revealed == [bundle], "a click on T3 Code reveals the running app bundle in Finder")
     expect(helper.panel === panel, "revealing in Finder keeps the helper open")
     let mask = T3PermissionHelperAppRow.operations(.outsideApplication)
