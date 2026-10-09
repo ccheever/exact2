@@ -14,6 +14,7 @@ import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, 
 import { markdownDocument, parseDelimited, inlineRuns } from './r4-surfaces-render';
 import { surfaces } from './shell';
 import { decodeClientPrefs } from './settings-core';
+import { diagramPreviewAction, diagramPreviewView } from './timeline-mermaid';
 import type { Native } from './protocol';
 
 const panel = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
@@ -229,6 +230,31 @@ describe('Files surface', () => {
     expect(writes()).toHaveLength(1);
     expect(setMarkdownTaskChecked('- [X] a', 2, false)).toBe('- [ ] a');
     expect(setMarkdownTaskChecked('- (x) a', 2, false)).toBe('- (x) a');
+  });
+  // FileMarkdownPreview is ChatMarkdown: a settled ```mermaid fence draws as a diagram (MarkdownMermaidCodeBlock), and
+  // its expand opens the diagram preview as the transcript's does.
+  test('a rendered Markdown file draws its Mermaid fences as diagrams', async () => {
+    const { client, calls, replies } = fakeClient({ origin: 'http://127.0.0.1:1', local: { clientSettings: decodeClientPrefs({}) } });
+    const flow = 'graph LR\n  Files --> Preview', text = `# Flow\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
+    let json = '';
+    const base = client.restAccess.bind(client);
+    Object.assign(client, { restAccess: (n: Native) => ({ ...base(n), call: async (request: Record<string, unknown>) => {
+      calls.push({ method: String(request.op), payload: request, write: false });
+      return { items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) };
+    } }) });
+    replies['projects.listEntries'] = payload => ({ entries: payload.directoryPath === '' ? [{ path: 'docs', kind: 'directory' }] : [{ path: 'docs/flow.md', kind: 'file' }], truncated: false });
+    replies['projects.readFile'] = () => ({ relativePath: 'docs/flow.md', contents: text, byteLength: text.length, truncated: false });
+    await surfaceLocal(client, native, 'file', 'docs/flow.md', '');
+    let files = (await panelView(client, native, 0)).files;
+    if (files.preview !== 'markdown') { await surfaceLocal(client, native, 'files-render', 'docs/flow.md', ''); files = (await panelView(client, native, 0)).files; }
+    expect(files.diagrams.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
+    expect(calls.find(call => call.method === 'mermaidRender')?.payload.diagrams).toEqual([{ source: flow, theme: 'light' }, { source: flow, theme: 'dark' }]);
+    // The module announces the finished render; the next view carries the diagram, and its expand opens it.
+    json = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [] });
+    files = (await panelView(client, native, 0)).files;
+    expect(files.diagrams[0]).toMatchObject({ code: flow, diagram: 'rendered', width: 120, viewBox: '0 0 120 80' });
+    diagramPreviewAction(client, 'diagram-open', flow);
+    expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
   test('Markdown renders as transcript blocks; CSV keeps quoted cells', () => {
     const document = markdownDocument('d', '# Title\n\nSome `code` here.\n\n- one\n- two\n\n```ts\nconst a = 1;\n```');

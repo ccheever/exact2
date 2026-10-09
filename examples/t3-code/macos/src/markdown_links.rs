@@ -77,15 +77,16 @@ fn link_href(href: &str) -> String {
 }
 
 /// `- [ ] `, `1. [x] `: the `[` of a list item's task marker (GFM wants whitespace and
-/// some text after it), from the item's text after its bullet.
-fn task_marker(rest: &str) -> Option<bool> {
+/// some text after it), from the item's text after its bullet. `more`: the text goes on
+/// in later runs (`- [ ] **Write**`: emphasis, code or a link right after the marker).
+fn task_marker(rest: &str, more: bool) -> Option<bool> {
     let checked = match rest.get(..3)? {
         "[ ]" => false,
         "[x]" | "[X]" => true,
         _ => return None,
     };
     let after = &rest[3..];
-    (after.starts_with([' ', '\t']) && !after.trim().is_empty()).then_some(checked)
+    (after.starts_with([' ', '\t']) && (more || !after.trim().is_empty())).then_some(checked)
 }
 
 /// Every line the parser starts a list item on (outside fences, not a rule), in
@@ -136,7 +137,7 @@ fn item_line(line: &str, trimmed: &str, offset: usize) -> Option<Option<usize>> 
         return None;
     }
     let rest = after.trim_start();
-    Some(task_marker(rest).map(|_| {
+    Some(task_marker(rest, false).map(|_| {
         let at = line.len() - rest.len();
         offset + line[..at].encode_utf16().count()
     }))
@@ -176,13 +177,16 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
                 return ("", -1.0);
             }
             let offset = line.next().flatten();
+            let more = block.runs.len() > 1;
             let Some(first) = block.runs.first_mut() else {
                 return ("", -1.0);
             };
             if first.code || !first.href.is_empty() || placed && offset.is_none() {
                 return ("", -1.0);
             }
-            let Some(checked) = task_marker(&first.text) else {
+            // The marker is a run of its own when the item's text starts with emphasis,
+            // code or a link: that run is dropped below and the item is still a task.
+            let Some(checked) = task_marker(&first.text, more) else {
                 return ("", -1.0);
             };
             first.text = first.text[3..].trim_start().to_string();
@@ -303,7 +307,9 @@ mod link_tests {
 
     #[test]
     fn task_items_carry_their_state_and_marker_offset() {
-        let text = "Tasks é:\n\n- [ ] Write the tests\n- [x] Ship **it**\n- plain\n\n```md\n- [ ] in a fence\n```\n\n1. [X] numbered\n- [ ]\n";
+        // An image chip's `!` (dropped before parsing) does not shift a later marker's offset, and an item whose text
+        // starts with emphasis, code or a link is still a task (its first run is the marker alone).
+        let text = "Tasks é ![shot](t3-context://v1/file/f1):\n\n- [ ] Write the tests\n- [x] Ship **it**\n- plain\n\n```md\n- [ ] in a fence\n```\n\n1. [X] numbered\n- [ ]\n- [ ] **Write** the tests\n- [x] `code` first\n- [ ] [link](https://a.com) after\n";
         let doc = document_with_tasks(Value::str("f"), text, None, true);
         let tasks: Vec<(String, f64, String)> = blocks_of(&doc)
             .into_iter()
@@ -325,6 +331,9 @@ mod link_tests {
                 ("".into(), -1.0, "plain".into()),
                 ("done".into(), utf16("[X] numbered"), "numbered".into()),
                 ("".into(), -1.0, "[ ]".into()),
+                ("open".into(), utf16("[ ] **Write**"), "Write".into()),
+                ("done".into(), utf16("[x] `code`"), "code".into()),
+                ("open".into(), utf16("[ ] [link]"), "link".into()),
             ]
         );
         // In the transcript the same items draw GFM's disabled checkbox: no offset to write.
@@ -338,7 +347,7 @@ mod link_tests {
                 .iter()
                 .filter(|f| f[16].as_str() == Some("done"))
                 .count(),
-            2
+            3
         );
         assert!(items.iter().all(|f| f[17] == Value::Number(-1.0)));
         // renderFileMarkdown answers a "file" source (r4-surfaces-files.ts markdownSource) with offsets.
@@ -362,7 +371,7 @@ mod link_tests {
                 .iter()
                 .filter(|f| f[17] != Value::Number(-1.0))
                 .count(),
-            3
+            6
         );
     }
 }

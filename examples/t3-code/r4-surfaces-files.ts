@@ -16,6 +16,7 @@ import { workspaceOf, panelKey, panelState, type Surface, type PanelState } from
 import { tableRows } from './r4-surfaces-render';
 import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips'; // markdown-links-and-files-preview: the chat renderer's chips and settings
 import { messageCodeBlocks } from './timeline-highlight';
+import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
 import { timelineView } from './timeline-presentation';
 import { textWidth } from './pages-text-width';
 import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
@@ -51,8 +52,9 @@ export type FilesView = {
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   // markdown-links-and-files-preview PA-3: FileMarkdownPreview is ChatMarkdown. `markdownSource` is renderMarkdown's one
   // message (app.contract filesMarkdown; kind "file" when its task checkboxes may write the file), `md` its chips and
-  // settings, `code` its fences' colours, `mdUrls` its host-path media and `codeCopied` / `codeCopyNonce` Copy code's check.
-  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: never[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
+  // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
+  // `codeCopyNonce` Copy code's check.
+  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
   codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
 };
@@ -455,16 +457,18 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
 
 /**
  * FileMarkdownPreview: ChatMarkdown over the file's text, relative links and images resolved against the file's own
- * folder (`imageBaseDir`); its task checkboxes write the file unless it is read-only (RenderedMarkdownSurface readOnly).
+ * folder (`imageBaseDir`), ```mermaid fences drawn as diagrams; its task checkboxes write the file unless it is
+ * read-only (RenderedMarkdownSurface readOnly).
  */
 async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
   const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/';
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const urls = await markdownMediaUrls(client, native, folder, now, [text]);
+  const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: messageChips({ text }, folder, []) },
-    code: messageCodeBlocks(text), mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -543,7 +547,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     canRender: markdown || table || html, rendered, renderLabel: markdown ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : table ? (rendered ? 'Show source' : 'Show table') : html ? htmlToggleLabel(rendered) : '',
     renderIcon: rendered ? 'code' : table ? 'table' : 'eye', editable, pending: pendingPaths(client).has(path),
     ...editors, absolutePath: absolute,
-    ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), diagrams: [], table: parsedTable?.rows ?? [],
+    ...(rich ?? { markdownSource: [], md: emptyFiles().md, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 }), table: parsedTable?.rows ?? [],
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,

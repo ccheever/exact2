@@ -588,9 +588,12 @@ fn document_with_tasks(
             .collect(),
         _ => Vec::new(),
     };
+    // Task offsets name the file's own text: image_chip_links drops the `!` of each
+    // `![name](t3-context://…)`, which would shift every later marker by one.
+    let source = text;
     let text = image_chip_links(text);
     let mut doc = markdown_parse::parse(&text, &|href| link_href(href));
-    let mut tasks = task_items(&mut doc.blocks, &text);
+    let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
