@@ -33,6 +33,10 @@ extension T3BrowserSessions {
             Self.importIO.perform(request) { answer($0) }
         case "browserImportOpenSettings":
             DispatchQueue.main.async { answer(Self.importIO.openFullDiskAccessSettings()) }
+        case "browserImportLog":
+            // The listing's outcome per browser (`sources chrome=ready …`): a `t3.browser:` host line and the status log.
+            let line = String((request["line"] as? String ?? "").prefix(400))
+            DispatchQueue.main.async { self.note("import \(line)"); answer([:]) }
         case "browserImportProgress":
             // The wizard moved to a step of its own while its command runs ("Importing cookies", "Checking …"): one
             // `t3.status` so the page reads it now, not when the command ends.

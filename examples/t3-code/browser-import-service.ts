@@ -5,7 +5,7 @@
 // into that environment's WebKit data store for the profile (`browserImportCookies`, T3BrowserSessions+Profiles.swift:
 // `WKHTTPCookieStore.setCookie`), in batches rather than one IPC per cookie. WebKit has no `flushStore`: a written cookie
 // is in the store, which persists it on its own schedule.
-import { ImportFsError, posixPath, type ImportIO, type PlatformName } from './browser-import-io';
+import { ImportFsError, named, posixPath, type ImportIO, type PlatformName } from './browser-import-io';
 import type { BrowserImportFailureReason, BrowserImportInput, BrowserImportResult, BrowserImportSource, BrowserImportUnavailableReason } from './browser-import';
 import { ChromiumCookieReadError, FirefoxCookieReadError, readChromiumCookies, readFirefoxCookies, type CookieReadResult, type ImportedCookie } from './browser-import-readers';
 import { SafariCookieReadError, readSafariCookies, safariAccessDenied } from './browser-import-safari';
@@ -18,7 +18,7 @@ export class BrowserImportFailedError extends Error {
   readonly _tag = 'BrowserImportFailedError';
   // The reason token is part of the message on purpose: the settings page maps it back to its copy (importFailureReason).
   constructor(readonly sourceId: string, readonly reason: BrowserImportFailureReason, readonly cause?: unknown) {
-    super(`Importing cookies from ${sourceId} failed: ${reason}.`); this.name = 'BrowserImportFailedError';
+    super(`Importing cookies from ${sourceId} failed: ${reason}.`); named(this, 'BrowserImportFailedError');
   }
 }
 

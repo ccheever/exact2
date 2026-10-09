@@ -11,6 +11,7 @@ import type { T3Client } from './client';
 import { bridgeReply, ClientError, type Files, type Native } from './protocol';
 import { arr, obj, str, type Obj } from './domain';
 import { primaryEntry } from './local-primary';
+import { letGo } from './let-go';
 import { pushToast } from './toast';
 import {
   BROWSER_PROFILE_MAX_COUNT, BROWSER_PROFILE_NAME_MAX_LENGTH, DEFAULT_BROWSER_PROFILE_ID, browserProfilePrefs, browserProfileRemovalAvailable, clearBrowserProfileData,
@@ -25,6 +26,7 @@ import { nativeImportIO, type ImportIO } from './browser-import-io';
 import { importBrowserCookies, listBrowserImportSources, sourcePathContext, type CookieWriter } from './browser-import-service';
 import { safariPermissionCheck } from './browser-import-safari';
 import type { BrowserImportPathContext } from './browser-import-sources';
+import { applyBrowserDefault, browserDefaultsView, type BrowserDefaultsView } from './browser-defaults';
 
 type Wizard = {
   source: BrowserImportSource; environmentId: string; environmentName: string; step: WizardStep; sourceProfileDirectory: string;
@@ -69,7 +71,7 @@ export function primaryEnvironmentLabel(label: string | undefined): string {
 }
 
 // ── The cookie import through the module ─────────────────────────────────────────────────────────
-async function importContext(client: T3Client, native: Native): Promise<{ io: ImportIO; context: BrowserImportPathContext } | null> {
+async function importContext(client: T3Client, native: Native): Promise<{ io: ImportIO & { letGoSeen(): boolean }; context: BrowserImportPathContext } | null> {
   const reply = await client.raw(native, { op: 'browserImportContext' });
   const value = obj(reply.value);
   if (!reply.ok || value.allowed !== true || !str(value.home)) return null;
@@ -100,8 +102,13 @@ async function loadSources(client: T3Client, native: Native): Promise<BrowserImp
   const state = ui(client);
   try {
     const found = await importContext(client, native);
-    state.sources = found ? await listBrowserImportSources(found.io, found.context) : [];
-  } catch { state.sources = state.sources ?? []; }
+    const listed = found ? await listBrowserImportSources(found.io, found.context) : [];
+    // A listing whose reads Exact let go (a newer command replaced this one) is no answer: the cached list stays.
+    if (found?.io.letGoSeen()) throw new ClientError('The browser listing was replaced.', 'superseded');
+    state.sources = listed;
+    const summary = listed.map(source => `${source.id}=${source.unavailable ?? `ready(${source.profiles.length})`}`).join(' ');
+    await client.raw(native, { op: 'browserImportLog', line: `sources ${found ? summary : 'none (no fixture home in this build)'}` }).catch(() => undefined);
+  } catch (error) { if (letGo(error)) throw error; state.sources = state.sources ?? []; }
   return state.sources;
 }
 /** A browser not on this machine, or one this platform cannot read, is left out of the menu; every other reason stays. */
@@ -218,6 +225,8 @@ async function startImport(client: T3Client, native: Native, storage: Files): Pr
     return importBrowserCookies(found.io, found.context, { sourceId: wizard.source.id as BrowserImportSourceId, sourceProfileDirectory: wizard.sourceProfileDirectory, targetProfileId },
       async () => nativeCookieWriter(client, native, wizard.environmentId, targetProfileId));
   }, (environmentId, profileId) => clearBrowserProfileData(nativeProfileBridge(raw(client, native)), [environmentId], profileId)).catch((): ImportOutcome => ({ kind: 'blocked', reason: 'readFailed' }));
+  // An import whose reads Exact let go made no answer: back to the choice (the reference's wizard cannot be left mid-import).
+  if (found?.io.letGoSeen()) { if (state.wizard === wizard) wizard.step = { step: 'configure' }; throw new ClientError('The import was replaced.', 'superseded'); }
   if (state.wizard === wizard) wizard.step = outcomeToStep(outcome);
   await client.savePreferences(storage);
 }
@@ -230,7 +239,7 @@ async function recheck(client: T3Client, native: Native, check: 'browser' | 'ful
   await progress(client, native);
   let refreshed: BrowserImportSource | undefined;
   try { refreshed = (await loadSources(client, native)).find(source => source.id === wizard.source.id); }
-  catch { wizard.step = { step: 'blocked', reason: 'readFailed' }; return; }
+  catch (error) { if (letGo(error)) throw error; wizard.step = { step: 'blocked', reason: 'readFailed' }; return; }
   if (refreshed) { wizard.source = refreshed; wizard.sourceProfileDirectory = refreshedSourceProfileDirectory(wizard.sourceProfileDirectory, refreshed); }
   wizard.step = check === 'browser' ? refreshedSourceStep(refreshed) : fullDiskAccessRecheckStep(refreshed);
 }
@@ -256,6 +265,7 @@ export async function browserProfilesLocal(client: T3Client, native: Native, sto
   const save = () => client.savePreferences(storage);
   switch (op) {
     case 'browser-profiles-noop': return ''; // a disabled menu row's press
+    case 'browser-defaults': if (hydrated(client) && applyBrowserDefault(client, input.key ?? '', input.value ?? '')) await save(); return ''; // the default rows (browser-defaults.ts)
     case 'browser-profiles-sources': await loadSources(client, native); return '';
     case 'browser-profiles-create': if (createBrowserProfile(client, 'New profile')) await save(); return '';
     case 'browser-profiles-rename': renameBrowserProfile(client, input.id ?? '', input.name ?? ''); await save(); return '';
@@ -299,11 +309,14 @@ export type BrowserProfilesView = {
   hydrated: boolean; writesDisabled: boolean; importInFlight: boolean; atLimit: boolean; rows: BrowserProfileRowView[];
   sourcesState: string; sources: { id: string; name: string }[]; canImport: boolean; removalAvailable: boolean; removalNote: string;
   removalOpen: boolean; removalName: string; removalError: string; removalBusy: boolean; wizard: BrowserImportWizardView;
+  /** The group's other rows: viewport, zoom, appearance, recording, auto-show (browser-defaults.ts). */
+  defaults: BrowserDefaultsView;
 };
 const closedWizard = (): BrowserImportWizardView => ({ open: false, step: '', sourceName: '', environmentName: '', canClose: true, check: '', from: [], into: [], feedback: '', importDisabled: true,
   fdaGranted: false, fdaStillRequired: false, fdaBusy: false, fdaNote: '', fdaResume: '', doneTitle: '', doneDescription: '', skipped: '', blockedText: '', retry: false });
 export const emptyBrowserProfilesView = (): BrowserProfilesView => ({ hydrated: false, writesDisabled: true, importInFlight: false, atLimit: false, rows: [], sourcesState: 'loading', sources: [],
-  canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalName: '', removalError: '', removalBusy: false, wizard: closedWizard() });
+  canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
+  defaults: browserDefaultsView({ local: {} }) });
 
 async function wizardView(client: T3Client, native: Native, wizard: Wizard | null): Promise<BrowserImportWizardView> {
   if (!wizard) return closedWizard();
@@ -311,7 +324,8 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
   if (step.step === 'fullDiskAccess') {
     // usePermissionStatus: the grant is read again whenever the page is drawn (the reference polls every 1.5 s).
     const found = await importContext(client, native).catch(() => null);
-    wizard.fdaGranted = found ? await safariPermissionCheck(found.io, found.context)().catch(() => false) : false;
+    const granted = found ? await safariPermissionCheck(found.io, found.context)().catch(() => false) : false;
+    if (!found?.io.letGoSeen()) wizard.fdaGranted = granted;
   }
   const targetMissing = wizard.target.kind === 'existing' && !profiles.some(profile => profile.id === (wizard.target as { profileId: string }).profileId);
   const targetUncreatable = wizard.target.kind === 'new' && !creatable;
@@ -349,6 +363,6 @@ export async function browserProfilesView(client: T3Client, native: Native | nul
     canImport: ready && primaryEntry() !== null, removalAvailable,
     removalNote: removalAvailable ? '' : environments.ready ? 'Connect to an environment to clear profile data' : 'Checking environments…',
     removalOpen: state.removal !== null, removalName: state.removal?.profile.name ?? '', removalError: state.removal?.error ?? '', removalBusy: state.removal?.inFlight ?? false,
-    wizard: await wizardView(client, native, state.wizard),
+    wizard: await wizardView(client, native, state.wizard), defaults: browserDefaultsView(client),
   };
 }

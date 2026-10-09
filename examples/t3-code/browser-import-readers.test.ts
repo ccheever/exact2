@@ -326,3 +326,20 @@ describe('parseFirefoxProfiles', () => {
       .toEqual([{ directory: 'Profiles/relative.default', name: 'Relative' }, { directory: '/mnt/custom/firefox-profile', name: 'Custom' }]);
   });
 });
+
+// Clone row: the app's JS runtime freezes Error.prototype, so an error class that assigned `this.name` threw a TypeError
+// there (found by the live drive: every browser read as running), while Bun passed. Each import error constructs under
+// a frozen Error.prototype, in a child Bun.
+it('constructs every import error under a frozen Error.prototype, as the app runtime has it', () => {
+  const here = import.meta.dir;
+  const script = `Object.freeze(Error.prototype);
+    const io = await import('${here}/browser-import-io.ts'), readers = await import('${here}/browser-import-readers.ts');
+    const safari = await import('${here}/browser-import-safari.ts'), service = await import('${here}/browser-import-service.ts'), profiles = await import('${here}/browser-profiles.ts');
+    const made = [new io.ImportFsError('ENOENT'), new io.ImportSqlError('x'), new io.KeychainUnavailableError(), new readers.ChromiumKeyError('readFailed'),
+      new readers.ChromiumCookieReadError('readFailed', '/p'), new readers.SchemaError('x'), new readers.FirefoxCookieReadError('/p', null),
+      new safari.SafariCookieReadError('readFailed'), new service.BrowserImportFailedError('chrome', 'readFailed'), new profiles.BrowserSettingsReadError()];
+    console.log(made.map(error => error.name).join(','));`;
+  const run = Bun.spawnSync([process.execPath, '-e', script]);
+  expect(run.stderr.toString()).toBe('');
+  expect(run.stdout.toString().trim()).toBe('ImportFsError,SqlError,KeychainUnavailableError,ChromiumKeyError,ChromiumCookieReadError,SchemaError,FirefoxCookieReadError,SafariCookieReadError,BrowserImportFailedError,BrowserSettingsReadError');
+});

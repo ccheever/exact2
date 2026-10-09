@@ -14,7 +14,7 @@ import {
 import { browserProfilesLocal, browserProfilesView, createBrowserProfile, primaryEnvironmentLabel, renameBrowserProfile, runWizardImport } from './browser-profiles-settings';
 import { browserHost, browserLocal, browserView, openBrowserIn } from './browser-surface';
 import type { T3Client } from './client';
-import type { Files, Native } from './protocol';
+import { ClientError, type Files, type Native } from './protocol';
 import type { Obj } from './domain';
 import type { PanelState } from './r4-surfaces-panel';
 
@@ -243,5 +243,29 @@ describe("PreviewMoreMenu's Profile group", () => {
     await browserLocal(client, module, state, 'clear-cookies', 'tab-1', '');
     await browserLocal(client, module, state, 'clear-cache', 'tab-1', '');
     expect(native.filter(request => request.op === 'browserClearData').map(request => [request.environment, request.profile, request.what])).toEqual([['local', work.id, 'cookies'], ['local', work.id, 'cache']]);
+  });
+});
+
+const localState = btoa(JSON.stringify({ profile: { info_cache: { Default: { name: 'You' } } } }));
+/** A fixture module: every candidate is a file, every user-data folder names one profile, nothing is locked. */
+const ioAnswer = (request: Op): Obj => request.call === 'stat' ? { kind: 'File' } : request.call === 'readDirectory' ? { entries: [] }
+  : request.call === 'readFile' ? { id: 'staged', size: atob(localState).length } : request.call === 'readChunk' ? { data: localState }
+    : request.call === 'release' ? {} : request.call === 'query' ? { rows: [] } : { code: 'ENOENT', message: 'missing' };
+describe('the browser listing under a replaced command (clone: docs/agent-pitfalls.md, a superseded send)', () => {
+  it("keeps the cached list when the listing's reads were let go, instead of reading every browser as running", async () => {
+    let lose = false;
+    const { client } = fakeClient({}, request => request.op === 'browserImportContext' ? { allowed: true, home: '/fixture-home', platform: 'darwin' }
+      : request.op === 'browserImportIO' ? ioAnswer(request) : {});
+    const raw = client.raw.bind(client);
+    (client as unknown as { raw: typeof raw }).raw = async (native, request) => {
+      if (lose && (request as Obj).op === 'browserImportIO') throw new ClientError('replaced', 'superseded');
+      return raw(native, request);
+    };
+    await browserProfilesLocal(client, module, storage, 'browser-profiles-sources', '');
+    const listed = (await browserProfilesView(client, module)).sources.map(source => source.id);
+    expect(listed).toContain('chrome');
+    lose = true;
+    await expect(browserProfilesLocal(client, module, storage, 'browser-profiles-sources', '')).rejects.toBeInstanceOf(ClientError);
+    expect((await browserProfilesView(client, module)).sources.map(source => source.id)).toEqual(listed);
   });
 });

@@ -461,8 +461,9 @@ table, built here. Parts 2–5 add their own rows when they build them.
 - **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
   environment and the profile), apart from the app's other web views; agent runs keep it in memory.
 
-Part 4 (`20261005-browser-surface-profiles`: `browser-profiles*.ts`, `browser-import*.ts`, `browser-profiles.contract`,
-`T3BrowserSessions+Profiles.swift`, `T3BrowserImportIO.swift`) adds these rows:
+Part 4 (`20261005-browser-surface-profiles`: `browser-profiles*.ts`, `browser-defaults.ts`, `browser-import*.ts`,
+`browser-profiles.contract`, `browser-defaults.contract`, `T3BrowserSessions+Profiles.swift`, `T3BrowserImportIO.swift`)
+adds these rows:
 - **Profiles and their stores.** Default and every named profile persist in their own `WKWebsiteDataStore(forIdentifier:)`
   per environment (a UUID from the environment and the profile, macOS 14), the reference's `persist:` partitions;
   Incognito is one non-persistent store per environment, discarded when the app quits (its in-memory partition). An
@@ -490,8 +491,10 @@ Part 4 (`20261005-browser-surface-profiles`: `browser-profiles*.ts`, `browser-im
   and is only recorded in any other.
 - **The Full Disk Access check.** The wizard re-reads the grant (Safari's jar opening) whenever the page is drawn; the
   reference also polls every 1.5 s, which a data-module page source cannot (it has no clock).
-- **The profile menus.** "Add profile" and a row's menu open on press and their rows are buttons (Tab, Return); they have
-  no arrow-key roving as Base UI's menus do.
+- **The Browser defaults rows.** The default viewport's menu lists each preset with its size in one label ("iPhone SE
+  375 × 667"; the reference right-aligns the size and heads the presets "Standard"), and its width and height are plain
+  fields committed on Return or when left (no stepper arrows). A new tab gets the default zoom and appearance right
+  after its page is made (part 2's `browserSet`), before anything loads, where the reference passes them at creation.
 - **Where the row shows.** Browser profiles is part of Settings › Integrations, which the clone draws for a connected
   environment; the reference draws its device-local rows without one.
 

@@ -15,7 +15,6 @@ use LucideChevronDown from "./settings-icons.contract"
 use LucideChevronUp from "./settings-icons.contract"
 use LucideMinus from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
-use LucideEllipsisVertical from "./settings-icons.contract"
 use BrandGit from "./settings-brands.contract"
 use BrandJujutsu from "./settings-brands.contract"
 use BrandGitHub from "./settings-brands.contract"
@@ -32,6 +31,8 @@ use SimulatorSupportSettingsRow from "./device-support.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use BrowserProfilesView from "./browser-profiles.contract"
 use BrowserProfilesSetting from "./browser-profiles.contract"
+use BrowserTabDefaultRows from "./browser-defaults.contract"
+use BrowserAutoShowRow from "./browser-defaults.contract"
 
 shape InheritLayer
   key: string
@@ -406,11 +407,11 @@ component IntegrationsPanel
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Browser")
           Card()
-            // Part 4: Browser profiles is live; the rows other parts build stay inert under the notice until then.
+            // Part 4: the group's rows (BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show); "Open links in" is part 5's.
             BrowserProfilesSetting(view=data.browserProfiles, local=local)
-            column width="100%" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" background-color="light-dark(#fafafa33, #ffffff02)" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"
-              SettingsNotice(message="Only available in the desktop app.", warning=false)
-              BrowserDefaults()
+            BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
+            BrowserDefaults()
+            BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Devices")
@@ -444,19 +445,11 @@ component DeviceRow
         DeviceVersions(tool=tool, busy=busy, rest=rest)
         ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
-// IntegrationsSettings preview defaults: client-local and unavailable outside
-// the Electron desktop shell, shown as the reference shows them (inert at 64%).
+// "Open links in" until part 5's row replaces it (browser-surface-automation, BrowserLinkTargetRow).
 component BrowserDefaults
   view
-    column width="100%" testId="browser-defaults-unavailable"
-      DisabledRow(title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", control="Fill panel", kind="wide-select")
-      DisabledRow(title="Default browser zoom", description="Page zoom applied to new browser tabs.", control="100%", kind="select")
-      DisabledRow(title="Default browser appearance", description="The color scheme pages are told to prefer. System follows your OS setting.", control="System", kind="select")
-      DisabledRow(title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", control="30 fps", kind="select")
-      DisabledRow(title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", control="", kind="switch")
-      DisabledRow(title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", control="", kind="switch")
+    column width="100%" testId="browser-defaults-links"
       DisabledRow(title="Open links in", description="Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way.", control="Your default browser", kind="wide-select")
-      DisabledRow(title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", control="on", kind="switch")
 
 // SettingsUnavailableGroup's inert row: titles and descriptions at 64% (its
 // [&_h3]/[&_p] opacity), controls drawn as they are but inert.

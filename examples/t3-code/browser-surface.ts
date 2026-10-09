@@ -26,12 +26,13 @@ import {
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
-import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, resolveBrowserDefaults, tabProfile, type BrowserDefaults } from './browser-profiles';
+import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, tabProfile, type BrowserDefaults } from './browser-profiles';
+import { resolveBrowserOpenDefaults } from './browser-defaults';
 
 // ── Profiles (browser-profiles.ts, part 4) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
 export type BrowserProfileChoice = { id: string; name: string };
-/** browserDefaultOpenViewport: fill until part 2 adds the default viewport setting. */
+/** browserDefaultOpenViewport without settings (a caller that names no defaults): fill. */
 export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
 // ── The data module's browser host, one per client ─────────────────────────────────────────────
@@ -58,8 +59,8 @@ const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => cl
 
 // ── Sessions: open, close, list (openPreviewSession, addBrowserSurface, closePreviewSession, usePreviewSession) ──
 export type OpenInput = { url?: string; profileId?: string; viewport?: PreviewViewportSetting };
-/** The configured defaults a new tab opens with (browserDefaults.ts; part 4: the profile, part 2: the viewport). */
-export type OpenDefaults = () => Pick<BrowserDefaults, 'profileId'>;
+/** The configured defaults a new tab opens with (browserDefaults.ts, part 4: its profile and viewport). */
+export type OpenDefaults = () => Pick<BrowserDefaults, 'profileId'> & { viewport?: PreviewViewportSetting };
 const builtInDefaults: OpenDefaults = () => ({ profileId: DEFAULT_BROWSER_PROFILE_ID });
 /** openPreviewSession: `preview.open` with the configured defaults, resolved once and never from unread settings (the
  *  resolver throws BrowserSettingsReadError and nothing opens); the answer is applied at once (no event needed). */
@@ -67,7 +68,7 @@ export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref
   const resolved = defaults();
   const answer = await rpc('preview.open', {
     threadId: ref.threadId, ...(input.url === undefined ? {} : { url: input.url }),
-    viewport: input.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? resolved.profileId,
+    viewport: input.viewport ?? resolved.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? resolved.profileId,
   });
   const snapshot = readSnapshot(answer);
   if (!snapshot) throw new Error('The server answered preview.open with no session.');
@@ -140,10 +141,17 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   installBrowserCleanup(client, native);
   const host = browserHost(client);
   await listPreviewSessions(client, native, ref); // the server's epoch first: the tab's native identity names it
-  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId }, () => resolveBrowserDefaults(client));
+  const defaults = resolveBrowserOpenDefaults(client); // read once: never a tab born from unread settings (part 4)
+  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId }, () => defaults);
   client.diffOpen = false;
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
   await syncNativeSessions(client, native);
+  // Part 4: the new page starts at the default zoom and appearance (browserDefaultTabState, through part 2's `browserSet`).
+  if (defaults.zoomFactor !== 1 || defaults.appearance !== 'system') {
+    const runtimeId = previewRuntimeTabId(ref, host.store.read(ref).serverEpoch, snapshot.tabId);
+    try { await nativeOp(client, native, { op: 'browserSet', tab: runtimeId, zoom: defaults.zoomFactor, colorScheme: defaults.appearance }); }
+    catch (error) { if (letGo(error)) throw error; }
+  }
   return '';
 }
 

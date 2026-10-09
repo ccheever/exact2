@@ -4,11 +4,18 @@
 // permissions/PermissionChecklist.tsx). `view` is browser-profiles-settings.ts `browserProfilesView`; every action is a
 // `restlocal:browser-…` op. The dialogs are mounted with the settings window (app-settings.contract), so they cover it.
 use LucidePlus from "./settings-icons.contract"
+use SkPopup from "./settings-kit.contract"
+use SkMenuItem from "./settings-kit.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 use LucideEllipsisVertical from "./settings-icons.contract"
 use LucideCheck from "./settings-icons.contract"
 use LucideHardDrive from "./settings-icons.contract"
 use LucideX from "./settings-icons.contract"
 use R4Glyph from "./r4-git.contract"
+use BrowserDefaultsView from "./browser-defaults.contract"
 
 shape BrowserProfileRowView
   id: string
@@ -61,14 +68,12 @@ shape BrowserProfilesView
   removalError: string
   removalBusy: bool
   wizard: BrowserImportWizardView
+  defaults: BrowserDefaultsView
 
 keyframes bpSpin
   from rotate=0
   to rotate=360
 
-style BpMenu
-  width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)"
-  background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c"
 style BpOverlay
   position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box"
   background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)"
@@ -76,40 +81,51 @@ style BpPopup
   width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)"
   background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" position="relative"
 
-// SettingsRow with the profile list under it: "Browser profiles", its description, and Add profile.
+// SettingsRow with the profile list under it: "Browser profiles", its description, and Add profile (a keyboard menu,
+// end-aligned under its trigger: Blank profile, then "Import from" and every browser found on this machine).
 component BrowserProfilesSetting
   props
     view: BrowserProfilesView
     local: action
   state addOver = false
+  state keyed = 0
+  state keyArmed = false
   action addHover(on: bool)
     addOver = on
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+    local("browser-profiles-sources", "")
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   view
     column width="100%" testId="browser-profiles-setting"
       row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center"
         column flex=1 min-width=0 gap="0.25rem"
           text "Browser profiles" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           text "Profiles separate cookies and logins. Incognito data is cleared when the app closes." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
-        column position="relative" flex-shrink=0 align-items="flex-end"
-          button press=local("browser-profiles-sources", "") popovertarget="browser-profiles-add-menu" hover=addHover disabled=view.writesDisabled aria-label="Add profile" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") opacity=(view.writesDisabled ? 0.64 : 1)
+        box position="relative" flex-shrink=0
+          button press=local("browser-profiles-sources", "") popovertarget="browser-profiles-add-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=addHover disabled=view.writesDisabled aria-label="Add profile" aria-haspopup="menu" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") opacity=(view.writesDisabled ? 0.64 : 1)
             LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
             text "Add profile" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
-          column id="browser-profiles-add-menu" popover="auto" position="absolute" margin-top="0.25rem" margin-left="-6.25rem" width="13.5rem"
-            column class=BpMenu role="menu" aria-label="Add profile" testId="browser-profiles-add-menu"
-              BpItem(itemId="browser-profiles-blank", label="Blank profile", disabled=(not view.hydrated or view.atLimit), destructive=false, menuId="browser-profiles-add-menu", press=local("browser-profiles-create", ""))
-              when view.atLimit
-                BpItem(itemId="browser-profiles-limit", label="You’ve reached the profile limit", disabled=true, destructive=false, menuId="browser-profiles-add-menu", press=local("browser-profiles-noop", ""))
-              box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
-              text "Import from" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-profiles-import-label"
-              when view.sourcesState == "loading"
-                BpItem(itemId="browser-profiles-looking", label="Looking for browsers…", disabled=true, destructive=false, menuId="browser-profiles-add-menu", press=local("browser-profiles-noop", ""))
-              when view.sourcesState == "empty"
-                BpItem(itemId="browser-profiles-none", label="No supported browsers found", disabled=true, destructive=false, menuId="browser-profiles-add-menu", press=local("browser-profiles-noop", ""))
-              when view.sourcesState == "ready"
-                each source in view.sources key=source.id
-                  BpItem(itemId=`browser-import-source-${source.id}`, label=source.name, disabled=(not view.canImport), destructive=false, menuId="browser-profiles-add-menu", press=local("browser-import-open", `source=${source.id}`))
-                when not view.canImport
-                  BpItem(itemId="browser-profiles-connect", label="Connect to an environment to import cookies", disabled=true, destructive=false, menuId="browser-profiles-add-menu", press=local("browser-profiles-noop", ""))
+          KeyMenuOpen(menuId="browser-profiles-add-menu", armed=keyArmed, opened=keyOpened)
+          SkPopup(menuId="browser-profiles-add-menu", label="Add profile", width=216, list=false, endAlign=116, items=(view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []), keyed=keyed)
+            SkMenuItem(label="Blank profile", menuId="browser-profiles-add-menu", itemId="browser-profiles-blank", selected=false, check=false, destructive=false, disabled=(not view.hydrated or view.atLimit), choose=local("browser-profiles-create", ""))
+            when view.atLimit
+              SkMenuItem(label="You’ve reached the profile limit", menuId="browser-profiles-add-menu", itemId="browser-profiles-limit", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
+            box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
+            text "Import from" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-profiles-import-label"
+            when view.sourcesState == "loading"
+              SkMenuItem(label="Looking for browsers…", menuId="browser-profiles-add-menu", itemId="browser-profiles-looking", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
+            when view.sourcesState == "empty"
+              SkMenuItem(label="No supported browsers found", menuId="browser-profiles-add-menu", itemId="browser-profiles-none", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
+            when view.sourcesState == "ready"
+              each source in view.sources key=source.id
+                SkMenuItem(label=source.name, menuId="browser-profiles-add-menu", itemId=`browser-import-source-${source.id}`, selected=false, check=false, destructive=false, disabled=(not view.canImport), choose=local("browser-import-open", `source=${source.id}`))
+              when not view.canImport
+                SkMenuItem(label="Connect to an environment to import cookies", menuId="browser-profiles-add-menu", itemId="browser-profiles-connect", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
       // The bordered list groups rows at any width; Incognito is not a row (it holds nothing to manage).
       column margin-top="0.5rem" margin-bottom="0.5rem" margin-left="1rem" margin-right="1rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" testId="browser-profiles-list"
         // Keyed by the name too, so a rename made elsewhere (the import naming a new profile) resets the field.
@@ -124,6 +140,15 @@ component BrowserProfileRow
     local: action
   state draft = row.name
   state menuOver = false
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
   action edit(next: string)
     draft = next
   action commit(value: string)
@@ -141,37 +166,21 @@ component BrowserProfileRow
           input value=draft input=edit change=commit disabled=view.writesDisabled aria-label=`Rename ${row.name}` maxlength=48 autocorrect="off" spellcheck="false" testId=`browser-profile-name-${row.id}` width="100%" max-width="14rem" min-width=0 height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" opacity=(view.writesDisabled ? 0.64 : 1)
         when row.isDefault
           text "Default" flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.375rem" background-color="light-dark(#1b4ed8, #346bf1)" color="#ffffff" opacity=(view.writesDisabled ? 0.64 : 1) testId=`browser-profile-default-${row.id}`
-      column position="relative" flex-shrink=0
-        button popovertarget=`browser-profile-menu-${row.id}` hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1)
+      box position="relative" flex-shrink=0
+        button popovertarget=`browser-profile-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` aria-haspopup="menu" testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1)
           LucideEllipsisVertical(size=14, color="light-dark(#71717b, #818181)")
-        column id=`browser-profile-menu-${row.id}` popover="auto" position="absolute" margin-top="0.25rem" margin-left="-15.5rem" width="17rem"
-          column class=BpMenu role="menu" aria-label=`${row.name} options` testId=`browser-profile-menu-${row.id}`
-            BpItem(itemId=`browser-profile-set-default-${row.id}`, label="Set as default", disabled=(not view.hydrated or row.isDefault), destructive=false, menuId=`browser-profile-menu-${row.id}`, press=local("browser-profiles-default", `id=${encodeURIComponent(row.id)}`))
-            BpItem(itemId=`browser-profile-clear-${row.id}`, label="Clear cookies and cache", disabled=(not view.hydrated or not view.removalAvailable), destructive=false, menuId=`browser-profile-menu-${row.id}`, press=local("browser-profiles-clear", `id=${encodeURIComponent(row.id)}`))
-            when not row.builtIn
-              BpItem(itemId=`browser-profile-remove-${row.id}`, label="Remove profile and data", disabled=(not view.hydrated or not view.removalAvailable), destructive=true, menuId=`browser-profile-menu-${row.id}`, press=local("browser-profiles-remove-ask", `id=${encodeURIComponent(row.id)}`))
-            when not view.removalAvailable
-              box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
-              BpItem(itemId=`browser-profile-note-${row.id}`, label=view.removalNote, disabled=true, destructive=false, menuId=`browser-profile-menu-${row.id}`, press=local("browser-profiles-noop", ""))
+        KeyMenuOpen(menuId=`browser-profile-menu-${row.id}`, armed=keyArmed, opened=keyOpened)
+        SkPopup(menuId=`browser-profile-menu-${row.id}`, label=`${row.name} options`, width=272, list=false, endAlign=24, items=rowItems(row, view), keyed=keyed)
+          SkMenuItem(label="Set as default", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-set-default-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or row.isDefault), choose=local("browser-profiles-default", `id=${encodeURIComponent(row.id)}`))
+          SkMenuItem(label="Clear cookies and cache", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-clear-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or not view.removalAvailable), choose=local("browser-profiles-clear", `id=${encodeURIComponent(row.id)}`))
+          when not row.builtIn
+            SkMenuItem(label="Remove profile and data", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-remove-${row.id}`, selected=false, check=false, destructive=true, disabled=(not view.hydrated or not view.removalAvailable), choose=local("browser-profiles-remove-ask", `id=${encodeURIComponent(row.id)}`))
+          when not view.removalAvailable
+            box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
+            SkMenuItem(label=view.removalNote, menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-note-${row.id}`, selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
 
-// MenuItem: 28pt, 8pt sides, the highlight on hover or focus, a disabled row at 64%, a destructive one in red.
-component BpItem
-  props
-    itemId: string
-    label: string
-    disabled: bool
-    destructive: bool
-    menuId: string
-    press: action
-  state hovered = false
-  state lit = false
-  action hover(on: bool)
-    hovered = on
-  action focused(on: bool)
-    lit = on
-  view
-    button id=itemId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=((hovered or lit) and not disabled ? (destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#27272914, #f5f5f514)") : "#00000000")
-      text label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color=(destructive ? "light-dark(#e7000b, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+// The row menu's keyboard stops: its enabled rows in order.
+fn rowItems(row: BrowserProfileRowView, view: BrowserProfilesView): list<KmItem> = view.hydrated and view.removalAvailable ? (row.builtIn ? (row.isDefault ? [KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache")] : [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default"), KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache")]) : (row.isDefault ? [KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache"), KmItem(id=`browser-profile-remove-${row.id}`, label="Remove profile and data")] : [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default"), KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache"), KmItem(id=`browser-profile-remove-${row.id}`, label="Remove profile and data")])) : (view.hydrated and not row.isDefault ? [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default")] : [])
 
 // "Remove “<name>”?" (AlertDialog, destructive), and the import wizard while one is open.
 component BrowserProfileDialogs

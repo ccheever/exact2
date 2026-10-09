@@ -6,7 +6,7 @@
 // big-endian except the page bodies: magic "cook", u32 pageCount, u32 pageSize[pageCount], then each page: u32 0x100,
 // u32le cookieCount, u32le cookieOffset[cookieCount], then each cookie: u32le size, u32le, u32le flags, u32le, u32le
 // url/name/path/value offsets, u64 end of header, f64 expiry, f64 creation, then NUL-terminated strings.
-import { ImportFsError, latin1, utf8, type ImportIO } from './browser-import-io';
+import { ImportFsError, latin1, named, utf8, type ImportIO } from './browser-import-io';
 import { cookieScope, type ImportedCookie } from './browser-import-readers';
 import { BROWSER_IMPORT_SOURCES, listSourceProfiles, resolveCookieDatabase, type BrowserImportPathContext } from './browser-import-sources';
 
@@ -20,7 +20,7 @@ export class SafariCookieReadError extends Error {
   readonly _tag = 'SafariCookieReadError';
   constructor(readonly reason: SafariCookieReadFailure, readonly cookieDatabasePath?: string, readonly cause?: unknown) {
     super(cookieDatabasePath === undefined ? `Could not read Safari cookies: ${reason}.` : `Could not read Safari cookies at ${cookieDatabasePath}: ${reason}.`);
-    this.name = 'SafariCookieReadError';
+    named(this, 'SafariCookieReadError');
   }
 }
 

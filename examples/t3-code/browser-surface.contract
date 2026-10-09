@@ -390,7 +390,7 @@ component BrowserLauncherProfiles
       button popovertarget="launcher-browser-profiles" hover=hover aria-label="Open browser in a profile" testId="surface-browser-profiles" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="m6 9 6 6 6-6"
-      column id="launcher-browser-profiles" popover="auto" position="absolute" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
+      column id="launcher-browser-profiles" popover="auto" position="absolute" position-area="bottom span-right" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="launcher-browser-profile-menu"
           each profile in profiles key=profile.id
             BrowserLauncherProfileItem(profile=profile, open=local("surface-browser-open", "", profile.id))

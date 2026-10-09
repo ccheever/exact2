@@ -8,19 +8,26 @@
 // module refuses every other path and answers the Keychain from the fixture's own file); only the packaged build reads
 // the user's browsers. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975.
 import { obj, str, type Json, type Obj } from './domain';
+import { letGo } from './let-go';
 
 export type FileKind = 'File' | 'Directory' | 'SymbolicLink' | 'Other';
+/** An error's own `name`. The app's JS runtime freezes Error.prototype, whose `name` is then read-only, so `this.name = …`
+ *  throws a TypeError there (the override mistake) while Bun passes; a defined own property does not. */
+export function named<T extends Error>(error: T, name: string): T {
+  Object.defineProperty(error, 'name', { value: name, writable: true, configurable: true, enumerable: false });
+  return error;
+}
 /** A file-system failure with its errno name (`ENOENT`, `EPERM`, `EACCES`, `EBUSY`, …), as Node's PlatformError cause. */
 export class ImportFsError extends Error {
-  constructor(readonly code: string, message = code) { super(message); this.name = 'ImportFsError'; }
+  constructor(readonly code: string, message = code) { super(message); named(this, 'ImportFsError'); }
 }
 /** A SQLite failure (Effect's SqlError). */
 export class ImportSqlError extends Error {
-  constructor(message: string) { super(message); this.name = 'SqlError'; }
+  constructor(message: string) { super(message); named(this, 'SqlError'); }
 }
 /** The Keychain cannot be asked at all (the reference's binding that failed to load). */
 export class KeychainUnavailableError extends Error {
-  constructor(message = 'The Keychain is unavailable.') { super(message); this.name = 'KeychainUnavailableError'; }
+  constructor(message = 'The Keychain is unavailable.') { super(message); named(this, 'KeychainUnavailableError'); }
 }
 export type SqlValue = string | number | null | Uint8Array;
 export type SqlRow = Record<string, SqlValue>;
@@ -147,10 +154,15 @@ const decodeValue = (value: unknown): SqlValue => {
 };
 
 /** The module's file, SQLite, crypto and Keychain primitives. Large answers come in pages (select queries by
- *  LIMIT/OFFSET, files in chunks), so no reply passes the bridge's size. */
-export function nativeImportIO(raw: Raw): ImportIO {
+ *  LIMIT/OFFSET, files in chunks), so no reply passes the bridge's size. The readers treat a failed read as an answer
+ *  (absent, not installed, held); a call Exact let go (its answer was replaced) is not one, so `letGoSeen` tells the caller
+ *  to discard whatever the readers made of it (docs/agent-pitfalls.md "A superseded send's fetch rejects natively"). */
+export function nativeImportIO(raw: Raw): ImportIO & { letGoSeen(): boolean } {
+  let lost = false;
   const call = async (name: string, args: Obj = {}): Promise<Obj> => {
-    const reply = await raw({ op: 'browserImportIO', call: name, ...args });
+    let reply: Awaited<ReturnType<Raw>>;
+    try { reply = await raw({ op: 'browserImportIO', call: name, ...args }); }
+    catch (error) { if (letGo(error)) lost = true; throw error; }
     const error = obj(reply.error), value = obj(reply.value);
     if (!reply.ok) throw new ImportFsError('EIO', str(error.message, 'The import could not reach the module.'));
     if (str(value.code)) {
@@ -162,6 +174,7 @@ export function nativeImportIO(raw: Raw): ImportIO {
     return value;
   };
   return {
+    letGoSeen: () => lost,
     stat: async path => str((await call('stat', { path })).kind, 'Other') as FileKind,
     readDirectory: async path => { const entries = (await call('readDirectory', { path })).entries; return Array.isArray(entries) ? entries.map(String) : []; },
     readFileString: async path => utf8(await nativeReadFile(call, path)),

@@ -8,6 +8,7 @@
 // non-persistent one). The profiles and the default one are client settings, as in the reference (its Chromium guest is
 // desktop-local): `browserProfiles` and `browserDefaultProfileId` in the preference file (t3-code.json).
 import { arr, obj, str, type Obj } from './domain';
+import { named } from './browser-import-io';
 
 export const BROWSER_PROFILE_NAME_MAX_LENGTH = 48;
 export const BROWSER_PROFILE_MAX_COUNT = 24;
@@ -94,7 +95,7 @@ export const browserDefaults = (owner: Holder): BrowserDefaults => toBrowserDefa
 
 /** openFileInPreview BrowserSettingsReadError: a tab is never opened from settings that were not read. */
 export class BrowserSettingsReadError extends Error {
-  constructor(readonly cause?: unknown) { super('Browser settings could not be read.'); this.name = 'BrowserSettingsReadError'; }
+  constructor(readonly cause?: unknown) { super('Browser settings could not be read.'); named(this, 'BrowserSettingsReadError'); }
 }
 /** resolveBrowserDefaults: the defaults once the client's settings were actually read (`preferencesLoaded`); before that,
  *  a tab would be born under the schema defaults and never corrected, so the open is refused. */

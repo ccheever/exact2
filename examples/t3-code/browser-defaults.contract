@@ -1,0 +1,116 @@
+// browser-surface part 4: Settings › Integrations › Browser's default rows (MIT reference, see LICENSE-T3, T3 Code
+// 1e2ecbd975: apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
+// BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
+// BrowserAutoShowFloatingPreviewSetting). `view` is browser-defaults.ts `browserDefaultsView`; each write is
+// `restlocal:browser-defaults` with `key=…&value=…`. "Open links in" is part 5's row, between these two groups.
+use SelectOption from "./settings-kit.contract"
+use SettingsSelect from "./settings-kit.contract"
+use SettingsSwitch from "./settings-kit.contract"
+use LucideUndo2 from "./settings-icons.contract"
+use LucideRotateCcw from "./settings-icons.contract"
+use TipBubble from "./shell-tip.contract"
+
+shape BrowserDefaultsView
+  viewportValue: string
+  viewportLabel: string
+  viewportSized: bool
+  viewportWidth: number
+  viewportHeight: number
+  rotateLabel: string
+  viewportReset: bool
+  viewportOptions: list<SelectOption>
+  zoomLabel: string
+  zoomReset: bool
+  zoomOptions: list<SelectOption>
+  appearanceLabel: string
+  appearanceReset: bool
+  appearanceOptions: list<SelectOption>
+  frameRateLabel: string
+  frameRateReset: bool
+  frameRateOptions: list<SelectOption>
+  keyPresses: bool
+  mousePresses: bool
+  autoShow: bool
+  autoShowReset: bool
+
+// SettingsRow: the title (with its reset arrow while the value is not the default), the description, the control.
+component BdRow
+  slot
+  props
+    rowId: string
+    title: string
+    description: string
+    reset: bool
+    resetLabel: string
+    resetPress: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId=`browser-default-${rowId}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            when reset
+              button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" flex-wrap="wrap"
+        children
+
+// Default browser viewport, zoom, appearance, and the recording rows.
+component BrowserTabDefaultRows
+  inject
+    rem: number
+  props
+    view: BrowserDefaultsView
+    local: action
+  action pick(key: string, value: string)
+    local("browser-defaults", `key=${key}&value=${encodeURIComponent(value)}`)
+  view
+    column width="100%" testId="browser-defaults"
+      BdRow(rowId="viewport", title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", reset=view.viewportReset, resetLabel="default browser viewport", resetPress=pick("reset", "viewport"))
+        SettingsSelect(selectId="browser-default-viewport", label="Default browser viewport", valueLabel=view.viewportLabel, value=view.viewportValue, width=(176 * rem / 16), disabled=false, options=view.viewportOptions, choose=pick("viewport"))
+        when view.viewportSized
+          BdViewportSize(view=view, pick=pick)
+      BdRow(rowId="zoom", title="Default browser zoom", description="Page zoom applied to new browser tabs.", reset=view.zoomReset, resetLabel="default browser zoom", resetPress=pick("reset", "zoom"))
+        SettingsSelect(selectId="browser-default-zoom", label="Default browser zoom", valueLabel=view.zoomLabel, value="", width=(160 * rem / 16), disabled=false, options=view.zoomOptions, choose=pick("zoom"))
+      BdRow(rowId="appearance", title="Default browser appearance", description="The color scheme pages are told to prefer. System follows your OS setting.", reset=view.appearanceReset, resetLabel="default browser appearance", resetPress=pick("reset", "appearance"))
+        SettingsSelect(selectId="browser-default-appearance", label="Default browser appearance", valueLabel=view.appearanceLabel, value="", width=(160 * rem / 16), disabled=false, options=view.appearanceOptions, choose=pick("appearance"))
+      BdRow(rowId="frame-rate", title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", reset=view.frameRateReset, resetLabel="browser recording frame rate", resetPress=pick("reset", "frame-rate"))
+        SettingsSelect(selectId="browser-recording-frame-rate", label="Browser recording frame rate", valueLabel=view.frameRateLabel, value="", width=(160 * rem / 16), disabled=false, options=view.frameRateOptions, choose=pick("frame-rate"))
+      BdRow(rowId="key-presses", title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
+        SettingsSwitch(checked=view.keyPresses, label="Show key presses in recordings", disabled=false, switchId="browser-recording-key-presses", toggle=pick("key-presses", view.keyPresses ? "false" : "true"))
+      BdRow(rowId="mouse-presses", title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
+        SettingsSwitch(checked=view.mousePresses, label="Show mouse presses in recordings", disabled=false, switchId="browser-recording-mouse-presses", toggle=pick("mouse-presses", view.mousePresses ? "false" : "true"))
+
+// The sized viewport's width × height (committed on Enter or when the field is left) and Rotate.
+component BdViewportSize
+  props
+    view: BrowserDefaultsView
+    pick: action
+  state over = false
+  action hover(on: bool)
+    over = on
+  action width(value: string)
+    pick("viewport-width", value)
+  action height(value: string)
+    pick("viewport-height", value)
+  view
+    row align-items="center" gap="0.25rem" min-width=0
+      // Keyed by the stored size, so a refused entry shows the stored value again.
+      each size in [`${view.viewportWidth}x${view.viewportHeight}`] key=size
+        input value=`${view.viewportWidth}` change=width inputmode="numeric" aria-label="Default viewport width" spellcheck="false" testId="browser-default-viewport-width" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+        text "×" font-size="0.75rem" color="light-dark(#71717b, #818181)"
+        input value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+      box position="relative" flex-shrink=0 hover=hover
+        button press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          LucideRotateCcw(size=16, color="light-dark(#71717b, #818181)")
+        TipBubble(label="Rotate", side="top", align="center", offset=36, inset=0, shown=over)
+
+// Auto-show floating preview (after "Open links in").
+component BrowserAutoShowRow
+  props
+    view: BrowserDefaultsView
+    local: action
+  view
+    BdRow(rowId="auto-show", title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", reset=view.autoShowReset, resetLabel="auto-show floating preview", resetPress=local("browser-defaults", "key=reset&value=auto-show"))
+      SettingsSwitch(checked=view.autoShow, label="Auto-show floating preview", disabled=false, switchId="browser-auto-show-floating-preview", toggle=local("browser-defaults", `key=auto-show&value=${view.autoShow ? "false" : "true"}`))

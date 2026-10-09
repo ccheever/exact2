@@ -9,7 +9,7 @@
 // Every reader works on a `VACUUM INTO` snapshot, never the browser's own file. The Linux keyring helper and Windows'
 // DPAPI unwrap are not ported (the clone runs on macOS); the decryption keeps every scheme, as the reference does.
 import {
-  KeychainUnavailableError, bytesEqual, latin1, utf8, utf8Bytes,
+  KeychainUnavailableError, bytesEqual, named, latin1, utf8, utf8Bytes,
   type DecryptItem, type ImportIO, type PlatformName, type SqlRow,
 } from './browser-import-io';
 
@@ -49,7 +49,7 @@ const KEY_SALT = 'saltysalt', KEY_LENGTH = 16, MAC_KEY_ITERATIONS = 1003;
 export type ChromiumKeyFailure = 'needsKeychainApproval' | 'keychainItemMissing' | 'keychainUnavailable' | 'unsupportedPlatform' | 'readFailed';
 export class ChromiumKeyError extends Error {
   readonly _tag = 'ChromiumKeyError';
-  constructor(readonly reason: ChromiumKeyFailure, readonly cause?: unknown) { super(`Could not obtain the Chromium cookie key: ${reason}.`); this.name = 'ChromiumKeyError'; }
+  constructor(readonly reason: ChromiumKeyFailure, readonly cause?: unknown) { super(`Could not obtain the Chromium cookie key: ${reason}.`); named(this, 'ChromiumKeyError'); }
 }
 /** Keys to try, by the record prefix they decrypt; a missing one means those records are skipped. */
 export interface ChromiumKeyMaterial {
@@ -89,13 +89,13 @@ export type ChromiumCookieReadReason = ChromiumKeyFailure | 'browserRunning';
 export class ChromiumCookieReadError extends Error {
   readonly _tag = 'ChromiumCookieReadError';
   constructor(readonly reason: ChromiumCookieReadReason, readonly cookieDatabasePath: string, readonly cause?: unknown) {
-    super(`Could not read Chromium cookies at ${cookieDatabasePath}: ${reason}.`); this.name = 'ChromiumCookieReadError';
+    super(`Could not read Chromium cookies at ${cookieDatabasePath}: ${reason}.`); named(this, 'ChromiumCookieReadError');
   }
 }
 /** Effect's SchemaError: a row or the schema version that does not decode. */
 export class SchemaError extends Error {
   readonly _tag = 'SchemaError';
-  constructor(message: string) { super(message); this.name = 'SchemaError'; }
+  constructor(message: string) { super(message); named(this, 'SchemaError'); }
 }
 
 /** Chromium's SameSite column: -1 unspecified, 0 none, 1 lax, 2 strict; anything else unspecified (never widened). */
@@ -225,7 +225,7 @@ export async function readChromiumCookies(io: ImportIO, source: ChromiumCookieSo
 // ── FirefoxCookies.ts ─────────────────────────────────────────────────────────────────────────────
 export class FirefoxCookieReadError extends Error {
   readonly _tag = 'FirefoxCookieReadError';
-  constructor(readonly cookieDatabasePath: string, readonly cause: unknown) { super(`Could not read Firefox cookies at ${cookieDatabasePath}.`); this.name = 'FirefoxCookieReadError'; }
+  constructor(readonly cookieDatabasePath: string, readonly cause: unknown) { super(`Could not read Firefox cookies at ${cookieDatabasePath}.`); named(this, 'FirefoxCookieReadError'); }
 }
 /** nsICookie: 0 None, 1 Lax, 2 Strict, 256 Unset; NULL before schema 9; schemas 10–14 fold "Lax, None declared" to Unset. */
 const SAMESITE_NONE = 0, SAMESITE_LAX = 1, SAMESITE_STRICT = 2;
