@@ -62,12 +62,17 @@ export function withAlpha(color: string, alpha: number): string {
 // Home roles are a separate source shape from connection screens.
 export function mobileHomeColors(scheme: string, palette = "t3-code") {
   const dark = scheme === "dark";
+  // Upstream mobileThemeVariables.ts: iOS default Light sidebar runtime roles.
+  const lightDefaultDrawer = !dark && (palette === "t3-code" || palette === "material-you");
   const variant = `${palette === "t3-code" ? "" : `${palette}-`}${dark ? "dark" : "light"}`;
   const tokens = themes[variant] ?? themes[dark ? "dark" : "light"];
   const token = (name: string) => tokens[`--color-${name}`];
   return {
       menuBackground: token('sheet'), card: token('card'), foreground: token('foreground'), muted: token('foreground-muted'), border: token('border'),
-      screen: token('screen'), drawer: token('drawer'),
+      screen: token('screen'), drawer: lightDefaultDrawer ? withAlpha(token('row-hover'), 1) : token('drawer'),
+      drawerForeground: token('drawer-foreground'), drawerMuted: token(lightDefaultDrawer ? 'foreground-muted' : 'drawer-foreground-muted'),
+      selectedBackground: token('thread-selected'), selectedForeground: token('thread-selected-foreground'),
+      selectedMuted: token('thread-selected-foreground-muted'), selectedQueued: token('user-bubble-foreground-muted'),
       primary: token('primary'), primaryText: token('primary-text'), primaryForeground: token('primary-foreground'), iconSubtle: token('icon-subtle'),
       dangerForeground: token('danger-foreground'), done: token('adaptive-emerald-700-300'), draft: token('adaptive-amber-700-300'),
       tertiary: token('foreground-tertiary'), secondary: token('foreground-secondary'),

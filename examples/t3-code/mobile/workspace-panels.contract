@@ -26,7 +26,7 @@ component MobileSidebarPanel
     sidebarChromeEvent: action
   view
     column id="sidebar-panel" role="tabpanel" pointer-events="none" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
-      column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=look.screen
+      column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=homeLook.drawer
         header
           text "T3 Code" role="heading" aria-level=2
         when workspace.sidebarMounted

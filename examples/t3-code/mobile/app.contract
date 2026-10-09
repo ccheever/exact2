@@ -1,3 +1,5 @@
+use MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult from "./mobile-keyboard.contract"
+use ArchiveChromeSnapshot, ArchiveChromeEvent from "./archive-chrome.contract"
 use ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission from "./project-favicon.contract"
 use MobileOutboxDrive, MobileOutboxEdit from "./mobile-outbox-drive.contract"
 use homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
@@ -274,6 +276,17 @@ component App
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
   resource data = snapshot(appearance.scheme, appearance.themeId, wallTime.epochAtZero + max(elapsed, now())) as shape Snapshot
+  resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
+  mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
+  mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard
+  action keyboardEvent(value: string)
+    send keyboardCopied = keyboardCopy(value, `${top(nav).id}`, top(nav).url)
+  action keyboardDismiss(feedbackId: number)
+    send keyboardDismissed = keyboardDismiss(feedbackId)
+  task keyboardFeedbackExpiry when keyboard.phase != "" key=keyboard.feedbackId
+    after(3000, expireKeyboardFeedback)
+  action expireKeyboardFeedback
+    keyboardDismiss(keyboard.feedbackId)
   resource detail = environmentDetail(top(nav).params.environmentKey, data.revision) as shape EnvironmentDetailData
   mutation detailChanged as shape Change refreshes data, detail
   state informationQuery = ""
@@ -1265,6 +1278,7 @@ component App
   state archiveDeleteProject = ""
   state archiveDeleteThread = ""
   resource archiveLook = archiveColors(appearance.scheme, appearance.themeId) as shape ArchiveColors
+  resource archiveChrome = archiveChrome(top(nav).name == "archive" ? `${top(nav).id}` : "", viewport.width, layout.safeBottom, layout.liquidGlass, archiveQuery, archiveEnvironment, archiveSort, archiveData.environments) as shape ArchiveChromeSnapshot
   resource archiveData = archiveView(wallTime.epochAtZero + elapsed, archiveQuery, archiveEnvironment, archiveSort, top(nav).name == "archive", data.revision, archiveRefresh) as shape ArchiveData
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
   state agentsElapsed = 0
@@ -1279,12 +1293,21 @@ component App
     nav = push(nav, path("threadAgents", data.environmentId, data.threadId))
   action openAgent(environmentId: string, threadId: string)
     nav = replace(nav, path("thread", environmentId, threadId))
-  action editArchiveQuery(value: string)
-    archiveQuery = value
-  action editArchiveEnvironment(value: string)
-    archiveEnvironment = value
-  action toggleArchiveSort
-    archiveSort = archiveSort == "newest" ? "oldest" : "newest"
+  mutation archiveChromeChanged as shape ArchiveChromeEvent then didArchiveChromeChange
+  action archiveChromeEvent(value: string)
+    send archiveChromeChanged = archiveChromeEvent(value, top(nav).name == "archive" ? `${top(nav).id}` : "", archiveData.environments)
+  action didArchiveChromeChange
+    match archiveChromeChanged
+      case some(event)
+        if top(nav).name == "archive" and event.routeKey == `${top(nav).id}`
+          if event.kind == "search"
+            archiveQuery = event.value
+          else if event.kind == "environment"
+            archiveEnvironment = event.value
+          else if event.kind == "sort"
+            archiveSort = event.value
+      case none
+        archiveQuery = archiveQuery
   action refreshArchive
     archiveRefresh = archiveRefresh + 1
   action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
@@ -1528,17 +1551,18 @@ component App
               threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitCommitMessage, gitNewBranch=gitNewBranch, gitWorktreeBase=gitWorktreeBase, gitWorktreeBranch=gitWorktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
-              reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaNativeOpen, mediaNativeError=mediaNativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveQuery=archiveQuery, archiveEnvironment=archiveEnvironment, archiveSort=archiveSort, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
+              reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaNativeOpen, mediaNativeError=mediaNativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
               editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,
               openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,
-              openAgent=openAgent, editArchiveQuery=editArchiveQuery, editArchiveEnvironment=editArchiveEnvironment, toggleArchiveSort=toggleArchiveSort, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, homeArrangeDrop=homeArrangeDrop, editHost=editHost, editCode=editCode, connect=connect,
+              openAgent=openAgent, archiveChromeEvent=archiveChromeEvent, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, homeArrangeDrop=homeArrangeDrop, editHost=editHost, editCode=editCode, connect=connect,
               scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, closeNewTask=closeNewTask, toggle=toggle, detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save
             )
       MobileInspectorPanel(workspace=workspace, reviewLook=reviewLook, gitLook=gitLook, inspectorPresentation=inspectorPresentation, inspectorState=inspectorState, layout=layout, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit, inspectorEvent=inspectorEvent)
       MobileWorkspaceMarkers()
+      MobileKeyboard(data=keyboard, colors=threadLook, card=homeLook.card, dangerBorder=look.colors.dangerBorder, top=layout.safeTop + 56, event=keyboardEvent, dismiss=keyboardDismiss)
       t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
       when voiceData.globalVisible
