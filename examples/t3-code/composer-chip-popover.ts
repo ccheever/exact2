@@ -9,10 +9,10 @@
 // thread's workspace (ChatComposer selectedProviderSkills); the Settings prompt sample passes none
 // (SettingsFontPreviews EMPTY_SKILLS), so its chip always has no description.
 import type { T3Client } from './client';
-import { arr, obj, str, type Obj } from './domain';
+import { obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
 import { workspaceValues } from './composer-workspace-snapshots';
-import { workspaceCwd } from './composer-editor';
+import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from './r4-surfaces-panel';
 
 export type ChipPopover = {
@@ -48,8 +48,6 @@ export function chipPopover(press: Obj, skills: Obj[]): ChipPopover {
   return { seq, open: true, surface: str(press.surface), label, title: `Skill ${label}`, description, path: skill ? str(skill.path) : '',
     x: frame[0] || 0, y: frame[1] || 0, width: frame[2] || 0, height: frame[3] || 0 };
 }
-
-function selectedProvider(client: T3Client): Obj { return arr(client.config.providers).find(entry => entry.instanceId === client.providerId) ?? {}; }
 
 /** The window's `chip` resource: re-asked when a press opens, moves or closes (`t3.chip`). */
 export async function chipPopoverView(client: T3Client, native: Native | null | undefined): Promise<ChipPopover> {

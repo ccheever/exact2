@@ -102,6 +102,8 @@ component T3Window
     scrollToEnd: action
     editor: ComposerEditorView
     chip: ChipPopover
+    // Settings, a page, the palette or a dialog covers the chip (app.contract chipCover closes it).
+    chipCovered: bool
     composerKey: action
     composerDrop: action
     editorOp: action
@@ -355,9 +357,9 @@ component T3Window
     outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
     outsideDown = false
   // settings-appearance-and-skill-chip: the newest skill chip press (composer-chip-popover.ts), hidden at
-  // once when the window closes it; `instructions` opens the skill's file first (View instructions).
+  // once when the window closes it or an overlay covers it; `instructions` opens the skill's file first (View instructions).
   state chipClosed = 0
-  derive chipShown = chip.open and chip.seq != chipClosed
+  derive chipShown = chip.open and chip.seq != chipClosed and not chipCovered
   action chipClose(instructions: bool)
     chipClosed = chip.seq
     editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
