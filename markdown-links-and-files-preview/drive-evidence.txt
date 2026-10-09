@@ -1,0 +1,127 @@
+markdown-links-and-files-preview: live drives (2026-10-10), 1280x840, scripts/agent.mjs macos --json via target/t3-audit/clone-drive.sh
+Before: base build t3-code-evidence-base 950e8e2e5, lane markdown-links-and-files-preview-before (fresh storage).
+After: this branch's bundle (one live drive), lane markdown-links-and-files-preview (fresh storage).
+Reference: T3 Code 1e2ecbd975 Electron production build over CDP (ref-cdp.mjs), same lane fixture.
+
+Fixture docs/notes.md (both lanes):
+  # Notes
+  
+  Some **bold** text and a [link](https://example.com). See [app.ts](../src/app.ts).
+  
+  - one
+  - two
+  
+  Tasks:
+  
+  - [ ] Write the tests
+  - [x] Ship the fix
+  
+  ```ts
+  const x = 1;
+  ```
+  
+  | a | b |
+  |---|---|
+  | 1 | 2 |
+
+Common ops: clock +20000 real | clock +3000 real | tap toast-dismiss-2 | tap toast-secondary-1 | tap toggle-right-panel | type surface-chooser key f | tap files-expand-all | tap notes.md | tap file-toggle-render | screenshot pa3 | tree | tap "Timeline verification" | screenshot th9 | tree | tap fixture.txt | screenshot th9-chip
+After only (the base build has no checkbox and no link press): tap task-5 | screenshot pa3-toggled | tree | tap link
+
+== TH-9, before tree (base build) ==
+== 'parser ': 1 match(es)
+   Text handlers=[] role=None href= color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'fixture.txt · L3': 2 match(es)
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=file-chip-1
+     <- View handlers=[] role=None href=None color=None testId=None
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=file-chip-5
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'fixture.txt': 1 match(es)
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=file-chip-3
+     <- Pressable handlers=['press', 'contextmenu'] role=button href=None color=None testId=chip-open-3
+
+== TH-9, after tree (this branch) ==
+== 'parser': 1 match(es)
+   Text handlers=[] role=None href= color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'fixture.txt:3': 1 match(es)
+   Text handlers=[] role=None href= color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'fixture.txt': 1 match(es)
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=file-chip-3
+     <- Pressable handlers=['press', 'contextmenu'] role=button href=None color=None testId=chip-open-3
+== 'fixture.txt · L3': 0 match(es)
+After: tap fixture.txt opened Files on Verification fixture/fixture.txt (th9-chip screenshot).
+Reference ARIA (ref/th9-aria): text 'Review parser,' / link 'fixture.txt' (/url .../project/fixture.txt) / text ', fixture.txt:3.'; DOM: <a target=_blank> with no href for parser and fixture.txt:3, colour oklch(0.488 0.243 264.376), cursor auto.
+
+== PA-3, before tree (base build) ==
+== 'link': 1 match(es)
+   Text handlers=[] role=None href=None color=None testId=None
+     <- Text handlers=['selectionchange'] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'Write the tests': 0 match(es)
+== 'Copy table': 0 match(es)
+== 'Collapse table cells': 0 match(es)
+== 'ts': 1 match(es)
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+
+== PA-3, after tree (this branch) ==
+== 'link': 1 match(es)
+   Text handlers=['press'] role=None href=https://example.com color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'task-5': 1 match(es)
+   Pressable handlers=['press', 'hover'] role=checkbox href=None color=None testId=task-5
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'task-6': 1 match(es)
+   Pressable handlers=['press', 'hover'] role=checkbox href=None color=None testId=task-6
+     <- View handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'Copy table': 2 match(es)
+   Pressable handlers=['press', 'key', 'hover'] role=button href=None color=None testId=table-copy-8
+     <- View handlers=['hover'] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=tooltip href=None color=None testId=tooltip
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'Collapse table cells': 2 match(es)
+   Pressable handlers=['press', 'hover'] role=button href=None color=None testId=table-expand-8
+     <- View handlers=['hover'] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=tooltip href=None color=None testId=tooltip
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'Copy code': 2 match(es)
+   Pressable handlers=['press', 'hover'] role=button href=None color=None testId=None
+     <- View handlers=['hover'] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=tooltip href=None color=None testId=tooltip
+     <- View handlers=[] role=None href=None color=None testId=None
+== 'Disable line wrap': 2 match(es)
+   Pressable handlers=['press'] role=button href=None color=None testId=None
+     <- View handlers=['hover'] role=None href=None color=None testId=None
+     <- View handlers=[] role=None href=None color=None testId=None
+   Text handlers=[] role=None href=None color=None testId=None
+     <- View handlers=[] role=tooltip href=None color=None testId=tooltip
+     <- View handlers=[] role=None href=None color=None testId=None
+
+After: tap link -> lane logs/opened-urls.txt (agent runs record instead of opening):
+  https://example.com
+After: tap task-5 -> docs/notes.md on disk:
+  10:- [x] Write the tests
+  11:- [x] Ship the fix
+Reference: click the first checkbox -> docs/notes.md on disk:
+  10:- [x] Write the tests
+  11:- [x] Ship the fix
+  (the clone's and the reference's toggled files are byte-identical; both lanes restored afterwards)
