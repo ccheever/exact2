@@ -10,8 +10,10 @@
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
 //
-// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10]
+// usage: bun host/web-js/conform.mjs [app …] [--synthetic] [--only <synthetic>] [--build] [--strict] [--linux] [--browser firefox|webkit] [--wasm-root /tmp/e3-wasm] [--out /tmp/exact-web-js-conform] [--steps 10] [--jobs 4]
 //   (the JS builds go to <out>/dist/<target>)
+//   --jobs drives that many targets at once (default 4), each with its own
+//   browsers, servers and Linux host; the report is in target order.
 //   apps default to every app with a built wasm dist under --wasm-root
 //   (`EXACT_WEB_DIST=<root>/<app> bun host/web/build.mjs <app> --wasm`);
 //   --build makes each named app's wasm dist there first (and an
@@ -63,12 +65,23 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { availableParallelism } from 'node:os';
 import { open } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
 
+/** `spawnSync`'s result without holding the event loop: the other targets'
+ *  drives keep running while one builds. */
+const spawned = (command, args, options) => new Promise((done) => {
+  const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
+  child.on('error', (error) => done({ status: null, stdout, stderr: stderr + error.message }));
+  child.on('close', (status) => done({ status, stdout, stderr }));
+});
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const argv = process.argv.slice(2);
@@ -243,7 +256,7 @@ async function target(t, report) {
     }
     return;
   }
-  const build = spawnSync('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root, encoding: 'utf8' });
+  const build = await spawned('bun', ['host/web-js/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve(out, 'dist', t.name)], { cwd: root });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
   if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
   // A route that paints its boot document first is checked as its server
@@ -564,7 +577,7 @@ async function bootPress(t, report, fail, dist, browser) {
   const bin = `${t.app}-render`;
   const at = [['linux', `${t.app}-linux`], ['web', `${t.app}-web`]].find(([dir]) => existsSync(resolve(root, 'apps', t.app, dir, 'src/bin', `${bin}.rs`)));
   if (!at) return fail(step, `${t.app} has no ${bin} entry to serve the page`);
-  const b = spawnSync('cargo', ['build', '--profile', HOST_DEV, '-q', '-p', at[1], '--bin', bin], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const b = await spawned('cargo', ['build', '--profile', HOST_DEV, '-q', '-p', at[1], '--bin', bin], { cwd: root });
   if (b.status !== 0) return fail(step, `${bin}: ${b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
   const server = spawn(resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), HOST_DEV, bin), ['--serve', dist, '--port', '0'], { cwd: root, stdio: ['ignore', 'pipe', 'inherit'] });
   let proxy, S;
@@ -734,21 +747,36 @@ if (linuxRef && argv.includes('--build') && engineReady) {
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
 if (synthetic.length) {
+  // The compiler is built once, as `cargo run` builds it, and run directly
+  // for each fixture: a `cargo run` per fixture repeats Cargo's freshness check.
+  const compiler = spawnSync('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract'], { cwd: root, encoding: 'utf8' });
+  const contractBin = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'debug', 'contract');
   for (const { f, data } of synthetic) {
     const name = 'synthetic-' + (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
     if (dangling(f)) { report.failures.push({ target: name, step: 'fixture', what: `${f} links ${readlinkSync(contract)}, which this tree lacks` }); continue; }
-    const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
+    const c = compiler.status === 0 ? spawnSync(contractBin, ['build', contract, '-o', plan], { cwd: root, encoding: 'utf8' }) : compiler;
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.
     targets.push({ name, app: data, wasm: realpathSync(resolve(wasmRoot, data)), contract, plan });
   }
 }
-for (const t of engineReady ? targets : []) {
-  const before = report.failures.length;
-  process.stderr.write(`${t.name}: `);
-  try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
-  process.stderr.write(`${report.failures.length - before} failures\n`);
-}
+// Several targets at once, one queue: `next` is read and advanced with no
+// await between, and each target's failures are its own entries.
+const jobs = Math.max(1, Number(opt('--jobs', Math.min(4, availableParallelism()))));
+const queue = engineReady ? targets : [];
+let next = 0;
+await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+  while (next < queue.length) {
+    const t = queue[next++];
+    try { await target(t, report); } catch (e) { report.failures.push({ target: t.name, step: 'harness', what: String(e.stack ?? e).slice(0, 300) }); }
+    process.stderr.write(`${t.name}: ${report.failures.filter(f => f.target === t.name).length} failures\n`);
+  }
+}));
+// The report lists targets in their order, whatever order they finished in.
+const order = new Map(targets.map((t, i) => [t.name, i]));
+const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);
+report.failures.sort(byOrder);
+report.steps.sort(byOrder);
 writeFileSync(resolve(out, 'report.json'), JSON.stringify(report, null, 1));
 const byTarget = {};
 for (const f of report.failures) (byTarget[f.target] ??= []).push(f);

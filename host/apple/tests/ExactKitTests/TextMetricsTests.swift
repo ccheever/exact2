@@ -136,7 +136,7 @@ final class TextMetricsTests: XCTestCase {
         // Each wait is for its event, however long a loaded machine's workers
         // take; `hang` only stops one that can never come.
         let hang = Date(timeIntervalSinceNow: 300)
-        while reader.raster == nil && Date() < hang { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
+        while reader.raster == nil && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
         let first = try XCTUnwrap(reader.raster)
         let ink = try XCTUnwrap(node.layer?.sublayers?.first { $0.contents is IOSurface })
         let firstImage = ink.contents as AnyObject?

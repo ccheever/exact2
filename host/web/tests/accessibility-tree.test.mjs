@@ -43,7 +43,7 @@ function fixture() {
   if (plan) return plan;
   tmp = mkdtempSync(resolve(tmpdir(), 'exact-ax-'));
   plan = resolve(tmp, 'accessibility.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) throw new Error('the accessibility fixture does not compile: ' + c.stderr);
   return plan;
 }

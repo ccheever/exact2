@@ -302,6 +302,32 @@ fn budget_waiter_retries_when_last_native_owner_releases_bytes() {
     worker.join().unwrap();
 }
 
+/// A source to read arrives as a wake with no decode: a worker waiting for
+/// work returns at once to read it.
+#[test]
+fn a_wake_with_no_decode_returns_a_waiting_worker() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker_gate = gate.clone();
+    let worker = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let permit = worker_gate.wait_work(std::time::Duration::from_secs(10));
+        tx.send((permit.is_none(), started.elapsed())).unwrap();
+    });
+    // Wake until the worker has returned: a wake before it waits is seen by
+    // its sequence check, one after by the condition variable.
+    let (none, waited) = loop {
+        session.wake();
+        if let Ok(result) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            break result;
+        }
+    };
+    assert!(none);
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
+    worker.join().unwrap();
+}
+
 #[test]
 fn metadata_queue_subscribers_and_retired_source_history_are_bounded() {
     let gate = Gate::new();
