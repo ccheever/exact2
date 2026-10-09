@@ -1,0 +1,56 @@
+settings-appearance-and-skill-chip: live agent drives, 1280x840 window, lane settings-appearance-and-skill-chip(-before), embedded server 16922
+Before: evidence-base worktree (feature-branch tip 950e8e2e5 code). After: this branch's bundle (final head code).
+Steps (identical): see drive-ops.txt
+
+== before
+  op {'delivery': 'platform', 'at': [1241, 91], 'target': 'Dismiss notification'}
+  op {'target': 'composer', 'delivery': 'platform'}
+  op {'at': [60, 12], 'delivery': 'platform', 'target': 'composer'}
+  screenshot s1-12-composer-chip.png
+  tree --ax (scoped): [('AXScrollArea', '', 'TextAreaScroll'), ('textbox', 'Message', 'TextArea')]
+  op {'at': [24, 820], 'delivery': 'platform', 'target': 'connection-settings'}
+  op {'delivery': 'platform', 'at': [128, 152], 'target': 'settings-appearance'}
+  op {'delivery': 'platform', 'at': [882.17, 445], 'target': 'theme-duplicate-t3-chat'}
+  screenshot s1-5-duplicate.png
+  tree: [theme-editor: Create theme] | Create theme | Select a color below | Theme name | Appearance | Light | Dark | Colors | Two colors, rest derived | Advanced | Background | Background | =#fdf7fd | =#fdf7fd | Accent | Accent | =#db2777 | =#db2777 | Cancel | Create theme
+  op {'at': [1185.27, 801], 'delivery': 'platform', 'target': 'theme-editor-save'}
+  op {'at': [540.83, 713], 'delivery': 'platform', 'target': 'theme-edit-t3-chat-copy'}
+  screenshot s1-5-edit.png
+  tree: [theme-editor: Edit theme] | Edit theme | Select a color below | Theme name | Appearance | Light | Dark | Colors | Two colors, rest derived | Advanced | Background | Background | =#fdf7fd | =#fdf7fd | Accent | Accent | =#db2777 | =#db2777 | Cancel | Save theme
+  op {'at': [1239, 497], 'delivery': 'platform', 'target': 'theme-editor-close'}
+  op {'at': [464.5, 431], 'phase': 'down', 'delivery': 'platform', 'target': 'prompt-font-preview'}
+  op {'at': [464.5, 431], 'phase': 'up', 'delivery': 'platform'}
+  screenshot s1-12-preview-chip.png
+  tree --ax (scoped): [('AXScrollArea', '', 'TextAreaScroll'), ('textbox', 'Prompt font preview', 'TextArea')]
+  op {'delivery': 'platform', 'at': [1127.14, 320], 'target': 'add-theme'}
+  op {'delivery': 'platform', 'at': [359.25, 290.5], 'target': 'add-theme-popular-Dracula'}
+  screenshot s1-6-open-vsx.png
+  tree add-theme-dialog: publishers: open-vsx · 431.6K downloads | TimDeen · 104.1K downloads | GulajavaMinistudio · 58.2K downloads | PROxZIMA · 28.2K downloads | open-vsx · 18K downloads | Verseth · 16.9K downloads | WhiteVermouth · 16.3K downloads | LEFD · 13.1K downloads
+
+== after
+  op {'at': [1241, 91], 'delivery': 'platform', 'target': 'Dismiss notification'}
+  op {'target': 'composer', 'delivery': 'platform'}
+  op {'at': [60, 12], 'delivery': 'platform', 'target': 'composer'}
+  screenshot s1-12-composer-chip.png
+  tree --ax (scoped): [('AXScrollArea', '', 'TextAreaScroll'), ('textbox', 'Message', 'TextArea')]
+  tree: [chip-popover: Skill Frontend Design] | Frontend Design | No description is available for this skill.
+  op {'at': [24, 820], 'delivery': 'platform', 'target': 'connection-settings'}
+  op {'delivery': 'platform', 'at': [128, 152], 'target': 'settings-appearance'}
+  op {'at': [882.17, 445], 'delivery': 'platform', 'target': 'theme-duplicate-t3-chat'}
+  screenshot s1-5-duplicate.png
+  tree: [theme-editor: Create theme] | Create theme | Select a color below | Theme name | Appearance | Light | Dark | Colors | Advanced | Foundation | Background | Background | =#fdf7fd | =#fdf7fd | Surface | Surface | =#faf3fb | =#faf3fb | Raised surface | Raised surface | =#fdfafd | =#fdfafd | Overlay | Overlay | =#ffffff | =#ffffff | Text | Text | =#501854 | =#501854 | Muted text | Muted text | =#8d1255 | =#8d1255 | Border | Border | =#eee1ed | =#eee1ed | Input | Input | =#e7c1dc | =#e7c1dc | Brand & content | Subtle surface | Subtle surface | =#f1c4e6 | =#f1c4e6 | Highlight surface | Highlight surface | =#f3e6f5 | =#f3e6f5 | Accent | Accent | =#db2777 | =#db2777 | Action | Action | =#db2777 | =#db2777 | Message surface | Message surface | =#f7def2 | =#f7def2 | Code surface | Code surface | =#f5ecf9 | =#f5ecf9 | Context | Sidebar background | Sidebar background | =#f2e1f4 | =#f2e1f4 | Sidebar controls | Sidebar controls | =#f8f8f7 | =#f8f8f7 | Sidebar selection | Sidebar selection | =#f8f8f7 | =#f8f8f7 | Terminal background | Terminal background | =#fdf7fd | =#fdf7fd | Status | Error | Error | =#f7086c | =#f7086c | Warning | Warning | =#f59e0b | =#f59e0b | Cancel | Create theme
+  op {'at': [1185.27, 801], 'delivery': 'platform', 'target': 'theme-editor-save'}
+  op {'at': [540.83, 713], 'delivery': 'platform', 'target': 'theme-edit-t3-chat-copy'}
+  screenshot s1-5-edit.png
+  tree: [theme-editor: Edit theme] | Edit theme | Select a color below | Theme name | Appearance | Light | Dark | Colors | Advanced | Foundation | Background | Background | =#fdf7fd | =#fdf7fd | Surface | Surface | =#faf3fb | =#faf3fb | Raised surface | Raised surface | =#fdfafd | =#fdfafd | Overlay | Overlay | =#ffffff | =#ffffff | Text | Text | =#501854 | =#501854 | Muted text | Muted text | =#8d1255 | =#8d1255 | Border | Border | =#eee1ed | =#eee1ed | Input | Input | =#e7c1dc | =#e7c1dc | Brand & content | Subtle surface | Subtle surface | =#f1c4e6 | =#f1c4e6 | Highlight surface | Highlight surface | =#f3e6f5 | =#f3e6f5 | Accent | Accent | =#db2777 | =#db2777 | Action | Action | =#db2777 | =#db2777 | Message surface | Message surface | =#f7def2 | =#f7def2 | Code surface | Code surface | =#f5ecf9 | =#f5ecf9 | Context | Sidebar background | Sidebar background | =#f2e1f4 | =#f2e1f4 | Sidebar controls | Sidebar controls | =#f8f8f7 | =#f8f8f7 | Sidebar selection | Sidebar selection | =#f8f8f7 | =#f8f8f7 | Terminal background | Terminal background | =#fdf7fd | =#fdf7fd | Status | Error | Error | =#f7086c | =#f7086c | Warning | Warning | =#f59e0b | =#f59e0b | Cancel | Save theme
+  op {'delivery': 'platform', 'at': [1239, 173], 'target': 'theme-editor-close'}
+  op {'at': [464.5, 431], 'delivery': 'platform', 'phase': 'down', 'target': 'prompt-font-preview'}
+  op {'phase': 'up', 'delivery': 'platform', 'at': [464.5, 431]}
+  screenshot s1-12-preview-chip.png
+  tree --ax (scoped): [('AXScrollArea', '', 'TextAreaScroll'), ('textbox', 'Prompt font preview', 'TextArea')]
+  tree: [chip-popover: Skill Frontend Design] | Frontend Design | No description is available for this skill.
+  op {'delivery': 'platform', 'at': [1127.14, 320], 'target': 'add-theme'}
+  op {'delivery': 'platform', 'at': [359.25, 290.5], 'target': 'add-theme-popular-Dracula'}
+  screenshot s1-6-open-vsx.png
+  tree add-theme-dialog: publishers: dracula-theme · 431.6K downloads | Dracula-2 · 104.1K downloads | GulajavaMinistudio · 58.2K downloads | PROxZIMA · 28.2K downloads | bceskavich · 18K downloads | MateuszDrewniak · 16.9K downloads | nszihan · 16.3K downloads | lefd · 13.1K downloads
+
