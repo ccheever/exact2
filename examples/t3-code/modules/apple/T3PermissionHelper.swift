@@ -69,6 +69,23 @@ final class T3SettingsWindowWatcher {
     }
 }
 
+/// Reference shell.showItemInFolder: Finder shows the bundle selected and comes to the front (the helper then hides,
+/// System Settings being covered). The panel never activates T3 Code, and a reveal alone, asked by an app that is not
+/// active, opened Finder's window behind System Settings (realinput-1010 RI-2): the click, the person's input to
+/// T3 Code, yields activation to Finder, and Finder is asked to come front once its window is open.
+struct T3FinderReveal {
+    static let finder = "com.apple.finder"
+    // Seams for the AppKit test; the defaults are the real system.
+    var yield: (String) -> Void = { NSApp.yieldActivation(toApplicationWithBundleIdentifier: $0) }
+    var select: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+    var activate: (String) -> Void = { _ = NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.activate(options: []) }
+    func reveal(_ url: URL) {
+        yield(Self.finder)
+        select(url)
+        activate(Self.finder)
+    }
+}
+
 /// Owns at most one helper panel; closing it releases its timer, watcher and observer.
 final class T3PermissionHelper {
     private(set) var panel: T3PermissionPanel?
@@ -84,7 +101,7 @@ final class T3PermissionHelper {
         let watcher = T3SettingsWindowWatcher(changed: changed); watcher.start(); return watcher.stop
     }
     var primaryScreenHeight: () -> CGFloat = { NSScreen.screens.first?.frame.maxY ?? 0 }
-    var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+    var reveal: (URL) -> Void = { T3FinderReveal().reveal($0) }
     var returnTo: (NSWindow) -> Void = { owner in NSApp.activate(ignoringOtherApps: true); owner.makeKeyAndOrderFront(nil) }
     /// Every end of a helper (grant, close, Settings closed); the module refreshes its status.
     var finished: () -> Void = {}
