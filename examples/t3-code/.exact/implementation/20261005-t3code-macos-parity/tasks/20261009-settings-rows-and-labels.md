@@ -1,12 +1,12 @@
 ---
 name: 20261009-settings-rows-and-labels
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
+branch: feat(example)/t3-code-settings-rows-and-labels
 pr_url: null
 verified_commit: null
 ---
@@ -86,7 +86,117 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | S2-10 | The names and roles above match (tree); the Icon item for the detected icon is checked. | text: tree before/after | agent |
 | S2-9 (part) | The Icon submenu's labels are left-aligned. | `s2-9-icon-rows.png` | agent |
 
+## Cause and fix
+
+- **S1-8.** `SettingsRestoreDialog` labelled its confirm button "Restore defaults". ConfirmDialogHost's buttons are
+  always Cancel and Confirm; the button now reads "Confirm" (`settings-core-body.contract`).
+- **S1-9.** General's `formatSettingValue` had a `profile` branch that SettingInheritance's `formatValue` does not have,
+  so Background activity's `{ profile }` read "Balanced" where the reference reads "Custom". The branch is gone, and
+  the function now has the reference's other branches: a writing style's label, the merge method labels, and "Text
+  generation model" for an unset writer model. Source Control's and Integrations' popovers had their own copy of the
+  same reference function (`source-control-view.ts` `formatValue`, with "Unset", "Off" for the writer model and branch
+  naming labels the reference does not have). They now use the one function (`settings-core.ts`).
+- **S1-16, S2-7: one control.** `PolicyTip` (`settings-kit.contract`) is settingsLayout's `PolicyTooltip`: the
+  icon-micro "Background policy details" button. On hover or keyboard focus it hands its frame and words to the
+  window's hover layer (`hover-layer.contract`, new kind "policy": a tooltip, side top, centred, after Base UI's 200 ms
+  `delay`). The layer draws it above the page, as the reference portals every TooltipPopup, so no card or scroll around
+  the row clips it. Three rows use it:
+  - General's Background activity: it replaces `InfoTip`, an absolute popup inside the row, which had no other use and
+    is deleted.
+  - Providers' Health check interval: `PvRow` takes the words as a `policy` prop and draws the tip after the title, as the
+    reference's title span does. It replaces the press-to-toggle status line (`policyOpen`).
+  - Source Control's Git details: the row title is "Git fetch interval" (the catalog's title), with the tip between the
+    title and the reset slot.
+- **S2-3.** The editor's own check throws "Checkout path is required: Enter the path of the checkout to run in."
+  (`scheduled-view.ts` `taskInput`). The toast mapping recognised only the module's "Enter an existing checkout path."
+  (`shell-commands.ts`). It now takes both and toasts the reference's title and description.
+- **S2-6.** The trigger said "From origin/<ref>" whenever Start from origin was on. resolveBranchTriggerLabel adds
+  `origin/` only for a ref that the project's refs list as a local branch (`isRemote === false`). Each ref now carries
+  `remote` (`scheduled-view.ts` `branchRef`). The editor derives `baseLocal` from the chosen project's refs, and
+  `taskBaseLabel` (`settings-scheduled.contract`) is the reference's function for a future worktree.
+- **S2-8.** URL refuses a host with a space ("invalid URL: invalid international domain name"). The reference's
+  Chromium renderer instead escapes it (`https://not%20a%20url/`) and fails at the transport. `parsePairing`
+  (`protocol.ts`) now returns that escaped origin, marked `unreachable`, for a host with spaces, and "Backend URL is
+  invalid." (RemoteBackendUrlInvalidError) for any other host URL refuses. Add environment, Add route and the
+  connect op report `environmentFetchFailure` (failRemoteRequest's message, `rpc/http.ts:156`) after their own checks:
+  without a pairing code it is still "Enter a pairing code.", as in the reference. Nothing is sent to the native
+  transport.
+- **S2-10.**
+  - `ScopedRow` carries the control's accessible name (`control`) and the reset's label (`resetLabel`) where the
+    reference's differ from the title: switch "Default automatic pull"; combobox "Default pull request merge method";
+    resets "default automatic pull", "default merge method", "branch naming", "branch prefix", "branch naming
+    instructions", "source control writing style", "change request templates", "default browser access".
+  - `CnMenuItem` has a `radio` prop: role `menuitemradio`, checked while highlighted. The Icon submenu's kinds pass it,
+    so the current kind, "Laptop detected", is the checked one.
+- **S2-9 (part).** A `button` centres its text. `CnMenuItem`'s label and the "Icon" trigger now have
+  `text-align="left"`, as X57 did for the pull request list. This also left-aligns the other menus built on
+  `CnMenuItem` (the environment row menu, CnSelect, the provider sign-in method), as the reference's menus are. The
+  submenu's placement is X17's and is not changed.
+
+## Acceptance results
+
+Before is the evidence-base build (`950e8e2e5`, lane `settings-rows-and-labels-before`). After is this branch's bundle
+(lane `settings-rows-and-labels`, embedded server on 16242). Both drives used the same steps, in agent mode at
+1280×840. The reference is the Electron build on this lane (16240/16241); `S1-8` and `S2-8` reuse the audit lane's
+reference shots.
+
+| Id | Result | Evidence |
+| --- | --- | --- |
+| S1-8 | Pass: Cancel and Confirm (before: "Restore defaults") | [s1-8 triple](https://raw.githubusercontent.com/ccheever/exact2/cf954a07139524c6d2cd57df0795f4e06b053d45/settings-rows-and-labels/s1-8-restore-confirm.png) |
+| S1-9 | Pass: "Daehyeon's MacBook Pro \| Environment \| Inherits \| Default \| Custom" (before: "… Default \| Balanced"); the reference reads the same. Unit test | [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
+| S1-16 | Pass: hovering the (i) next to "Health check interval" shows the reference's words above it, unclipped (before: nothing on hover) | [s1-16 triple](https://raw.githubusercontent.com/ccheever/exact2/a0940eab8b3f551e8d5111357aebd217521d2ebc/settings-rows-and-labels/s1-16-policy-tooltip.png) |
+| S2-7 | Pass: "Git fetch interval" with the info button; hovering it shows the reference's words (before: "Automatic Git fetch interval", no button) | [s2-7 triple](https://raw.githubusercontent.com/ccheever/exact2/c6417ace18c9599d0d3a55d5f11841f428259bc8/settings-rows-and-labels/s2-7-git-details.png) |
+| S2-3 | Pass: "Checkout path is required" / "Enter the path of the checkout to run in." (before: "Could not save scheduled task" / "Checkout path is required: Enter …"). Unit test on the mapping. Reference: from the source (`ScheduledTasksSettings.tsx:576-578`); the reference lane has no signed-in provider, so its editor stops at "Scheduled task is incomplete" first | [s2-3 pair](https://raw.githubusercontent.com/ccheever/exact2/df6ccfb5f67c0eae0a4efa3dedeeee8392cdcf91/settings-rows-and-labels/s2-3-checkout-toast.png), [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
+| S2-6 | Pass: Verification fixture reads "From main" (before: "From origin/main"); `work` reads "From origin/main"; the reference reads the same for both | [s2-6 triples](https://raw.githubusercontent.com/ccheever/exact2/eefcc8da4795eab27d91b4c4f73e18b32321bae7/settings-rows-and-labels/s2-6-base-branch.png) |
+| S2-8 | Pass: inline error and toast read "Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment))." (before: "invalid URL: invalid international domain name"). Unit tests | [s2-8 triple](https://raw.githubusercontent.com/ccheever/exact2/15a2bec2e8da4b919c89296f6a2ed3cac8b58b81/settings-rows-and-labels/s2-8-invalid-host.png), [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
+| S2-10 | Pass: switch "Default automatic pull", combobox "Default pull request merge method", resets "Reset default automatic pull / default merge method / branch naming / source control writing style to default"; the Icon kinds are `menuitemradio` with Laptop checked (before: the titles, `menuitem`, no checked state). Unit test | [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
+| S2-9 (part) | Pass: the Icon submenu's labels and the "Icon" row start at the left (before: centred). Placement stays X17's | [s2-9 triple](https://raw.githubusercontent.com/ccheever/exact2/a547af9d67e0fe87af99b7f92e0a66724fc092f1/settings-rows-and-labels/s2-9-icon-rows.png) |
+| PolicyTip on General (no finding; the replaced `InfoTip`) | Pass, no regression: the Background activity tooltip shows the same words above the (i) | [general pair](https://raw.githubusercontent.com/ccheever/exact2/e5ec221a10d53343c6e80248e06c8cd8fe5e0014/settings-rows-and-labels/general-policy-tooltip.png) |
+
+## Tests
+
+- `settings-a.test.ts`:
+  - Background activity's popover layers read Environment "Inherits", then "Custom", before and after a Performance
+    write.
+  - `formatSettingValue` on a model, a writing style, the merge methods, the unset writer model, a submodule mode and an
+    unlabelled string.
+  - `branchRef` carries `remote`.
+- `settings-rest.test.ts`: Source Control's rows carry the reference's control names and reset labels.
+- `shell.test.ts`: the editor's own "Checkout path is required: …" maps to the reference's toast title and description.
+- `client.test.ts`: `parsePairing` gives the escaped, unreachable origin for a host with spaces (direct, with a port,
+  and in a hosted link's `host`), "Backend URL is invalid." for another refused host, and `environmentFetchFailure`'s
+  message.
+- `r10-connect.test.ts`: Add environment with "not a url" and "ABC" rejects with the reference's message and toasts it,
+  connected or not. Nothing reaches the native transport. Without a code it is "Enter a pairing code.".
+- `hover-layer.test.ts`: `PolicyTip`'s layer call (kind policy, top, centre, hover and focus), the policy kind as a
+  tooltip with a 200 ms open delay, and its three uses with the reference's words.
+- New `settings-labels.test.ts`, which reads the Contract sources:
+  - S1-8's buttons;
+  - S2-6's `taskBaseLabel` and `baseLocal`;
+  - S2-10's control and reset labels in `ScopedSettingRow`;
+  - S2-9 and S2-10's radio Icon kinds and left-aligned menu labels.
+
+Checks: see the PR ("Checks").
+
+## Real-input batch steps
+
+None. Every row was verified in agent mode: hovers, presses, typing and the tree.
+
+## Progress
+
+2026-10-10: built every finding row. Shot the reference's tooltips, base branch labels and Icon menu on this lane. Drove
+the base build and then this branch once each, with the same steps. Every row passes. Draft PR opened.
+
+## Attempts and evidence
+
+| Attempt | Revision | Outcome | Evidence |
+| --- | --- | --- | --- |
+| Before drive | evidence-base `950e8e2e5` | Complete on the first run | [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) (with the drive's steps) |
+| After drive (the one live drive) | this branch, bundle built after merging `c081d6d43` | Complete on the first run, every row passes | the links above |
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Build and unit-test. Then do one batched live drive at the end for every
-row's before/after pair. Close every row in this PR, or record the blocker of a row that cannot pass.
+The coordinator reviews the draft PR and merges it. `settings-core.ts` is shared with
+[settings-diagnostics-and-scope](20261009-settings-diagnostics-and-scope.md), and `settings-scheduled.contract` and
+`settings-source-control.contract` with [model-picker-parity](20261009-model-picker-parity.md). The second of these to
+merge keeps both sides.
