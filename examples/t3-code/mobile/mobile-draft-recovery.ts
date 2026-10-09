@@ -1,3 +1,4 @@
+import { mobileComposerContextsHydrate, mobileComposerContextsPersisted, mobileComposerContextForSend } from './composer-command-context';
 import { mobileObserveFaviconRpc } from './mobile-favicon-runtime';
 import { mobileIncomingShareImportsHydrate, mobileIncomingShareImportsPersisted } from './incoming-share-imports';
 import { mobileVcsFocusedScope, mobileVcsRequest, mobileVcsRetireFocusedPages, MOBILE_VCS_INVALIDATING_METHODS } from './mobile-vcs-consumers';
@@ -95,6 +96,7 @@ function hydrate(client: T3Client, saved: Obj) {
   hydrated.add(client.local);
   mobilePendingTaskEditorsHydrate(client, saved);
   mobileIncomingShareImportsHydrate(client, saved);
+  mobileComposerContextsHydrate(client, saved);
   mobileOutboxDraftHandoffsHydrate(client, saved);
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
@@ -283,9 +285,11 @@ export class MobileDraftClient extends T3Client {
         delete store.receipts[slot]; delete store.claims[slot];
       }
     }
+    const composerContexts = mobileComposerContextsPersisted(this);
     // Transform only serialized output; never swap live draft slots around an await.
     return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
+      Object.assign(document, { mobileComposerContexts: composerContexts });
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
       Object.assign(document, { mobileIncomingShareImports: mobileIncomingShareImportsPersisted(this) });
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
@@ -313,7 +317,8 @@ export class MobileDraftClient extends T3Client {
       const key = launch ? mobileNewTaskDraftCurrent(this)?.key || `${this.environmentId}:new:${str(pending.payload.projectId)}` : `${this.environmentId}:${str(pending.payload.threadId)}`;
       if (mobileOutboxDraftRecoveryBlocked(this, key)) throw new ClientError('Finish restoring this draft before sending it.', 'retained');
       const attachments = mobileDraftAttachmentsForSend(this, key, arr(body.attachments), str(body.text));
-      const context = mobileRecoveredMessageContext(this, key, str(body.text), attachments, body.context ? obj(body.context) : undefined);
+      const ownedContext = mobileComposerContextForSend(this, key, str(body.text), body.context ? obj(body.context) : undefined, attachments);
+      const context = mobileRecoveredMessageContext(this, key, str(body.text), attachments, ownedContext);
       const ordered = { ...body, ...(Array.isArray(body.attachments) ? { attachments } : {}), ...(context ? { context } : {}) };
       pending.payload = launch ? { ...pending.payload, initialMessage: ordered } : ordered;
     }
