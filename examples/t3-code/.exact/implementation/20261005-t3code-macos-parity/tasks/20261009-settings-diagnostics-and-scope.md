@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-diagnostics-and-scope
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/357
 verified_commit: null
 ---
 
@@ -163,7 +163,7 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16802 T3_LOCAL_RUNTIME_DIR=$A/runti
 
 2026-10-09: reproduced S2-2 live on the base (evidence-base) and in a Bun model of the two resources; checked S2-11 and
 PG-8 on the live reference (clicked links, read the URL); fixed, tested, built the bundle, and drove the branch once in
-agent mode with the same steps as the base. Draft PR opened.
+agent mode with the same steps as the base. Draft PR [#357](https://github.com/ccheever/exact2/pull/357).
 
 ## Attempts and evidence
 
