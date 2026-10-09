@@ -5,7 +5,7 @@ import XCTest
 
 // browser-surface part 1: the Browser tab's page (T3BrowserSession.swift, T3BrowserSessions.swift,
 // T3BrowserView.swift, T3BrowserFavicon.swift) against a loopback fixture server: page states, history,
-// refresh, a load failure, crash recovery, the favicon, pop-ups, refused schemes, the permission set, the
+// refresh, a load failure, crash recovery, the favicon, pop-ups, refused schemes, downloads (part 3), the permission set, the
 // native user agent, Web Inspector, the profile stores and a tab's lifetime across views. Ported reference
 // tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: webviewCrashRecovery.test.ts (2) and
 // Manager.test.ts `previewWindowOpenAction` (3). `T3_BROWSER_TEST_DIR` receives page PNGs.
@@ -66,14 +66,19 @@ final class BrowserSessionTests: XCTestCase {
     private var fixture: Fixture!
     private var sessions: T3BrowserSessions!
     private var statuses = 0
+    private var artifacts: URL!
 
     override func setUpWithError() throws {
         fixture = try Fixture()
         sessions = T3BrowserSessions(agent: true, changed: { [weak self] _ in self?.statuses += 1 })
+        // Part 3: downloads land in the artifact directory (an agent run shows no save panel).
+        artifacts = FileManager.default.temporaryDirectory.appendingPathComponent("t3-browser-artifacts-\(UUID().uuidString)", isDirectory: true)
+        sessions.artifactDirectoryOverride = artifacts
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
         window.orderFrontRegardless()
     }
-    override func tearDown() { sessions.sync([]); window.orderOut(nil) }
+    override func tearDown() { sessions.sync([]); window.orderOut(nil); try? FileManager.default.removeItem(at: artifacts) }
+    private func downloads(_ session: T3BrowserSession) -> [[String: Any]] { session.report["downloads"] as? [[String: Any]] ?? [] }
 
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
@@ -181,7 +186,7 @@ final class BrowserSessionTests: XCTestCase {
     }
 
     // Review round 1: a pending address must end with its load, whatever way the load ends.
-    func testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading() throws {
+    func testAFragmentJumpAndARedirectedDownloadDoNotStayLoading() throws {
         fixture.page("/doc", "<!doctype html><title>Doc</title><p id=top>top</p><div style='height:3000px'></div><p id=end>end</p>")
         fixture.redirects["/redirect-to-file"] = "/file.bin"
         fixture.routes["/file.bin"] = (200, "application/octet-stream", Data(repeating: 2, count: 32), 0)
@@ -195,8 +200,9 @@ final class BrowserSessionTests: XCTestCase {
         _ = sessions.navigate(id: "tab-pending", url: "\(fixture.base)/redirect-to-file", profile: "default", environment: "env-1")
         spin(until: { self.fixture.seen.contains("/file.bin") }, timeout: 5)
         spin(until: { self.kind(session) != "Loading" }, timeout: 5)
-        XCTAssertEqual(kind(session), "Success", "a refused download behind a redirect ends its load; the page stays")
-        XCTAssertTrue((session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("download:") })
+        XCTAssertEqual(kind(session), "Success", "a download behind a redirect ends its load; the page stays")
+        spin(until: { self.downloads(session).contains { $0["state"] as? String == "done" } }, timeout: 5)
+        XCTAssertTrue(downloads(session).contains { ($0["path"] as? String ?? "").hasSuffix("file.bin") && $0["state"] as? String == "done" }, "part 3: it downloads")
         view.destroy()
     }
 
@@ -259,7 +265,7 @@ final class BrowserSessionTests: XCTestCase {
         view.destroy()
     }
 
-    func testAPageCannotLeaveTheWebOrDownload() throws {
+    func testAPageCannotLeaveTheWebAndItsDownloadsGoToTheArtifactDirectory() throws {
         fixture.page("/links", "<!doctype html><title>Links</title><a id=m href='mailto:someone@example.com'>mail</a><a id=d href=/file.bin>file</a>")
         fixture.routes["/file.bin"] = (200, "application/octet-stream", Data(repeating: 1, count: 64), 0)
         let (view, session) = mounted("tab-schemes", url: "\(fixture.base)/links")
@@ -268,8 +274,12 @@ final class BrowserSessionTests: XCTestCase {
         spin(until: { (session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("mailto:") } }, timeout: 3)
         XCTAssertTrue((session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("mailto:") }, "the main frame refuses mailto:")
         _ = evaluate(session.web, "document.getElementById('d').click(); 'ok'")
-        spin(until: { (session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("download:") } }, timeout: 5)
-        XCTAssertTrue((session.report["refused"] as? [String] ?? []).contains { $0.hasPrefix("download:") }, "a download waits for part 3")
+        spin(until: { self.downloads(session).contains { $0["state"] as? String == "done" } }, timeout: 5)
+        // Manager.ts installDownloadHandler: `browser-download-<start time>-<count>-<name>` in the artifact directory.
+        let saved = try XCTUnwrap(downloads(session).first { $0["state"] as? String == "done" }?["path"] as? String)
+        XCTAssertTrue(saved.hasPrefix(artifacts.path), "part 3: an agent run's download goes to the artifact directory")
+        XCTAssertTrue((saved as NSString).lastPathComponent.hasPrefix("browser-download-") && saved.hasSuffix("-file.bin"), saved)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: saved)), Data(repeating: 1, count: 64))
         spin(until: { self.kind(session) == "Success" }, timeout: 3)
         XCTAssertEqual(session.report["title"] as? String, "Links", "the page stays where it was")
         view.destroy()

@@ -26,6 +26,14 @@ final class T3BrowserSessions {
     private var scheduled = false
     /// The module's ops and syncs, newest last (the agent's status).
     private(set) var log: [String] = []
+    /// Part 3 (capture): the module's data root (T3Module sets it), where the screenshots, recordings and downloads go
+    /// (T3BrowserArtifacts: the local server's `userdata/browser-artifacts`), where Annotate's crops become draft images,
+    /// and the pages a recording or the separate window holds painting (T3BrowserCapture.swift).
+    var dataRoot: URL?
+    var artifactDirectoryOverride: URL?
+    lazy var artifactDirectory: URL = artifactDirectoryOverride ?? T3BrowserArtifacts.directory(dataRoot: dataRoot)
+    var imageDirectory: URL? { dataRoot?.appendingPathComponent("snapshots", isDirectory: true).appendingPathComponent("drafts", isDirectory: true) }
+    let parking = T3BrowserParking()
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
         self.agent = agent
@@ -67,8 +75,9 @@ final class T3BrowserSessions {
     func ensure(id: String, url: String, profile: String, environment: String) -> T3BrowserSession {
         if let existing = sessions[id] { return existing }
         let session = T3BrowserSession(id: id, profile: profile.isEmpty ? "default" : profile, environment: environment,
-                                       store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent)
+                                       store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent, imageDirectory: imageDirectory)
         session.changed = { [weak self] in self?.publish() }
+        session.downloads.directory = { [weak self] in self?.artifactDirectory ?? FileManager.default.temporaryDirectory }
         session.dialogs = !agent
         sessions[id] = session
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
@@ -90,6 +99,7 @@ final class T3BrowserSessions {
 
     func close(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        parking.forget(session)
         session.close()
         note("close \(id)")
         publish()
@@ -109,7 +119,7 @@ final class T3BrowserSessions {
     }
 
     /// The registry's own record, and a `t3.browser:` host line (the agent's `logs`).
-    private func note(_ line: String) {
+    func note(_ line: String) {
         log.append(String(line.prefix(200)))
         if log.count > 24 { log.removeFirst(log.count - 24) }
         FileHandle.standardError.write(Data("t3.browser: \(line.prefix(300))\n".utf8))

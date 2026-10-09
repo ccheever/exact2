@@ -25,6 +25,10 @@ import WebKit
 ///   a `target=_blank` link, and any other window request, loads in the tab (`previewWindowOpenAction`).
 /// - The page keeps WebKit's native user agent: nothing sets `customUserAgent` or `applicationNameForUserAgent`.
 /// - A development build marks the view `isInspectable` (T3WebInspection.swift, #101); a release build never does.
+/// - Part 3 (capture): the annotation overlay (T3BrowserAnnotate.swift) and the recording overlay and encoder
+///   (T3BrowserRecorder.swift) share the page's configuration; a response the page cannot show, a
+///   `Content-Disposition: attachment` and a `download` link become a download (T3BrowserDownloads); `pip` is the
+///   separate preview window (T3BrowserCapture.swift).
 final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// The runtime tab id (`previewRuntimeTabId`: environment, thread, server epoch, tab).
     let id: String
@@ -49,8 +53,17 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Every refused navigation and permission request (the agent's status reads them).
     private(set) var refused: [String] = []
     private(set) var closed = false
+    /// Part 3: Annotate's overlay, the recording's overlay and encoder, downloads and the separate window.
+    let annotation: T3BrowserAnnotation
+    let recording: T3BrowserRecording
+    let downloads = T3BrowserDownloads()
+    var pip: T3BrowserPictureInPicture?
+    /// The file the encoder finished last, which `save` may move into the artifact directory (once).
+    var encodedPath: String?
+    private var grace: DispatchWorkItem?
+    private let agent: Bool
 
-    init(id: String, profile: String, environment: String, store: WKWebsiteDataStore, agent: Bool) {
+    init(id: String, profile: String, environment: String, store: WKWebsiteDataStore, agent: Bool, imageDirectory: URL? = nil) {
         self.id = id; self.profile = profile; self.environment = environment
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
@@ -59,6 +72,10 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         // A hidden tab keeps running, throttled, as a background Chromium guest does.
         if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .throttle }
         favicon = T3BrowserFavicon(configuration: configuration)
+        // Both register their script message handlers on the configuration, so before the web view takes it.
+        annotation = T3BrowserAnnotation(configuration: configuration, imageDirectory: imageDirectory)
+        recording = T3BrowserRecording(configuration: configuration)
+        self.agent = agent
         web = T3BrowserWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: configuration)
         super.init()
         web.navigationDelegate = self
@@ -70,6 +87,12 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         let occlusion = Selector(("_setWindowOcclusionDetectionEnabled:"))
         if agent, web.responds(to: occlusion) { web.perform(occlusion, with: false) }
         favicon.page = web
+        annotation.page = web
+        recording.page = web
+        downloads.session = self
+        annotation.changed = { [weak self] in self?.changed?() }
+        recording.changed = { [weak self] in self?.changed?() }
+        downloads.changed = { [weak self] in self?.changed?() }
         favicon.captured = { [weak self] in self?.changed?() }
         favicon.currentURL = { [weak self] in self?.web.url }
         let publish: () -> Void = { [weak self] in self?.changed?() }
@@ -101,6 +124,10 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
                                     "profile": profile, "crashed": crashed, "crashes": crashes, "attached": web.window != nil, "inspectable": web.isInspectable,
                                     "popups": popups.count, "refused": Array(refused.suffix(8))]
         value["failures"] = failures
+        value["pick"] = annotation.report
+        value["recording"] = recording.report
+        value["pip"] = pip != nil
+        value["downloads"] = downloads.entries
         if let failure { value["code"] = failure.code; value["description"] = failure.description }
         if let icon = favicon.current { value["favicon"] = ["dataUrl": icon.dataUrl, "pageUrl": icon.pageUrl, "capturedAt": icon.capturedAt] }
         return value
@@ -147,9 +174,31 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
         return true
     }
 
+    /// RECORDING_ARM_GRACE_MS (10 s): an armed recording that never begins lets go of its lease; nil cancels the wait.
+    func armGrace(_ expired: (() -> Void)?) {
+        grace?.cancel(); grace = nil
+        guard let expired else { return }
+        let work = DispatchWorkItem(block: expired)
+        grace = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: work)
+    }
+
+    /// Occlusion detection off while the page is parked off screen (T3BrowserParking), so WebKit keeps painting it.
+    func keepPainting(_ on: Bool) {
+        guard !agent else { return } // agent runs keep it off for every page
+        let selector = Selector(("_setWindowOcclusionDetectionEnabled:"))
+        guard web.responds(to: selector), let method = web.method(for: selector) else { return }
+        typealias SetFlag = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method, to: SetFlag.self)(web, selector, !on)
+    }
+
     func close() {
         guard !closed else { return }
         closed = true
+        grace?.cancel(); grace = nil
+        annotation.close()
+        recording.close()
+        pip?.close(); pip = nil
         recovery?.cancel()
         observations.removeAll()
         favicon.cancel()
@@ -170,24 +219,26 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
             refused.append(navigationAction.request.url?.absoluteString ?? "")
             return decisionHandler(.cancel)
         }
+        if navigationAction.shouldPerformDownload { return decisionHandler(.download) } // an `<a download>` (part 3)
         decisionHandler(.allow)
     }
     static let mainFrameSchemes: Set<String> = ["http", "https", "about", "data", "blob"]
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        // Downloads are part 3 (the artifact directory, Manager.ts will-download); until then a response the page
-        // cannot show is not loaded.
-        if navigationResponse.isForMainFrame, !navigationResponse.canShowMIMEType {
-            refused.append("download:" + (navigationResponse.response.url?.absoluteString ?? ""))
-            return decisionHandler(.cancel)
-        }
+        // A response the page cannot show, or one sent as an attachment, downloads (Chromium's will-download; part 3).
+        let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+        if !navigationResponse.canShowMIMEType || disposition.hasPrefix("attachment") { return decisionHandler(.download) }
         decisionHandler(.allow)
     }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { downloads.adopt(download) }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { downloads.adopt(download) }
 
     /// A main-frame navigation has started and not yet committed or failed.
     private(set) var provisional = false
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        annotation.navigated() // Manager onNavigated: a main-frame navigation settles an annotation in progress
         failure = nil // the reference keeps a failure until a new load actually starts
         provisional = true
         if let url = webView.url, url.absoluteString != "about:blank" { pending = url }
@@ -202,11 +253,13 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         provisional = false
         pending = nil
+        recording.documentReady() // restoreRecordingCursor: the new document gets the recording overlay again
         changed?()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pending = nil
+        recording.documentReady()
         favicon.collect(in: webView)
         changed?()
     }

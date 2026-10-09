@@ -58,13 +58,18 @@ final class T3BrowserView: ExactNativeInstance {
             next.web.frame = host.bounds
             next.web.autoresizingMask = [.width, .height]
             host.addSubview(next.web)
+            sessions.parking.viewTook(next) // part 3: a page parked for a recording or the separate window comes back
         }
         sessions.publish()
     }
 
     /// Gives the page back: only if this view still holds it (a newer view of the same tab may have taken it).
     private func release() {
-        if let web = session?.web, web.superview === host { web.removeFromSuperview(); sessions.publish() }
+        if let session, session.web.superview === host {
+            session.web.removeFromSuperview()
+            sessions.parking.viewReleased(session) // part 3: a held page keeps painting off screen
+            sessions.publish()
+        }
         session = nil
     }
 
