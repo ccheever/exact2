@@ -248,6 +248,24 @@ describe('the chrome row and the native host', () => {
   });
 });
 
+describe('a page made at its fixed size (#352: its first layout is the tab’s viewport)', () => {
+  it('a live session at a fixed viewport carries its size and the zoom the module last reported; Fill carries none', () => {
+    const { client } = fakeClient(() => ({}));
+    const store = browserHost(client).store;
+    store.reconcileServerSessions(threadRef, { sessions: [
+      { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16701/', title: '' }, viewport: { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } },
+      { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
+      { ...idle('tab-3'), viewport: { _tag: 'fill' } },
+    ], serverEpoch: 'epoch-1', revision: 1 });
+    client.presentation.browserTabs = { [previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1')]: { kind: 'Success', url: 'http://127.0.0.1:16701/', zoomFactor: 1.25 } };
+    expect(liveSessions(client)).toEqual([
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://127.0.0.1:16701/', profile: 'default', environment: 'local', width: 390, height: 844, zoom: 1.25 },
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: '', profile: 'default', environment: 'local', width: 1280, height: 800, zoom: 1 },
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-3'), url: '', profile: 'default', environment: 'local' },
+    ]);
+  });
+});
+
 describe('answers that are let go (review round 1)', () => {
   const superseded = () => new ClientError('This operation was superseded.', 'superseded');
 
