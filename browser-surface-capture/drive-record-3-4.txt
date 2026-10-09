@@ -1,0 +1,132 @@
+browser-surface-capture drives 3 and 4 (agent mode, 1280x840, lane ports 16720/16721, closed port 16749; the screen was locked, so screenshots are blank and the rows are read from trees, state and host logs).
+Drive 3: after merging part 5 (#346): the draft-thread Annotate chip and Float; found the pill flip (epochs ~110/s after hovering the handle) and an untappable pill.
+Drive 4: after the fix (the pill inside the handle hover box): hover steady, restore, downloads, failed page tip, panel close floats, the separate window from the pill, close.
+== drive3: 40 results
+  [0] {'clock': 15000, 'epoch': 14, 'real': 15028}
+  [1] {'epoch': 17, 'clock': 21000, 'real': 6018}
+  [2] tree epoch 17: browser-mini-player=False browser-url=False 
+  [3] {'target': 'toggle-right-panel', 'epoch': 18, 'clock': 21000}
+  [4] {'epoch': 19, 'clock': 22500, 'real': 1527}
+  [5] {'target': 'surface-browser', 'epoch': 20, 'clock': 22500}
+  [6] {'clock': 25500, 'epoch': 22, 'real': 3026}
+  [7] {'value': '127.0.0.1:16721', 'target': 'browser-url', 'epoch': 24, 'clock': 25500}
+  [8] {'key': 'Enter', 'value': '', 'target': 'browser-url', 'epoch': 25, 'clock': 25500}
+  [9] {'clock': 29500, 'epoch': 26, 'real': 4030}
+  [10] {'screenshot': '01-chrome-row.png (blank: screen locked)', 'epoch': 26, 'clock': 29500}
+  [11] {'target': 'browser-capture', 'epoch': 26, 'clock': 29500}
+  [12] {'clock': 32500, 'epoch': 27, 'real': 3018}
+  [13] {'screenshot': '02-screenshot-toast.png (blank: screen locked)', 'epoch': 27, 'clock': 32500}
+  [15] {'target': 'browser-annotate', 'epoch': 27, 'clock': 32500}
+  [16] {'clock': 34500, 'epoch': 28, 'real': 2019}
+  [17] {'target': 'browser-page', 'epoch': 29, 'clock': 34500}
+  [18] {'epoch': 29, 'clock': 36000, 'real': 1516}
+  [19] {'target': 'browser-page', 'epoch': 29, 'clock': 36000}
+  [20] {'clock': 36800, 'epoch': 29, 'real': 811}
+  [21] {'key': 'Enter', 'target': 'browser-page', 'epoch': 29, 'clock': 36800}
+  [22] {'clock': 40800, 'epoch': 33, 'real': 4022}
+  [23] {'screenshot': '03-annotation-chip.png (blank: screen locked)', 'epoch': 33, 'clock': 40800}
+  [24] tree epoch 33: browser-mini-player=False browser-url=True composer holds the annotation chip
+  [25] state epoch 33: browserMini.show=false browserMini.separateWindow=false composer: [Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2)
+  [27] {'target': 'browser-float', 'epoch': 34, 'clock': 40800}
+  [28] {'clock': 43300, 'epoch': 37, 'real': 2519}
+  [29] {'clock': 43300, 'screenshot': '04-floating.png (blank: screen locked)', 'epoch': 37}
+  [30] tree epoch 37: browser-mini-player=True browser-url=False composer holds the annotation chip
+  [31] state epoch 37: browserMini.show=true browserMini.separateWindow=false composer: [Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2)
+  [32] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 38, 'clock': 43300}
+  [33] {'clock': 43900, 'epoch': 106, 'real': 612}
+  [34] {'screenshot': '05-floating-pill.png (blank: screen locked)', 'epoch': 106, 'clock': 43900}
+  [35] tree epoch 107: browser-mini-player=True browser-url=False composer holds the annotation chip
+  [36] {'target': 'browser-mini-restore', 'epoch': 109, 'clock': 43900}
+  [37] {'clock': 46400, 'epoch': 387, 'real': 2512}
+  [38] {'clock': 46400, 'epoch': 388, 'screenshot': '06-restored.png (blank: screen locked)'}
+  [39] tree epoch 388: browser-mini-player=True browser-url=False composer holds the annotation chip
+  artifacts: ['browser-screenshot-127-0-0-1-mv0l47l5.png']
+  stopped: op 41/81 `type browser-url 127.0.0.1:16721/download`: no view matches browser-url by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, connection-settings, open-pull-requests, open-usage, chat-header, header-project, toggle-t
+== drive4: 69 results
+  [0] {'clock': 15000, 'epoch': 13, 'real': 15014}
+  [1] {'clock': 21000, 'epoch': 16, 'real': 6015}
+  [2] {'target': 'toggle-right-panel', 'epoch': 17, 'clock': 21000}
+  [3] {'epoch': 18, 'clock': 22500, 'real': 1512}
+  [4] {'target': 'surface-browser', 'epoch': 19, 'clock': 22500}
+  [5] {'clock': 25500, 'epoch': 21, 'real': 3013}
+  [6] {'value': '127.0.0.1:16721', 'target': 'browser-url', 'epoch': 23, 'clock': 25500}
+  [7] {'key': 'Enter', 'value': '', 'target': 'browser-url', 'epoch': 24, 'clock': 25500}
+  [8] {'epoch': 26, 'clock': 29500, 'real': 4013}
+  [9] {'target': 'browser-float', 'epoch': 26, 'clock': 29500}
+  [10] {'epoch': 29, 'clock': 32000, 'real': 2514}
+  [11] {'epoch': 29, 'clock': 33000, 'real': 1015}
+  [12] tree epoch 29: browser-mini-player=True browser-url=False 
+  [13] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 30, 'clock': 33000}
+  [14] {'epoch': 30, 'clock': 34000, 'real': 1014}
+  [15] {'epoch': 30, 'clock': 35000, 'real': 1015}
+  [16] {'epoch': 30, 'screenshot': '01-floating-pill.png (blank: screen locked)', 'clock': 35000}
+  [17] tree epoch 30: browser-mini-player=True browser-url=False 
+  [18] log: t=33000 hover in view 941 (overDot#2987) → epoch 30 (+0 −0 ~8)
+  [19] {'target': 'browser-mini-restore', 'epoch': 30, 'clock': 35000}
+  [20] {'epoch': 32, 'clock': 37500, 'real': 2513}
+  [21] {'screenshot': '02-restored.png (blank: screen locked)', 'clock': 37500, 'epoch': 32}
+  [22] tree epoch 32: browser-mini-player=False browser-url=True 
+  [23] state epoch 32: browserMini.show=false browserMini.separateWindow=false
+  [25] {'value': '127.0.0.1:16721/download', 'target': 'browser-url', 'epoch': 34, 'clock': 37500}
+  [26] {'key': 'Enter', 'value': 'http://127.0.0.1:16721/', 'target': 'browser-url', 'epoch': 35, 'clock': 37500}
+  [27] {'epoch': 36, 'clock': 40500, 'real': 3013}
+  [28] {'target': 'browser-page', 'epoch': 36, 'clock': 40500}
+  [29] {'epoch': 36, 'clock': 43000, 'real': 2515}
+  [30] {'target': 'browser-page', 'epoch': 36, 'clock': 43000}
+  [31] {'epoch': 36, 'clock': 45500, 'real': 2513}
+  [32] state epoch 36: browserMini.show=false browserMini.separateWindow=false
+  [34] {'value': '127.0.0.1:16749', 'target': 'browser-url', 'epoch': 38, 'clock': 45500}
+  [35] {'key': 'Enter', 'value': 'http://127.0.0.1:16721/download', 'target': 'browser-url', 'epoch': 39, 'clock': 45500}
+  [36] {'epoch': 40, 'clock': 49500, 'real': 4013}
+  [37] {'epoch': 40, 'clock': 49500, 'screenshot': '03-failed.png (blank: screen locked)'}
+  [38] {'hover': True, 'target': 'browser-annotate', 'epoch': 41, 'clock': 49500}
+  [39] {'clock': 50700, 'epoch': 41, 'real': 1209}
+  [40] {'screenshot': '04-annotate-disabled-tip.png (blank: screen locked)', 'epoch': 41, 'clock': 50700}
+  [41] tree epoch 41: browser-mini-player=False browser-url=True Annotate tip: Page didn’t load — pick unavailable until the page renders
+  [42] {'value': '127.0.0.1:16721', 'target': 'browser-url', 'epoch': 43, 'clock': 50700}
+  [43] {'key': 'Enter', 'value': 'http://127.0.0.1:16749/', 'target': 'browser-url', 'epoch': 44, 'clock': 50700}
+  [44] {'epoch': 45, 'clock': 53700, 'real': 3008}
+  [45] {'target': 'panel-toggle-right', 'epoch': 45, 'clock': 53700}
+  [46] {'epoch': 49, 'clock': 56200, 'real': 2508}
+  [47] {'screenshot': '05-panel-closed-floats.png (blank: screen locked)', 'epoch': 49, 'clock': 56200}
+  [48] tree epoch 49: browser-mini-player=True browser-url=False 
+  [49] state epoch 49: browserMini.show=true browserMini.separateWindow=false
+  [50] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 50, 'clock': 56200}
+  [51] {'epoch': 50, 'clock': 57200, 'real': 1011}
+  [52] {'target': 'browser-mini-window', 'epoch': 50, 'clock': 57200}
+  [53] {'epoch': 51, 'clock': 59700, 'real': 2510}
+  [54] state epoch 51: browserMini.show=true browserMini.separateWindow=true
+  [55] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 52, 'clock': 59700}
+  [56] {'clock': 60700, 'epoch': 52, 'real': 1010}
+  [57] {'target': 'browser-mini-window', 'epoch': 52, 'clock': 60700}
+  [58] {'epoch': 53, 'clock': 62700, 'real': 2010}
+  [59] state epoch 53: browserMini.show=true browserMini.separateWindow=false
+  [60] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 53, 'clock': 62700}
+  [61] {'clock': 63700, 'epoch': 53, 'real': 1010}
+  [62] {'target': 'browser-mini-close', 'epoch': 55, 'clock': 63700}
+  [63] {'clock': 65200, 'epoch': 56, 'real': 1511}
+  [64] {'clock': 66200, 'epoch': 56, 'real': 1010}
+  [65] {'epoch': 56, 'screenshot': '06-float-closed.png (blank: screen locked)', 'clock': 66200}
+  [66] tree epoch 56: browser-mini-player=False browser-url=False 
+  [67] log: t=49500 hover in view 1232 (hover#4942) → epoch 41 (+0 −0 ~1)
+  [67] log: t=56200 hover in view 1363 (overDot#2987) → epoch 50 (+0 −0 ~8)
+  [67] log: t=59700 hover out view 1363 (overDot#2987) → epoch 51 (+0 −0 ~0)
+  [67] log: t=59700 hover in view 1379 (hover#2998) → epoch 52 (+0 −0 ~2)
+  [68] state epoch 56: browserMini.show=false browserMini.separateWindow=false
+  artifacts: ['browser-download-mv0lqdpd-0-report.bin', 'browser-download-mv0lqfnv-1-export.csv']
+  stopped: no (all ops ran)
+
+Host module lines (t3.browser:) found anywhere in each drive's output:
+== drive3
+  t3.browser: annotate applied 1 chip+image
+  t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+  t3.browser: annotate start
+  t3.browser: navigate http://127.0.0.1:16721/
+  t3.browser: screenshot browser-screenshot-127-0-0-1-mv0l47l5.png
+== drive4
+  t3.browser: download browser-download-mv0lqdpd-0-report.bin
+  t3.browser: download browser-download-mv0lqfnv-1-export.csv
+  t3.browser: navigate http://127.0.0.1:16721/
+  t3.browser: navigate http://127.0.0.1:16721/download
+  t3.browser: navigate http://127.0.0.1:16749/
+  t3.browser: pip close [
