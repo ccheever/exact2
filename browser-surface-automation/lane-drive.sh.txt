@@ -1,0 +1,46 @@
+#!/bin/zsh
+# browser-surface-automation (part 5): the one live drive (agent mode, lane env). Not committed; uploaded as evidence.
+# Lane ports 16750-16799: the embedded server on 16750, the fixture on 16751. The lane server's ACP Registry instance
+# "Lane browser agent" runs fake-acp.mjs, which calls the server's preview MCP tools (the end-to-end check).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-automation
+L=$W/target/bsa-lane
+P=${1:-drive}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16750 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+rm -f $L/e2e-results.jsonl $L/fake-acp.log
+FIXTURE_PORT=16751 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd $W
+S=$OUT
+$BUN scripts/agent.mjs macos --json --size 1280x840 \
+  "clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window" \
+  "type composer e2e http://127.0.0.1:16751/form" "clock +500 real" "tap send-message" \
+  "clock +5000 real" "screenshot $S/01-agent-opened.png window" \
+  "clock +5000 real" "screenshot $S/02-agent-working.png window" \
+  "clock +20000 real" "screenshot $S/03-agent-done.png window" tree logs \
+  "tap panel-tab-browser:tab_1 contextmenu" "clock +1200 real" "screenshot $S/04-tab-menu.png window" \
+  'tap "Mute tab"' "clock +2000 real" "screenshot $S/05-muted.png window" tree \
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +3000 real" "screenshot $S/06-open-links-in.png window" \
+  "tap browser-link-target" "clock +1000 real" "screenshot $S/07-open-links-in-menu.png window" \
+  "tap browser-link-target-option-app" "clock +2000 real" "screenshot $S/08-open-links-in-app.png window" tree \
+  "tap settings-go-to-threads" "clock +3000 real" \
+  'tap "Lane page B"' "clock +5000 real" "screenshot $S/09-chat-link-in-app.png window" tree \
+  'tap "Lane page B" modifiers Meta' "clock +2000 real" "clock +10000 real" \
+  logs state > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+cp $L/e2e-results.jsonl $L/fake-acp.log $OUT/ 2>/dev/null
+echo DRIVE-DONE
