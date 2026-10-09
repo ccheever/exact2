@@ -65,9 +65,11 @@ use TipCard from "./shell-tip.contract"
 // audit-wave-followups FU-4: a root-level provider link while Settings stays open. The reference keys
 // ProviderSettingsPanelContent by the link's environment and instance (ProviderSettingsPanel.tsx), so a link to another
 // target (A → B → A too) remounts the page and an open "Add custom model" field (ProviderModelsSection isAdding)
-// closes; a link to the Providers page's own target keeps it. `providerVisit` counts those remounts, and the field
-// counts only on the visit it was opened on.
-fn providerLinkVisit(visit: number, onPage: bool, machine: string, selected: string, nextMachine: string, nextSelected: string): number = (onPage and machine == nextMachine and selected == nextSelected) ? visit : visit + 1
+// closes; a link to the Providers page's own target keeps it. The target is the route's (the root's
+// `providerLinkTarget`: the last link's instance, none after any other way onto the page), not the provider chosen on
+// the page, which is the content's local state (`selectedInstanceId`). `providerVisit` counts those remounts, and the
+// field counts only on the visit it was opened on.
+fn providerLinkVisit(visit: number, onPage: bool, machine: string, target: string, nextMachine: string, nextTarget: string): number = (onPage and machine == nextMachine and target == nextTarget) ? visit : visit + 1
 fn modelAddingOn(adding: string, openedOn: number, visit: number): string = openedOn == visit ? adding : ""
 
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.

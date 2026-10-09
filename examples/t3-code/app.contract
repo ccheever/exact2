@@ -341,6 +341,7 @@ component T3Code
       modalError = ""
     if op == "settings" or op == "project-settings"
       paletteOpen = false
+      providerLinkTarget = ""
       settingsEnvironmentId = settings.environmentId
       settingsOpen = true
       settingsRoute = op == "project-settings" ? "projects" : arg
@@ -402,6 +403,7 @@ component T3Code
   state projectsOpen = false
   state providerSelected = ""
   state providerVisit = 0 // audit-wave-followups FU-4: the provider links that changed the Providers page's target
+  state providerLinkTarget = "" // FU-4: the instance the route names (the last link's), apart from the page's own pick (providerSelected)
   state providerDialog = ""
   state providerSerial = 0
   state providerCreated = ""
@@ -728,11 +730,12 @@ component T3Code
     let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
     if not settingsOpen or machine != ""
       // audit-wave-followups FU-4: a link to another target remounts the Providers page (app-settings.contract providerLinkVisit).
-      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerSelected, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)
+      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)
       openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
       settingsRoute = "providers"
       settingsMachine = id == "" ? "" : machine
       providerSelected = id == "" ? "" : `target:${id}`
+      providerLinkTarget = id == "" ? "" : `target:${id}`
   action openSettings
     sidebarHoverId = "" // r8-pointer D11: the Settings button's tooltip closes on its press
     settingsEnvironmentId = settings.environmentId
@@ -782,12 +785,14 @@ component T3Code
     settingsMenu = ""
     modalError = ""
     providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
+    providerLinkTarget = ""
     settingsProjectKey = project ? id : settingsProjectKey
     settingsCheckout = project ? "" : settingsCheckout
     settingsProjectId = project ? member : settingsProjectId
     settingsMachine = project ? settingsMachine : id
   action coreNavigate(route: string)
     settingsRoute = route
+    providerLinkTarget = "" // FU-4: a route reached without a provider link names no instance
     if route == "diagnostics" and settings.environmentId != ""
       settingsMachine = settings.environmentId
       settingsProjectKey = ""
@@ -798,6 +803,7 @@ component T3Code
     modalError = ""
   action corePick(route: string, target: string, scope: string, id: string)
     settingsRoute = route
+    providerLinkTarget = ""
     settingsFocusTarget = target
     settingsQuery = ""
     settingsMenu = ""
@@ -814,6 +820,7 @@ component T3Code
       settingsResultIndex = settingsResultIndex + settingsNavigation.count - 1
     if k == "Enter" and settingsNavigation.firstRoute != ""
       settingsRoute = settingsNavigation.firstRoute
+      providerLinkTarget = ""
       settingsFocusTarget = settingsNavigation.firstTarget
       settingsQuery = ""
       settingsMenu = ""
@@ -1178,6 +1185,7 @@ component T3Code
       openSettings() // retainSettingsScope: from outside Settings the scope starts over; inside, the category link keeps it
     if op == "ui:settings"
       settingsRoute = target
+      providerLinkTarget = ""
       settingsMenu = ""
       settingsQuery = ""
       settingsFocusTarget = value

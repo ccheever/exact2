@@ -187,7 +187,7 @@ describe('FU-4: a provider link to another target remounts the Providers page (P
       return `function ${name}(${params.join(', ')}) { return ${body}; }`;
     });
     return new Function(`${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
-      providerLinkVisit: (visit: number, onPage: boolean, machine: string, selected: string, nextMachine: string, nextSelected: string) => number;
+      providerLinkVisit: (visit: number, onPage: boolean, machine: string, target: string, nextMachine: string, nextTarget: string) => number;
       modelAddingOn: (adding: string, openedOn: number, visit: number) => string;
     };
   };
@@ -215,12 +215,55 @@ describe('FU-4: a provider link to another target remounts the Providers page (P
 
   test('the root counts the links, and Settings reads the field through the count', async () => {
     const app = await source('app.contract');
-    expect(app).toContain('      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerSelected, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)\n      openSettings()');
+    expect(app).toContain('      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)\n      openSettings()');
     const settings = await component('app-settings.contract', 'SettingsWindow');
     expect(settings).toContain('  derive modelAddingLive = modelAddingOn(modelAdding, modelAddingVisit, providerVisit)\n');
     expect(settings).toContain('      modelAdding = value\n      modelAddingVisit = providerVisit\n');
     expect(line(settings, 'derive modelAddingShown')).toContain('modelAddingLive != ""');
     expect(line(settings, 'ProvidersPanel(')).toContain('modelAdding=modelAddingLive');
+  });
+  // Review of #372: the link compared with `providerSelected`, which a provider chosen on the page overwrites with its
+  // raw row id (providerUi "select"; providers.ts takes both forms). The reference keys the content on the route's
+  // environment and instance only (ProviderSettingsPanel.tsx:288); the page's pick is local useState (line 630).
+  test('the route\'s target, not the page\'s pick: link A, pick A, Add, link A keeps the field; a link after the nav closes it', async () => {
+    const { providerLinkVisit, modelAddingOn } = await fns();
+    const app = await source('app.contract');
+    // The root state openProviderSettings compares the link with, read from the source, so the model runs what the root does.
+    const compared = /providerVisit = providerLinkVisit\(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, (\w+), /.exec(app)?.[1];
+    expect(compared === 'providerSelected' || compared === 'providerLinkTarget').toBe(true);
+    const root = { settingsOpen: false, settingsRoute: 'general', settingsMachine: '', providerSelected: '', providerLinkTarget: '', providerVisit: 0 };
+    const link = (id: string) => {
+      root.providerVisit = providerLinkVisit(root.providerVisit, root.settingsOpen && root.settingsRoute === 'providers', root.settingsMachine, root[compared as 'providerSelected'], 'env', `target:${id}`);
+      Object.assign(root, { settingsOpen: true, settingsRoute: 'providers', settingsMachine: 'env', providerSelected: `target:${id}`, providerLinkTarget: `target:${id}` });
+    };
+    const pick = (id: string) => { root.providerSelected = id; };
+    const navigate = (route: string) => { root.settingsRoute = route; root.providerLinkTarget = ''; };
+    link('codex');
+    pick('codex');
+    let openedOn = root.providerVisit;
+    const adding = 'codex:models:0';
+    link('codex');
+    expect(modelAddingOn(adding, openedOn, root.providerVisit)).toBe(adding);
+    // Away by the nav and back: the route names no instance, so A's link is another key and the field closes.
+    navigate('general');
+    navigate('providers');
+    openedOn = root.providerVisit;
+    link('codex');
+    expect(modelAddingOn(adding, openedOn, root.providerVisit)).toBe('');
+    // The source writes what the model does: the link sets the target, the page's pick leaves it, every other way onto
+    // a route (the nav, a search result or its Enter, the scope, a toast's or the palette's Settings link) drops it.
+    expect(app).toContain('      providerSelected = id == "" ? "" : `target:${id}`\n      providerLinkTarget = id == "" ? "" : `target:${id}`\n');
+    const providerUi = app.slice(app.indexOf('  action providerUi(what: string, value: string)'));
+    expect(providerUi.slice(0, providerUi.indexOf('\n  action ', 1))).not.toContain('providerLinkTarget');
+    for (const head of ['  action coreNavigate(route: string)\n    settingsRoute = route\n',
+      '  action corePick(route: string, target: string, scope: string, id: string)\n    settingsRoute = route\n',
+      '    if k == "Enter" and settingsNavigation.firstRoute != ""\n      settingsRoute = settingsNavigation.firstRoute\n',
+      '    if op == "ui:settings"\n      settingsRoute = target\n',
+      '    if op == "settings" or op == "project-settings"\n      paletteOpen = false\n']) {
+      expect(app).toContain(head);
+      expect(app.slice(app.indexOf(head) + head.length).split('\n')[0]!.trim()).toStartWith('providerLinkTarget = ""');
+    }
+    expect(app).toContain('    providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment\'s first row\n    providerLinkTarget = ""\n');
   });
 });
 
