@@ -1,3 +1,5 @@
+import { mobileEditorOwnerWritten } from './composer-editor-owner';
+import { mobileComposerContextObserve } from './composer-command-context';
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileNewTaskContextGuard, mobileNewTaskContextWrite } from './mobile-new-task-context';
@@ -21,10 +23,15 @@ export async function mobileDraftChanged(client: T3Client, value: string, native
     const target = mobileComposerTargetRequire(client, expectedOwner);
     const guard = target.kind === 'ordinary' && mobileNewTaskDraftIsKey(target.key) ? mobileNewTaskContextGuard(client, target.key) : null;
     if (value.length > 1_000_000) throw new ClientError('Keep a draft under 1,000,000 characters.');
+    const before = client.local.drafts[target.key] ?? '';
     const reduction = guard ? mobileNewTaskContextWrite(client, guard, value) : target.kind === 'ordinary'
       ? composerOps.call(client, 'draft', '', value, 0, native, storage, { message: '', id: '', value })
       : mobileComposerTargetWriteText(client, target, value);
     if (reduction === false) throw new ClientError('The queued edit is no longer editable.', 'superseded');
+    if (target.kind === 'ordinary' && target.threadId && target.key === `${target.environmentId}:${target.threadId}`) {
+      mobileEditorOwnerWritten(client, target, before, client.local.drafts[target.key] ?? '');
+      mobileComposerContextObserve(client);
+    }
     mobileVoiceObserveDraft(client);
     await reduction;
     await mobileComposerTargetPersist(client, target, native, storage);

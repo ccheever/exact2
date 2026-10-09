@@ -45,10 +45,13 @@ final class T3MobileVoiceEditor {
         self.pending = nil
     }
     func end(_ element: ExactElement) { entries.removeValue(forKey: ObjectIdentifier(element)) }
-    func selection(owner: String, text: String, optional: Bool = false) throws -> [String: Any] {
+    func selection(owner: String, text: String, optional: Bool = false, sourceRevision: Int? = nil) throws -> [String: Any] {
         guard !owner.isEmpty else { throw VoiceFailure("superseded", "The draft editor is unavailable.") }
         let endpoints = rich.values.filter { $0.owner == owner }.compactMap(\.endpoint)
         if !endpoints.isEmpty {
+            guard let sourceRevision, sourceRevision >= 0, sourceRevision <= T3ComposerProtocolState.maxCount else {
+                throw VoiceFailure("arguments", "A rich editor selection requires its source document revision.")
+            }
             let candidates = endpoints.filter { $0.composerMounted && $0.composerSnapshot?.value == text && $0.composerSnapshot?.composing == false }
             guard let endpoint = candidates.first(where: { $0.composerSnapshot?.focused == true }) ?? (candidates.count == 1 ? candidates.first : nil),
                   let snapshot = endpoint.composerSnapshot, let identity = endpoint.composerIdentity else {
@@ -56,7 +59,8 @@ final class T3MobileVoiceEditor {
             }
             return ["start": snapshot.selection.start, "end": snapshot.selection.end,
                     "editorId": identity.editorId, "mountId": identity.mountId, "renderEpoch": identity.renderEpoch,
-                    "routeVisit": identity.routeVisit, "eventCount": endpoint.composerEventCount]
+                    "routeVisit": identity.routeVisit, "eventCount": endpoint.composerEventCount,
+                    "capture": T3ComposerVoiceCapture(identity: identity, eventCount: endpoint.composerEventCount, sourceRevision: sourceRevision).json]
         }
         let mounted = entries.values.filter { $0.owner == owner && $0.view?.window != nil }
         if optional && mounted.isEmpty { let end = (text as NSString).length; return ["start": end, "end": end] }
@@ -76,13 +80,15 @@ final class T3MobileVoiceEditor {
         richPending[owner] = RichSelection(capture: RichCapture(identity: identity, eventCount: eventCount), text: text, start: start, end: end, revision: revision)
         return true
     }
-    func stage(owner: String, text: String, start: Int, end: Int, revision: Int) {
+    @discardableResult
+    func stage(owner: String, text: String, start: Int, end: Int, revision: Int) -> Bool {
         // Legacy callers have no invocation capture receipt. Never resolve a rich
         // editor through the latest owner slot; its runtime must use stageCaptured.
-        if rich.values.contains(where: { $0.owner == owner && $0.endpoint != nil }) { return }
-        guard pending.map({ $0.revision <= revision }) ?? true else { return }
+        if rich.values.contains(where: { $0.owner == owner && $0.endpoint != nil }) { return false }
+        guard pending.map({ $0.revision <= revision }) ?? true else { return true }
         let length = (text as NSString).length, lower = max(0, min(length, start)), upper = max(0, min(length, end))
         pending = Selection(owner: owner, text: text, range: NSRange(location: lower, length: max(0, upper - lower)), revision: revision)
+        return true
     }
     func destroy() { entries.removeAll(); pending = nil; rich.removeAll(); richPending.removeAll() }
 }

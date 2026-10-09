@@ -723,6 +723,13 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
     if let image = iconImages[uri] {
       return image
     }
+    if uri.hasPrefix(T3ComposerBundledIcon.prefix) {
+      // The pinned app icon family is local-only. Invalid/missing identifiers
+      // must not fall through to URLSession as if they were remote URLs.
+      guard let image = T3ComposerBundledIcon.image(uri) else { return nil }
+      iconImages[uri] = image
+      return image
+    }
     guard !pendingIconUris.contains(uri), let url = URL(string: uri) else {
       return nil
     }
@@ -925,6 +932,31 @@ final class T3MobileOwnedComposerView: UIView, UITextViewDelegate, UITextDropDel
       }
     }
     return renderedSources == expectedSources
+  }
+}
+
+/// Restricted app-owned static assets, matching the browser renderer's dev-root
+/// then bundle convention. This does not reach private Exact asset generations.
+enum T3ComposerBundledIcon {
+  static let prefix = "t3-bundled-icon:"
+  static var roots: [URL] {
+    [ProcessInfo.processInfo.environment["EXACT_ASSETS"].map { URL(fileURLWithPath: $0, isDirectory: true) },
+     Bundle.main.resourceURL].compactMap { $0 }
+  }
+  static func relativePath(_ identifier: String) -> String? {
+    guard identifier.hasPrefix(prefix) else { return nil }
+    let key = identifier.dropFirst(prefix.count)
+    guard !key.isEmpty, key.utf8.count <= 128, key.unicodeScalars.allSatisfy({ scalar in
+      (97...122).contains(scalar.value) || (48...57).contains(scalar.value) || scalar == "_" || scalar == "-"
+    }) else { return nil }
+    return "assets/file-icons/pierre_\(key).png"
+  }
+  static func image(_ identifier: String, roots: [URL] = roots) -> UIImage? {
+    guard let path = relativePath(identifier) else { return nil }
+    for root in roots where root.isFileURL {
+      if let image = UIImage(contentsOfFile: root.appendingPathComponent(path).path) { return image }
+    }
+    return nil
   }
 }
 

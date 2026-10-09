@@ -50,7 +50,7 @@ final class T3MobileModule: ExactModule {
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-composer-material": T3MobileComposerMaterial.factory,
         "t3-composer-editor": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
-            let instance = T3MobileComposerEditor(voice: module.voice.editor, events: events)
+            let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, events: events)
             try instance.setProps(props); return instance
         },
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
@@ -93,6 +93,7 @@ final class T3MobileModule: ExactModule {
     private let scheduledControls: T3MobileScheduledControls
     private let scheduledNavigation = T3MobileScheduledNavigation()
     private let voice: T3MobileVoice
+    private let composerOperations = T3MobileComposerOperations()
     let terminal: T3MobileTerminal
     private let documentRoot: URL
     private let information = T3MobileInformation()
@@ -184,6 +185,9 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if request["op"] as? String == "composerEditorApply" {
+            reply.send(composerOperations.perform(request)); return
+        }
         if request["op"] as? String == "forgetEnvironment" {
             forgetEnvironment(request, reply: reply)
             return
@@ -529,6 +533,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        composerOperations.destroy()
         keyboard.destroy()
         faviconDownload?.shutdown(); faviconDownload = nil
         if let shareForegroundObserver { NotificationCenter.default.removeObserver(shareForegroundObserver) }; shareForegroundObserver = nil

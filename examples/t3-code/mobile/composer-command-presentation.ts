@@ -37,3 +37,9 @@ export function mobileComposerCommandPresentation(input: {
       skillName:item.type==='skill' ? item.skill.name : '',last:index===items.length-1})),
   };
 }
+
+// RN0.88 StyleSheet.hairlineWidth, used by pinned ComposerCommandPopover.
+export function mobileComposerHairline(displayScale: number): number {
+  const scale = Number.isFinite(displayScale) && displayScale > 0 ? displayScale : 1;
+  return Math.round(0.4 * scale) / scale || 1 / scale;
+}

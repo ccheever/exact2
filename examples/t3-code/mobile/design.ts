@@ -1,3 +1,4 @@
+import { createNativeComposerTheme } from './composer-native-theme';
 // @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 // Literal palettes from upstream 365aa87982 generated-uniwind-themes.css.
 import t0 from './themes/light.json';
@@ -138,4 +139,11 @@ export function mobileCommandColors(scheme: string, palette = 't3-code') {
   const token = (name: string) => tokens[`--color-${name}`];
   return { foreground: token('foreground'), muted: token('foreground-muted'), tertiary: token('foreground-tertiary'),
     icon: token('icon-subtle'), border: token('border'), surface: token('glass-surface'), fallback: token('glass-fallback') };
+}
+
+// Pinned nativeComposerTheme uses opaque chip roles composited over the composer.
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+export function mobileNativeComposerTheme(scheme: string, palette = 't3-code') {
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`;
+  return createNativeComposerTheme(themes[variant] ?? themes[scheme === 'dark' ? 'dark' : 'light']);
 }
