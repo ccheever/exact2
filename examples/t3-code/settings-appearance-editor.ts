@@ -8,6 +8,7 @@ import type { T3Client } from './client';
 import { ClientError } from './protocol';
 import { themeIdFromName, toHex, type CustomTheme } from './settings-themes';
 import { themeRoles } from './settings-appearance';
+import { builtInThemeColors } from './settings-theme-library';
 import { sessionInputFor, sessionThemes, themeEditorStore } from './theme-editor-session';
 import { themeSavedNotice, type ThemeSaveContext } from './theme-editor-notices';
 import { pushToast } from './toast';
@@ -106,7 +107,19 @@ function rolesOf(id: string, mode: Mode, custom: CustomTheme[]): Record<string, 
   const own = custom.find(theme => theme.id === id);
   if (own) return { ...STANDARD[mode], ...(own[mode] ?? own[own.appearance] ?? {}) };
   if (id === 't3-code' || !id) return { ...STANDARD[mode] };
-  return { ...STANDARD[mode], ...(themeRoles(id, mode, custom) as Record<string, string>) };
+  // A built-in source seeds its own definition, every role (ThemeEditorPanel's sourceTheme colours).
+  return { ...STANDARD[mode], ...(builtInThemeColors(id, mode) ?? themeRoles(id, mode, custom) as Record<string, string>) };
+}
+
+/**
+ * ThemeEditorPanel's open (1e2ecbd975 :395-399): Advanced for any source theme the guided editor did
+ * not make (a built-in, an import, an older or Advanced save), so guided regeneration cannot discard
+ * hand-tuned colours; simple for a guided (managed) save and for no source at all. T3 Code's stock look
+ * is no theme definition there (getThemeDefinition), so a theme seeded from it opens simple.
+ */
+export function opensAdvanced(source: { id: string; custom: CustomTheme | null } | null): boolean {
+  if (!source || source.id === 't3-code') return false;
+  return source.custom?.managed !== true;
 }
 
 /**
@@ -125,7 +138,7 @@ export function syncDraft(client: T3Client, kind: string, subject: string, prefs
   const { editingTheme, seedTheme } = sessionThemes(session, custom);
   const source = editingTheme?.id ?? seedTheme?.id ?? '';
   const draft: Draft = { kind, subject, sessionId: session.id, editingId: editingTheme?.custom ? editingTheme.id : '', appearance: session.initialAppearance,
-    name: editingTheme ? editingTheme.label : session.seedName ?? '', advanced: false, filter: '',
+    name: editingTheme ? editingTheme.label : session.seedName ?? '', advanced: opensAdvanced(editingTheme ?? seedTheme), filter: '',
     colors: { light: rolesOf(source, 'light', custom), dark: rolesOf(source, 'dark', custom) }, pickerSeq: {} };
   drafts.set(client, draft);
   return draft;
@@ -213,7 +226,9 @@ export function saveDraft(client: T3Client): { theme: CustomTheme; context: Them
   let theme: CustomTheme, context: ThemeSaveContext;
   if (mergeTarget) {
     if (mergeTarget[draft.appearance]) throw new ClientError(`“${mergeTarget.label}” already has light and dark palettes. Pick another name.`);
-    theme = { ...mergeTarget, [draft.appearance]: { ...draft.colors[draft.appearance] } };
+    // The guided (managed) flag survives only when every palette in the theme came from the guided editor.
+    const { managed: _managed, ...target } = mergeTarget;
+    theme = { ...target, [draft.appearance]: { ...draft.colors[draft.appearance] }, ...(mergeTarget.managed === true && !draft.advanced ? { managed: true } : {}) };
     local.customThemes = custom.map(entry => entry.id === mergeTarget.id ? theme : entry);
     context = { created: false, mergedAppearance: draft.appearance };
   } else {
@@ -223,7 +238,9 @@ export function saveDraft(client: T3Client): { theme: CustomTheme; context: Them
     // handleSubmit: an edit keeps the theme's own palettes (its base appearance and, when it has one, its
     // variant); a new theme installs only the palette of the appearance being edited.
     const modes: Mode[] = editing ? (['light', 'dark'] as Mode[]).filter(mode => mode === editing.appearance || editing[mode] != null) : [draft.appearance];
-    theme = { id, label: name, appearance: editing?.appearance ?? draft.appearance, light: modes.includes('light') ? { ...draft.colors.light } : null, dark: modes.includes('dark') ? { ...draft.colors.dark } : null };
+    // A save from simple mode is the guided editor's (managed); an edit keeps its collection.
+    theme = { id, label: name, appearance: editing?.appearance ?? draft.appearance, light: modes.includes('light') ? { ...draft.colors.light } : null, dark: modes.includes('dark') ? { ...draft.colors.dark } : null,
+      ...(editing?.collection ? { collection: editing.collection } : {}), ...(draft.advanced ? {} : { managed: true }) };
     if (editing) local.customThemes = custom.map(entry => entry.id === editing.id ? theme : entry);
     else {
       if (custom.length >= 100) throw new ClientError('Remove a theme before adding another.');
@@ -239,7 +256,7 @@ export function saveDraft(client: T3Client): { theme: CustomTheme; context: Them
 /** serializeThemeFile: version 1, the base appearance's colours and the other as a variant. */
 export function serializeTheme(theme: CustomTheme): string {
   const base = theme.appearance, other: Mode = base === 'light' ? 'dark' : 'light';
-  const file = { version: 1, id: theme.id, name: theme.label, appearance: base, colors: theme[base] ?? {}, ...(theme[other] ? { variants: { [other]: theme[other] } } : {}) };
+  const file = { version: 1, id: theme.id, name: theme.label, appearance: base, colors: theme[base] ?? {}, ...(theme[other] ? { variants: { [other]: theme[other] } } : {}), ...(theme.managed ? { managed: true } : {}) };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
 
