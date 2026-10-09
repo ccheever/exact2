@@ -27,7 +27,7 @@ import {
 } from './browser-state';
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
 // Part 3 (browser-surface-capture): Annotate, Capture, Float preview, the separate window and the floating player.
-import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
+import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
 // browser-surface part 2: history, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
@@ -354,6 +354,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     // Part 3: Annotate's settled picks reach the composer once each (browser-capture.ts).
     adoptCaptureNative(client, native);
     await applyCaptureResults(client, native, liveTabKeys(client));
+    await cancelHiddenPicks(client, native, shownRuntimeId(client, state)); // PreviewView's unmount: a hidden tab's pick ends
     await navigationPrepare(client, native, state);
     await automationPrepare(client, native); // part 5: the previewAutomation host (browser-automation.ts)
   } catch (error) { if (letGo(error)) throw error; }
@@ -405,6 +406,12 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
 
 // ── Part 3: the tabs the module has, by thread, and the floating player's Open in right panel ─────────
 /** Every live tab with its thread (Annotate's results go to that thread's composer). */
+/** The runtime id of the Browser tab the panel shows, if it shows one. */
+function shownRuntimeId(client: T3Client, state: PanelState): string | null {
+  const active = state.visible ? state.surfaces.find(entry => entry.id === state.active && entry.kind === 'browser') : undefined;
+  const ref = active?.browser ? parseScopedThreadKey(active.browser.threadKey) : null;
+  return ref && active?.browser ? effectiveNav(client, ref, active.browser.tabId).runtimeId : null;
+}
 function liveTabKeys(client: T3Client): Array<{ runtimeId: string; threadKey: string }> {
   const host = browserHost(client), out: Array<{ runtimeId: string; threadKey: string }> = [];
   for (const [key, state] of host.store.active()) {

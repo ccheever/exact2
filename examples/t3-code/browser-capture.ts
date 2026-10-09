@@ -52,6 +52,8 @@ type Host = {
   applied: Map<string, number>;
   /** Picks whose submission was ⌘Return: the window's task sends the composer (onSendAnnotation). */
   sendSerial: number;
+  /** Runtime tab → the settled-pick serial whose active pick was cancelled because the panel stopped showing the tab. */
+  cancelled: Map<string, number>;
   /** The scheme the overlay was last started in (the recording's decorations use its primary colour). */
   scheme: string;
   /** The floating tab's page size, as the panel last measured it (the chat canvas sizes the player from it). */
@@ -61,7 +63,7 @@ const hosts = new WeakMap<T3Client, Host>();
 export function captureHost(client: T3Client): Host {
   let host = hosts.get(client);
   if (!host) {
-    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, scheme: 'light', miniSize: null };
+    const fresh: Host = { native: null, recordings: null as unknown as BrowserRecordings, applied: new Map(), sendSerial: 0, cancelled: new Map(), scheme: 'light', miniSize: null };
     fresh.recordings = new BrowserRecordings(nativeRecordingHost(client, fresh));
     hosts.set(client, fresh);
     host = fresh;
@@ -339,6 +341,21 @@ export async function applyCaptureResults(client: T3Client, native: Native, live
     host.applied.set(runtimeId, serial);
     // The module's log says what became of each pick (`t3.browser: annotate applied <serial> <outcome>`).
     await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'applied', serial, outcome }).catch(error => { if (letGo(error)) throw error; });
+  }
+}
+
+/** PreviewView's unmount cleanup (`cancelPickElement`): the reference's PreviewView unmounts when the panel stops showing
+ *  its tab (Float closes the panel, the panel closes, another tab or thread shows), and its pick ends with it; the
+ *  floating player's page is never annotated. A pick whose tab the panel does not show is cancelled once (the module's
+ *  status catches up); one that settled with ⌘Return first still sends (`annotationSendSerial`). */
+export async function cancelHiddenPicks(client: T3Client, native: Native, shownRuntimeId: string | null): Promise<void> {
+  const host = captureHost(client);
+  host.native = native;
+  for (const [runtimeId, tab] of Object.entries(obj(client.presentation.browserTabs))) {
+    const pick = obj(obj(tab).pick), serial = num(pick.serial);
+    if (runtimeId === shownRuntimeId || pick.active !== true || host.cancelled.get(runtimeId) === serial) continue;
+    host.cancelled.set(runtimeId, serial);
+    await nativeCall(host, { op: 'browserAnnotate', tab: runtimeId, action: 'cancel' }).catch(error => { if (letGo(error)) throw error; });
   }
 }
 

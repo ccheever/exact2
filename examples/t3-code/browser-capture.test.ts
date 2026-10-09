@@ -7,7 +7,7 @@
 // composer send path", "warns when main dropped the crop before handing over the pick") are followed here.
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from './browser-capture';
+import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from './browser-capture';
 import { browserMiniSessions, browserHost, browserView } from './browser-surface';
 import { previewRuntimeTabId } from './browser-state';
 import { panelKey, panelState, panelView, surfaceLocal, surfaceStore, type PanelState } from './r4-surfaces-panel';
@@ -369,20 +369,44 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
   const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
   const block = (text: string, start: string, lines: number) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, at + lines).join('\n'); };
 
-  it('a pick sent from the floating player, with the panel closed, reaches the panel\'s serial, not the Browser tab\'s view', async () => {
-    const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1');
+  /** A server thread's client and a module answering Annotate's take with `result` (audit-wave-followups' harness). */
+  function threadClient(result: Obj) {
+    const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1'), calls: Obj[] = [];
     Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1', configLive: true, shellLive: true, threadLive: true,
       scopes: ['orchestration:read', 'orchestration:operate'], config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
     client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
     client.shell.threads = [{ id: 't1', projectId: 'p1' }];
     client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [], checkpoints: [] }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };
-    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: false, serial: 1, ready: true } } };
     const native: Native = { available: true, watch() {}, async later(input) {
-      const request = obj(input);
-      if (request.op === 'browserAnnotate' && request.action === 'take') return { ok: true, generation: 1, value: { result: { annotation, submission: 'send' }, serial: 1 } };
+      const request = obj(input); calls.push(request);
+      if (request.op === 'browserAnnotate' && request.action === 'take') return { ok: true, generation: 1, value: { result, serial: 1 } };
       if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
       return { ok: true, generation: 1, value: {} };
     } };
+    const cancels = () => calls.filter(call => call.op === 'browserAnnotate' && call.action === 'cancel').map(call => call.tab);
+    return { client, native, tab, cancels };
+  }
+
+  // PreviewView unmounts with the panel (usePanelPresence), and its cleanup cancels the pick: in the reference, Annotate
+  // and then Float leaves the floating page without the overlay, and a pick there does nothing (review drive, 2026-10-10).
+  it('Float or a closed panel ends the tab\'s pick, once (PreviewView\'s unmount: cancelPickElement)', async () => {
+    const { client, native, tab, cancels } = threadClient({});
+    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 3, ready: false } } };
+    await panelView(client, native, 0); // the thread's panel is closed
+    expect(cancels()).toEqual([tab]);
+    await panelView(client, native, 0); // the module's status still says active: asked once
+    expect(cancels()).toEqual([tab]);
+    // A later pick (its own serial) on a tab the panel shows is left alone.
+    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 4, ready: false } } };
+    await cancelHiddenPicks(client, native, tab);
+    expect(cancels()).toEqual([tab]);
+    await cancelHiddenPicks(client, native, null);
+    expect(cancels()).toEqual([tab, tab]);
+  });
+
+  it('a pick that settled with ⌘↩ as the panel hid still sends at once: the serial is the panel\'s, not the Browser tab\'s view', async () => {
+    const { client, native, tab } = threadClient({ annotation, submission: 'send' });
+    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: false, serial: 1, ready: true } } };
     await applyCaptureResults(client, native, [{ runtimeId: tab, threadKey: 'env:t1' }]);
     const view = await panelView(client, native, 0);
     expect(view).toMatchObject({ open: false, annotationSend: 1 });
