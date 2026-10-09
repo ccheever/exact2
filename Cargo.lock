@@ -1250,6 +1250,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-apple",
  "exact-data",
  "exact-data-host",
  "exact-js-value",

@@ -1,6 +1,7 @@
 //! The executor's integration tests: one binary, so one link and one launch.
 //! `tests/fixtures/` stays put: build.rs compiles those to bytecode.
 
+mod admission;
 mod background;
 mod body_from;
 mod caltrain;
