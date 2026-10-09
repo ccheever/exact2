@@ -1,0 +1,36 @@
+// browser-surface-automation lane fixture (not committed; uploaded as evidence): the form page the preview tools
+// drive, a second page, a page with a looping tone (Mute), and a favicon.
+const port = Number(process.env.FIXTURE_PORT || 16751);
+const form = `<!doctype html><html><head><title>Lane form</title><link rel=icon href=/favicon.png>
+<style>body{font:16px -apple-system,system-ui;margin:24px;color:#111;background:#fff} @media (prefers-color-scheme: dark){body{background:#111;color:#eee}}
+button{font:inherit;padding:6px 14px} input{font:inherit;padding:4px 6px} .tall{height:1600px}</style></head><body>
+<h1>Lane form</h1><p>A page the agent drives through the preview tools.</p>
+<form id=form onsubmit="event.preventDefault(); document.getElementById('submitted').textContent = 'submitted ' + document.getElementById('name').value">
+<label>Name <input id=name name=name></label> <button id=go type=button onclick="window.clicks=(window.clicks||0)+1; this.textContent='Go '+window.clicks">Go</button></form>
+<p id=submitted></p><p><a href="/b">Page B</a></p><div class=tall></div>
+<script>console.info('lane form loaded'); fetch('/missing.json').catch(()=>{});</script></body></html>`;
+const pageB = `<!doctype html><title>Page B</title><link rel=icon href=/favicon.png><body style="font:16px -apple-system;margin:24px"><h1>Page B</h1><p>The second page.</p><a href="/form">Back to the form</a></body>`;
+const tone = (() => {
+  const samples = new Int16Array(8000);
+  for (let i = 0; i < samples.length; i++) samples[i] = Math.round(Math.sin(i * 2 * Math.PI * 440 / 8000) * 6000);
+  const header = new DataView(new ArrayBuffer(44));
+  const text = (offset, value) => [...value].forEach((char, index) => header.setUint8(offset + index, char.charCodeAt(0)));
+  text(0, 'RIFF'); header.setUint32(4, 36 + samples.byteLength, true); text(8, 'WAVEfmt '); header.setUint32(16, 16, true); header.setUint16(20, 1, true);
+  header.setUint16(22, 1, true); header.setUint32(24, 8000, true); header.setUint32(28, 16000, true); header.setUint16(32, 2, true); header.setUint16(34, 16, true);
+  text(36, 'data'); header.setUint32(40, samples.byteLength, true);
+  return new Blob([header.buffer, samples.buffer], { type: 'audio/wav' });
+})();
+const media = `<!doctype html><title>Lane media</title><body style="font:16px -apple-system;margin:24px"><h1>Lane media</h1><audio id=tone src=/tone.wav loop controls></audio>
+<p><button id=play onclick="document.getElementById('tone').play()">Play</button></p></body>`;
+const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR42mP8z8BQz0AEYBxVSF+FAAhKDveksOjmAAAAAElFTkSuQmCC'), c => c.charCodeAt(0));
+Bun.serve({ port, hostname: '127.0.0.1', fetch(request) {
+  const url = new URL(request.url);
+  console.log(new Date().toISOString(), request.method, url.pathname + url.search);
+  if (url.pathname === '/' || url.pathname === '/form') return new Response(form, { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/b') return new Response(pageB, { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/media') return new Response(media, { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/tone.wav') return new Response(tone);
+  if (url.pathname === '/favicon.png') return new Response(png, { headers: { 'content-type': 'image/png' } });
+  return new Response('missing', { status: 404 });
+} });
+console.log(`fixture on ${port}`);
