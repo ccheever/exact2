@@ -1,0 +1,36 @@
+#!/bin/zsh
+# browser-surface-capture: a normal launch of a lane copy for the real-input batch (not committed; part 1's lane-app.sh
+# with this lane's ports). Usage: real-lane-app.sh [run name]. Prints the run dir; pids.txt names the fixture and the app.
+# After the batch: osascript -e 'quit app id "com.exact.t3code.macos.lanecapture"' (an Apple Event quit stops its
+# server), kill the fixture pid in pids.txt, defaults delete com.exact.t3code.macos.lanecapture.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture
+L=$W/target/capture-lane/lane
+OUT=$W/target/capture-lane/runs/${1:-real}; rm -rf $OUT; mkdir -p $OUT
+SRC=$(ls -td "$W"/target/clients/*/com.exact.t3code.macos/macos/"T3 Code (Exact).app" | head -1)
+APP="$L/apps/T3 Code (Lane Capture).app"
+mkdir -p "$L/apps"; rm -rf "$APP"; cp -R "$SRC" "$APP"
+PB=/usr/libexec/PlistBuddy
+$PB -c "Set :CFBundleIdentifier com.exact.t3code.macos.lanecapture" "$APP/Contents/Info.plist"
+$PB -c "Set :CFBundleName T3 Code (Lane Capture)" "$APP/Contents/Info.plist"
+$PB -c "Delete :CFBundleDisplayName" "$APP/Contents/Info.plist" 2>/dev/null
+$PB -c "Add :CFBundleDisplayName string T3 Code (Lane Capture)" "$APP/Contents/Info.plist"
+codesign --force --deep -s - "$APP" > $OUT/codesign.log 2>&1 || { echo codesign failed; exit 1; }
+BUN=$HOME/.bun-1.4.2/bin/bun
+rm -rf $L/t3-home-real; cp -R $L/t3-home-seed $L/t3-home-real
+mkdir -p $L/home
+FIXTURE_PORT=16721 $BUN $W/target/capture-lane/fixture.mjs > $OUT/fixture.log 2>&1 &
+echo "fixture $!" > $OUT/pids.txt
+env -i HOME=$L/home CFFIXED_USER_HOME=$L/home USER=$USER LOGNAME=$USER TMPDIR="$TMPDIR" LANG=en_US.UTF-8 \
+  PATH=$L/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+  T3_LOCAL_HOME=$L/t3-home-real T3_LOCAL_PORT=16720 T3CODE_TELEMETRY_ENABLED=false \
+  T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64 \
+  CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude \
+  XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache \
+  T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt \
+  "$APP/Contents/MacOS/T3 Code (Exact)" > $OUT/app.log 2>&1 &
+echo "app $!" >> $OUT/pids.txt
+# The project opens as a new thread's draft, as in the agent drives.
+sleep 12
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false \
+  $L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64/t3 app $L/projects/work --base-dir $L/t3-home-real > $OUT/t3-app.out 2>&1
+echo "out $OUT"
