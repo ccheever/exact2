@@ -96,7 +96,8 @@ function parsedUrl(value: unknown, protocols: string[]): string | undefined {
 const imageUrl = (value: unknown) => parsedUrl(value, ['http:', 'https:', 'data:']);
 const pageUrl = (value: unknown) => parsedUrl(value, ['http:', 'https:']);
 
-function activityIcon(value: unknown): Obj | undefined {
+/** The ToolActivityIcon schema's decode: trimmed fields, valid URLs and app ids, nothing else kept; `undefined` when it does not decode. */
+export function activityIcon(value: unknown): Obj | undefined {
   const icon = obj(value);
   if (icon._tag === 'website') {
     const page = pageUrl(icon.pageUrl), favicon = imageUrl(icon.faviconUrl), faviconDark = imageUrl(icon.faviconUrlDark);
