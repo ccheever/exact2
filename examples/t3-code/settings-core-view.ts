@@ -47,7 +47,7 @@ export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
   return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
 }
 
-export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false) {
+export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false, scheme = 'light') {
   rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
   const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
   const prefs: ClientPrefs = (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
@@ -58,7 +58,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
   // The theme editor's session (D16): the window's create/edit/duplicate dialog names it whether
   // or not Settings is open, and its draft paints the whole app (settings-appearance-editor.ts).
-  const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, device.appearanceMode === 'dark' ? 'dark' : 'light');
+  // It opens on the app's resolved scheme (app.contract `scheme`; SettingsPanels.tsx and CommandPalette.tsx pass
+  // useTheme's resolvedTheme), so mode System on a dark Mac opens the Dark appearance.
+  const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, scheme === 'dark' ? 'dark' : 'light');
   const preview = previewTheme(client);
   if (dialogKind !== 'import') resetImport(client);
   const paintCustom = preview ? [...custom, preview] : custom;

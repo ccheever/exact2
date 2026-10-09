@@ -77,6 +77,7 @@ component SettingsWindow
     settingsQuery: string
     sidebarWidth: number
     viewport: Viewport
+    scheme: string
     settingsMenu: string
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
     editSettingsQueryRoot: action
@@ -296,7 +297,7 @@ component SettingsWindow
               when settingsRoute == "connections"
                 ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
+                ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                   each row in settingsCore.projectModel key=row.id
@@ -333,6 +334,7 @@ component ProjectDialogs
     sbLetters: string
     sbEmoji: string
     viewport: Viewport
+    scheme: string
     sbSet: action
   view
     SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose)
@@ -343,9 +345,9 @@ component ProjectDialogs
       each blank in projectsSettings.blankActions key=blank.id
         ProjectActionEditor(item=blank, scope=restSubject, editing=false, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     when restEditor == "project-icon"
-      ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
+      ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(scheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
     when restEditor == "project-favicon"
-      ProjectFaviconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, vw=viewport.width, vh=viewport.height, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, raw=restRaw, set=sbSet, close=restClose)
+      ProjectFaviconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, vw=viewport.width, vh=viewport.height, dark=(scheme == "dark"), busy=commandPending, raw=restRaw, set=sbSet, close=restClose)
 
 // Settings dialogs: snapshot setup, Add environment, the provider wizards and removal confirms.
 component SettingsModals
@@ -366,6 +368,7 @@ component SettingsModals
     credential: string
     data: Snapshot
     viewport: Viewport
+    scheme: string
     sbSshHosts: SbSshHosts
     sbSshHost: string
     editOrigin: action
@@ -404,7 +407,7 @@ component SettingsModals
       AddEnvironmentDialog(origin=origin, credential=credential, pairFields=pairFields, connected=data.connected, available=data.available, viewportHeight=viewport.height, busy=commandPending, error=modalError, sshHosts=sbSshHosts, sshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, submit=connectionOp("environment-add", origin, credential), set=sbSet, ssh=connectionOp, closeDialog=closeConnection, routeTarget=routeTarget, routeLabel=routeLabel)
     when providerDialog == "add"
       each session in providerWizard.sessions key=session.key
-        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
+        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=scheme, busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
     when providerDialog == "chatgpt"
       each session in providerWizard.sessions key=session.key
         ChatGptAccountDialog(wizard=providerWizard, busy=commandPending, setupBusy=setupBusy, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""), op=providerOp, ui=providerUi)
