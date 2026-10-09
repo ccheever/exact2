@@ -338,7 +338,7 @@ component PrdCodeRow
       when item.kind == "pr-pending"
         PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
       when item.kind == "pr-draft"
-        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent)
+        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
       when item.kind == "pr-footer"
         // The sentinel at the end of the files: "Loading more files...", or the failure and Retry.
         row width="100%" min-height="2rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" testId="pull-request-code-footer"

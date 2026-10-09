@@ -13,6 +13,7 @@ use MarkdownEnv from "./markdown.contract"
 use PrChip from "./pages-prs.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrMenuBox from "./pages-prs.contract"
+use PrPageBack from "./pages-prs.contract"
 use PrSummaryView from "./pages-pr-summary.contract"
 use PrdSummary from "./pages-pr-summary.contract"
 use PrTimelineView from "./pages-pr-timeline.contract"
@@ -145,6 +146,10 @@ fn prdIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request
 fn prdCheckIcon(status: string): string = status == "failure" or status == "cancelled" ? "circle-x" : status == "pending" or status == "action-required" ? "circle-dot" : status == "success" ? "circle-check" : "circle-dashed"
 fn prdCheckTone(status: string): string = status == "failure" or status == "cancelled" ? "light-dark(#e40014, #fb414a)" : status == "pending" or status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : status == "success" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
 
+// Whether an editor field's hold on Escape (PrPanel) still stands where the data can tell: the code comment draft while
+// one is open, a reply while its thread has not taken a reply since it opened (`reply:<thread>:<serial>`).
+fn prdEscapeLive(field: string, code: PrCodeView): bool = field == "pr-code-draft" ? code.draftOpen : (startsWith(field, "reply:") ? length(filter(code.threads, (card) => `reply:${card.id}:${card.repliedSerial}` == field)) > 0 : true)
+
 // RightPanelTabs (inline) around the detail: the pull request's tab, then the panel body.
 component PrPanel
   props
@@ -162,15 +167,32 @@ component PrPanel
     still: bool
     select: action
     compact: bool
+    // usage-and-pr-pages PG-7: the page's Back (Escape), held here while the panel shows (PrPageBack).
+    back: action
+  // The field of a pull request editor that has the focus (the title, a description or remark, a reply, the code
+  // comment draft), reported through `local` ("pr-escape-hold", the field, "true" or ""), and the pull request it was
+  // on: while it holds the focus, Escape is its own (it cancels) and Back gives it up (Settings' escapeFocus). A field
+  // the view removes may send no blur, so each editor lets go itself as it closes, saves or sends; another pull
+  // request or the draft's end lets go of what is left, and closing the panel starts it over.
+  state escapeField = ""
+  state escapeRef = ""
+  derive escapeHeld = escapeField != "" and escapeRef == detail.ref and prdEscapeLive(escapeField, detail.codeTab)
+  action panelLocal(op: string, id: string, value: string)
+    if op == "pr-escape-hold"
+      escapeField = value == "true" ? id : (escapeField == id ? "" : escapeField)
+      escapeRef = detail.ref
+    else
+      local(op, id, value)
   view
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-request-panel"
+      PrPageBack(held=escapeHeld, back=back)
       row height=52 flex-shrink=0 width="100%" padding-left="0.5rem" padding-right="3.5rem" box-sizing="border-box" align-items="center" gap="0.25rem"
         row height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" border-radius="0.5rem" background-color="light-dark(#27272a0d, #ffffff0a)" align-items="center" role="tab" aria-selected=true testId="pull-request-tab"
           PrTabClose(detail=detail, close=close)
           text detail.numberLabel font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
       // Keyed by the pull request, as the reference keys its panel: another one starts with its header open.
       each bodyRef in [detail.ref] key=bodyRef
-        PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still, select=select, compact=compact, narrow=(width < 560), scrollId="pr-page-scroll")
+        PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=panelLocal, still=still, select=select, compact=compact, narrow=(width < 560), scrollId="pr-page-scroll")
 
 // The panel's body, shared with the thread's pull request surface (r5-panels.contract): the
 // ghost while the detail is out, the unavailable state, or the header, the tab bar and both tabs.
@@ -447,7 +469,7 @@ component PrdHeader
       // The block: it leaves at once (the scroll refund paints in the same frame) and eases back in.
       column width="100%" height=(condensed ? "0px" : "auto") overflow="hidden" flex-shrink=0 -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out") testId="pull-request-fold"
         column id=`${measureId}-fold` width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" inert=condensed opacity=(condensed ? 0 : 1) translate=(condensed and not still ? "0 -4px" : "0 0") transition=(still ? "none" : condensed ? "opacity 100ms ease-out, translate 100ms ease-out" : "opacity 150ms ease-out 50ms, translate 150ms ease-out 50ms")
-          PrdTitle(title=detail.title, canEdit=detail.writes.canEditChange, saving=detail.writes.titleSaving, serial=detail.writes.titleSerial, still=still, act=act)
+          PrdTitle(title=detail.title, canEdit=detail.writes.canEditChange, saving=detail.writes.titleSaving, serial=detail.writes.titleSerial, still=still, act=act, local=local)
           row width="100%" min-height="1.25rem" margin-top="0.5rem" align-items="center" gap="0.375rem"
             PrAvatar(avatar=detail.authorAvatar, initial=detail.authorInitial, size=16)
             text detail.author font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 flex-shrink=1 min-width=0

@@ -21,10 +21,39 @@ const HOUR = 3_600_000;
 // ── Formatting (usageFormat.ts) ─────────────────────────────────────────────
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+/** A non-negative finite number's shortest decimal digits (Number's own), as whole and fraction parts without an exponent. */
+function plainDigits(value: number): [string, string] {
+  const [mantissa = '0', exponent = '0'] = String(value).split('e');
+  const [lead = '0', tail = ''] = mantissa.split('.');
+  const shift = Number(exponent), digits = lead + tail, point = lead.length + shift;
+  if (point <= 0) return ['0', '0'.repeat(-point) + digits];
+  if (point >= digits.length) return [digits + '0'.repeat(point - digits.length), ''];
+  return [digits.slice(0, point), digits.slice(point)];
+}
+/** Adds one to a string of decimal digits. */
+function incremented(digits: string): string {
+  let out = '', carry = 1;
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    const sum = Number(digits[index]) + carry;
+    out = String(sum % 10) + out;
+    carry = sum >= 10 ? 1 : 0;
+  }
+  return carry ? `1${out}` : out;
+}
+/**
+ * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits): ICU rounds the number's shortest
+ * decimal digits half away from zero (`halfExpand`), so 0.825 is $0.83 where `toFixed` rounds the binary value
+ * (0.8249…) down. Formatted here rather than by `Intl`: Hermes's Apple Intl (NSNumberFormatter) rounds half to even
+ * and printed $0.82 too (EXACT2-GAPS X71). A negative amount, -0 included, keeps its sign as ICU's does.
+ */
 export function formatUsd(value: number): string {
-  const fixed = Math.abs(value).toFixed(2);
-  const [whole = '0', cents = '00'] = fixed.split('.');
-  return `${value < 0 && Number(fixed) !== 0 ? '-' : ''}$${group(whole)}.${cents}`;
+  const sign = value < 0 || Object.is(value, -0) ? '-' : '';
+  if (Number.isNaN(value)) return '$NaN';
+  if (!Number.isFinite(value)) return `${sign}$∞`;
+  const [whole, fraction] = plainDigits(Math.abs(value));
+  const cents = `${fraction}00`.slice(0, 2);
+  const rounded = Number(fraction[2] ?? '0') >= 5 ? incremented(`${whole}${cents}`).padStart(3, '0') : `${whole}${cents}`;
+  return `${sign}$${group(rounded.slice(0, -2).replace(/^0+(?=\d)/, ''))}.${rounded.slice(-2)}`;
 }
 export function formatCount(value: number): string { return group(String(Math.round(value))); }
 const trim = (value: number) => {
@@ -475,15 +504,29 @@ function holds(ast: unknown, context: Record<string, boolean>, depth = 0): boole
   const left = holds(node.left, context, depth + 1), right = holds(node.right, context, depth + 1);
   return node.type === 'and' ? left && right : node.type === 'or' ? left || right : false;
 }
-/** The usage page's chords from the server's resolved keybindings, evaluated with usagePageOpen. */
-export function usageKeys(config: Obj, chord: (shortcut: Obj) => string): { id: string; chord: string; kind: string; value: string; days: number; label: string }[] {
+/** keybindings.ts formatShortcutLabel on macOS (formatShortcutKeyLabel's key names): ⌃⌥⇧⌘, then the key. */
+export function shortcutGlyphs(shortcut: Obj): string {
+  const key = str(shortcut.key);
+  const names: Record<string, string> = { ' ': 'Space', escape: 'Esc', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' };
+  const label = names[key] ?? (key.length === 1 ? key.toUpperCase() : key.slice(0, 1).toUpperCase() + key.slice(1));
+  return `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.metaKey || shortcut.modKey ? '⌘' : ''}${label}`;
+}
+/**
+ * The usage page's chords from the server's resolved keybindings, evaluated with usagePageOpen; each carries
+ * UsagePage's shortcutTitle (usage-and-pr-pages PG-4): the label and the chord, "Past 24h (⇧⌘1)". A command bound
+ * twice comes first with its effective (latest winning) binding, as findEffectiveShortcutForCommand picks it.
+ */
+export function usageKeys(config: Obj, chord: (shortcut: Obj) => string): { id: string; chord: string; kind: string; value: string; days: number; label: string; title: string }[] {
   const bindings = arr(config.keybindings);
   const context = { usagePageOpen: true, isDesktop: true, true: true };
-  const winners = new Map<string, string>();
+  const winners = new Map<string, Obj>();
   for (const binding of [...bindings].reverse()) {
     const key = chord(obj(binding.shortcut));
     if (!key || winners.has(key) || !holds(binding.whenAst, context)) continue;
-    winners.set(key, str(binding.command));
+    winners.set(key, binding);
   }
-  return [...winners].filter(([, command]) => USAGE_COMMANDS[command]).map(([key, command]) => ({ id: command, chord: key, ...USAGE_COMMANDS[command]! }));
+  return [...winners].filter(([, binding]) => USAGE_COMMANDS[str(binding.command)]).map(([key, binding]) => {
+    const option = USAGE_COMMANDS[str(binding.command)]!;
+    return { id: str(binding.command), chord: key, ...option, title: `${option.label} (${shortcutGlyphs(obj(binding.shortcut))})` };
+  });
 }

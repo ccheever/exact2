@@ -120,6 +120,10 @@ component R5PrSurfaceBody
     local: action
     still: bool
     compact: bool
+  // usage-and-pr-pages PG-7: an editor's hold on Escape is the Pull Requests page's (PrPanel); this surface has no page Back.
+  action bodyLocal(op: string, id: string, value: string)
+    if op != "pr-escape-hold"
+      local(op, id, value)
   view
     column flex=1 min-height=0 width="100%" testId="pull-request-surface"
       // Another surface's answer (the one resource read for a different reference) is not drawn here.
@@ -128,7 +132,7 @@ component R5PrSurfaceBody
         box flex=1 width="100%"
       else
         each bodyRef in [detail.ref] key=bodyRef
-          PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still, select=local("pr-ui-select", ""), compact=compact, narrow=compact, scrollId="pr-surface-scroll")
+          PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=bodyLocal, still=still, select=local("pr-ui-select", ""), compact=compact, narrow=compact, scrollId="pr-surface-scroll")
 
 // AttachmentFilePreview: "Attachment › name  size" with the icon actions, then the document.
 component R5AttachmentBody
