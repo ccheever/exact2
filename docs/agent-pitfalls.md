@@ -502,6 +502,11 @@ guide's rules don't make obvious.
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+- **`showPicker("x")` names the input's `id`, not its `testId`.** With only
+  `testId="x"` the press opens no picker, and a drive's `type @x photo.jpg`
+  answers `no held device request … (held: none)`. Fix: give the
+  `input type="file"` both, `id="x" testId="x"`. (Interview's profile photo,
+  LLP 1108, 2026-10-08.)
 
 ## Driving and testing
 
