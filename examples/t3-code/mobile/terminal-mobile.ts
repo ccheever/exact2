@@ -3,6 +3,7 @@ import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileCompose
 // @ref llp/1109.007-mobile-terminal.decision.md#root-seam
 import { mobileNewTaskDraftIsKey } from './mobile-new-task-drafts';
 import { mobileDraftChanged } from './draft';
+import { mobileExternalContextCapture, mobileExternalContextCurrent, mobileExternalContextInsert, mobileExternalContextPersist, mobileExternalContextPreflight } from './composer-external-context';
 import { saveTerminalContext, formatTerminalContextReference, terminalContextRecord } from './shared/terminal-integrations';
 import { contextReferences } from './shared/composer-editor-menu';
 import { mobileClient, mobileNative } from './client';
@@ -25,6 +26,7 @@ export interface MobileTerminalSnapshot { revision: number; environmentId: strin
 const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.threadId]);
 const permissions = new WeakMap<T3Client, { owner: string; read: boolean; operate: boolean }>();
 const busy = new WeakSet<T3Client>();
+const attaching = new WeakSet<T3Client>();
 export function mobileTerminalColors(scheme: string, palette = 't3-code'): MobileTerminalColors {
   const dark = scheme === 'dark', theme = mobileTheme(scheme, palette), colors = theme.colors;
   const table = MOBILE_THEME_ARTWORK as Record<string, Record<string, { terminalBackground: string; terminalForeground: string; terminalCursor: string }>>;
@@ -154,33 +156,45 @@ export function mobileTerminalCapture(text: string, start: number, end: number) 
     start: first, end: last, text: selected, tooLarge: selected.length > 64_000, canAttach: selected.trim().length > 0 && selected.length <= 64_000 };
 }
 export async function mobileTerminalAttachOutput(key: string, text: string, start: number, end: number, now: number,
-  nativeInput: Native | null | undefined, files: Files, client: T3Client = mobileClient) {
-  const captured = owner(client), draft = mobileComposerTargetRequire(client), selection = mobileTerminalCapture(text, start, end);
-  const result = (message = '') => ({ revision: client.revision, message });
+  nativeInput: Native | null | undefined, files: Files, client: T3Client = mobileClient, routeVisit = '') {
+  const captured = owner(client), selection = mobileTerminalCapture(text, start, end);
+  const result = (message = '', accepted = false) => ({ revision: client.revision, message, accepted, key, text, start, end, routeVisit });
   if (!nativeInput?.available || !selection.canAttach) return result('Select non-empty output within the context limit.');
+  if (attaching.has(client)) return result('Wait for the current attachment to finish.');
   let target: unknown; try { target = JSON.parse(key); } catch { return result('This terminal is no longer open.'); }
   if (!Array.isArray(target) || target.length !== 3 || target[0] !== client.environmentId || target[1] !== client.threadId) return result('The selected conversation changed.');
   const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : files;
+  attaching.add(client);
   try {
-    if (contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
+    if (!mobileExternalContextPreflight(client)) throw new ClientError('The saved draft cleanup metadata is unavailable. Keep the original draft.', 'retained');
+    const draft = mobileComposerTargetRequire(client);
+    const routePolicy = () => JSON.stringify([owner(client), client.origin, client.projectId, client.threadEpoch, key]);
+    const insertion = mobileExternalContextCapture(client, draft, 'terminal', routePolicy());
+    if (insertion?.kind !== 'owned' && contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
     const ids = await client.ids(native, 1);
-    if (captured !== owner(client) || !mobileComposerTargetCurrent(client, draft)) throw new ClientError('The selected conversation changed.');
-    if (contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
+    if (!mobileExternalContextPreflight(client) || captured !== owner(client) || !mobileExternalContextCurrent(client, insertion, routePolicy()) || !mobileComposerTargetCurrent(client, draft)) throw new ClientError('The selected conversation changed.');
+    if (insertion?.kind !== 'owned' && contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
     const id = Array.isArray(ids) ? str(ids[0]) : ''; if (!id) throw new ClientError('Could not create terminal context.');
     const summary = knownSessions(client, { environmentId: client.environmentId, threadId: client.threadId }).find(item => item.target.terminalId === target[2])?.state.summary;
     const context = { id, threadId: client.threadId, terminalId: str(target[2]), terminalLabel: `${resolveTerminalSessionLabel(str(target[2]), summary)} (visible output)`,
       lineStart: selection.start + 1, lineEnd: selection.end + 1, text: selection.text, createdAt: new Date(now).toISOString() };
+    if (insertion?.kind === 'owned') {
+      mobileExternalContextInsert(client, insertion, formatTerminalContextReference(context), terminalContextRecord(context), routePolicy());
+      return result(await mobileExternalContextPersist(client, storage), true);
+    }
     const previous = mobileComposerTargetText(client, draft) ?? '';
     const text = `${previous}${previous ? ' ' : ''}${formatTerminalContextReference(context)} `;
     if (draft.kind === 'queued-edit') {
       await mobileComposerEditContext(client, draft, text, terminalContextRecord(context), '', native);
-      return result();
+      return result('', true);
     }
     if (mobileNewTaskDraftIsKey(draft.key)) {
       await mobileComposerNewTaskContext(client, draft, text, terminalContextRecord(context), '', native, storage);
-      return result();
+      return result('', true);
     }
     saveTerminalContext(client, context);
-    return await mobileDraftChanged(client, text, native, storage, draft.owner);
+    const changed = await mobileDraftChanged(client, text, native, storage, draft.owner);
+    return result(changed.message, !changed.message);
   } catch (error) { if (letGo(error)) throw error; return result(error instanceof Error ? error.message : 'Could not attach output.'); }
+  finally { attaching.delete(client); }
 }

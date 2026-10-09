@@ -2,11 +2,15 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
+import { mobileQueuedEditCurrent } from './queued-edit-state';
+import { fleet } from './shared/settings-b-fleet';
+import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
+import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { Obj } from './shared/domain';
 import { mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
-import { mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
+import { mobileComposerContextInventoryOwnerAvailable, mobileComposerContextInsertDocument, type ComposerExternalContextContent, type ComposerExternalContextResult, mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
-import { mobileEditorDocumentEnroll, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
+import { mobileEditorDocumentEnroll, mobileEditorDocumentMembership, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
 import { mobileComposerEditorAdmit, type ComposerEditorState, type ComposerEditorDocument } from './composer-editor-state';
 
 export interface EditorRouteInput {
@@ -152,4 +156,72 @@ export function mobileEditorCommitDocumentContextIntent(client:T3Client,capture:
   if(entry)Object.assign(entry,ledger);
   if(sameDocument)r.active=null;
   r.revision++;return result;
+}
+
+export interface EditorContextInsertionCapture {
+  id:string;producer:'terminal'|'review';target:MobileComposerTarget;documentKey:string;incarnation:string;capturedRevision:number;
+  catalog:string;homeOrigin:string;routePolicy:string;insertion:{text:string;start:number;end:number};
+}
+const insertionAdmissions=new WeakMap<object,Map<string,EditorContextInsertionCapture>>();
+const insertionLane=(capture:Pick<EditorContextInsertionCapture,'producer'|'documentKey'>)=>JSON.stringify([capture.producer,capture.documentKey]);
+function insertionRegistry(client:T3Client):Map<string,EditorContextInsertionCapture> {
+  let value=insertionAdmissions.get(client.local);if(!value){value=new Map();insertionAdmissions.set(client.local,value)}return value;
+}
+function insertionMounted(client:T3Client,target:MobileComposerTarget):boolean {
+  const active=registry(client).active;
+  return !!active?.state.mountId&&active.target.origin===target.origin&&active.target.environmentId===target.environmentId&&active.target.key===target.key;
+}
+/** Ordinary read-only target guard: never invokes the NewTask lookup that initializes raw storage. */
+export function mobileEditorContextTargetCurrent(client:T3Client,target:MobileComposerTarget):boolean {
+  return ordinary(target)&&!target.threadId.startsWith('new:')&&!target.key.includes('~queued-edit~')
+    &&target.origin===client.origin&&target.environmentId===client.environmentId&&target.generation===client.generation
+    &&target.projectId===client.projectId&&target.threadId===client.threadId&&target.key===client.draftKey
+    &&target.incarnation===''&&target.editorOwner===target.key&&target.editOwner===''
+    &&target.owner===JSON.stringify(['ordinary',client.origin,client.environmentId,client.generation,client.draftKey])
+    &&mobileQueuedEditCurrent(client)===null;
+}
+/** Producer entry must call this before any legacy TargetRequire/lookup can initialize malformed raw data. */
+export function mobileEditorContextInsertionPreflight(client:T3Client):boolean {return mobileComposerContextInventoryOwnerAvailable(client)}
+/** Already-enrolled ordinary admission before producer awaits. This does not enroll or guess a
+ * textarea caret: explicit selection wins, otherwise durable remembered selection/end is used. */
+export function mobileEditorCaptureContextInsertion(client:T3Client,target:MobileComposerTarget,producer:'terminal'|'review',
+  routePolicy:string,selection?:{start:number;end:number}):EditorContextInsertionCapture|null {
+  if(!mobileEditorContextInsertionPreflight(client)||!ordinary(target)||!['terminal','review'].includes(producer)||!routePolicy||!mobileEditorContextTargetCurrent(client,target)
+    ||insertionMounted(client,target)||mobileEditorDocumentMembership(client,target)!=='enrolled')return null;
+  const catalog=mobileCacheCatalogIdentity(fleet.saved,target.environmentId),homeOrigin=mobileQueuedEditOrigin(client).trim().replace(/\/+$/,'');
+  if(!catalog||catalog!==JSON.stringify([target.environmentId,homeOrigin]))return null;
+  const captured=mobileEditorDocumentCapture(client,target,producer,selection),r=registry(client);
+  if(!captured||!Number.isSafeInteger(r.serial)||r.serial<0||r.serial>=Number.MAX_SAFE_INTEGER)return null;
+  const capture:EditorContextInsertionCapture={id:`external-${++r.serial}`,producer,target:editorCopy(target),documentKey:captured.key,
+    incarnation:captured.incarnation,capturedRevision:captured.revision,catalog,homeOrigin,routePolicy,
+    insertion:{text:captured.before,...captured.selection}};
+  insertionRegistry(client).set(insertionLane(capture),editorCopy(capture));return capture;
+}
+/** Same owner/incarnation/enrollment, not same text revision: latest valid text/context/inventory
+ * are intentionally admitted at commit. A new capture supersedes the same producer's older action. */
+export function mobileEditorContextInsertionCurrent(client:T3Client,capture:EditorContextInsertionCapture,routePolicy:string):boolean {
+  const saved=insertionRegistry(client).get(insertionLane(capture));
+  if(!mobileEditorContextInsertionPreflight(client)||!saved||canonical(saved)!==canonical(capture)||routePolicy!==saved.routePolicy||!mobileEditorContextTargetCurrent(client,saved.target)
+    ||insertionMounted(client,saved.target)||mobileEditorDocumentMembership(client,saved.target)!=='enrolled'
+    ||mobileQueuedEditOrigin(client).trim().replace(/\/+$/,'')!==saved.homeOrigin
+    ||mobileCacheCatalogIdentity(fleet.saved,saved.target.environmentId)!==saved.catalog)return false;
+  const current=mobileEditorDocumentCapture(client,saved.target,saved.producer);
+  return !!current&&current.key===saved.documentKey&&current.incarnation===saved.incarnation;
+}
+/** Semantic source insertion: equal text (including ABA) uses captured range; changed text appends.
+ * The latest exact guard is taken in this synchronous call, not used to rescue a strict intent. */
+export function mobileEditorCommitContextInsertion(client:T3Client,capture:EditorContextInsertionCapture,
+  content:ComposerExternalContextContent,routePolicy:string):ComposerExternalContextResult {
+  if(!mobileEditorContextInsertionPreflight(client))return {ok:false,reason:'invalid-inventory'};
+  if(!mobileEditorContextInsertionCurrent(client,capture,routePolicy))return {ok:false,reason:'superseded'};
+  const r=registry(client);if(!Number.isSafeInteger(r.revision)||r.revision<0||r.revision>=Number.MAX_SAFE_INTEGER)return {ok:false,reason:'limit'};
+  const current=mobileEditorDocumentCapture(client,capture.target,capture.producer)!,admissions=insertionRegistry(client),lane=insertionLane(capture);
+  const entry=r.documents.get(keyOf(capture.target)),active=r.active;
+  const same=active?.target.key===capture.target.key&&active.target.origin===capture.target.origin&&active.target.environmentId===capture.target.environmentId;
+  const outcome=mobileComposerContextInsertDocument(client,current,capture.insertion,content);
+  if(!outcome.result.ok)return outcome.result;
+  // All objects assigned below were prepared before the concrete document commit.
+  if(entry)Object.assign(entry,outcome.ledger);
+  if(same)r.active=null;
+  admissions.delete(lane);r.revision++;return outcome.result;
 }

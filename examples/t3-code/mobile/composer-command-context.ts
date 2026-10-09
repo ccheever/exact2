@@ -11,6 +11,8 @@ import { mobileContextRecordValid } from './mobile-context-record';
 import { mobileCreateContextHistory, mobileNewTaskContextProject, mobileReferencedComposerContext, type MobileMessageContext } from './mobile-new-task-context';
 import { mobileEditorDocumentCommit, mobileEditorDocumentIntentCurrent, type EditorDocumentIntent } from './composer-editor-persistence';
 import type { ComposerEditorDocument } from './composer-editor-state';
+import { mobileComposerInsertContext, type MobileComposerInsertion } from './composer-context-insertion';
+import { mobileComposerAttachmentInventoryRead, mobileComposerAttachmentPublicationPrepare } from './composer-attachment-publication';
 
 interface Scope { origin:string; environmentId:string; key:string }
 interface Entry extends Scope { incarnation:number; revision:number; text:string; context?:unknown }
@@ -181,6 +183,86 @@ export function mobileComposerContextCommitDocument(client:T3Client,capture:Edit
   if(checked.context)installed.context=checked.context;else delete installed.context;
   installed.text=prepared.value;installed.revision=contextRevision;histories.set(installed,history);
   return result;
+}
+export interface ComposerExternalContextContent { text:string; context:MobileMessageContext }
+export type ComposerExternalContextResult = {ok:true;documentRevision:number;contextRevision:number;selection:{start:number;end:number};removedFileIds:string[]}
+  | {ok:false;reason:'superseded'|'invalid-document'|'invalid-context'|'invalid-inventory'|'unsupported'|'limit'};
+export type ComposerExternalContextCommit = {result:ComposerExternalContextResult;ledger?:{
+  value:string;selection:{start:number;end:number};revision:number;incarnation:string}};
+const plainRaw=(value:unknown):value is Record<string,unknown>=>value!==null&&typeof value==='object'&&!Array.isArray(value)
+  &&[Object.prototype,null].includes(Object.getPrototypeOf(value));
+function jsonRaw(value:unknown,parents=new Set<object>()):boolean {
+  if(value===null||typeof value==='string'||typeof value==='boolean')return true;
+  if(typeof value==='number')return Number.isFinite(value);
+  if(!Array.isArray(value)&&!plainRaw(value)||parents.has(value as object))return false;
+  parents.add(value as object);const values=Object.values(value as object),keys=Object.keys(value as object);
+  const valid=(!Array.isArray(value)||keys.length===value.length&&keys.every((key,index)=>key===String(index)))&&values.every(child=>jsonRaw(child,parents));parents.delete(value as object);return valid;
+}
+/** The owning store may carry opaque invalid recovery/context payloads. Preserve them exactly;
+ * validate its structural queue owner without normalizing, filtering or interpreting those payloads. */
+function releaseStore(raw:unknown):Record<string,unknown>|null {
+  if(raw===undefined)return {version:1,records:{},receipts:{},claims:{},fileReleases:[]};
+  if(!plainRaw(raw)||!jsonRaw(raw)||raw.version!==1||!plainRaw(raw.records)||!plainRaw(raw.receipts)
+    ||!plainRaw(raw.claims)||!Object.values(raw.claims).every(v=>typeof v==='string')||!Array.isArray(raw.fileReleases))return null;
+  return clone(raw);
+}
+/** Nonmutating raw queue-owner preflight, before legacy target readers can initialize a null store. */
+export function mobileComposerContextInventoryOwnerAvailable(client:T3Client):boolean {
+  return releaseStore((client.local as typeof client.local & {mobileNewTaskDrafts?:unknown}).mobileNewTaskDrafts)!==null;
+}
+/** Internal concrete seam, called only after the owner wrapper's unmounted semantic admission.
+ * Future context uses latest live records, never restores undo-only file metadata. No caller installer
+ * or callback is accepted. All inventory/history/ledger allocations precede the one document write. */
+export function mobileComposerContextInsertDocument(client:T3Client,capture:EditorDocumentIntent,
+  insertion:MobileComposerInsertion,content:ComposerExternalContextContent):ComposerExternalContextCommit {
+  const fail=(reason:Extract<ComposerExternalContextResult,{ok:false}>['reason']):ComposerExternalContextCommit=>({result:{ok:false,reason}});
+  if(!mobileEditorDocumentIntentCurrent(client,capture))return fail('superseded');
+  if(!plainRaw(content)||Object.keys(content).some(k=>k!=='text'&&k!=='context')||typeof content.text!=='string'
+    ||!jsonRaw(content)||!plainRaw(insertion)||typeof insertion.text!=='string'||!Number.isSafeInteger(insertion.start)
+    ||!Number.isSafeInteger(insertion.end)||insertion.start<0||insertion.end<insertion.start||insertion.end>insertion.text.length)return fail('invalid-document');
+  if(content.text.length>1_000_000||insertion.text.length>1_000_000||!Number.isSafeInteger(capture.revision)||capture.revision<0
+    ||capture.revision>=Number.MAX_SAFE_INTEGER||!Number.isSafeInteger(client.revision)||client.revision<0||client.revision>=Number.MAX_SAFE_INTEGER)return fail('limit');
+  const scope=scopeFor(client,capture.target.key),registry=store(client);
+  if(!scope||registry.invalid!==undefined)return fail('invalid-context');
+  const id=slot(scope),entry=registry.entries.get(id);
+  if(entry&&entry.text!==capture.before)return fail('superseded');
+  if(entry&&(!Number.isSafeInteger(entry.revision)||entry.revision<0||entry.revision>=Number.MAX_SAFE_INTEGER)
+    ||!entry&&incarnation>=Number.MAX_SAFE_INTEGER)return fail('limit');
+  if(entry?.context!==undefined&&!jsonRaw(entry.context))return fail('invalid-context');
+  const current=batchContext(entry?.context),added=batchContext(content.context,true);
+  if(!current.ok||!added.ok||!added.context||!added.context.records.length
+    ||added.context.records.some(record=>!['terminal','review-comment'].includes(str(record.kind))||'attachmentId' in record))return fail('invalid-context');
+  const previous=entry?histories.get(entry):undefined,snapshot=previous?.snapshot()??[];
+  if(!batchContext({version:1,records:snapshot}).ok)return fail('invalid-context');
+  const local=client.local as typeof client.local & {composerFiles?:unknown;mobileAttachmentOrder?:unknown;mobileNewTaskDrafts?:unknown};
+  const cleanup=releaseStore(local.mobileNewTaskDrafts);if(!cleanup)return fail('invalid-inventory');
+  const inventory={snapshotDrafts:local.snapshotDrafts,composerFiles:local.composerFiles,mobileAttachmentOrder:local.mobileAttachmentOrder,
+    snapshotReleases:local.snapshotReleases,fileReleases:cleanup.fileReleases};
+  const target={environmentId:capture.target.environmentId,threadId:capture.target.threadId,draftKey:capture.target.key};
+  const read=mobileComposerAttachmentInventoryRead(inventory,target);if(!read.ok)return fail(read.reason==='invalid-target'?'invalid-inventory':read.reason);
+  const projected=mobileComposerInsertContext({text:capture.before,context:current.context,attachments:read.attachments},
+    {text:content.text,context:added.context},insertion);
+  if(!projected||projected.draft.text.length>1_000_000)return fail('limit');
+  const checked=batchContext(projected.draft.context,true);if(!checked.ok)return fail('limit');
+  const files=mobileComposerAttachmentPublicationPrepare({inventory,target,previousContext:current.context,nextContext:checked.context,nextText:projected.draft.text});
+  if(!files.ok)return fail(files.reason==='invalid-target'?'invalid-inventory':files.reason);
+  const history=mobileCreateContextHistory();
+  history('',{version:1,records:snapshot});
+  history(projected.draft.text,{version:1,records:[...(current.context?.records??[]),...added.context.records]});
+  history(projected.draft.text,checked.context);
+  const prepared={value:projected.draft.text,selection:{...projected.selection}},documentRevision=capture.revision+1,contextRevision=(entry?.revision??0)+1;
+  const installed:Entry=entry??{...scope,incarnation:incarnation+1,revision:0,text:capture.before};
+  const nextCleanup={...cleanup,fileReleases:files.fileReleases};
+  const result:ComposerExternalContextResult={ok:true,documentRevision,contextRevision,selection:{...prepared.selection},removedFileIds:files.removedFileIds};
+  const outcome:ComposerExternalContextCommit={result,ledger:{value:prepared.value,selection:{...prepared.selection},revision:documentRevision,incarnation:capture.incarnation}};
+  if(!mobileEditorDocumentCommit(client,capture,prepared))return fail('superseded');
+  // Prepared assignments only. No parsing, cloning, callback, second acceptance or native cleanup.
+  if(!entry){incarnation=installed.incarnation;registry.entries.set(id,installed)}
+  if(checked.context)installed.context=checked.context;else delete installed.context;
+  installed.text=prepared.value;installed.revision=contextRevision;histories.set(installed,history);
+  local.snapshotDrafts=files.snapshotDrafts;local.composerFiles=files.composerFiles;local.mobileAttachmentOrder=files.mobileAttachmentOrder;
+  local.snapshotReleases=files.snapshotReleases;local.mobileNewTaskDrafts=nextCleanup;
+  return outcome;
 }
 export function mobileComposerContextRead(client:T3Client,key=client.draftKey,text=client.local.drafts[key]??''):ComposerContextRead {
   const scope=scopeFor(client,key); if(!scope) return {ok:true,context:undefined,revision:0};

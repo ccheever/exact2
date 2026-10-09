@@ -140,6 +140,16 @@ shape Change
   revision: number
   message: string
 
+shape TerminalAttachChange
+  revision: number
+  message: string
+  accepted: bool
+  key: string
+  text: string
+  start: number
+  end: number
+  routeVisit: string
+
 shape StreamingAssistant
   routeId: string
   environmentId: string

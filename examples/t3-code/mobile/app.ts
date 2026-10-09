@@ -354,7 +354,7 @@ const sources: Sources = {
   },
   terminalAttach: (args, _store, storage, nativeInput) => {
     const native = sourceNative('terminalAttach', args, nativeInput);
-    return mobileTerminalAttachOutput(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), Number(args[4]), native, storage!);
+    return mobileTerminalAttachOutput(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), Number(args[4]), native, storage!, mobileClient, String(args[5]));
   },
   reviewColors: (args, _store, storage, nativeInput) => {
     const native = sourceNative('reviewColors', args, nativeInput);
