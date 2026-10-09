@@ -1,0 +1,63 @@
+browser-surface part 1: real-input session 1 (normal launch), 2026-10-09 10:21-10:40 KST
+Build: cf53202c4 bundle (built 2026-10-08T18:37:24Z), copied as 'T3 Code (Lane Browser)' (bundle id com.exact.t3code.macos.lanebrowser, ad hoc signed), launched by path
+Lane env: T3_LOCAL_HOME (seeded copy), T3_LOCAL_PORT=16650, T3_LOCAL_RUNTIME_DIR, HOME/CFFIXED_USER_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_* in the lane dir, T3CODE_TELEMETRY_ENABLED=false, PATH=<lane bin>:/usr/bin:/bin:/usr/sbin:/sbin; fixture on 127.0.0.1:16651
+Input: orca computer (click, paste-text, press-key, hotkey; window coordinates), cliclick for pointer moves only; the Mac's Korean 2-Set source was never changed (text by paste)
+Real-input lock: taken 01:21:45Z (owner 'browser-surface: real-input'), released 01:39:59Z
+
+== Fixture log (every request the lane pages got)
+fixture on 16651
+2026-10-09T01:23:02.930Z GET /
+2026-10-09T01:23:02.951Z GET /favicon.png
+2026-10-09T01:23:32.628Z GET /
+2026-10-09T01:23:32.648Z GET /favicon.png
+2026-10-09T01:30:22.772Z GET /a
+2026-10-09T01:30:27.021Z GET /b
+2026-10-09T01:33:05.098Z GET /b
+2026-10-09T01:33:55.881Z GET /popup
+2026-10-09T01:33:55.891Z GET /favicon.png
+2026-10-09T01:34:07.004Z GET /auth
+2026-10-09T01:35:19.046Z GET /b
+2026-10-09T01:38:54.452Z GET /auth
+
+== Host log: t3.browser / t3.inspection / t3.local state lines
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_1"]
+t3.browser: navigate http://127.0.0.1:16651/
+t3.browser: navigate http://127.0.0.1:16651/a
+t3.browser: navigate http://127.0.0.1:16651/b
+t3.browser: hard-reload ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_1"]
+t3.inspection: browser web view isInspectable=true (development build)
+t3.browser: open ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_2"]
+t3.browser: navigate http://127.0.0.1:16651/popup
+t3.inspection: browser pop-up web view isInspectable=true (development build)
+t3.browser: close ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_1"]
+t3.browser: back ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_2"]
+t3.inspection: browser pop-up web view isInspectable=true (development build)
+t3.browser: close ["508c0f8f-46dd-4a19-9dec-1a1363bf7955","db5a20e7-d9bd-4d27-89d7-88d2895b8f1e","332c1e3a-9f9a-432d-9034-b612e599fd6a","tab_2"]
+"state":"stopped"
+"state":"starting"
+"state":"ready"
+"state":"stopped"
+
+== Steps and read-backs (KST)
+10:22  "+" panel: a real click on Browser in the launcher -> t3.browser: open [env, thread, epoch, tab_1]; "No preview yet"
+10:23  click the empty field, paste "127.0.0.1:16651", Return -> t3.browser: navigate http://127.0.0.1:16651/; GET /; tab "Lane fixture" with the page's favicon (r1-01)
+10:23  pointer away / over the address (cliclick moves) -> Open in system browser hidden / shown with the field's background (r1-03)
+10:23  a real click on Open in system browser -> this normal launch opened the Mac's default browser at http://127.0.0.1:16651/ (GET / at 01:23:32Z from it); the browser tab it opened was closed again at once (Cmd-W on that tab only)
+10:24  click the filled field: the caret lands under the pointer (no select-all); paste; Escape -> the URL comes back, the field lets go, the panel stays (r1-02)
+10:25  Tab walk (AX focus read back each step; captures 0.9 s after the key, AppKit's ring fades in): Refresh, Toggle right panel, Refresh, the field (all selected), More (r1-04)
+10:28  composer: click in the message, Tab -> Open provider settings, Tab -> Attach files (the ring check of other buttons, same build)
+10:30  Cmd-A + paste + Return: /a, then /b (GET /a, GET /b); Tab walk again: Refresh, Back, Refresh, field (all selected), More, Shift-Tab: Open in system browser (r1-04)
+10:31  pointer away, Tab to More, Shift-Tab to Open in system browser: AX focus on it, but the button and its ring are invisible (opacity 0 without hover) -> FIX 1
+10:33  a real click on More -> the menu; "Open separate preview window" runs under its "Part 3" note -> FIX 2; a real click on Hard reload -> t3.browser: hard-reload tab_1, GET /b (r1-05)
+10:33  "+" -> the Browser row's chevron -> Default -> t3.browser: open tab_2 (r1-06)
+10:33  tab_2: paste "127.0.0.1:16651/popup", Return -> GET /popup
+10:34  a real click on "Sign in (pop-up)" -> a window "Lane auth" (440x360 + title bar), GET /auth; a real click on Approve -> the window closes, the page reads "Signed in: approved" (r1-07); the tab title "Pop-up test: signed in" shows as "op-up test: sign…" -> FIX 3 (X57)
+10:35  a real click on the target=_blank link -> GET /b in the same tab, no window (r1-08)
+10:35  hide the panel, show it (real clicks on the header toggle): fixture log unchanged (12 lines), no t3.browser: open (r1-09)
+10:35  select tab_1 (no request), hover it, click its x -> t3.browser: close tab_1 (r1-10)
+10:36  Safari (not running) opened; Settings > Advanced > "Show features for web developers" on (10:36:49)
+10:37  Develop > this Mac: "T3 Code (Lane Browser)" > "127.0.0.1 — b"; chosen -> "Web Inspector — T3 Code (Lane Browser) — 127.0.0.1 — b" (Elements: <h1>Page B</h1>); console: document.body.style.background = '#ffe08a'; document.title -> "Page B", the app's tab turns yellow (r1-11)
+10:38  inspector closed; the setting off (10:38:13, read back unchecked, no Develop menu); Safari quit (10:38:19) (r1-12)
+10:38  tab_2: Back (to /popup, from the page cache), Sign in, Approve again (the second GET /auth): the long title clips again (X57)
+10:39  lane app quit (its server child stopped), fixture stopped; nothing listens on 16650-16699; the copy's preferences domain deleted; no Keychain item was written for the lane copy
