@@ -71,6 +71,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // without it found the rows mounted ahead past its window, and
         // retired the farthest of them for the next pass to build again.
         self.p.slice_collections(None, lead.unwrap_or(0.0));
+        // The pass that ends a lead retires up to two viewports of rows, and
+        // the reader frees their nodes: once nothing of it is left, the
+        // system allocator gives the freed pages back (crypto: 2 MB).
+        if lead.is_some() {
+            self.settling = true;
+        } else if self.settling && !self.leftover {
+            self.settling = false;
+            jni::purge();
+        }
         self.led = lead.is_some();
         if measure {
             let mut after = std::mem::take(&mut self.rows_after);
@@ -121,6 +130,20 @@ impl<D: DataSource + Default> CanvasHost<D> {
         (self.moved > 0 && self.moves < 1000)
             || self.waiting
             || (self.led && self.now() - self.scrolled_at >= STEP_MS)
+    }
+
+    /// `timer` (ms until the next one), or sooner: when a window that leads
+    /// is owed the pass that ends its lead ([`crate::travel::SETTLE_MS`]
+    /// after the last step). A reader asks [`CanvasHost::owed`] as its last
+    /// step's frame goes out, when nothing is owed yet; with no timer due it
+    /// never asked again, and the rows led ahead stayed mounted at rest
+    /// (crypto 10 MB, xheavy 140 MB, after a fling).
+    pub(super) fn settle_due(&self, timer: Option<f64>) -> Option<f64> {
+        if !self.led {
+            return timer;
+        }
+        let settle = (crate::travel::SETTLE_MS - (self.now() - self.scrolled_at)).max(0.0);
+        Some(timer.map_or(settle, |t| t.min(settle)))
     }
 
     /// Whether this pass can wait: the windows lead, the last pass left no

@@ -967,11 +967,13 @@ pub struct CanvasHost<D: DataSource> {
     moved: u32,
     moved_at: f64,
     /// When the last scroll step came, whether a pass waits for more,
-    /// whether the last pass left rows to build, and whether it led.
+    /// whether the last pass left rows to build, whether it led, and whether
+    /// a lead's rows are still to retire.
     scrolled_at: f64,
     waiting: bool,
     leftover: bool,
     led: bool,
+    settling: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1109,6 +1111,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             waiting: false,
             leftover: false,
             led: false,
+            settling: false,
             force: false,
             scrolled: false,
             prefetching: false,
@@ -1407,10 +1410,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if (self.painted_once && !self.lead) || self.owed_surfaces {
             return Some(0.0);
         }
-        self.p
-            .host()
-            .timer_due_ms()
-            .map(|due| (due - self.now()).max(0.0))
+        let timer = (self.p.host().timer_due_ms()).map(|due| (due - self.now()).max(0.0));
+        self.settle_due(timer)
     }
 
     /// The descriptors that wake the presenter (executor replies, decoded images).
