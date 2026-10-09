@@ -650,6 +650,20 @@
     return out.join("");
   }
 
+  // A string's UTF-8 bytes as TextEncoder makes them: a pair is 4, a lone
+  // surrogate its replacement character's 3.
+  function utf8Length(s) {
+    var n = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
+      else n += 3;
+    }
+    return n;
+  }
+
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
   // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
@@ -787,6 +801,25 @@
       bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
     }
     var body = bytes || raw == null ? "" : String(raw);
+    // A body from an app file (LLP 1108 D6 R2): only the path goes to the
+    // host, which reads the file when it runs the request, under `fs.read`,
+    // at most 64 MiB. The bytes never enter JavaScript. A missing file, a
+    // denied path or one over the bound rejects the fetch before it is sent.
+    var bodyFrom = init ? init.exactBodyFrom : undefined;
+    if (bodyFrom !== undefined) {
+      if (typeof bodyFrom !== "string" || bodyFrom.slice(0, 5) !== "app:/")
+        return Promise.reject(new TypeError("exactBodyFrom must be an app:/ path"));
+      if (utf8Length(bodyFrom) > 4096)
+        return Promise.reject(new TypeError("exactBodyFrom: a path is at most 4096 bytes"));
+      if (/(^|\/)\.\.?(\/|$)|\0/.test(bodyFrom.slice(5)))
+        return Promise.reject(new TypeError("exactBodyFrom: an app:/ path has no . or .. segment"));
+      if (method === "GET" || method === "HEAD")
+        return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
+      if (raw != null)
+        return Promise.reject(new TypeError("fetch: a request has one body: body or exactBodyFrom"));
+      if (init.exactStream !== undefined && /^wss?:/i.test(String(url)))
+        return Promise.reject(new TypeError("exactBodyFrom: a WebSocket sends no body"));
+    }
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
@@ -822,7 +855,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

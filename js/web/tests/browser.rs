@@ -617,6 +617,45 @@ try {
     if(workerFetch.request?.url!=='https://example.test/w')throw new Error(`worker fetch yields to the page: ${JSON.stringify(workerFetch)}`);
     const workerResumed=await workerInvoke('work',['fetch','w'],[],['session'],response('reply'));
     if(workerResumed.value?.text!=='w:reply'||workerResumed.writes[0]?.[1]!=='w')throw new Error(`worker fetch resume: ${JSON.stringify(workerResumed)}`);
+    // LLP 1108 D6 R2: `exactBodyFrom` sends the path alone from either realm, and fetch's own refusals are
+    // TypeErrors in both; the page then reads the file from the store into the body (http-body.js) as a Blob.
+    const bodyFromRefusals=['TypeError: exactBodyFrom must be an app:/ path','TypeError: exactBodyFrom must be an app:/ path',
+      'TypeError: exactBodyFrom: an app:/ path has no . or .. segment','TypeError: fetch: a request has one body: body or exactBodyFrom',
+      'TypeError: fetch: a GET request cannot have a body','TypeError: fetch: a HEAD request cannot have a body',
+      'TypeError: exactBodyFrom: a path is at most 4096 bytes'].join('\n');
+    const uploads=[['main',await invoke(storage,'work',['upload','app:/data/photo.jpg'],[],['session'])],
+      ['worker',await workerInvoke('work',['upload','app:/data/photo.jpg'],[],['session'])]];
+    for(const [where,up] of uploads)if(up.request?.body_from!=='app:/data/photo.jpg'||up.request.body||up.request.body_base64)throw new Error(`${where}: exactBodyFrom's request ${JSON.stringify(up.request)}`);
+    if((await invoke(storage,'work',['upload','app:/data/photo.jpg'],[],['session'],response('ok'))).value?.text!=='200 ok'
+      ||(await workerInvoke('work',['upload','app:/data/photo.jpg'],[],['session'],response('ok'))).value?.text!=='200 ok')throw new Error('exactBodyFrom reply');
+    if((await invoke(storage,'work',['upload-refusals',''],[],['session'])).value?.text!==bodyFromRefusals)throw new Error('main: exactBodyFrom refusals');
+    if((await workerInvoke('work',['upload-refusals',''],[],['session'])).value?.text!==bodyFromRefusals)throw new Error('worker: exactBodyFrom refusals');
+    {
+      const {request:runRequest}=await import('/http-body.js');
+      const {createFileStore,requestBody}=await import('/storage-fs.js');
+      const photo=new Uint8Array(300000).map((_,i)=>(Math.imul(i,2654435761)>>>13)&255);
+      const files=createFileStore(storageIdentity.appId);
+      await files.writeFile('app:/data/photo.jpg',photo);
+      // A picked file's entry is the browser's own File (LLP 1069.002 D5).
+      await files.putBlob('app:/data/picked.jpg',new File([photo],'picked.jpg',{type:'image/jpeg'}));
+      files.close();
+      const sent=[], fetchBefore=globalThis.fetch;
+      globalThis.fetch=async(url,init)=>{sent.push({url:String(url),body:init.body,headers:init.headers});return new Response('stored');};
+      try {
+        const host={grantSet:storageIdentity.grantSet,controllers:new Set(),bodyFile:(path,grants)=>requestBody(storageIdentity.appId,grants,path)};
+        const op=(path,headers=[])=>({op:'request',ticket:1,method:'POST',url:'https://example.test/upload',headers,body:'',bodyFrom:path,cache:'default',scope:null});
+        const typed=await runRequest(op('app:/data/photo.jpg',[['content-type','image/jpeg']]),host);
+        const picked=await runRequest(op('app:/data/picked.jpg'),host);
+        if(typed.kind!==0||picked.kind!==0||sent.length!==2)throw new Error(`exactBodyFrom on the page: ${typed.kind} ${picked.kind} ${sent.length}`);
+        // The file's bytes as a Blob with no type, so the browser adds no Content-Type; the author's headers as they were.
+        for(const one of sent)if(!(one.body instanceof Blob)||one.body.type!==''||await hash(await one.body.arrayBuffer())!==await hash(photo))throw new Error('exactBodyFrom: the body is not the file as an untyped Blob');
+        if(JSON.stringify(sent[0].headers)!=='[["content-type","image/jpeg"]]'||sent[1].headers.length)throw new Error('exactBodyFrom: the headers changed');
+        const refusal=async path=>{const r=await runRequest(op(path),host);return r.kind+' '+new TextDecoder().decode(r.body);};
+        const denied=await refusal('app:/tmp/photo.jpg'), missing=await refusal('app:/data/absent.jpg');
+        if(!denied.startsWith('2 exactBodyFrom app:/tmp/photo.jpg: denied: fs.read')||!missing.startsWith('2 exactBodyFrom app:/data/absent.jpg: no such file')||sent.length!==2)
+          throw new Error(`exactBodyFrom's refusals on the page: ${denied} / ${missing}`);
+      } finally {globalThis.fetch=fetchBefore;}
+    }
     onWorker.dispose();
     const workerCount=workersCreated;
     const replacement=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);

@@ -866,7 +866,7 @@ drawn title bar) is a bug. On iOS:
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="range"` | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` it shows the format as a placeholder (`mm/dd/yyyy`), as the web and macOS do, and a choice fills it |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
@@ -887,13 +887,19 @@ An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
 [`schema.json`](../kernel/tables/schema.json)'s `symbols`; a player's are `play`,
 `pause`, their `-fill`s, `skip-back-15`, `skip-forward-15`, `skip-back-30`,
-`skip-forward-30`, `speaker`, `speaker-mute` and `moon`), an `app:/data|cache|tmp/…` file
+`skip-forward-30`, `speaker`, `speaker-mute` and `moon`; an unknown role is refused
+with the list), `symbol:sf/<name>` (an SF Symbol by its Apple name: drawn on Apple
+only, blank on the web and Linux with no warning, where `layout` reports `reason:
+"platform"`; a tab or button that must show everywhere takes a role), an `app:/data|cache|tmp/…` file
 (a picked photo, or one the data module kept with `storage.fs`; it shows after a
 relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
 nothing (the web and Apple journal `image refused`). Shrink a picked photo for an upload limit with
 `storage.fs.compressImage(path, to, {maxDimension, maxBytes})`, which writes an
 upright JPEG with no location metadata ([reference](reference.md#shrink-a-picked-image-for-upload-storagefscompressimage));
-Linux answers `unsupported`. Keep a picked photo by copying it to
+Linux answers `unsupported`. Upload a file with `fetch(url, {method: "POST", headers:
+{"content-type": "image/jpeg"}, exactBodyFrom: path})`, not `readFile` then `body`: the host
+reads the file as it sends (under `fs.read`, at most 64 MiB), so a 2 MB photo never passes
+through the answer's 100 ms step; a missing or denied file rejects the fetch, naming why. Keep a picked photo by copying it to
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
@@ -1413,6 +1419,15 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
+`href=` (an `a`). In the terminal a click on the run runs its
+handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the
+navigation root, and an `http`, `https`, `mailto` or `tel` URL leaves the app,
+as `openURL` does. An app without routes that wants a run to act in the app
+(the LLP reader's cross-references) gives the run `press=`. In a terminal the
+mouse is the app's only full screen or while a dialog is open; inline, ⌘-click
+on the run's link is the terminal's own.
+
 Localized strings use `t("key", name=value)` and app `strings/<locale>.json`
 files. Compile against the files to check keys and placeholders. Formatting
 functions accept a narrow set of literal formats; app wording is an app `fn`.
@@ -1425,6 +1440,17 @@ and select its web view under Develop. This inspects the embedded page; use the
 agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
+
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D) opens with the
+build it is in: the app and version, when, where and with which Xcode it was
+built, the exact2 commit and the app's own (with branch and a dirty flag), the
+build kind, the device, and the app's release notes. `host/apple/build.mjs`
+stamps these into the bundle's Info.plist on every build, `--archive` included,
+so a shipped binary carries the build machine's host name and the commits too.
+Release notes are `release-notes.md` beside `app.contract`: UTF-8 text, shown as
+written, up to 16 KB; no file, no section. A deploy script that publishes the
+build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
+it. Copy (iOS and macOS) takes all of it as text.
 
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
@@ -1451,6 +1477,10 @@ commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-schem
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
+`type` also sets a control's value: `type "persona" "bob"` chooses a
+`select`'s option by its `value`, and a date, time, range or checkbox takes
+its value the same way, in a drive or a test (a tap does not open a native
+`select`'s menu under the driver).
 `tree --ax` prints the platform's accessibility tree, as VoiceOver would read it.
 Use `tree` to find targets, `state` for data and delivery, `layout` for
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per

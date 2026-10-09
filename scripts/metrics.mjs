@@ -301,7 +301,8 @@ if (process.argv.includes('--flow')) {
 const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
 /** The last lines a failed child printed, for a row that says why. */
-const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' / ').slice(0, 400);
+// The last lines that say why: a thrown error's stack frames and Bun's banner say only where.
+const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
 const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).

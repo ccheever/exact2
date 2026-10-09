@@ -151,8 +151,11 @@ fn check(engine: &str, report: &serde_json::Value) {
         serde_json::json!({"path":"app:/data/rust.jpg","type":"image/jpeg","width":24,"height":32,"sized":true}),
         "{engine}: {report}"
     );
-    assert_eq!(
-        report["rustDenied"], "denied: fs.write",
+    // The refusal names the operation first, then how to grant it.
+    assert!(
+        report["rustDenied"]
+            .as_str()
+            .is_some_and(|m| m.starts_with("denied: fs.write")),
         "{engine}: {report}"
     );
     assert_eq!(

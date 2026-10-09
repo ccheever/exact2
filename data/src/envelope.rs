@@ -159,6 +159,7 @@ fn request_json(request: &Request) -> Json {
         "body": base64(&request.body),
         "stream": request.stream,
         "timeout_ms": request.timeout_ms,
+        "body_from": request.body_from,
     })
 }
 
@@ -210,6 +211,11 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
                     .and_then(|n| u32::try_from(n).ok())
                     .ok_or_else(|| unavailable("turn reply: an invalid request timeout"))?,
             ),
+        },
+        body_from: match &json["body_from"] {
+            Json::Null => None,
+            Json::String(path) => Some(path.clone()),
+            _ => return Err(unavailable("turn reply: an invalid exactBodyFrom")),
         },
     })
 }

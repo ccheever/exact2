@@ -502,6 +502,15 @@ fn artifact_graph(
     }
     // A purpose's text is in the installed binary's Info.plist: a bundle
     // whose purposes differ is a binary release (LLP 1069.008 D5).
+    // What a TypeScript module may ask of the binary's prelude (compat.rs
+    // `TYPESCRIPT_RUNTIME`): an older cohort's prelude would ignore it
+    // silently (`exactBodyFrom` sent as an empty body), so it takes no bundle.
+    if inputs.get("typescriptRuntime").is_some() {
+        requires.insert(
+            "typescriptRuntime".into(),
+            inputs["typescriptRuntime"].clone(),
+        );
+    }
     if inputs.get("grantPurposes").is_some() {
         requires.insert("grantPurposes".into(), inputs["grantPurposes"].clone());
     }
@@ -781,6 +790,25 @@ mod tests {
         );
         // A platform that handles none of them is asked for nothing.
         assert_eq!(requires(json!({"hatches": null})), Value::Null);
+        assert_eq!(requires(json!({})), Value::Null);
+    }
+
+    /// LLP 1108 D6 R2: a TypeScript app's plan requires the prelude runtime
+    /// its compatibility inputs carry (`exactBodyFrom`), so an older cohort
+    /// takes no bundle; an app without one requires none.
+    #[test]
+    fn a_plan_requires_the_typescript_runtime_its_inputs_carry() {
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let requires = |inputs: Value| {
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-ios").unwrap();
+            graph["artifacts"][0]["requires"]["typescriptRuntime"].clone()
+        };
+        assert_eq!(
+            requires(json!({"typescriptRuntime": crate::compat::TYPESCRIPT_RUNTIME})),
+            json!(crate::compat::TYPESCRIPT_RUNTIME)
+        );
         assert_eq!(requires(json!({})), Value::Null);
     }
 

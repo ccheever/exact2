@@ -186,14 +186,18 @@ impl SessionState {
         self.entries.values().filter(|e| Self::is_cold(e)).count()
     }
     fn cold_keys(&self) -> Vec<RasterKey> {
-        let mut cold: Vec<_> = self
-            .entries
+        let mut cold = self.cold();
+        cold.sort_unstable();
+        cold.into_iter().map(|(_, key)| key).collect()
+    }
+    /// Unsubscribed, undelivered, unpinned ready entries, with when each was
+    /// last touched.
+    fn cold(&self) -> Vec<(u64, RasterKey)> {
+        self.entries
             .iter()
             .filter(|(_, e)| Self::is_cold(e))
             .map(|(key, entry)| (entry.touched, *key))
-            .collect();
-        cold.sort_unstable();
-        cold.into_iter().map(|(_, key)| key).collect()
+            .collect()
     }
     fn pinned_unsubscribed(&self) -> usize {
         self.entries
@@ -401,12 +405,12 @@ impl Gate {
             if *sequence != observed {
                 continue;
             }
-            let (sequence, timed) = self
-                .inner
-                .wake
-                .changed
-                .wait_timeout(sequence, remaining)
-                .unwrap();
+            let wake = &self.inner.wake;
+            wake.waiters
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (sequence, timed) = wake.changed.wait_timeout(sequence, remaining).unwrap();
+            wake.waiters
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             drop(sequence);
             if timed.timed_out() {
                 return self.next_decode();
@@ -1050,12 +1054,17 @@ fn cancel_request(
     true
 }
 fn enforce_cold_limit(s: &mut SessionState, garbage: &mut Vec<Arc<Image>>) {
-    if s.cold_count() <= COLD_ENTRIES {
+    // Under the limit (most calls) nothing is gathered. Over it, the oldest
+    // `excess` are selected, not the whole list sorted; which go is the same.
+    let excess = s.cold_count().saturating_sub(COLD_ENTRIES);
+    if excess == 0 {
         return;
     }
-    let cold = s.cold_keys();
-    let excess = cold.len().saturating_sub(COLD_ENTRIES);
-    for key in cold.into_iter().take(excess) {
+    let mut cold = s.cold();
+    if excess < cold.len() {
+        cold.select_nth_unstable(excess - 1);
+    }
+    for (_, key) in cold.into_iter().take(excess) {
         remove_entry(s, key, garbage);
         s.evicted += 1;
     }

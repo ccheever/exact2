@@ -129,7 +129,7 @@ impl Engine {
             self.pending.insert(key);
         }
         let presented = curve.sample(now).value;
-        self.slots.insert(
+        self.keep(
             key,
             Slot {
                 target: Value::scalar(1.0),

@@ -340,6 +340,13 @@ async function rejects(action, matches) {
   const unsupported=classifyArtifacts(shader,installed);
   const grants=structuredClone(moved);grants.graph.artifacts[0].requires.grantCeiling='net.fetch https://new/';
   const refused=classifyArtifacts(grants,installed);
+  // A TypeScript bundle on a newer prelude (LLP 1108 D6 R2: `exactBodyFrom`) is
+  // no bundle for a cohort whose prelude predates it, and is for one as new or newer.
+  const runtime=structuredClone(moved);runtime.graph.artifacts[0].requires.typescriptRuntime=1;
+  const olderPrelude=classifyArtifacts(runtime,installed);
+  const newerPrelude=classifyArtifacts(runtime,{...installed,compat:{...installed.compat,inputs:{...installed.compat.inputs,typescriptRuntime:2}}});
+  result('a bundle needing a newer TypeScript runtime is refused by an older cohort only',
+    !olderPrelude.bundle&&olderPrelude.missing[0].includes('typescriptRuntime')&&newerPrelude.bundle, JSON.stringify({olderPrelude,newerPrelude}));
   result('artifact graph separates binary changes, compatible older cohorts, and named missing dependencies',
     same.binary&&same.bundle&&old.binary&&old.bundle&&old.warnings[0].includes('will run the old code')
     &&!absent.bundle&&absent.missing[0].includes('sources.camera')&&!unsupported.bundle&&unsupported.missing[0].includes('gpuSurfaces.map')

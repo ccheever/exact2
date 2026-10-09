@@ -1,0 +1,9 @@
+I'll review the tip commit as a read-only confirmation pass: first the repo instructions, then the diff itself, then whether both `exactBodyFrom` fixes hold without breaking uploads, the bound, or abort settling.The tip commit is the whole review surface. I'll read that diff and the surrounding upload, bound, and abort paths before judging either fix.The diff shows the bound and the early abort check. Next I’ll read the full acquire path and the JS race to see whetheBoth findings are fixed, and the four failure modes do not occur. Nothing blocks.
+
+The native readers are capped at four (`MAX_READERS` in `host/apple/src/executor_body.rs:86`). `acquire` takes a slot before `spawn` and the `Reader` guard lives inside the thread, so the count drops only when that thread ends — including after a panic or a failed `spawn`, same as `WorkerSlot`. A timeout or abort still returns from the 5 ms poll without waiting (`executor_body.rs:137-143`), stores cancel, and the read checks it before each 1 MiB chunk (`executor_body.rs:220`). A syscall stuck inside one chunk keeps its slot until it returns; a fifth file body is then refused unsent. That is the bound, not a leak.
+
+A healthy upload is not refused while a slot is free. The slot is released on success, on a read error, and after a cancelled reader exits. There is no lock between the worker and the reader (`std::thread` plus an unbounded channel; `send` does not block). Three I/O workers fit under the cap of four. If the read finishes in the same beat as the deadline, `stop()` still wins and the bytes are dropped; `execute` checks the deadline again before anything is sent (`executor_core.rs:944-948`).
+
+On the JS target, a pre-aborted signal throws at `host/web-js/ts-fetch.js:43`, before `ended` is built and before `readBodyFile`. The caller’s rejection is the only one. A live signal still attaches listeners, races the read, and sends.
+
+No findings. Nothing blocks.

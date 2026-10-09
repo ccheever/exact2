@@ -53,10 +53,14 @@ async function within(response, limit) {
   } catch (error) { reader.cancel().catch(() => {}); response.body?.cancel().catch(() => {}); throw error; }
 }
 
-export async function fetchWith(set, input, init = {}) {
+// `expires`, when a caller already spent part of the deadline (an
+// `exactBodyFrom` read, ts-fetch.js): its instant on the page's clock and the
+// deadline as the caller gave it, checked just before the request goes out.
+export async function fetchWith(set, input, init = {}, expires = null) {
   let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
+  const until = expires ?? (deadline ? { at: performance.now() + deadline.ms, ms: deadline.ms } : null);
   const ceiling = ceilingOf(init);
   try {
     asset = hostAsset(input, init);
@@ -83,6 +87,9 @@ export async function fetchWith(set, input, init = {}) {
       deadline.signal.addEventListener('abort', relay, { once: true });
       signal = own ? AbortSignal.any([own, ended.signal]) : ended.signal;
     } else signal = rest.signal;
+    // By the clock, just before it goes out: grant work and a body read that
+    // held the event loop past the deadline fire no timer first.
+    if (until && performance.now() >= until.at) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
     const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.

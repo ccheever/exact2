@@ -32,6 +32,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// while the view ran past the last drawn row).
     pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
         let _s = Section::begin(c"exact refine");
+        // A pass that can wait for more travel does: the rows the travel
+        // brings into the window then mount in one commit. Owed once the
+        // steps stop (`CanvasHost::owed`).
+        self.waiting = limit.is_none() && self.batches();
+        if self.waiting {
+            // Its pictures do not wait: one that came into view since the
+            // last pass is asked for now (heavy's placeholders showed for
+            // three points more of the view at 1,000 dp/s when they did).
+            self.sync_moved_pictures();
+            return false;
+        }
         let started = std::time::Instant::now();
         let limit = limit.or_else(|| self.travel.limit());
         self.sliced = limit.is_some();
@@ -46,6 +57,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
+        self.leftover = self.p.collections_pending();
         self.p.slice_collections(None, 0.0);
         if measure {
             let mut after = std::mem::take(&mut self.rows_after);
@@ -75,6 +87,23 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.move_tracks && self.lead && !self.sliced
     }
 
+    /// Whether this pass can wait ([`crate::travel::Travel::waits`]): a
+    /// scroll step came within the last frame and a half, the windows lead,
+    /// and the last pass left no rows to build (a slice's rest is not kept
+    /// waiting). `EXACT_PASS_BATCH=0`: never.
+    fn batches(&self) -> bool {
+        static ON: std::sync::LazyLock<bool> =
+            std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
+        let viewport = self
+            .feed
+            .and_then(|id| self.p.host().kernel().node(id))
+            .map_or(self.viewport.1, |n| n.frame.height);
+        *ON && self.lead
+            && self.now() - self.scrolled_at < 12.0
+            && self.travel.waits(viewport)
+            && !self.leftover
+    }
+
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this
     /// pass built (or bound to another item).
     fn feed_rows(&self, out: &mut Vec<(ViewId, u64)>) {
@@ -94,16 +123,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.scale
     }
 
-    /// Whether a slice left rows to build.
+    /// Whether a slice left rows to build: the reader then asks for the next
+    /// pass at once. A pass that waits for more travel left none (it is
+    /// asked for again at the reader's next third step, or its timer).
     pub fn refine_pending(&self) -> bool {
-        self.p.collections_pending()
+        !self.waiting && self.p.collections_pending()
     }
 
-    fn refine_inner(&mut self) -> bool {
-        self.scrolled = false;
-        self.prefetching = true;
-        // Pictures coming into view while frames move: requested now, where
-        // their rows are, not at the next paint.
+    /// Pictures coming into view while frames move: requested now, where
+    /// their rows are, not at the next paint.
+    fn sync_moved_pictures(&mut self) {
         if self.moved > 0 {
             if let Some(painted) = &self.painted {
                 let now = self.p.scroll_offsets();
@@ -120,6 +149,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 }
             }
         }
+    }
+
+    fn refine_inner(&mut self) -> bool {
+        self.scrolled = false;
+        self.prefetching = true;
+        self.sync_moved_pictures();
         // How soon what this pass mounts past the view can scroll in: it
         // reaches the feed's viewport past it (the window's lead).
         let lead = self

@@ -5,8 +5,8 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.13**
-(`67b2ce28a3`); the npm CLI in the root `package.json` matches.
+is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
+(`468d3aa5be`); the npm CLI in the root `package.json` matches.
 
 | | |
 |---|---|
@@ -20,8 +20,9 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.13**
 ### Mount it and build the wasm
 
 Mount the driver in the app's `app.json` (the path is relative to the app,
-or absolute; an app made by `exact new` outside this checkout names this
-checkout's `snapback4/ts`), and build the wasm and its glue, which every
+which the native bake requires: it refuses an absolute one; an app made by
+`exact new` outside this checkout names this checkout's `snapback4/ts`
+relative to itself), and build the wasm and its glue, which every
 host's bake type-checks, before a build:
 
 ```json
@@ -35,7 +36,7 @@ node ../exact2/snapback4/web/build.mjs assets/snapback4.wasm   # the web; no arg
 The first build compiles the client for a few minutes; later ones take
 seconds. The web host serves `assets/snapback4.wasm` at
 `/assets/snapback4.wasm`, the driver's default. It is pinned to Snapback4
-0.4.13: install that version of `snapback4` for the server.
+0.4.16: install that version of `snapback4` for the server.
 
 ### Time
 
@@ -65,7 +66,7 @@ launch, and agrees with the server's (the agent's `clock` still moves it).
 ### A complete app
 
 A guestbook: two personas, a list that syncs and works offline, a post whose
-fate the app reports. `snapback/schema.q`:
+fate (and new row's id) the app reports, a failure banner. `snapback/schema.q`:
 
 ```quarry
 use personas alice, bob
@@ -89,7 +90,8 @@ mutation post(body: text 1..200):
   return { id: row.id }
 ```
 
-`app.contract`:
+`app.contract` (a source's result type is keyed by its source name:
+`Result<'notes'>`, `Result<'post'>`):
 
 ```
 // Guestbook: the view. app.ts answers it through Snapback4.
@@ -103,10 +105,13 @@ shape Note
 shape Board
   online: bool
   message: string
+  latest: string
+  sending: number
   notes: list<Note>
 shape Ack
   ok: bool
   message: string
+  id: string
 
 component Guestbook
   state persona = "alice"
@@ -115,6 +120,10 @@ component Guestbook
   resource time = exactTime() as shape Clock
   resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board
   mutation posted as shape Ack queue refreshes board then afterPost
+  derive banner = match failure(board) {
+    case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.code})`,
+    case none => ""
+  }
   task live mount
     every(5000, refreshBoard)
   action refreshBoard
@@ -141,12 +150,16 @@ component Guestbook
             text "Alice"
           option value="bob"
             text "Bob"
+        when banner != ""
+          text banner testId="banner"
         text (board.online ? "Synced" : board.message) testId="status"
+        text `${board.sending} sending` testId="sending"
         row gap=8
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
           button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
             text "Post"
         text notice testId="notice"
+        text board.latest testId="latest"
         each note in board.notes key=note.id
           text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${note.id}`
 ```
@@ -161,101 +174,107 @@ export const appId = 'com.example.guestbook';
 const origin = 'http://127.0.0.1:4400';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
-// One partition per viewer, kept open across answers. Opening one this page
-// already has open shares it, so this cache only saves the reopen.
-const devices = new Map<string, Promise<Snapback>>();
-function device(persona: string, storage: Storage, native: NativeModule | null | undefined): Promise<Snapback> {
-  let opening = devices.get(persona);
-  if (!opening) {
-    opening = Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
-      headers: () => ({ 'x-snapback-persona': persona }), storage, native });
-    devices.set(persona, opening);
-    opening.catch(() => devices.delete(persona));
+// One partition open at a time (natively the module holds one): switching
+// persona waits for the other persona's work in flight, then closes its
+// partition (what it keeps stays for its next open).
+type Held = { persona: string; opening: Promise<Snapback>; busy: Set<Promise<unknown>> };
+let current: Held | null = null;
+function using<T>(persona: string, storage: Storage, native: NativeModule | null | undefined, work: (db: Snapback) => Promise<T>): Promise<T> {
+  if (current?.persona !== persona) {
+    const previous = current;
+    const opening = (async () => {
+      if (previous) {
+        await Promise.allSettled([...previous.busy]);
+        await (await previous.opening.catch(() => null))?.close();
+      }
+      return Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
+        headers: () => ({ 'x-snapback-persona': persona }), storage, native });
+    })();
+    const entry: Held = { persona, opening, busy: new Set() };
+    current = entry;
+    opening.catch(() => { if (current === entry) current = null; });
   }
-  return opening;
+  const held = current!;
+  const run = held.opening.then(work);
+  held.busy.add(run);
+  run.then(() => held.busy.delete(run), () => held.busy.delete(run));
+  return run;
 }
 
 type Row = { id: string; author: string; body: string; pending?: boolean };
 
+// Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`.
 const sources: Sources = {
-  notes: async ([persona, now], _store, storage, native): Promise<Result<'notes'>> => {
-    try {
-      const db = await device(persona, storage, native);
-      const round = await db.sync();                    // offline is fine once synced
-      const read = await db.read<Row[]>('recent', {}, now);
-      if (read.denied) return { online: false, message: read.denied.message, notes: [] };
-      // Project each row onto the shape: an answer's extra fields are refused.
-      const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
-      return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps', notes };
-    } catch (error) {
-      // At build (bake) time there is no storage; the app asks again when it runs.
-      if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', notes: [] };
-      return { online: false, message: (error as Error).message, notes: [] };
-    }
-  },
-  post: async ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => {
-    const db = await device(persona, storage, native);
+  notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => using(persona, storage, native, async db => {
+    const round = await db.sync();                      // offline is fine once synced
+    const read = await db.read<Row[]>('recent', {}, now);
+    if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
+    // Project each row onto the shape: an answer's extra fields are refused.
+    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
+      latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
+      sending: notes.filter(note => note.pending).length, notes };
+  }).catch(error => {
+    // At build (bake) time there is no storage and no native module: the
+    // client refuses with code 'bake' on every executor; the app asks again
+    // when it runs.
+    if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
+    throw error;                                        // the view shows it through failure(board)
+  }),
+  post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => using(persona, storage, native, async db => {
     const written = await db.write('post', { body }, now);
-    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}` };
+    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}`, id: '' };
     await db.sync();
-    // A round that ends ok delivered the outbox; the write's own fate is here.
-    const fate = await db.outcome(written.id);
-    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}` };
-    return { ok: true, message: fate.state === 'sent' ? 'Posted.' : 'Saved on this device; it sends when online.' };
-  },
+    // A round that ends ok delivered the outbox; the write's own fate is here,
+    // with the mutation's result (here the new row's id) once it was sent.
+    const fate = await db.outcome<{ id: string }>(written.id);
+    if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
+    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
+    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+  }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 ```
 
-`app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it):
+`app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it,
+and `epoch now` dates them as the server does). A `select` is driven with
+`type`; the offline test proves delivery after `pass fetch`, not only that
+the write was kept:
 
 ```
-test "a note posts and appears"
+epoch now
+
+test "a note posts, and another persona sees it"
   clock data
   expect text "status" == "Synced"
-  type "draft" "hello from a test"
+  type "draft" "hello from alice"
   tap "post"
   clock data
   expect text "notice" == "Posted."
+  type "persona" "bob"
+  clock data
+  expect text "latest" == "dev:alice: hello from alice"
 
-test "offline, a note is kept on the device and marked sending"
+test "offline, a note is kept, then delivered on reconnect"
   clock data
   fail fetch "http://127.0.0.1:4400"
   type "draft" "from the tunnel"
   tap "post"
   clock data
   expect text "notice" == "Saved on this device; it sends when online."
+  expect text "sending" == "1 sending"
+  pass fetch "http://127.0.0.1:4400"
+  clock +5000
+  clock data
+  expect text "sending" == "0 sending"
 ```
 
 `app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
-"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.13` installs the
+"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.16` installs the
 server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
-builds the device. Built and tested as written (2026-10-08).
-
-### Typed rows from the schema
-
-`bunx snapback4 types` (and `snapback4 check`) write
-`snapback/generated/api.ts`: each table's row (`Rows`) and each operation's
-arguments and result (`Ops`). Import them as types from any of the app's
-modules, and give `read` its result type, so a misspelled field is a type
-error at build on every host instead of a row retyped by hand:
-
-```ts
-import type { ArgsOf, ResultOf } from 'snapback4/contract';
-import type { Ops, Rows } from './snapback/generated/api.ts';
-
-type Note = Rows['notes'];                      // { id, author, body, at, pending? }
-const read = await db.read<ResultOf<Ops['recent']>>('recent', {} satisfies ArgsOf<Ops['recent']>, now);
-const notes: Note[] = read.data ?? [];
-```
-
-The build checks these against the installed `snapback4` package's
-declarations and never runs any of it: an `import type` from a package is
-admitted, a value import (`import { … } from 'snapback4/…'`) is refused as
-`module outside captured app`. The driver is the mounted
-`./snapback4/snapback.ts`. Rerun `bunx snapback4 types` after changing the
-schema.
+builds the device. Built and tested as written against 0.4.16 (2026-10-08):
+both tests pass, and pass again on the data a first run leaves.
 
 ### Open, sync, read, write
 
@@ -295,11 +314,14 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `server: true`; unreached, it answers `denied` with `E_OFFLINE`, never an
   empty page. A synced table holds only its sync horizon (`sync … last 100 by
   byTime`): a read of rows outside it (`first 1` of a `last 100` horizon) is
-  `complete: false`. Read in the horizon's order, or widen it. A read the
-  device cannot vouch for (`loading` or `speculative`: a total over rows past
-  the horizon, a row it has not acquired) asks the server too, unless a write
-  is still queued here; unreached, it stays `loading` and says `offline: true`.
-  Show such a read as unavailable, never as zero.
+  `complete: false`. Read in the horizon's order, or widen it. Otherwise the reply says whose answer it is (Snapback's
+  CLIENT-AND-OPERATIONS.md, "The device reply"): the device's unless it is
+  `unknown` (rows past the horizon, a total over them, a page ordered
+  against the horizon), or `retained` history, or the schema holds the
+  query to the device; an `unknown` read asks the server, unless a write is
+  still queued here. Unreached, a usable partial comes back marked
+  `offline: true`, and a placeholder (`speculative`, `loading`) comes back as
+  `loading` with `offline: true`: show it as unavailable, never as zero.
 - **A round that ends `ok` delivered the outbox; it does not say each write
   was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
   `why` (the refusal's code, such as one the mutation `require`s), or
@@ -347,7 +369,9 @@ impl exact_js::NativeModule for Snapback {
 }
 ```
 
-The native module holds one partition at a time.
+The native module holds one partition at a time: an app that switches
+persona closes the one client, once its work in flight is done, before
+opening the other's (the guestbook's `using` does), or the open is refused.
 
 Every exchange names itself (`fetch.exchange`); deliver its reply with that
 name. A reply for a round that was cancelled, or a client since reopened, is
@@ -384,7 +408,8 @@ wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
 yet: media and assets (LLP 1108), native jobs on the device, Following
-feeds, ephemeral reads, search state, the online fallback fenced by
+feeds, ephemeral reads and writes (a write that touches an ephemeral table
+is refused at once with `E_CLIENT_UNSUPPORTED`, never queued), search state, the online fallback fenced by
 intersecting predictions (here a read the device cannot vouch for asks the
 server only when nothing is queued at all), a server read kept live
 (here a query the server answers is asked again, not invalidated by the

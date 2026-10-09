@@ -1,0 +1,109 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "app",
+      "type": "promptString",
+      "description": "An app under apps/ (bun scripts/exact.mjs list)",
+      "default": "caltrain"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "contract: build this file",
+      "detail": "Compile the open .contract file; its errors go to Problems.",
+      "type": "shell",
+      "command": "cargo run -q -p contract -- build \"${file}\"",
+      "problemMatcher": "$exact-contract",
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "contract: format this file",
+      "type": "shell",
+      "command": "cargo run -q -p contract -- fmt \"${file}\"",
+      "problemMatcher": "$exact-contract",
+      "presentation": { "reveal": "silent", "clear": true }
+    },
+    {
+      "label": "contract: difftest quick",
+      "detail": "The semantics on what you changed in contract/, runner/, plan/ or semantics/.",
+      "type": "shell",
+      "command": "cargo run -p contract-difftest -- quick",
+      "problemMatcher": []
+    },
+    {
+      "label": "check: build",
+      "type": "shell",
+      "command": "cargo build --all-targets --keep-going",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "check: test",
+      "type": "shell",
+      "command": "cargo test --lib --bins --tests --no-fail-fast",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "check: clippy",
+      "type": "shell",
+      "command": "cargo clippy --all-targets --keep-going -- -D warnings",
+      "problemMatcher": "$rustc"
+    },
+    {
+      "label": "check: fmt",
+      "type": "shell",
+      "command": "cargo fmt --all -- --check",
+      "problemMatcher": []
+    },
+    {
+      "label": "check: caps",
+      "detail": "Reads what git has staged: run git add -A first.",
+      "type": "shell",
+      "command": "bun scripts/caps.mjs",
+      "problemMatcher": []
+    },
+    {
+      "label": "check: boot",
+      "type": "shell",
+      "command": "bun scripts/boot.mjs",
+      "problemMatcher": "$exact-contract"
+    },
+    {
+      "label": "check: all five",
+      "detail": "The five checks in order; caps reads what git has staged.",
+      "dependsOrder": "sequence",
+      "dependsOn": ["check: build", "check: test", "check: clippy", "check: fmt", "check: caps", "check: boot"],
+      "problemMatcher": []
+    },
+    {
+      "label": "app: web dev loop",
+      "detail": "Edit the app; the page rebuilds and reloads.",
+      "type": "shell",
+      "command": "bun host/web/dev.mjs --app ${input:app}",
+      "problemMatcher": "$exact-contract"
+    },
+    {
+      "label": "app: test on web",
+      "detail": "Build the app's web target, then run its app.test.contract.",
+      "type": "shell",
+      "command": "bun host/web/build.mjs ${input:app} && bun scripts/agent.mjs web --app ${input:app} --test apps/${input:app}/app.test.contract",
+      "group": "test",
+      "problemMatcher": ["$exact-contract", "$rustc"]
+    },
+    {
+      "label": "app: run on macOS",
+      "type": "shell",
+      "command": "bun host/apple/build.mjs ${input:app}-apple --run",
+      "problemMatcher": ["$exact-contract", "$rustc"]
+    },
+    {
+      "label": "app: run on an iOS simulator",
+      "detail": "EXACT_SIM picks the simulator.",
+      "type": "shell",
+      "command": "bun host/apple/build.mjs --ios ${input:app}-apple --run",
+      "problemMatcher": ["$exact-contract", "$rustc"]
+    }
+  ]
+}

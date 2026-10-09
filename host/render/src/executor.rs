@@ -59,6 +59,13 @@ impl Executor {
         Self { core, wake }
     }
 
+    /// Where an app's files are, for a request whose body is one of them
+    /// (LLP 1108 D6 R2). A render serves no app files and never sets them,
+    /// so such a request is refused; an embedder that has them may.
+    pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        self.core.set_app_roots(roots);
+    }
+
     /// Admit work, or refuse it (a limit, the core retired).
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
