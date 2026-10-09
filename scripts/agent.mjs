@@ -1331,6 +1331,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.closed) return r;
       const l = await carrier.ask({ op: 'clock', land: true });
       if (l.error) return { ...r, error: l.error };
+      // A sheet the input (or its answer's `then`) opened or closed still moving past the iOS host's bound.
+      if (l.settled === false) { r.settled = false; r.reason = l.reason; }
       delete r.epoch; delete r.incarnation; delete r.clock;
       // No scratch store: the input's reply says so, for an `open()` script as for the CLI, on every carrier (LLP 1102 §3.17); the read is bounded, advice only.
       if (storage === undefined && !s.storageSaid && (s.storageProbes = (s.storageProbes ?? 0) + 1) <= 20) {

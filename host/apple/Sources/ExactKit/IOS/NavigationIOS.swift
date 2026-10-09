@@ -889,7 +889,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // no gesture: the route the root names has left the native stack,
         // which Exact never does itself. It is a completed pop from that route.
         let rootKey = container?.props["navigationKey"] ?? ""
-        let poppedByBar = source == nil && !navigationController.viewControllers.contains { ($0 as? RouteController)?.key == rootKey }
+        // A modal route is the root of its own presented stack, which no bar
+        // pops: one not presented yet (a sheet over a sheet that waits for the
+        // one under it, both pushed at once) is not this stack's popped route.
+        let rootPresents = routeIDs.lazy.compactMap { self.presenter.views[$0] }
+            .first { $0.props["navigationKey"] == rootKey }
+            .map { ["modal", "fullscreen"].contains($0.props["navigationPresentation"] ?? "") } ?? false
+        let poppedByBar = source == nil && !rootPresents && !navigationController.viewControllers.contains { ($0 as? RouteController)?.key == rootKey }
         let dispatches = (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: rootKey,
                                            sourceKey: poppedByBar ? rootKey : sourceKey, sourceReplaced: sourceReplaced,

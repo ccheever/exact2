@@ -291,7 +291,11 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const error = await s.tap(id).then((r) => r?.error, (e) => String(e?.message ?? e));
       check(!error, `${host} native: sheet over sheet: ${id} taps${error ? `: ${error}` : ''}`);
     };
-    for (const id of ['sheet', 'sheet-menu', 'menu-more', 'menu-close', 'sheet-menu', 'menu-home']) await onScreen(id);
+    // `sheet-ask` and `ask-sheets` push by their answer's `then`, which lands
+    // at the input's end (`clock land`): the menu over Sheet, and from home
+    // Sheet and the menu over it, up for the next tap too.
+    for (const id of ['sheet', 'sheet-menu', 'menu-more', 'menu-close', 'sheet-ask', 'menu-close', 'sheet-menu', 'menu-home',
+      'ask-sheets', 'menu-more', 'menu-home']) await onScreen(id);
     await s.clock('settle');
     check(!(await sheetShown()), `${host} native: Close both dismisses the two sheets`);
     // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.

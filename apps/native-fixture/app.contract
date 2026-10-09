@@ -257,6 +257,14 @@ component NativeFixture
   // The menu over Sheet and Sheet, closed at once.
   action closeSheets
     nav = back(back(nav))
+  // The menu over Sheet opened by an answer's `then`, as a confirmation
+  // shown once a request answers (the answer itself is unused); from home,
+  // Sheet and the menu over it at once.
+  mutation asked as shape Providers then askedMenu
+  action askMenu
+    send asked = providers()
+  action askedMenu
+    nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
   // route pushed with the tablist hidden, and one with no header.
   state subtitle = "Online"
@@ -350,6 +358,8 @@ component NativeFixture
                         text "Transition"
                       button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
                         text "Sheet"
+                      button press=askMenu testId="ask-sheets" padding=6 background-color="#e5e7eb"
+                        text "Sheets once asked"
                       button press=openMenu testId="menu" padding=6 background-color="#e5e7eb"
                         text "Menu"
                       button press=toggleMenuLarge testId="menu-large" padding=6 background-color="#e5e7eb"
@@ -548,6 +558,8 @@ component NativeFixture
                   column testId="sheet-body" padding=16
                     button press=openMenu testId="sheet-menu" height=44
                       text "Menu over the sheet"
+                    button press=askMenu testId="sheet-ask" height=44
+                      text "Menu once asked"
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"

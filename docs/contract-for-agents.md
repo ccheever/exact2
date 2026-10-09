@@ -1169,8 +1169,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed. One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
-  under it, and popping both closes both. Under the agent a `tap` or `type` that
-  opens or closes a sheet replies once iOS has finished it (two seconds at most).
+  under it, and popping both closes both. Under the agent's frozen timing (the
+  default) on iOS, a `tap` or `type` that opens or closes a sheet, its answer's `then`
+  included, waits up to two seconds for UIKit to finish it; a reply with `settled:
+  false, reason: "transition"` says it had not. `--timing platform` leaves that to
+  `clock settle`.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
