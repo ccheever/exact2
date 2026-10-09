@@ -1,0 +1,75 @@
+browser-surface-profiles live drive before-e075 (agent mode, 1280x840) at e075de6e6
+Lane ports: 16780 (the app's embedded T3 server), 16781 (cookie probe: names only, never values), 16782 (part 2's first-layout fixture).
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/). No real browser profile, Keychain item or Full Disk Access.
+
+  1 clock +15000 real  -> clock 15000 (real 15017 ms)
+  2 clock +6000 real  -> clock 21000 (real 6014 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1519 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 3014 ms)
+  8 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+  9 clock +1000 real  -> clock 26500 (real 1015 ms)
+ 10 tap browser-default-viewport  -> tapped browser-default-viewport at [1087.5, 446]
+ 11 clock +1000 real  -> clock 27500 (real 1015 ms)
+ 12 tap browser-default-viewport-option-iphone-12-pro  -> tapped browser-default-viewport-option-iphone-12-pro at [1131.91, 595]
+ 13 clock +1500 real  -> clock 29000 (real 1517 ms)
+ 14 tap browser-default-zoom  -> tapped browser-default-zoom at [1095.5, 530]
+ 15 clock +1000 real  -> clock 30000 (real 1018 ms)
+ 16 tap browser-default-zoom-option-1.25  -> tapped browser-default-zoom-option-1.25 at [1095.5, 751]
+ 17 clock +1500 real  -> clock 31500 (real 1514 ms)
+ 18 screenshot 50-defaults.png window  -> screenshot 50-defaults.png
+ 19 tap settings-go-to-threads  -> tapped settings-go-to-threads at [156.88, 26]
+ 20 clock +3000 real  -> clock 34500 (real 3016 ms)
+ 21 tap toast-dismiss-2  -> tapped toast-dismiss-2 at [1241, 91]
+ 22 clock +1000 real  -> clock 35500 (real 1017 ms)
+ 23 tap toast-dismiss-1  -> tapped toast-dismiss-1 at [1241, 91]
+ 24 clock +1000 real  -> clock 36500 (real 1018 ms)
+ 25 tap toggle-right-panel  -> tapped toggle-right-panel at [1253, 26]
+ 26 clock +2000 real  -> clock 38500 (real 2011 ms)
+ 27 type surface-chooser key ArrowDown  -> typed into surface-chooser key ArrowDown
+ 28 clock +300 real  -> clock 38800 (real 311 ms)
+ 29 type surface-chooser key ArrowDown  -> typed into surface-chooser key ArrowDown
+ 30 clock +300 real  -> clock 39100 (real 312 ms)
+ 31 type surface-chooser key ArrowDown  -> typed into surface-chooser key ArrowDown
+ 32 clock +500 real  -> clock 39600 (real 512 ms)
+ 33 screenshot 51-launcher-files-lit.png window  -> screenshot 51-launcher-files-lit.png
+ 34 tree  -> tree (530 nodes)
+ 35 type surface-chooser key ArrowUp  -> typed into surface-chooser key ArrowUp
+ 36 clock +300 real  -> clock 39900 (real 310 ms)
+ 37 type surface-chooser key ArrowUp  -> typed into surface-chooser key ArrowUp
+ 38 clock +500 real  -> clock 40400 (real 510 ms)
+ 39 type surface-chooser key Enter  -> typed into surface-chooser key Enter
+ 40 clock +3000 real  -> clock 43400 (real 3011 ms)
+ 41 screenshot 53-browser-tab.png window  -> screenshot 53-browser-tab.png
+ 42 tree  -> tree (725 nodes)
+ 43 type browser-url 127.0.0.1:16782/  -> typed into browser-url
+ 44 type browser-url key Enter  -> typed into browser-url key Enter
+ 45 clock +5000 real  -> clock 48400 (real 5011 ms)
+ 46 screenshot 54-first-layout.png window  -> screenshot 54-first-layout.png
+ 47 tree  -> tree (797 nodes)
+ 48 logs  -> logs (4096 lines)
+ 49 state  -> background, canvas, clock, collections, contentRegion, delivery, derives, device, dialog, documents, epoch, focus, hatch
+
+Module browser lines (t3.browser):
+
+fixture-first.log:
+  fixture on 16782
+  2026-10-09T18:26:46.087Z GET /
+  2026-10-09T18:26:49.129Z GET /
+  2026-10-09T18:26:49.137Z GET /first?w=312&h=675&d=2.5&p=%2F
+  2026-10-09T18:26:49.140Z GET /favicon.ico
+  2026-10-09T18:26:49.177Z GET /resize?w=389&h=844&d=2.5
+
+fixture.log:
+  fixture on 16781
+  2026-10-09T18:26:46.088Z GET / cookie names=[]
+
+End:
+  fixture pid 37957
+  first-layout fixture pid 37959
+  agent pid 37961
+  t3 app exit 0
+  server pid 38264
+  agent exit 0
