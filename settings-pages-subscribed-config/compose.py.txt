@@ -1,0 +1,27 @@
+# settings-pages-subscribed-config: one image per scenario, before | after | reference, labelled. Not committed.
+# Usage: python3 compose.py <out.png> <title> <before.png> <after.png> <reference.png> <before label> <after label> <ref label>
+import sys
+from PIL import Image, ImageDraw, ImageFont
+out, title, paths, labels = sys.argv[1], sys.argv[2], sys.argv[3:6], sys.argv[6:9]
+W = 1280
+imgs = []
+for p in paths:
+    im = Image.open(p).convert('RGB')
+    imgs.append(im.resize((W, round(im.height * W / im.width))))
+H = max(im.height for im in imgs)
+pad, head, cap = 24, 64, 52
+canvas = Image.new('RGB', (pad + 3 * (W + pad), head + cap + H + pad), 'white')
+d = ImageDraw.Draw(canvas)
+def font(size):
+    for f in ['/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc', '/Library/Fonts/Arial.ttf']:
+        try: return ImageFont.truetype(f, size)
+        except Exception: pass
+    return ImageFont.load_default()
+d.text((pad, 16), title, fill='black', font=font(30))
+for i, (im, label) in enumerate(zip(imgs, labels)):
+    x = pad + i * (W + pad)
+    d.text((x, head + 10), label, fill='#333', font=font(24))
+    canvas.paste(im, (x, head + cap))
+    d.rectangle([x - 1, head + cap - 1, x + W, head + cap + im.height], outline='#bbb')
+canvas.save(out, optimize=True)
+print(out, canvas.size)
