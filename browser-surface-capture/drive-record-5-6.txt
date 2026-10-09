@@ -1,0 +1,148 @@
+browser-surface-capture drives 5 and 6 (agent mode, 1280x840, lane ports 16720/16721; the screen was locked: no screenshot is visual proof, and the rows are read from trees, state and host logs).
+Drive 5: code at 6ba2f006c (the merge of part 2, #348, base 46436acc3). Drive 6: code at 76532d13d (that merge plus the Command-Return fix); later commits change only records.
+Both: a new thread's draft; part 2's zoom keys and device toolbar beside Annotate/Capture/Float; a screenshot; Annotate (Return) puts its chip in the composer; Float preview, the handle hovered (epoch flat), the pill's Open in right panel; a second Annotate sent with Command-Return.
+Drive 5 found: Command-Return in the overlay was taken by the send button's Meta+Enter shortcut (the composer sent without the second annotation; the overlay stayed open). Drive 6, after the fix: "annotate picked send", "annotate applied 2 chip+image send", the message holds both annotations, the overlay closed.
+== drive5: 60 results
+  [0] {'clock': 15000, 'epoch': 14, 'real': 15019}
+  [1] {'clock': 21000, 'epoch': 17, 'real': 6019}
+  [2] tree epoch 17: floating player=False panel URL field=False device toolbar=False annotate button=[] zoom=[] more-row=[] sent chips=[]
+  [3] state epoch 17: browserMini.show=false pickActive=false sendSerial=0 composerText=''
+  [4] {'target': 'toggle-right-panel', 'epoch': 18, 'clock': 21000}
+  [5] {'epoch': 19, 'clock': 22500, 'real': 1516}
+  [6] {'target': 'surface-browser', 'epoch': 20, 'clock': 22500}
+  [7] {'epoch': 24, 'clock': 25500, 'real': 3016}
+  [8] {'value': '127.0.0.1:16721', 'target': 'browser-url', 'epoch': 26, 'clock': 25500}
+  [9] {'value': '', 'key': 'Enter', 'target': 'browser-url', 'epoch': 27, 'clock': 25500}
+  [10] {'clock': 29500, 'epoch': 28, 'real': 4017}
+  [11] tree epoch 28: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [12] {'key': 'Meta+=', 'target': 'browser-page', 'epoch': 28, 'clock': 29500}
+  [13] {'clock': 30700, 'epoch': 29, 'real': 1214}
+  [14] tree epoch 29: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['110%'] more-row=['Show device toolbar'] sent chips=[]
+  [15] {'key': 'Meta+0', 'target': 'browser-page', 'epoch': 29, 'clock': 30700}
+  [16] {'clock': 31900, 'epoch': 30, 'real': 1213}
+  [17] {'target': 'browser-more', 'epoch': 32, 'clock': 31900}
+  [18] {'epoch': 32, 'clock': 32700, 'real': 813}
+  [19] tree epoch 32: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [20] {'target': 'browser-more-device-toolbar', 'epoch': 33, 'clock': 32700}
+  [21] {'epoch': 34, 'clock': 34700, 'real': 2011}
+  [22] tree epoch 34: floating player=False panel URL field=True device toolbar=True annotate button=['Annotate preview'] zoom=['100%'] more-row=['Hide device toolbar'] sent chips=[]
+  [23] {'target': 'browser-viewport-close', 'epoch': 35, 'clock': 34700}
+  [24] {'clock': 36700, 'epoch': 36, 'real': 2011}
+  [25] tree epoch 36: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [26] {'target': 'browser-capture', 'epoch': 36, 'clock': 36700}
+  [27] {'clock': 39700, 'epoch': 37, 'real': 3009}
+  [29] {'target': 'browser-annotate', 'epoch': 37, 'clock': 39700}
+  [30] {'epoch': 39, 'clock': 41700, 'real': 2013}
+  [31] {'target': 'browser-page', 'epoch': 39, 'clock': 41700}
+  [32] {'epoch': 39, 'clock': 43200, 'real': 1513}
+  [33] {'target': 'browser-page', 'epoch': 39, 'clock': 43200}
+  [34] {'clock': 44000, 'epoch': 39, 'real': 819}
+  [35] {'key': 'Enter', 'target': 'browser-page', 'epoch': 39, 'clock': 44000}
+  [36] {'clock': 48000, 'epoch': 43, 'real': 4018}
+  [37] tree epoch 43: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [38] state epoch 43: browserMini.show=false pickActive=false sendSerial=0 composerText='[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) '
+  [40] {'target': 'browser-float', 'epoch': 44, 'clock': 48000}
+  [41] {'epoch': 47, 'clock': 50500, 'real': 2517}
+  [42] tree epoch 47: floating player=True panel URL field=False device toolbar=False annotate button=[] zoom=[] more-row=[] sent chips=[]
+  [43] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 48, 'clock': 50500}
+  [44] {'epoch': 48, 'clock': 51500, 'real': 1023}
+  [45] {'clock': 52500, 'epoch': 48, 'real': 1028}
+  [46] {'target': 'browser-mini-restore', 'epoch': 48, 'clock': 52500}
+  [47] {'epoch': 51, 'clock': 55000, 'real': 2526}
+  [48] tree epoch 51: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [49] {'target': 'browser-annotate', 'epoch': 51, 'clock': 55000}
+  [50] {'epoch': 52, 'clock': 57000, 'real': 2031}
+  [51] {'target': 'browser-page', 'epoch': 52, 'clock': 57000}
+  [52] {'epoch': 52, 'clock': 58500, 'real': 1533}
+  [53] {'target': 'browser-page', 'epoch': 52, 'clock': 58500}
+  [54] {'clock': 59300, 'epoch': 52, 'real': 819}
+  [55] {'key': 'Meta+Enter', 'value': '', 'target': 'browser-page', 'epoch': 53, 'clock': 59300}
+  [56] {'clock': 65300, 'epoch': 64, 'real': 6020}
+  [57] tree epoch 64: floating player=False panel URL field=True device toolbar=False annotate button=['Cancel annotation'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=['Tighten the button spacing. Show details (transcript)']
+  [58] log: t=50500 hover in view 1191 (overDot#2987) → epoch 48 (+0 −0 ~8)
+  [58] log: t=59425.021375 hover in view 1679 (hoverPart#1059) → epoch 56 (+0 −0 ~0)
+  [58] log: t=59425.021375 hover out view 1679 (hoverPart#1059) → epoch 58 (+0 −0 ~0)
+  [58] log: t=61387.778999999995 hover in view 1798 (hoverPart#1059) → epoch 63 (+0 −0 ~1)
+  [59] state epoch 64: browserMini.show=false pickActive=true sendSerial=0 composerText=''
+  artifacts: ['browser-screenshot-127-0-0-1-mv0muahj.png']
+  stopped: no (all ops ran)
+  host module lines:
+    t3.browser: annotate applied 1 chip+image
+    t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+    t3.browser: annotate start
+    t3.browser: annotate start [
+    t3.browser: navigate http://127.0.0.1:16721/
+    t3.browser: screenshot browser-screenshot-127-0-0-1-mv0muahj.png
+== drive6: 60 results
+  [0] {'clock': 15000, 'epoch': 14, 'real': 15022}
+  [1] {'epoch': 17, 'clock': 21000, 'real': 6030}
+  [2] tree epoch 17: floating player=False panel URL field=False device toolbar=False annotate button=[] zoom=[] more-row=[] sent chips=[]
+  [3] state epoch 17: browserMini.show=false pickActive=false sendSerial=0 composerText=''
+  [4] {'target': 'toggle-right-panel', 'epoch': 18, 'clock': 21000}
+  [5] {'clock': 22500, 'epoch': 19, 'real': 1520}
+  [6] {'target': 'surface-browser', 'epoch': 20, 'clock': 22500}
+  [7] {'epoch': 24, 'clock': 25500, 'real': 3019}
+  [8] {'value': '127.0.0.1:16721', 'target': 'browser-url', 'epoch': 26, 'clock': 25500}
+  [9] {'value': '', 'key': 'Enter', 'target': 'browser-url', 'epoch': 27, 'clock': 25500}
+  [10] {'epoch': 28, 'clock': 29500, 'real': 4015}
+  [11] tree epoch 28: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [12] {'key': 'Meta+=', 'target': 'browser-page', 'epoch': 28, 'clock': 29500}
+  [13] {'epoch': 29, 'clock': 30700, 'real': 1213}
+  [14] tree epoch 29: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['110%'] more-row=['Show device toolbar'] sent chips=[]
+  [15] {'key': 'Meta+0', 'target': 'browser-page', 'epoch': 29, 'clock': 30700}
+  [16] {'epoch': 30, 'clock': 31900, 'real': 1214}
+  [17] {'target': 'browser-more', 'epoch': 32, 'clock': 31900}
+  [18] {'clock': 32700, 'epoch': 32, 'real': 814}
+  [19] tree epoch 32: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [20] {'target': 'browser-more-device-toolbar', 'epoch': 33, 'clock': 32700}
+  [21] {'clock': 34700, 'epoch': 34, 'real': 2010}
+  [22] tree epoch 34: floating player=False panel URL field=True device toolbar=True annotate button=['Annotate preview'] zoom=['100%'] more-row=['Hide device toolbar'] sent chips=[]
+  [23] {'target': 'browser-viewport-close', 'epoch': 35, 'clock': 34700}
+  [24] {'clock': 36700, 'epoch': 36, 'real': 2013}
+  [25] tree epoch 36: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [26] {'target': 'browser-capture', 'epoch': 36, 'clock': 36700}
+  [27] {'clock': 39700, 'epoch': 37, 'real': 3012}
+  [29] {'target': 'browser-annotate', 'epoch': 37, 'clock': 39700}
+  [30] {'epoch': 40, 'clock': 41700, 'real': 2011}
+  [31] {'target': 'browser-page', 'epoch': 40, 'clock': 41700}
+  [32] {'epoch': 40, 'clock': 43200, 'real': 1511}
+  [33] {'target': 'browser-page', 'epoch': 40, 'clock': 43200}
+  [34] {'clock': 44000, 'epoch': 40, 'real': 812}
+  [35] {'key': 'Enter', 'target': 'browser-page', 'epoch': 40, 'clock': 44000}
+  [36] {'clock': 48000, 'epoch': 45, 'real': 4016}
+  [37] tree epoch 45: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [38] state epoch 45: browserMini.show=false pickActive=false sendSerial=0 composerText='[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) '
+  [40] {'target': 'browser-float', 'epoch': 46, 'clock': 48000}
+  [41] {'epoch': 49, 'clock': 50500, 'real': 2514}
+  [42] tree epoch 49: floating player=True panel URL field=False device toolbar=False annotate button=[] zoom=[] more-row=[] sent chips=[]
+  [43] {'hover': True, 'target': 'browser-mini-handle', 'epoch': 50, 'clock': 50500}
+  [44] {'epoch': 50, 'clock': 51500, 'real': 1013}
+  [45] {'epoch': 50, 'clock': 52500, 'real': 1013}
+  [46] {'target': 'browser-mini-restore', 'epoch': 50, 'clock': 52500}
+  [47] {'epoch': 53, 'clock': 55000, 'real': 2516}
+  [48] tree epoch 53: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=[]
+  [49] {'target': 'browser-annotate', 'epoch': 53, 'clock': 55000}
+  [50] {'clock': 57000, 'epoch': 55, 'real': 2016}
+  [51] {'target': 'browser-page', 'epoch': 55, 'clock': 57000}
+  [52] {'epoch': 55, 'clock': 58500, 'real': 1515}
+  [53] {'target': 'browser-page', 'epoch': 55, 'clock': 58500}
+  [54] {'epoch': 55, 'clock': 59300, 'real': 809}
+  [55] {'key': 'Meta+Enter', 'target': 'browser-page', 'epoch': 55, 'clock': 59300}
+  [56] {'clock': 65300, 'epoch': 71, 'real': 6011}
+  [57] tree epoch 71: floating player=False panel URL field=True device toolbar=False annotate button=['Annotate preview'] zoom=['100%'] more-row=['Show device toolbar'] sent chips=['Tighten the button spacing. Show details (transcript)', 'Send this one too. Show details (transcript)']
+  [58] log: t=50500 hover in view 1212 (overDot#2987) → epoch 50 (+0 −0 ~8)
+  [58] log: t=59499.299374999995 hover in view 1706 (hoverPart#1059) → epoch 64 (+0 −0 ~0)
+  [58] log: t=59499.299374999995 hover out view 1706 (hoverPart#1059) → epoch 66 (+0 −0 ~0)
+  [58] log: t=60157.307917000006 hover in view 1826 (hoverPart#1059) → epoch 70 (+0 −0 ~1)
+  [59] state epoch 71: browserMini.show=false pickActive=false sendSerial=1 composerText=''
+  artifacts: ['browser-screenshot-127-0-0-1-mv0naz9m.png']
+  stopped: no (all ops ran)
+  host module lines:
+    t3.browser: annotate applied 1 chip+image
+    t3.browser: annotate applied 2 chip+image send
+    t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+    t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+    t3.browser: annotate start
+    t3.browser: annotate start [
+    t3.browser: navigate http://127.0.0.1:16721/
+    t3.browser: screenshot browser-screenshot-127-0-0-1-mv0naz9m.png
