@@ -64,7 +64,7 @@ final class BrowserCaptureTests: XCTestCase {
     }
     private func value(_ reply: [String: Any]) -> [String: Any] { reply["value"] as? [String: Any] ?? [:] }
 
-    func testTheScreenshotIsAnArtifactNamedForTheSiteAtMost1280PixelsWide() throws {
+    func testTheScreenshotIsAnArtifactNamedForTheSiteAtThePagesOwnPixelSize() throws {
         fixture.page("/wide", "<!doctype html><title>Wide</title><body style='margin:0;background:linear-gradient(90deg,#f00,#00f)'><h1>wide</h1>")
         let (view, session) = mounted("tab-shot", url: "\(fixture.base)/wide")
         view.host.frame = NSRect(x: 0, y: 0, width: 900, height: 500) // 1,800 pixels wide on a 2× display
@@ -79,8 +79,15 @@ final class BrowserCaptureTests: XCTestCase {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         XCTAssertEqual(artifact["sizeBytes"] as? Int, data.count)
         let rep = try XCTUnwrap(NSBitmapImageRep(data: data))
-        XCTAssertLessThanOrEqual(rep.pixelsWide, 1280, "MAX_SCREENSHOT_WIDTH")
+        // captureScreenshot saves capturePage's image as it is: MAX_SCREENSHOT_WIDTH is the automation snapshot's alone.
+        let scale = window.backingScaleFactor
+        XCTAssertEqual(rep.pixelsWide, Int((900 * scale).rounded()), "the page's own pixels, not scaled to 1,280")
+        XCTAssertEqual(artifact["width"] as? Int, rep.pixelsWide)
         XCTAssertEqual(Double(rep.pixelsWide) / Double(rep.pixelsHigh), 900.0 / 500.0, accuracy: 0.02)
+        let wide = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2_000, pixelsHigh: 10, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let wideImage = NSImage(size: NSSize(width: 2_000, height: 10)); wideImage.addRepresentation(wide)
+        XCTAssertEqual(try XCTUnwrap(T3BrowserArtifacts.png(wideImage)).width, 2_000, "an image wider than 1,280 pixels keeps its width")
         XCTAssertNotNil(ISO8601DateFormatter().date(from: (artifact["createdAt"] as? String ?? "").replacingOccurrences(of: "\\.\\d+", with: "", options: .regularExpression)))
         XCTAssertEqual(T3BrowserArtifacts.slug("https://Docs.Example.com:8443/x"), "docs-example-com")
         XCTAssertEqual(T3BrowserArtifacts.slug("about:blank"), "site")

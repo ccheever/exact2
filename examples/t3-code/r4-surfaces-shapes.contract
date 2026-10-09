@@ -258,3 +258,4 @@ shape R4Panel
   tabStrip: R12TabStrip // lane r12-threads: the tab strip's scroll (r12-threads-tabs.ts)
   browser: BrowserPanel // browser-surface: the active Browser tab (browser-surface.ts browserView)
   browserMini: BrowserMini // browser-surface part 3: the floating player's browser tab (browser-capture.ts browserMiniView)
+  annotationSend: number // browser-surface part 3: an annotation's ⌘Return asks the window's Send, whatever the panel shows

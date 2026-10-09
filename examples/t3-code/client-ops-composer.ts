@@ -18,7 +18,7 @@ import { composerSelection } from './composer-provider-selection'; // composer-p
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
-import { takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
+import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
 import { sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
@@ -70,6 +70,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   let resultMessage = '';
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
+    else if (op === 'send' && activeInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
     else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
@@ -119,7 +120,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // browser-surface part 3: an annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
-  if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
+  if (!provider || !providerAvailable(provider)) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError('This provider is unavailable. Configure it in T3 Code.'); } // onSend: !providerAvailable
   if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');

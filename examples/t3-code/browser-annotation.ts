@@ -12,6 +12,7 @@
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { composerNow } from './composer-controls'; // the window's clock: a data source reads no wall clock
+import { pushToast } from './toast';
 import { contextId, contextLabel, contextLink, contextReferences } from './composer-editor-menu';
 
 // ── PickedElementPayload.ts: the strict structural validators ──────────────────────────────────
@@ -228,4 +229,18 @@ export function takeAnnotationSend(client: T3Client, at = composerNow(client)): 
   const marked = annotationSends.get(client);
   annotationSends.delete(client);
   return marked !== undefined && at >= marked && at - marked <= 10_000;
+}
+/** Whether the next send is an annotation's (the mark, not taken). */
+export function annotationSendMarked(client: T3Client, at = composerNow(client)): boolean {
+  const marked = annotationSends.get(client);
+  return marked !== undefined && at >= marked && at - marked <= 10_000;
+}
+/** ChatView onSend's `notifyDirectAnnotationAttached`: an annotation's send that cannot go now (a command in flight, a
+ *  pending question, the provider unavailable) leaves the annotation in the draft and says so; the mark is dropped, so a
+ *  later send is the composer's own. The window asks for it when its Send would not go (app.contract annotationSendNow),
+ *  the client's send when a question or the provider refuses it (client-ops-composer.ts). */
+export function annotationAttachedToDraft(client: T3Client): string {
+  annotationSends.delete(client);
+  pushToast(client, { kind: 'info', title: 'Annotation attached to draft', description: 'Sending is unavailable right now. Finish the current action, then send.', stacked: true });
+  return '';
 }

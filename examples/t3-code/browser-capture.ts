@@ -177,11 +177,9 @@ export type BrowserCaptureView = {
   captureDisabled: boolean; recording: boolean;
   floating: boolean; floatDisabled: boolean;
   separateWindow: boolean;
-  /** Bumps when a ⌘Return annotation should send (the window's task presses Send). */
-  sendSerial: number;
 };
 export const emptyCaptureView = (): BrowserCaptureView => ({ pickActive: false, pickDisabled: true, pickTip: 'Annotate elements, regions, and drawings', captureDisabled: true,
-  recording: false, floating: false, floatDisabled: true, separateWindow: false, sendSerial: 0 });
+  recording: false, floating: false, floatDisabled: true, separateWindow: false });
 const report = (client: T3Client, runtimeId: string): Obj => obj(obj(client.presentation.browserTabs)[runtimeId]);
 /** The open thread's key in the floating player's store, the device player's own (`deviceThreadId`, activeThreadRef): a
  *  new thread's draft has its id once it opened a tab (addBrowserSurface allocates it), while `client.threadId` stays
@@ -206,9 +204,13 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
     pickTip: failed ? 'Page didn’t load — pick unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
-    separateWindow: tab.pip === true, sendSerial: captureHost(client).sendSerial,
+    separateWindow: tab.pip === true,
   };
 }
+/** Bumps when a ⌘Return annotation should send: the panel projects it (`shell.panel.annotationSend`) whatever it shows, so
+ *  a pick finished in the floating player or with the panel closed sends at once, as onSendAnnotation does (review of
+ *  2026-10-10: projected in the Browser tab's view only, such a send waited until a Browser tab showed again). */
+export function annotationSendSerial(client: T3Client): number { return captureHost(client).sendSerial; }
 
 // ── The chrome row's ops (`surface-browser-annotate`, `-capture`, `-float`, `-window`) ─────────────
 export type CaptureTarget = { ref: ScopedThreadRef; tabId: string; runtimeId: string };
@@ -295,9 +297,11 @@ export async function artifactLocal(client: T3Client, native: Native, action: st
     if (action !== 'reveal' && toastId > 0) markActionCopied(client, toastId, `shelllocal:surface-browser-artifact-${action}`);
   } catch (error) {
     if (letGo(error)) throw error;
+    if (action === 'reveal') return ''; // `void bridge.revealArtifact(path)`: the reference says nothing when Reveal fails
     const recording = /browser-recording-/.test(path);
-    const title = action === 'copy-image' ? 'Unable to copy screenshot' : action === 'copy-path' ? (recording ? 'Unable to copy recording path' : 'Unable to copy screenshot path') : 'Unable to reveal the file';
-    if (toastId > 0) updateToast(client, toastId, { kind: 'error', title, description: errorText(error) });
+    const title = action === 'copy-image' ? 'Unable to copy screenshot' : recording ? 'Unable to copy recording path' : 'Unable to copy screenshot path';
+    // updateScreenshotToast keeps the screenshot's three buttons; the recording's error toast keeps only Reveal (actionProps).
+    if (toastId > 0) updateToast(client, toastId, { kind: 'error', title, description: errorText(error), ...(recording ? { secondary: null } : {}) });
     else pushToast(client, { kind: 'error', title, description: errorText(error) });
   }
   return '';

@@ -522,8 +522,6 @@ world.
   The window's shortcuts come before the page (Electron's guest page has its keys first), so while Annotate is on in a
   Browser tab of the open thread the send button leaves `Meta+Enter` out and the key reaches the editor; a ⌘Return typed
   in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`).
-- **Screenshots.** At most 1,280 pixels wide (the record's rule; the reference applies MAX_SCREENSHOT_WIDTH to the
-  automation snapshot and saves capturePage's own size).
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
   (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
   the person's clipboard.

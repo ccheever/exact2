@@ -20,7 +20,6 @@ import WebKit
 ///   where it is (one WKWebView sits in one place). The reference ships JPEG frames (quality 80) to a second renderer;
 ///   here the snapshots are drawn directly.
 enum T3BrowserArtifacts {
-    static let maxScreenshotWidth = 1280
     static let maxSlugLength = 80
 
     /// DesktopEnvironment `browserArtifactsDir`: the local server's `<T3 home>/userdata/browser-artifacts`, else the data root's.
@@ -60,22 +59,13 @@ enum T3BrowserArtifacts {
         return target.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? target : nil
     }
 
-    /// The image as PNG, at most `maxWidth` pixels wide (aspect kept).
-    static func png(_ image: NSImage, maxWidth: Int = maxScreenshotWidth) -> (data: Data, width: Int, height: Int)? {
+    /// The image as PNG at its own pixel size: captureScreenshot saves capturePage's image as it is (MAX_SCREENSHOT_WIDTH
+    /// applies to the automation snapshot only, T3BrowserAutomation).
+    static func png(_ image: NSImage) -> (data: Data, width: Int, height: Int)? {
         guard let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        var output = source
-        if source.width > maxWidth {
-            let height = max(1, Int((Double(source.height) * Double(maxWidth) / Double(source.width)).rounded()))
-            guard let context = CGContext(data: nil, width: maxWidth, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-            context.interpolationQuality = .high
-            context.draw(source, in: CGRect(x: 0, y: 0, width: maxWidth, height: height))
-            guard let scaled = context.makeImage() else { return nil }
-            output = scaled
-        }
-        let rep = NSBitmapImageRep(cgImage: output)
+        let rep = NSBitmapImageRep(cgImage: source)
         guard let data = rep.representation(using: .png, properties: [:]) else { return nil }
-        return (data, output.width, output.height)
+        return (data, source.width, source.height)
     }
 
     /// The pasteboard the artifact actions write: an agent run never touches the person's clipboard.
@@ -433,7 +423,7 @@ extension T3BrowserSessions {
         answer(["id": id, "tabId": session.id, "path": target.path, "mimeType": mimeType, "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
     }
 
-    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>.png`, at most 1,280 pixels wide.
+    /// Manager.ts captureScreenshot: `browser-screenshot-<site>-<millis36>.png`, the snapshot's own pixels (capturePage's size).
     private func screenshot(_ session: T3BrowserSession, answer: @escaping ([String: Any]) -> Void, refuse: @escaping (String, String) -> Void) {
         let url = session.web.url?.absoluteString
         var attempts = 0

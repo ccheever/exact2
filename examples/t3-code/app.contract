@@ -1158,13 +1158,17 @@ component T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
-  // browser-surface part 3: ⌘Return in Annotate sends the composer with the annotation (PreviewView onSendAnnotation).
+  // browser-surface part 3: ⌘Return in Annotate sends the composer with the annotation at once, whatever the panel shows
+  // (PreviewView onSendAnnotation); when Send cannot go, ChatView onSend says "Annotation attached to draft" instead.
   state annotationSendHandled = 0
-  task annotationSend when shell.panel.browser.capture.sendSerial > annotationSendHandled and not commandPending key=shell.panel.browser.capture.sendSerial
+  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
     after(1, annotationSendNow)
   action annotationSendNow
-    annotationSendHandled = shell.panel.browser.capture.sendSerial
-    send()
+    annotationSendHandled = shell.panel.annotationSend
+    if commandPending or not data.canSend or data.requestMode == "question"
+      chatLocal("surface-browser-annotation-held", "", "")
+    else
+      send()
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm

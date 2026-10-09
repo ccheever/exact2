@@ -7,18 +7,19 @@
 // composer send path", "warns when main dropped the crop before handing over the pick") are followed here.
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, captureHost, captureLocal, floatingTabOf } from './browser-capture';
+import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from './browser-capture';
 import { browserMiniSessions, browserHost, browserView } from './browser-surface';
 import { previewRuntimeTabId } from './browser-state';
-import { panelKey, panelState, surfaceLocal, surfaceStore, type PanelState } from './r4-surfaces-panel';
+import { panelKey, panelState, panelView, surfaceLocal, surfaceStore, type PanelState } from './r4-surfaces-panel';
 import { miniStoreOf } from './r6-media-device';
 import { toasts } from './toast';
 import { shellState, toastViews, copiedActions, copiedToasts } from './shell';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
-import type { Obj } from './domain';
+import { obj, type Obj } from './domain';
+import { T3Client as Client } from './client';
 import { connected, opened, running } from './composer-controls-fixture';
-import { markAnnotationSend, takeAnnotationSend } from './browser-annotation';
+import { annotationSendMarked, markAnnotationSend, takeAnnotationSend } from './browser-annotation';
 import { snapshot } from './presentation';
 import { DEFAULT_SEND_RULES } from './composer-editor-intent';
 import { activeRef } from './terminal-drawer-view';
@@ -223,6 +224,33 @@ describe('handleCapture', () => {
     expect(toasts(client).at(-1)?.title).toBe('Unable to copy recording path');
   });
 
+  // Review of 2026-10-10: Reveal is `void bridge.revealArtifact(path)` (no toast when it fails); a recording's failed Copy
+  // path keeps only Reveal (actionProps: revealAction), while updateScreenshotToast keeps the screenshot's three buttons.
+  it('a failed Reveal says nothing; a recording\'s failed Copy path keeps only Reveal, a screenshot\'s keeps its buttons', async () => {
+    const client = fakeClient(), dir = '/lane/t3-home/userdata/browser-artifacts';
+    const saved = fakeModule({ timelineSleep, browserScreenshot: () => ({ id: 'browser-screenshot-a', path: `${dir}/browser-screenshot-a.png`, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }),
+      'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }),
+      'browserRecord:finish': () => ({ path: '/var/folders/x/T/r.mp4', mimeType: 'video/mp4;codecs=avc1', sizeBytes: 9 }),
+      'browserRecord:save': request => ({ id: 'browser-recording-b', tabId: request.tab, path: `${dir}/browser-recording-b.mp4`, mimeType: request.mimeType, sizeBytes: 9, createdAt: '2026-10-09T00:00:00.000Z' }) });
+    await captureLocal(client, saved.native, browserPanel(), 'capture', target, '');
+    await captureLocal(client, saved.native, browserPanel(), 'capture', target, 'record');
+    await captureLocal(client, saved.native, browserPanel(), 'capture', target, '');
+    const [shot, recording] = toasts(client);
+    expect([shot?.title, recording?.title]).toEqual(['Screenshot saved', 'Recording saved']);
+    const failing = fakeModule({ browserArtifact: () => { throw new Error('Clipboard is busy.'); } });
+    await artifactLocal(client, failing.native, 'reveal', `${dir}/browser-recording-b.mp4`, String(recording?.id));
+    await artifactLocal(client, failing.native, 'reveal', `${dir}/browser-screenshot-a.png`, '');
+    expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual([['success', 'Screenshot saved'], ['success', 'Recording saved']]);
+    await artifactLocal(client, failing.native, 'copy-path', `${dir}/browser-recording-b.mp4`, String(recording?.id));
+    const failed = toasts(client).find(toast => toast.id === recording?.id);
+    expect(failed).toMatchObject({ kind: 'error', title: 'Unable to copy recording path', description: 'Clipboard is busy.' });
+    expect([failed?.action?.label, failed?.secondary ?? null]).toEqual(['Reveal in Finder', null]);
+    await artifactLocal(client, failing.native, 'copy-path', `${dir}/browser-screenshot-a.png`, String(shot?.id));
+    const shotFailed = toasts(client).find(toast => toast.id === shot?.id);
+    expect(shotFailed).toMatchObject({ kind: 'error', title: 'Unable to copy screenshot path' });
+    expect([shotFailed?.action?.label, shotFailed?.extra?.label, shotFailed?.secondary?.label]).toEqual(['Copy image', 'Copy path', 'Reveal in Finder']);
+  });
+
   it('records on a Shift-click and stops on the next press, saving the recording with Reveal in Finder and Copy path', async () => {
     const client = fakeClient();
     (client.local.clientSettings as Obj).browserRecordingFrameRate = 60;
@@ -330,5 +358,93 @@ describe('the floating player and the separate window', () => {
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
     expect(module.calls.map(call => call.action)).toEqual(['open', 'close']);
     expect(browserView(client, browserPanel().surfaces[0]!).capture.separateWindow).toBe(false); // no session: the empty view
+  });
+});
+
+// Review of 2026-10-10 (findings 1, 2 and 4): the window's send reads a serial the panel projects whatever it shows, says
+// "Annotation attached to draft" when Send cannot go (ChatView onSend's notifyDirectAnnotationAttached), and the
+// window-level rules of this task (Float closes the right panel, a screenshot's buttons keep their toast) are held here.
+describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSend\'s guard)', () => {
+  const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
+  const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
+  const block = (text: string, start: string, lines: number) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, at + lines).join('\n'); };
+
+  it('a pick sent from the floating player, with the panel closed, reaches the panel\'s serial, not the Browser tab\'s view', async () => {
+    const client = new Client(), scoped = { environmentId: 'env', threadId: 't1' }, tab = previewRuntimeTabId(scoped, 'epoch-1', 'tab-1');
+    Object.assign(client, { available: true, generation: 1, connection: 'connected', environmentId: 'env', projectId: 'p1', threadId: 't1', configLive: true, shellLive: true, threadLive: true,
+      scopes: ['orchestration:read', 'orchestration:operate'], config: { environment: { capabilities: { serverResolvedCommandContext: true } } } });
+    client.shell.projects = [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }];
+    client.shell.threads = [{ id: 't1', projectId: 'p1' }];
+    client.thread = { projection: { thread: { id: 't1' }, runtimeRequests: [], turnItems: [], runs: [], checkpoints: [] }, sequence: 0, historyCursor: null, hasMore: false, latestLocalTurnOrdinal: null };
+    client.presentation.browserTabs = { [tab]: { kind: 'Success', pick: { active: false, serial: 1, ready: true } } };
+    const native: Native = { available: true, watch() {}, async later(input) {
+      const request = obj(input);
+      if (request.op === 'browserAnnotate' && request.action === 'take') return { ok: true, generation: 1, value: { result: { annotation, submission: 'send' }, serial: 1 } };
+      if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
+      return { ok: true, generation: 1, value: {} };
+    } };
+    await applyCaptureResults(client, native, [{ runtimeId: tab, threadKey: 'env:t1' }]);
+    const view = await panelView(client, native, 0);
+    expect(view).toMatchObject({ open: false, annotationSend: 1 });
+    expect(view.browser.capture).toEqual(emptyCaptureView());
+    expect('sendSerial' in view.browser.capture).toBe(false);
+  });
+
+  it('the window sends at once whatever the panel shows, or asks for "Annotation attached to draft" when Send cannot go', () => {
+    const app = source('app.contract');
+    expect(app).not.toContain('capture.sendSerial');
+    expect(line(app, 'task annotationSend when')).toBe('  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend');
+    expect(block(app, 'action annotationSendNow', 6)).toBe(['  action annotationSendNow', '    annotationSendHandled = shell.panel.annotationSend',
+      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send()'].join('\n'));
+    expect(line(source('r4-surfaces-shapes.contract'), '  annotationSend: number')).not.toBe('');
+    expect(block(source('browser-shapes.contract'), 'shape BrowserCapture', 12)).not.toContain('sendSerial');
+  });
+
+  it('the held send says "Annotation attached to draft" and spends the mark', async () => {
+    const client = fakeClient(), module = fakeModule({});
+    surfaceStore(client).panels.set(panelKey(client), { ...browserPanel(), visible: false });
+    markAnnotationSend(client, 0);
+    expect(annotationSendMarked(client, 0)).toBe(true);
+    await surfaceLocal(client, module.native, 'browser-annotation-held', '', '');
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.stacked])).toEqual([['info', 'Annotation attached to draft', 'Sending is unavailable right now. Finish the current action, then send.', true]]);
+    expect(takeAnnotationSend(client, 0)).toBe(false);
+  });
+
+  it('a pending question: the annotation\'s send does not answer it', async () => {
+    const { client, native, command } = await opened();
+    Object.assign(client.thread!.projection, { runtimeRequests: [{ id: 'r1', kind: 'user_input', status: 'pending', createdAt: '2026-10-03T00:00:00Z', responseCapability: { type: 'live' } }],
+      turnItems: [{ id: 'i1', type: 'user_input_request', requestId: 'r1', questions: [{ id: 'scope', header: 'Scope', question: 'Which scope?', options: [{ label: 'Workspace', description: 'Here.' }] }] }] });
+    const committed = native.committed.length;
+    markAnnotationSend(client);
+    await command('send', '', '[Tighten](t3-context://v1/preview-annotation/preview-annotation_annotation_1) ');
+    expect(native.committed.length).toBe(committed);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'info', title: 'Annotation attached to draft' });
+  });
+
+  it('an unavailable provider: the annotation stays in the draft with the info toast, not the send error', async () => {
+    const { client, native, command } = await opened();
+    for (const entry of client.config.providers as Obj[]) entry.auth = { status: 'unauthenticated' };
+    const committed = native.committed.length;
+    markAnnotationSend(client);
+    const result = await command('send', '', 'Send this one too');
+    expect(result.message).toBe('');
+    expect(native.committed.length).toBe(committed);
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'info', title: 'Annotation attached to draft' });
+    expect(client.draft).toBe('Send this one too');
+  });
+
+  it('Float preview closes the window\'s right panel (handlePictureInPicture: rightPanelStore.close)', () => {
+    // The data module hides its surfaces (the row above), but the window's own open state kept the panel on its
+    // launcher (drive 7): chatLocal clears it when Float floats the tab, not when the same press closes the player.
+    const app = source('app.contract');
+    const rule = line(app, 'op == "surface-browser-float"');
+    expect(rule).toContain('(op == "surface-browser-float" and not shell.panel.browser.capture.floating)');
+    expect(rule.trimStart().startsWith('if ')).toBe(true);
+    expect(app.split('\n')[app.split('\n').indexOf(rule) + 1]).toBe('      rightPanelAt = ""');
+  });
+
+  it('a screenshot\'s and a recording\'s buttons keep their toast (toastAct)', () => {
+    const rule = line(source('app.contract'), '    toastDismissed = op == "copy"');
+    expect(rule).toContain('op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed :');
   });
 });

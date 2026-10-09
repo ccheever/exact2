@@ -76,7 +76,6 @@ shape BrowserCapture
   floating: bool
   floatDisabled: bool
   separateWindow: bool
-  sendSerial: number // ⌘Return in Annotate: the window's task sends the composer
 
 // The floating player's browser source (browser-capture.ts `BrowserMiniView`); its frame is the chat canvas's.
 shape BrowserMini

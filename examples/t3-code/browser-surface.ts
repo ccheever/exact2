@@ -28,6 +28,7 @@ import {
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
 // Part 3 (browser-surface-capture): Annotate, Capture, Float preview, the separate window and the floating player.
 import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
+import { annotationAttachedToDraft } from './browser-annotation';
 // browser-surface part 2: history, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
@@ -365,6 +366,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
   if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
   if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, tabId => reopenBrowserTab(client, state, tabId));
+  if (op === 'annotation-held') return annotationAttachedToDraft(client); // part 3: an annotation's ⌘Return the window could not send
   if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
