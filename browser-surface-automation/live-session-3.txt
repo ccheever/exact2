@@ -1,0 +1,56 @@
+# browser-surface-automation (part 5): session 3, the coordinator-approved one (2026-10-09, 04:30-04:41Z, agent mode)
+
+Lane: 16750 (the app's embedded server), 16751 (fixture: /form, /b, /media with a looping tone). Lane HOME,
+CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME (fresh copy of the seed per run, with the ACP Registry cache and
+default model), T3CODE_TELEMETRY_ENABLED=false. Provider: the ACP Registry instance "Lane browser agent" running the
+lane's fake agent (lane-fake-acp-v2.mjs.txt). Driver: scripts/agent.mjs macos --json --size 1280x840
+(lane-drive-v2.sh.txt). No other T3 Code process was running; PID 5064 was gone before the session started.
+
+## Before: the base (evidence-base worktree at d564a5c02, built under its .build-lock, lock released at the end)
+run base-1 (04:30:05-04:30:46Z; pids: fixture 40360, driver 40361, lane server 40584; all exited)
+  - Typed "nohost http://127.0.0.1:16751/form" and tapped send-message. The fake agent called preview_status. The base
+    build has no previewAutomation host, so the server answered in 3 ms, isError true, with:
+      "No preview automation host is available for status in environment b61bc842-ca95-4dd6-a66c-8805108fb6d6.
+       Preview tools run in a T3 Code desktop app that is open and connected to this environment; a headless server
+       has no browser of its own. Do not retry. To check a page, use a headless browser from the shell, such as
+       Playwright, or curl, or ask the user to open this thread in the T3 Code desktop app."
+    This is previewAutomation.ts:725-727 with operation "status" (image 07-no-host-after.png).
+  - toggle-right-panel, surface-browser (a hand-opened tab_1), its context menu: Close / Close others / Close to the
+    right / Close all, with no Mute row (image 03, left).
+  - Then op 23, `tap settings-integrations`, found no view. The previous tap (chat-header) had not closed the tab
+    menu, so the connection-settings tap was spent closing it. The script now closes the menu with its Close item.
+run base-2 (04:31:25-04:34:37Z; pids: fixture 45521, driver 45522, lane server 45619; all exited)
+  - Same steps, with tab-menu-close. Settings › Integrations opened; the 30-s request count is in settings-loop.txt.
+  - "Open links in" is an inert row (image 01, left).
+  - Then op 36, `tap "Lane page B"`, found no view. The reply's link words are separate text runs ("Lane ", "page ",
+    "B"), so the link has no single text to match. The branch run's agent replies with a one-word link (LanePageB).
+    The base's chat-link click was not taken; the base has no in-app option, so its links always go to the system
+    browser.
+
+## After: this branch at d6b8b05ec, run branch-1 (04:36:10-04:40:48Z; pids: fixture 57204, driver 57205, lane server 57440;
+## all exited). All 54 ops ran (driver exit 0).
+  - Typed "e2e http://127.0.0.1:16751/form" and tapped send-message. The fake agent got the thread's MCP credential
+    (environment and session/new) and called 22 preview_* tools (2.2 s of tool time in all) through the lane server's MCP endpoint. Each
+    result is in e2e-results-branch-1.txt:
+      status (no tab) · open → tab_1 /form, visible, viewport 539x748 · status "Lane form" fill · snapshot (3 elements,
+      1 console, 1 network failure, 1 image) · click role=button[name='Go'] · type #name "Ada Lovelace" · press Enter ·
+      wait_for "submitted Ada Lovelace" · evaluate → {title "Lane form", clicks 1, submitted "submitted Ada Lovelace"} ·
+      scroll · set_appearance dark · evaluate prefers-color-scheme dark → true · set_appearance system · resize fill ·
+      resize freeform 800x600 → error (part 2) · navigate /b readiness load → "Page B" · snapshot ·
+      recording_start → error (part 3) · recording_stop → error · navigate /media · click #play ·
+      evaluate → {paused false, muted false}
+  - Server trace (branch-preview-spans.txt): previewAutomation.connect 1, focusHost 4, respond 34; broker invoke 31
+    success + 3 failure (the three expected errors); MCP tools/call 22; preview.open 2 (the agent's tab_1, then the
+    chat link's tab_2).
+  - App: tab_1 opened in the thread's right panel and was driven there. The agent cursor rests at the last click.
+    The reply lists every result (image 05). The chip shows the speaker while the tone plays.
+  - Tab menu: "Mute tab" first (image 03, right). tab-menu-toggle-mute: the chip's icon became speaker-off (image 04).
+  - Settings › Integrations, held 30 s (settings-loop.txt). "Open links in" is a live select (image 01, right). Its
+    menu lists Your default browser / T3 Code; T3 Code chosen shows the reset arrow (image 02).
+  - Back to the thread, `tap LanePageB`: a Browser tab "Page B" (tab_2) opened beside tab_1 (image 06).
+    `tap LanePageB modifiers Meta`: no new tab (the tree shows tab_1 and tab_2 only), and T3_REMOTE_OPEN_LOG has
+    exactly one URL, http://127.0.0.1:16751/b: the system browser.
+  - Found: after tab_2 opened, tab_1's muted indicator was gone. An AppKit probe showed why: WebKit pauses a muted
+    media element while its page is out of the window, then plays it again when the page is shown. Fixed in
+    b6b3e417e: the media script counts such an element as still playing. The new AppKit case failed before the fix and
+    passes after it. EXACT2-GAPS declares the pause. Not re-driven live: the session limit.
