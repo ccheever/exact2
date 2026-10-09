@@ -47,6 +47,9 @@ component ModelRow
       hoverTipAt(hoverTipAtFrame(`model-row-tip-${row.key}`, "tip", row.reason, [], "left", "center", frame(`model-row-${row.key}`), min(20 * rem, length(row.reason) * 0.4 * rem + 1.125 * rem), `model-row-tip-${row.key}`), "trigger", value)
   action hoverStar(value: bool)
     starOver = value
+  // model-picker-parity CO-7: Shift+click adds the model to a draft's several (onValueChange's shiftKey).
+  action pick(e: MouseEvent)
+    select(row.id, row.providerId, e.shiftKey)
   view
     when row.kind == "legacy"
       button press=toggleLegacy hover=hover class=Control width="100%" min-height="2.8125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" gap="0.5rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
@@ -57,7 +60,7 @@ component ModelRow
           CmpIcon(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)", weight=2)
     else
       row id=`model-row-${row.key}` hover=hover width="100%" min-height="2.8125rem" border-radius="0.375rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : row.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
-        button press=select(row.id, row.providerId) disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-keyshortcuts=(row.kind == "model" and row.index < 9 ? `Meta+${row.index + 1}` : "") class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" justify-content="flex-start" gap=0
+        button press=pick disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-keyshortcuts=row.jumpKey class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" justify-content="flex-start" gap=0
           column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
             row gap="0.5rem" align-items="center" min-width=0 max-width="100%"
               text row.name font-size="0.75rem" font-weight=500 line-height="1.03125rem" color=(highlighted or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
@@ -69,12 +72,16 @@ component ModelRow
         // ModelListRow: a chosen model of a multi-model draft shows its check before the star.
         when row.checked
           CcIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)", weight=2)
+        // model-picker-parity CO-1: ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
+        when row.jump != ""
+          text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0 testId=`model-jump-${row.id}`
         button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "") testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
           CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)"), weight=2)
 
 component ModelPicker
   inject
     rem: number
+    hoverTipAt: action
   props
     data: Snapshot
     session: number
@@ -106,7 +113,9 @@ component ModelPicker
   derive railOver = (railSession == session ? railHoverIndex : -1)
   derive sidebar = not catalog.searching and length(catalog.providers) > 0
   derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)
-  derive base = (navigated and navQuery == query ? min(cursor, count - 1) : -1)
+  // Combobox autoHighlight (model-picker-parity CO-3): a search highlights its first row a person can choose
+  // until the arrows move the highlight; an unsearched list highlights nothing until then.
+  derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))
   derive highlight = (count > 0 ? base : -1)
   derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model" and r.reason == ""), (r) => r.id), "")
   derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model" and r.reason == ""), (r) => r.providerId), "")
@@ -139,7 +148,7 @@ component ModelPicker
     searchFocused = false
   action toggleLegacy
     legacySession = legacySession == session ? -1 : session
-  action searchKey(name: string)
+  action searchKey(name: string, e: KeyboardEvent)
     if name == "ArrowDown" and count > 0
       cursor = (highlight < 0 or highlight + 1 >= count) ? 0 : highlight + 1
       navSession = session
@@ -148,16 +157,24 @@ component ModelPicker
       cursor = highlight <= 0 ? count - 1 : highlight - 1
       navSession = session
       navQuery = query
-    if name == "Enter" and targetLegacy
-      legacySession = legacySession == session ? -1 : session
+    // Return chooses the highlighted row (Shift+Return adds it, as Shift+click does) or opens the legacy section.
+    if name == "Enter"
+      if targetLegacy
+        legacySession = legacySession == session ? -1 : session
+      else if targetId != ""
+        select(targetId, targetProvider, e.shiftKey)
+      preventDefault()
     if name == "ArrowLeft" and query == "" and sidebar
       focus(`picker-rail-${max(0, catalog.railIndex)}`)
   action setup(id: string)
     closePicker()
     openSetup(id)
-  action railHover(index: number, over: bool)
+  // ModelPickerSidebar's TooltipPopup (side left, align center, the picker's delay 0), drawn by the window's hover
+  // layer beside the popover (model-picker-parity CO-2): the name, or why the provider cannot be chosen.
+  action railHover(index: number, label: string, over: bool)
     railHoverIndex = over ? index : (railOver == index ? -1 : railOver)
     railSession = session
+    hoverTipAt(hoverTipAtFrame(`picker-rail-tip-${index}`, "tip", label, [], "left", "center", frame(`picker-rail-${index}`), min(20 * rem, length(label) * 0.4 * rem + 1.125 * rem), `picker-rail-tip-${index}`), "trigger", over)
   action railMove(origin: number, name: string)
     if name == "ArrowRight"
       focus("model-search")
@@ -174,12 +191,14 @@ component ModelPicker
             column width="2.75rem" flex-shrink=0 height="100%" padding="0.25rem" gap="0.25rem" box-sizing="border-box" position="relative" background-color="light-dark(#fafafa4d, #ffffff02)" role="toolbar" aria-label="Providers" testId="model-picker-rail"
               when catalog.railIndex >= 0
                 box position="absolute" right=0 top=((catalog.railIndex == 0 ? 12 : 57 + (catalog.railIndex - 1) * 40) * rem / 16) width="0.1875rem" height="1.25rem" border-top-left-radius="0.1875rem" border-bottom-left-radius="0.1875rem" background-color="light-dark(#1b4ed8, #346bf1)" z-index=2 testId="model-picker-indicator"
-              button press=chooseRail("favorites") hover=railHover(0) key=railMove(0) id="picker-rail-0" class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label="Favorites" aria-checked=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
+              button press=chooseRail("favorites") hover=railHover(0, "Favorites") key=railMove(0) id="picker-rail-0" class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label="Favorites" aria-pressed=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
                 CmpIcon(name="star-filled", size=20, color="light-dark(#27272a, #f5f5f5)", weight=2)
               box width="2.25rem" height=1 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
+              // A disabled button sits in a span that keeps its tooltip (ModelPickerSidebar `trigger`): the hover is the wrapper's.
               each provider in catalog.providers key=provider.id
-                button press=chooseRail(provider.id) hover=railHover(provider.index) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label=(provider.ready ? provider.name : `${provider.name} — Not ready.`) aria-checked=provider.selected testId=`provider-${provider.id}` disabled=(not provider.selectable) opacity=(provider.selectable ? 1 : 0.5) background-color=(railOver == provider.index and provider.selectable ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
-                  ProviderInstanceMark(driver=provider.driver, size=20, color="light-dark(#27272a, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
+                box hover=railHover(provider.index, provider.label) display="flex" flex-shrink=0 testId=`provider-hover-${provider.id}`
+                  button press=chooseRail(provider.id) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label=provider.label aria-pressed=provider.selected testId=`provider-${provider.id}` disabled=(not provider.selectable) opacity=(provider.selectable ? 1 : 0.5) background-color=(railOver == provider.index and provider.selectable ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000")
+                    ProviderInstanceMark(driver=provider.driver, size=20, color="light-dark(#27272a, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
           column flex=1 min-width=0 height="100%" box-sizing="border-box" background-color="light-dark(#fafafa66, #ffffff03)" border-left-style="solid" border-left-width=(sidebar ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff0b)"
             column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5625rem" padding-bottom=1 flex-shrink=0
               row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchFocused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
@@ -187,7 +206,7 @@ component ModelPicker
                   CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)", weight=2)
                 when query == ""
                   text "Search models..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true
-                input id="model-search" testId="model-search" value=query input=search key=searchKey submit=select(targetId, targetProvider) focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+                input id="model-search" testId="model-search" value=query input=search key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
             scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? "0.625rem" : "0px") padding-bottom=(count > 0 ? "0.625rem" : "0px") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" testId="model-list"
               column gap="0.125rem" width="100%" role="listbox"
                 each row in catalog.models key=row.key
@@ -210,3 +229,23 @@ component ModelPicker
               ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #818181)")
               text "Using ChatGPT plan" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
             ChatGptUsageButton(small=true, testId="model-picker-manage-usage", press=command("pageslocal:chatgpt-usage", "", "", 0), first=false)
+
+// model-picker-parity S2-4: a Settings row's ProviderModelPicker trigger outside General (Scheduled Tasks' Model,
+// Source Control's writer model; SETTINGS_PICKER_TRIGGER_CLASSNAME over ComposerControl "sm": h-7 px-2.5 gap-1.5,
+// the instance mark, the model name and the chevron). It opens the window's picker under itself (`setting-<row>`).
+component SettingsPickerTrigger
+  props
+    rowId: string
+    label: string
+    name: string
+    driver: string
+    badge: string
+    accent: string
+    disabled: bool
+    press: action
+  view
+    button press=press disabled=disabled id=`setting-${rowId}` testId=`setting-${rowId}` aria-label=name aria-haspopup="dialog" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(disabled ? 0.64 : 1) flex-shrink=0
+      when driver != ""
+        ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #818181)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #818181)" line-clamp=1
+      CcIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)", weight=2)
