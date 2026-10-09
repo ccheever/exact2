@@ -104,15 +104,8 @@
     fixed(global, name, function () {});
   });
   fixed(global, "performance", Object.freeze({ now: function () { return refuseAmbient("performance.now()"); } }));
-  // No I/O of the module's own (LLP 1016.000 D3: a socket only listens,
-  // opened by the runtime as a `fetch` with `exactStream`). Functions that
-  // refuse by name, in every realm this prelude runs in (Hermes, the wasm
-  // target's iframe and worker), as the JS target's bindings refuse them
-  // (host/web-js/ts-fetch.js): `typeof` and the words are the same on every
-  // host, and a `new WebSocket(url)` is not a bare "undefined".
-  ["XMLHttpRequest", "WebSocket", "EventSource"].forEach(function (name) {
-    fixed(global, name, function () { throw new Error(name + " is unavailable in data sources"); });
-  });
+  // Every executor refuses browser I/O by name (LLP 1016.000 D3).
+  ["XMLHttpRequest", "WebSocket", "EventSource"].forEach(function (name) { fixed(global, name, function () { throw new Error(name + " is unavailable in data sources"); }); });
 
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
