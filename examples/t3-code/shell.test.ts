@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from './toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from './shell';
-import { threadTransitions, transitionToast, threadNotifications, nativeNotifyStatus, reportWindowFacts } from './shell-notify';
+import { threadTransitions, transitionToast, threadNotifications, nativeNotifyStatus, reportWindowFacts, notifyEnvironments } from './shell-notify';
+import { EnvironmentFleet, type FleetEntry } from './settings-b-fleet';
+import { threadOps } from './client-ops-threads';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from './shell-commands';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -162,16 +164,116 @@ describe('thread notifications', () => {
     const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
     const client = fakeClient({ threadId: 'open', shell: { threads: [thread('a'), thread('open')], projects: [] } });
     client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
-    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
+    const none = new EnvironmentFleet();
+    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } }), thread('open', { pendingRuntimeRequest: { kind: 'user_input' } })];
-    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
-    expect(toasts(client).map(toast => [toast.title, toast.description, toast.action?.label, toast.action?.id])).toEqual([['Input needed', 'T a', 'Open thread', 'a']]);
+    await threadNotifications(client, native, { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
+    // "Open thread" names the thread with its environment (the reference's /$environmentId/$threadId).
+    expect(toasts(client).map(toast => [toast.title, toast.description, toast.action?.label, toast.action?.id])).toEqual([['Input needed', 'T a', 'Open thread', 'fleet:env:a']]);
     expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['input', 'input']);
     // The open thread gets neither a toast nor, while focused, a system notification.
     expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
     client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
-    await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
-    expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag])).toEqual([['Thread completed', 'T a', 'env:a']]);
+    await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' }, none);
+    expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'T a', 'env:a', 'fleet:env:a']]);
+  });
+
+  // PG-10 (desktop audit 2026-10-09): ThreadNotificationCoordinator mounts EnvironmentNotifications for every
+  // environment, so a turn that ends in a background environment notifies while another one is focused.
+  describe('every connected environment (ThreadNotificationCoordinator)', () => {
+    const active = { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' };
+    const done = (id: string, at: string, extra: Obj = {}) => thread(id, { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: at, ...extra });
+    function setup(clientExtra: Obj = {}) {
+      const requests: Obj[] = [];
+      const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
+      const client = fakeClient({ environmentId: 'env-a', threadId: 'a1', shell: { threads: [thread('a1')], projects: [], sequence: 1 }, ...clientExtra });
+      client.local.clientSettings = prefs({ notificationMode: 'notifications-and-sound', inAppNotificationsEnabled: true }) as never;
+      const source = new EnvironmentFleet();
+      const entry = { key: 'http://b\nenv-b', origin: 'http://b', environmentId: 'env-b', phase: 'connected', generation: 3, synchronized: 3,
+        shell: { threads: [thread('b1', { title: 'Build B' }), thread('a1', { title: 'Same id in B' })], projects: [], sequence: 1 } } as unknown as FleetEntry;
+      source.entries.set(entry.key, entry);
+      return { requests, native, client, source, entry };
+    }
+
+    test('the focused environment and each background one are watched; a background shell is live once synchronized', () => {
+      const { client, source, entry } = setup();
+      expect(notifyEnvironments(client, source).map(environment => [environment.environmentId, environment.live, environment.focused])).toEqual([['env-a', true, true], ['env-b', true, false]]);
+      entry.synchronized = 2;
+      expect(notifyEnvironments(client, source)[1]!.live).toBe(false);
+      // The fleet never lists the focus; if it briefly does, the focused client's shell is the one watched.
+      entry.environmentId = 'env-a';
+      expect(notifyEnvironments(client, source).map(environment => environment.environmentId)).toEqual(['env-a']);
+    });
+
+    test('a completion in a background environment toasts "Thread completed" with Open thread on that environment\'s thread', async () => {
+      const { requests, native, client, source, entry } = setup();
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client)).toEqual([]);
+      // B's thread b1 completes, and B's own a1 (the id the focused thread has in A) asks for approval.
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' }), thread('a1', { title: 'Same id in B', pendingRuntimeRequest: { kind: 'approval' } })] };
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description, toast.action?.label, toast.action?.op, toast.action?.id])).toEqual([
+        ['success', 'Thread completed', 'Build B', 'Open thread', 'select-thread', 'fleet:env-b:b1'],
+        // Only the open thread of the focused environment is quiet: B's a1 is another thread.
+        ['warning', 'Approval needed', 'Same id in B', 'Open thread', 'select-thread', 'fleet:env-b:a1'],
+      ]);
+      expect(requests.filter(request => request.op === 'notifySound').map(request => request.kind)).toEqual(['completion', 'input']);
+      expect(requests.filter(request => request.op === 'notifyPost')).toEqual([]);
+      // Nothing changed since: nothing more.
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client)).toHaveLength(2);
+    });
+
+    test('unfocused: the system notification is tagged with B and opens B\'s thread', async () => {
+      const { requests, native, client, source, entry } = setup();
+      const inactive = { ...active, active: false };
+      await threadNotifications(client, native, inactive, source);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' })] };
+      await threadNotifications(client, native, inactive, source);
+      expect(toasts(client)).toEqual([]);
+      expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'Build B', 'env-b:b1', 'fleet:env-b:b1']]);
+    });
+
+    test('a background shell that is not live forgets, so its first live shell after a reconnect only records', async () => {
+      const { native, client, source, entry } = setup();
+      await threadNotifications(client, native, active, source);
+      entry.synchronized = -1; entry.generation = 4;
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
+      await threadNotifications(client, native, active, source);
+      entry.synchronized = 4;
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client)).toEqual([]);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:02:00.000Z')] };
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed']);
+    });
+
+    test('an environment that leaves is forgotten; one the focus moved to keeps notifying its own threads', async () => {
+      const { native, client, source, entry } = setup();
+      await threadNotifications(client, native, active, source);
+      source.entries.delete(entry.key);
+      await threadNotifications(client, native, active, source);
+      source.entries.set(entry.key, entry);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client)).toEqual([]);
+      // A not-ready focused client does not hold back a background environment's notifications.
+      (client as unknown as { ready: boolean }).ready = false;
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:03:00.000Z')] };
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client).map(toast => toast.action?.id)).toEqual(['fleet:env-b:b1']);
+    });
+
+    test('Open thread: a thread of the focused environment opens in place; another environment\'s is focused there', async () => {
+      const opened: string[] = [];
+      const self = fakeClient({ environmentId: 'env-a', openSelected: async (_native: Native, id: string) => { opened.push(id); } });
+      const native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as unknown as Native;
+      const out = { message: '', id: '', value: '' };
+      expect(await threadOps.call(self, 'select-thread', 'fleet:env-a:a2', '', 0, native, {} as Files, out as never)).toBe(true);
+      expect(opened).toEqual(['a2']);
+      // B is not in the (empty) fleet: the focus change is refused with the fleet's own message.
+      await expect(threadOps.call(self, 'select-thread', 'fleet:env-b:b1', '', 0, native, {} as Files, out as never)).rejects.toThrow('That environment is no longer connected.');
+    });
   });
 
   test('the window facts are the page\'s (exactPage, exact2 #219): focus for notifications, each change once to the activity reporter', async () => {
@@ -195,9 +297,10 @@ describe('thread notifications', () => {
     const requests: Obj[] = [];
     const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as Native;
     const client = fakeClient({ shell: { threads: [thread('a')], projects: [] } });
-    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' });
+    const none = new EnvironmentFleet();
+    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, none);
     client.shell.threads = [thread('a', { pendingRuntimeRequest: { kind: 'user_input' } })];
-    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' });
+    await threadNotifications(client, native, { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' }, none);
     expect(toasts(client)).toHaveLength(0);
     expect(requests.filter(request => request.op !== 'notifyClear')).toEqual([]);
   });
