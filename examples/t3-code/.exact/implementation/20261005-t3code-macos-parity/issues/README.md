@@ -297,6 +297,15 @@ No T3 work duplicates a framework fix today. These in-flight or planned tasks to
 | --- | --- | --- | --- | --- |
 | [X66](20261008-x66-popover-from-action-and-toggle.md) | A popover shown or hidden from an action (`showPopover`/`hidePopover`/`togglePopover`) and a `toggle` event when it opens or closes; today only an invisible `popovertargetaction` invoker over the trigger, pressed by a scoped `aria-keyshortcuts`, can do it (the popover sibling of #282) | framework-gap | none ([fix-keyboard-focus](../tasks/closed/20261008-fix-keyboard-focus.md) builds ↓/↑-to-open on every menu with the invisible invokers (`KeyMenuOpen`) and keyboard-opening counts; the snooze row pins on focus and pointer instead of the menu's open state. Also wanted by #290's light dismiss and #307's in-scroll Usage card) | reproduced in two one-file apps on main `9314e7a81` (contract/, runner/, plan/ unchanged through `263c8b96e`); not #281/#112/#282 (#282 is `showModal` for dialogs); upstream [#319](https://github.com/ccheever/exact2/issues/319) ([Feature] `showPopover`/`hidePopover`/`togglePopover` from an action and a popover `toggle` event, filed by the coordinator 2026-10-08) |
 
+## Desktop audit addition, 2026-10-09
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X69](20261009-x69-paint-role-node-query.md) | A read that lists the rendered nodes a paint role reaches (with their boxes), so a theme editor can outline and count a colour's uses | framework-gap | [blocked-theme-usage-highlight](../tasks/20261009-blocked-theme-usage-highlight.md) | local draft from the [2026-10-09 desktop audit](../reviews/20261009-desktop-audit.md) (S1-7); not reproduced in a one-file app; not published; `issue-open` checks it against #321 (X68) first |
+
+The audit's other framework-caused findings are covered by existing issues (X2, X17, X48, X60, X61, X68); the review maps
+each one.
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).

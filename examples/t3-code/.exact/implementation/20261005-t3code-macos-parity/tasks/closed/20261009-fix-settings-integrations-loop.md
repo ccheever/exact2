@@ -3,12 +3,12 @@ name: 20261009-fix-settings-integrations-loop
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fix-settings-integrations-loop
 pr_url: https://github.com/ccheever/exact2/pull/353
-verified_commit: null
+verified_commit: 950e8e2e5460194fb942440fd1009d62f86cbea8
 ---
 
 # Settings › Integrations reads its config, settings and device state once, as the reference does
@@ -100,4 +100,5 @@ commit; the branch merged it, and both builds were made on that base. Draft PR #
 
 ## Next action
 
-None: review and merge.
+None. Merged by the coordinator on 2026-10-09 as `950e8e2e5` (#353, squash). The "Found, not changed" re-reads of the
+other Settings pages are tracked in `tasks/20261009-settings-pages-subscribed-config.md`.
