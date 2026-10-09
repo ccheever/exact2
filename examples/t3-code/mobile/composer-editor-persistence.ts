@@ -1,4 +1,4 @@
-// App-owned durable ordinary documents and Send receipts; no external producer activation.
+// App-owned durable ordinary documents and Send receipts; rich editor activation remains separate.
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
 import type { T3Client, Pending } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
@@ -112,6 +112,14 @@ export function mobileEditorDocumentEnroll(client:T3Client,target:MobileComposer
 }
 export function mobileEditorDocument(client:T3Client,key:string):EditorDurableDocument|null {
   const s=store(client);return s.invalid===undefined?s.saved.documents[key]??null:null;
+}
+/** Read-only producer admission. Invalid saved membership never grants legacy fallback. */
+export function mobileEditorDocumentMembership(client:T3Client,target:MobileComposerTarget):'unenrolled'|'enrolled'|'unavailable' {
+  const s=store(client);
+  if(!connection(client,target)||!home(client)||s.invalid!==undefined)return 'unavailable';
+  const d=s.saved.documents[mobileEditorDocumentKey(scope(client,target))];
+  if(!d)return 'unenrolled';
+  return d.blocked||d.value!==(client.local.drafts[target.key]??'')?'unavailable':'enrolled';
 }
 export function mobileEditorDocumentCapture(client:T3Client,target:MobileComposerTarget,producer:string,selection?:{start:number;end:number}):EditorDocumentIntent|null {
   if(!connection(client,target)||!producer)return null;
