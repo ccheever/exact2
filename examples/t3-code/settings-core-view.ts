@@ -33,7 +33,9 @@ const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
  */
 export function settingsScopeOf(client: T3Client, route: string, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string) {
   const legacyGroup = !projectKeyInput && legacyProjectId ? client.projectGroups().find(group => group.members.some(member => member.id === legacyProjectId)) : undefined;
-  const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? legacyProjectId : checkoutInput;
+  // A bare project id (Project settings from the palette, the sidebar, the thread menu or the details card) is its
+  // project on every environment: /projects/$projectKey redirects with the key and no machine (routes/projects.$projectKey.tsx).
+  const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? '' : checkoutInput;
   const chosen = resolveScope(client, machine, projectKey, checkout);
   const machineAxis = scopeMachine(client, route, machine, chosen.kind === 'unavailable' ? [] : chosen.selected);
   return { projectKey, checkout, scope: machineAxis === machine ? chosen : resolveScope(client, machineAxis, projectKey, checkout) };
