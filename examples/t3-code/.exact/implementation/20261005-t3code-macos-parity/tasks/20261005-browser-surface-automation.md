@@ -2,7 +2,7 @@
 name: 20261005-browser-surface-automation
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: partial
+verification: verified-with-unverified-rows
 delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -99,6 +99,23 @@ Standard gates as the parent's.
 - **Live.** The two agent-mode sessions failed before the tool run (lane setup, then Enter not sending). The app's host
   registration was seen in the server trace. One more session is needed (Next action).
 
+2026-10-09, session 3 (the coordinator's go-ahead): one agent-mode pass. Base runs came from evidence-base at
+`d564a5c02`, under its `.build-lock`: base-1 and base-2, the second after base-1 stopped at a menu-dismiss op. The branch
+run was branch-1, at `d6b8b05ec`.
+
+- **End to end, passed.** The lane agent called 22 `preview_*` tools through the lane server's MCP endpoint, and the
+  app's host answered each one.
+  - All but the three expected errors returned ok: freeform resize (part 2) and the two recording calls (part 3).
+  - In the server trace: `previewAutomation.respond` 34; broker invoke 31 ok + 3 failed; `preview.open` 2.
+- **"Open links in", Mute, chat link and ⌘-click, passed in agent mode.** Before/after images were taken.
+- **No-host text captured.** The base build has no host, so the server answered the agent with the
+  `previewAutomation.ts:725-727` text.
+- **Settings request loop: pre-existing.** On the base, getConfig, getSettings and device.list each ran at 26.4/s on
+  Settings › Integrations; on the branch, 13.0/s each. It is in STATUS "Found, not in scope".
+- **Found and fixed.** A muted tab lost its indicator once another tab was shown: WebKit pauses muted media in a page
+  that is out of the window. Fixed in `b6b3e417e` with an AppKit case that failed before the fix; the pause is declared.
+  Not re-driven live, because of the session limit.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -107,27 +124,30 @@ Standard gates as the parent's.
 | Five checks | `ac610d7f2` | build, test (3,521 passed, 0 failed, 34 ignored), clippy, fmt, caps, boot: all exit 0; `cargo test -p t3-code-macos --lib` 13; contract build OK (5,736 slots); strict tsc clean | [checks](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/checks.txt) | — |
 | Live session 1 (agent mode) | `7fa518900` | Failed at lane setup: no default model selection and no ACP Registry cache ("No valid cached ACP Registry index"); screenshots without `window` were blank; stopped at op 28/42 (no Browser tab to open the menu on) | [record](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-sessions.txt) | lane fixed: registry cache and default model seeded |
 | Live session 2 (agent mode, the retry) | same build | `type composer … key Enter` did not send the prompt; stopped at op 14/43. The server trace shows the app's host: `subscribePreviewEvents`, `previewAutomation.connect`, `PreviewAutomationBroker.connect`/`acquireConnection` at +1.49 s, `focusHost` at +1.55 s, `preview.list`, disconnect at quit | [record](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-sessions.txt), [trace](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-session-2-server-trace.txt), [screenshot](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/session-2-unsent.png) | one more session (coordinator go-ahead); the script now taps `send-message` |
+| Live session 3, base-1 (agent mode, evidence-base `d564a5c02`) | base build | The no-host answer to `preview_status` (the `previewAutomation.ts:725-727` text); a hand-opened tab's menu without Mute. Stopped at op 23: the `chat-header` tap did not close the tab menu, so `settings-integrations` was not there | [record](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/live-session-3.txt), [no-host image](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/07-no-host-after.png), [tab menu pair](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/03-tab-menu-before-after.png) | rerun as base-2, closing the menu with its Close item |
+| Live session 3, base-2 | base build | Settings › Integrations: the inert "Open links in" row; the request loop at 26.4/s per method. Stopped at op 36: a multi-word chat link has no single text to tap (the base's link click was not taken; its links always go to the system browser) | [record](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/live-session-3.txt), [loop](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/settings-loop.txt), [pair](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/01-open-links-in-before-after.png) | — |
+| Live session 3, branch-1 | `d6b8b05ec` | All 54 ops. The agent's 22 `preview_*` calls answered by the app's host (3 expected errors); the tab opened in the panel. Mute: speaker → speaker-off. "Open links in" → T3 Code. A chat link opened tab_2 in the app; ⌘-click went to the system browser (one URL in the open log). The loop at 13.0/s per method. Found: the muted indicator was gone once tab_2 was shown | [record](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/live-session-3.txt), [results](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/e2e-results-branch-1.txt), [spans](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/branch-preview-spans.txt), [images](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/05-agent-e2e-after.png) | the muted-indicator fix |
+| Muted indicator behind another tab | `b6b3e417e` | AppKit: WebKit pauses a muted element out of the window (the case failed before: audible false, element paused, page hidden); after the fix the tab stays audible-and-muted, plays again when shown, and an element the page paused stops counting. 17/17 | [AppKit](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/appkit-browser-automation-v2.txt) | not re-driven live (session limit); real-input batch step 4 |
+| Five checks after the fix | `b6b3e417e` | build, test (3,521 passed, 0 failed, 34 ignored), clippy, fmt, caps, boot: all exit 0; `cargo test -p t3-code-macos --lib` 13; Bun 7,184 pass / 0 fail; strict tsc clean; contract build OK (5,736 slots) | #346 body "Checks" | — |
 
 ## Real-input batch steps
 
-Run these after the live session below, with the same lane (`target/bsa-lane` in the part-5 worktree: the seeded
-home, fixture server on 16751, "Lane browser agent"). Build: `target/bsa-build.sh`.
+Run these with the part-5 lane (`target/bsa-lane` in the part-5 worktree: the seeded home, the fixture server on 16751,
+"Lane browser agent"). Build with `target/bsa-build.sh`; `target/bsa-lane/drive.sh <run> branch` is the agent-mode
+version of the same steps ([copy](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/lane-drive-v2.sh.txt)).
 1. **Focus give-back.** Send `e2e http://127.0.0.1:16751/form`. While the agent clicks and types in the page, click
    the composer and type `abc`. Read back: `abc` is in the composer and not in the page's `#name` field.
-2. **Real link clicks.** In Settings › Integrations, set "Open links in" to T3 Code. On the agent's reply, click "Lane
-   page B": a Browser tab opens at `/b`. ⌘-click it: the system browser opens it (`T3_REMOTE_OPEN_LOG` has the URL),
-   and no new tab opens.
+2. **Real link clicks.** In Settings › Integrations, set "Open links in" to T3 Code. In the agent's reply, click
+   "LanePageB": a Browser tab opens at `/b`. ⌘-click it: the system browser opens it (`T3_REMOTE_OPEN_LOG` has the
+   URL), and no new tab opens.
 3. **Agent cursor.** During the run, watch the page: the cursor glides to each click target and pings on the click.
+4. **Muted behind another tab.** After the run, choose Mute tab on the agent's tab (the tone plays), then open
+   LanePageB in the app. The first tab's chip still shows the speaker-off icon. Show the first tab again: the tone's
+   time advances again.
 
 ## Next action
 
-One more agent-mode session, with the coordinator's go-ahead (the brief's one drive and its retry are used).
-`target/bsa-lane/drive.sh` ([copy](https://raw.githubusercontent.com/ccheever/exact2/1d166de14fac5ad79b791d748d118104f479b38e/browser-surface-automation/lane-drive.sh.txt)) runs:
-- the fake agent's 21 `preview_*` calls through the lane server's MCP endpoint;
-- screenshots: the agent-opened tab, the tab menu's Mute, Settings › Integrations "Open links in", a chat link
-  opening in the app;
-- a ⌘-click to the system browser.
-
-In the same pass, take the before images from the evidence-base worktree at `d564a5c02` (the inert "Open links in"
-row, the tab menu without Mute), and check whether the getConfig/getSettings/device.list loop that session 1 saw
-after opening Settings › Integrations (about 27 per second) also happens on the base. Then add the pairs to #346.
+The rows left are the real-input batch (steps 1-4; STATUS lists them) and the parts that wait on part 2 (freeform and
+preset resize, the 1280×800 agent default) and part 3 (recording, the floating preview). The settings request loop is
+pre-existing and recorded in STATUS "Found, not in scope" for the coordinator to schedule. The PR stays a draft until
+the coordinator flips it.
