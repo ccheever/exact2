@@ -63,7 +63,7 @@ component DiffRow
       when item.kind == "note"
         DiffCommentCard(text=item.text, remove=command("diffreview", "delete", item.entry, 0))
       when item.kind == "draft"
-        DiffDraftCard(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment)
+        DiffDraftCard(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
       when item.kind == "split"
         row width="100%" align-items="stretch"
           DiffCell(tone=item.leftTone, number=item.leftNumber, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, open=commentOpen, command=command, begin=beginComment)
@@ -114,11 +114,18 @@ component DiffFileHeader
         button press=command("diffreview", (item.error ? "retry" : "partial"), item.path, 0) aria-label=(item.error ? "Retry loading diff" : "Partial diff preview") title=(item.error ? "Retry loading diff" : "This file is too large to show in full. Counts include all changes.") testId=`diff-status-${item.path}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           DiffGlyph(name=(item.error ? "rotate-cw" : "info"), size=12, color="light-dark(#71717a, #818181)")
       box flex=1
-      row gap="0.5rem" align-items="center" flex-shrink=0
-        when item.deletions > 0
-          text `-${item.deletions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
-        when item.additions > 0
-          text `+${item.additions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
+      // A large source read file by file draws DiffPanel's DiffStatLabel (additions first, both counts, compact,
+      // right-aligned 4ch columns); any other file Pierre's own counts ("-d" then "+a"; diff.ts headerStat).
+      when item.statAligned
+        row gap="0.5rem" align-items="center" flex-shrink=0 role="group" aria-label=`${item.additions} additions, ${item.deletions} deletions` testId=`diff-stat-${item.path}`
+          text item.addText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
+          text item.delText min-width="1.8rem" text-align="right" white-space="nowrap" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
+      else
+        row gap="0.5rem" align-items="center" flex-shrink=0 testId=`diff-stat-${item.path}`
+          when item.delText != ""
+            text item.delText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
+          when item.addText != ""
+            text item.addText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
 
 // The gutter carries the old (deletion) or new line number and a 4pt change bar. A press on the
 // number selects the line (Shift extends the selection); the gutter's "+" opens a comment on the
