@@ -592,6 +592,14 @@ impl Module {
         self.storage_wait = wait;
     }
 
+    /// Native storage operations started and not yet returned: a test of
+    /// giving up waits for the work it gave up on to end before reading
+    /// what that work did not write (LLP 1069.002 A1.5).
+    #[doc(hidden)]
+    pub fn storage_in_flight(&self) -> usize {
+        self.storage.as_ref().map_or(0, |s| s.context.in_flight())
+    }
+
     /// The heap ceiling for the next [`Module::load`].
     pub fn set_max_heap(&mut self, bytes: u32) {
         self.max_heap = bytes;

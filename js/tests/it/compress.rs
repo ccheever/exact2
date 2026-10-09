@@ -117,12 +117,27 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     let mut m2 = m;
     assert_eq!(call(&mut m2, &mut s, "write-slow", "next"), "wrote next");
     // The abandoned compression finishes in the background and writes nothing.
-    std::thread::sleep(std::time::Duration::from_secs(6));
+    returned(&m2);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"
     );
     drop(m2);
+}
+
+/// Until the compression a wait gave up on has returned: whatever it was
+/// going to write is on disk by then. The codec starts nothing after
+/// `TRIAL_BUDGET` (20 s), so the bound only stops work that never ends.
+#[cfg(target_vendor = "apple")]
+fn returned(m: &exact_js::Module) {
+    let hang = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while m.storage_in_flight() > 0 {
+        assert!(
+            std::time::Instant::now() < hang,
+            "the compression never returned"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// 3000 × 2000 of noise as a 24-bit BMP: seconds of trials at full size,
@@ -170,7 +185,7 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
     );
-    std::thread::sleep(std::time::Duration::from_secs(6));
+    returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"after"
@@ -220,7 +235,7 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
         Ok(Answer::Later(_)) => panic!("the second call did not end"),
     }
     assert_eq!(call(&mut m, &mut s, "write-slow", "next"), "wrote next");
-    std::thread::sleep(std::time::Duration::from_secs(6));
+    returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"
@@ -275,7 +290,7 @@ fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
         std::fs::read(root.0.join("data/second")).unwrap(),
         b"second"
     );
-    std::thread::sleep(std::time::Duration::from_secs(6));
+    returned(&m);
     assert_eq!(
         std::fs::read(root.0.join("data/slow.jpg")).unwrap(),
         b"next"
