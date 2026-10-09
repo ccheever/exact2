@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-usage-and-pr-pages
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/375
 verified_commit: null
 ---
 
@@ -178,7 +178,7 @@ Escape sequence again. `EXACT2-GAPS.md`: X71 (local draft, not filed) and the se
 
 ## Next action
 
-The coordinator reviews the draft PR, runs real-input steps 1 and 2 in the next batch, and merges it. Seen on both
+The coordinator reviews the draft PR [#375](https://github.com/ccheever/exact2/pull/375), runs real-input steps 1 and 2 in the next batch, and merges it. Seen on both
 builds, not this task's finding: the Usage page draws the Codex dot and chart series in their dark-scheme colour
 (#f5f5f5) in a light window in agent mode (PG-1's area, [app-color-scheme](closed/20261009-app-color-scheme.md)).
 `pages-usage*.contract` and `pages-prs.contract` are shared with other tasks; the second to merge keeps both sides.
