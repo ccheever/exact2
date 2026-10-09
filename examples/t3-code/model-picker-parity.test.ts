@@ -64,11 +64,14 @@ describe('CO-4: the next and previous provider skip what cannot be chosen', () =
 });
 
 describe('CO-1: the first nine rows a person can choose show their jump shortcut', () => {
-  test('⌘1… on the provider list, the search results and Favorites; the legacy header takes none', () => {
+  test('⌘1… on the provider list, the search results and Favorites; the legacy header takes none, its rows follow', () => {
     const c = client();
     const rows = (catalog: ReturnType<typeof modelCatalog>) => catalog.models.map(row => [row.kind, row.id, row.jump, row.jumpKey]);
     expect(rows(modelCatalog(c, 'claudeAgent', ''))).toEqual([['model', 'claude-opus-5-5', '⌘1', 'Meta+1'], ['model', 'claude-sonnet-5-5', '⌘2', 'Meta+2'],
-      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy', '', '', ''], ['legacy-model', 'claude-old', '', '']]);
+      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy', '', '', ''], ['legacy-model', 'claude-old', '⌘4', 'Meta+4']]);
+    // The dispatch's own jump buttons cover the current rows; an open Legacy section's rows answer to their own aria-keyshortcuts.
+    expect(keyboardDispatch(c, [], 'claudeAgent', '', pickerContext).filter(item => item.command.startsWith('modelPicker.jump')).map(item => item.command))
+      .toEqual(['modelPicker.jump.1', 'modelPicker.jump.2', 'modelPicker.jump.3']);
     expect(rows(modelCatalog(c, 'claudeAgent', 'sonnet'))).toEqual([['model', 'claude-sonnet-5-5', '⌘1', 'Meta+1']]);
     c.local.favoriteModels = [JSON.stringify(['claudeAgent', 'claude-fable-5-1'])];
     expect(rows(modelCatalog(c, '', ''))).toEqual([['model', 'claude-fable-5-1', '⌘1', 'Meta+1']]);

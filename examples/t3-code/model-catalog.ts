@@ -111,11 +111,13 @@ export function adjacentPickerProvider(catalog: { provider: string; providers: {
  * modelJumpCommandByKey: the first nine rows a person can choose (no disabled reason) take
  * modelPicker.jump.1–9, in search results and Favorites too; `label` names each command's
  * shortcut ("⌘1", shortcutLabelForCommand) and `chord` its aria-keyshortcuts ("Meta+1").
+ * An expanded Legacy section's rows follow the current ones (visibleModels); they are drawn,
+ * badge and key, only while the section is open (model-picker.contract).
  */
 export function withJumpLabels<C extends { models: { kind: string; reason: string; jump: string; jumpKey: string }[] }>(catalog: C, shortcut: (command: string) => { label: string; chord: string }): C {
   let ordinal = 0;
   const models = catalog.models.map(row => {
-    if (row.kind !== 'model' || row.reason || ordinal >= 9) return row;
+    if ((row.kind !== 'model' && row.kind !== 'legacy-model') || row.reason || ordinal >= 9) return row;
     ordinal += 1;
     const { label, chord } = shortcut(`modelPicker.jump.${ordinal}`);
     return { ...row, jump: label, jumpKey: chord };
