@@ -660,7 +660,9 @@ component T3Code
       else
         if not commandPending
           commandPending = true
-          send changed = command(op, id, value, n)
+          // shell-sidebar-palette-keys (SH-2): a thread command carries the window's instant, as the sidebar's do, so
+          // ⇧⌘S's undo notice is timed on the window's clock (sidebar-state.ts adoptCommandTime).
+          send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + now() : n)
   action editKeybindingQuery(value: string)
     keybindingQuery = value
   action newKeybinding
@@ -986,8 +988,11 @@ component T3Code
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
     send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+  // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press. shell-sidebar-palette-keys
+  // (SH-1): a modifier's own press is no key of the row's either (the reference's row has no handler): ⌘ held
+  // before N set commandPending here, so chat.new's button, pressed next, found it set and did nothing.
   action sidebarRun(op: string, id: string, value: string)
-    if not commandPending and (op != "row-key" or (value != "Enter" and value != " ")) // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press
+    if not commandPending and ((op != "row-key" and op != "legacy-row-key") or (value != "Enter" and value != " " and value != "Meta" and value != "Shift" and value != "Control" and value != "Alt" and value != "CapsLock"))
       commandPending = true
       send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + now())
   action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
@@ -1114,6 +1119,10 @@ component T3Code
   action focusSidebarDialog
     focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)
     titleDialog = data.sidebar.dialogReturn == "thread-title"
+  task snoozeCalendarFocus when data.sidebar.calendar.focusSeq > 0 key=data.sidebar.calendar.focusSeq // TH-8: a key moved the date popover's focus (snooze-calendar.ts)
+    after(1, focusSnoozeDay)
+  action focusSnoozeDay
+    focus(`snooze-day-${data.sidebar.calendar.focus}`)
   task titleDialogClosed when titleDialog and data.sidebar.dialog == "" // title-custom-snooze: however it closes (Snooze too), the title menu's dialog gives the focus back to the title (Base UI's finalFocus)
     after(1, returnTitleFocus)
   action returnTitleFocus

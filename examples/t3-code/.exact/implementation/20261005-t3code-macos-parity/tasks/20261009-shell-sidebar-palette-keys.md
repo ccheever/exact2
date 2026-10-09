@@ -1,13 +1,13 @@
 ---
 name: 20261009-shell-sidebar-palette-keys
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-shell-sidebar-palette-keys
+pr_url: https://github.com/ccheever/exact2/pull/370
 verified_commit: null
 ---
 
@@ -94,7 +94,76 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | SH-5 | A long path reads from its start and ends in "…". | `sh5-palette-path.png` | agent |
 | TH-8 | Custom snooze shows a date button. It opens a calendar with past days disabled and the locale's week start. A pick sets the date. The Unit select spans its column. | `th8-snooze-date.png`, `th8-calendar-open.png` | agent |
 
+## Acceptance results
+
+Agent drives on macOS at 1280×840 (lane `shell-sidebar-palette-keys`, base port 16220): before = the feature-branch tip
+build (`t3-code-evidence-base`, `950e8e2e5`), after = this branch (the main drive at `89fafed7e`, SH-2 at `141c893ea`,
+the fixed build). Reference: T3 Code `1e2ecbd975` as Electron over CDP on the same lane (SH-4's reference is the audit's
+`SH-4-ref.png`). The drives' replies, trees and focus states: [drive-facts.txt](https://raw.githubusercontent.com/ccheever/exact2/1ce906b612ea558dfccb608461d8eb786d0aade6/shell-sidebar-palette-keys/drive-facts.txt).
+After the review (2026-10-10), `sidebar-palette-keys.test.contract` ran on the `f13e222bd` build on the same lane: 5 passed,
+0 failed ([review-fixes.txt](https://raw.githubusercontent.com/ccheever/exact2/63558da596f32d6b370ac293e51a9a28272849d8/shell-sidebar-palette-keys/review-fixes.txt), the text before/after of the review fixes).
+
+| Id | Result | Proof |
+| --- | --- | --- |
+| SH-1 | Pass (agent); real keys open (batch step 1) | ⌘N with the focus on the "Timeline verification" row opens the palette on New thread in… (`paletteOpen` true, the focus in `palette-input`); ⇧⌘N opens a draft in Verification fixture (the header has no thread title). Before: nothing. [sh1-row-cmd-n.png](https://raw.githubusercontent.com/ccheever/exact2/dd4062ff4660d7a63d14d7e32953df64d43183f1/shell-sidebar-palette-keys/sh1-row-cmd-n.png), [sh1-row-shift-cmd-n.png](https://raw.githubusercontent.com/ccheever/exact2/ca05182eb0b32b306253f9af23e9690459bcbbed/shell-sidebar-palette-keys/sh1-row-shift-cmd-n.png). Real keys: "Real-input batch steps" 1. |
+| SH-2 | Pass (agent) | ⇧⌘S shows `sidebar-undo-notice` "Settled 1 thread, ⌘Z to undo"; ⌘Z returns the thread to active (Settled (0)). Before: Settled (1), no notice, ⌘Z leaves it settled. [sh2-undo-notice.png](https://raw.githubusercontent.com/ccheever/exact2/c0a06f5f544c327fc87f7b46f8edb629139938ba/shell-sidebar-palette-keys/sh2-undo-notice.png), [sh2-after-cmd-z.png](https://raw.githubusercontent.com/ccheever/exact2/4be1a8f955e02c4237295f37ceceeb5b601eaf77/shell-sidebar-palette-keys/sh2-after-cmd-z.png). Unit: `sidebar-palette-keys.test.ts` (the chord records the row's undo step). |
+| SH-3 | Pass (agent) | The New thread in… rows show ⌘1 and ⌘2 (tree: `⌘1`, `⌘2`); ⌘2 in `palette-input` opens a draft in work. Before: no hints, the palette stays. [sh3-project-hints.png](https://raw.githubusercontent.com/ccheever/exact2/902bfaed03bb590dd393f3316449d98777b9f7a9/shell-sidebar-palette-keys/sh3-project-hints.png) (the app's "Nightly needs the beta mobile app" toast covers ⌘1 in both clone shots), [sh3-cmd-2.png](https://raw.githubusercontent.com/ccheever/exact2/a822b2f9912d7a9d57082f045ede30eaad88363f/shell-sidebar-palette-keys/sh3-cmd-2.png). Unit: rows 1–9 numbered, the 10th none, a rebound jump. Review fix: the field takes every thread.jump.N chord, as CommandPalette.tsx `handleKeyDown` does (prevented and stopped), and runs the row that has it, if one does; ⌘5 with two projects leaves the palette open and runs nothing (Contract test "SH-3", [review-fixes.txt](https://raw.githubusercontent.com/ccheever/exact2/63558da596f32d6b370ac293e51a9a28272849d8/shell-sidebar-palette-keys/review-fixes.txt)). Real keys: batch step 2, a confirmation; the row's acceptance is agent-only. |
+| SH-4 | Pass (agent) | A fresh T3 home through the welcome's "Do not import projects": the header holds Search and a disabled New thread only (tree: no `filter-project`, no `add-project`; `new-thread` disabled). [sh4-no-projects-header.png](https://raw.githubusercontent.com/ccheever/exact2/2b44da414a41d1e418f8b745e26eed9aba720cc3/shell-sidebar-palette-keys/sh4-no-projects-header.png) |
+| SH-5 | Pass (agent) | A project path reads "/Users/daehyeonmun/orca/…" and ends in "…" (before: "sers/daehyeonmun/…", its start cut). [sh5-palette-path.png](https://raw.githubusercontent.com/ccheever/exact2/9f43809157fb41d9f654032ec4954cf9061b23a9/shell-sidebar-palette-keys/sh5-palette-path.png) |
+| TH-8 | Pass (agent) | Custom snooze shows "Jan 1, 2026" in an outline button with a calendar glyph; it opens a calendar card (January 2026, Su–Sa, past days struck through and disabled, today's dot); → on Jan 14 focuses Jan 15, → on Jan 31 shows February and focuses Feb 1, Escape closes only the card and gives the focus back to the date button, a pick of Jan 14 sets "Jan 14, 2026" and closes it; the Unit select spans its column. The agent's clock starts at 2026-01-01. Review fix: the keys are the grid's (DayPicker `handleDayKeyDown`), so an arrow on Previous or Next Month moves nothing, also after a reopen (Contract test "TH-8", [review-fixes.txt](https://raw.githubusercontent.com/ccheever/exact2/63558da596f32d6b370ac293e51a9a28272849d8/shell-sidebar-palette-keys/review-fixes.txt)). [th8-snooze-date.png](https://raw.githubusercontent.com/ccheever/exact2/87920e19d0539d037076af8e6934940fedef1d7f/shell-sidebar-palette-keys/th8-snooze-date.png), [th8-calendar-open.png](https://raw.githubusercontent.com/ccheever/exact2/e24c4a7d7f5de35f193bc09f16904f58e88ff1b4/shell-sidebar-palette-keys/th8-calendar-open.png), [th8-picked.png](https://raw.githubusercontent.com/ccheever/exact2/9fa70c2a7b2a411a75d926ab42fe1d35a713fb21/shell-sidebar-palette-keys/th8-picked.png), [th8-duration.png](https://raw.githubusercontent.com/ccheever/exact2/c950bb04e1fd9544ac0075f8d16a368857177cfa/shell-sidebar-palette-keys/th8-duration.png) |
+
+## Tests
+
+- `sidebar-palette-keys.test.contract` (new, 5 tests, run by the agent against the app: `EXACT_ROOT=<worktree>
+  target/t3-audit/clone-drive.sh <lane> <port> --test examples/t3-code/sidebar-palette-keys.test.contract`): SH-1's ⌘N
+  and ⇧⌘N on a focused row, SH-3's ⌘5 (taken, nothing runs) and ⌘2 in the field, TH-8's arrows from a day, from
+  Previous Month and after a reopen, then a pick, and SH-2's ⇧⌘S notice and ⌘Z. It needs the lane's T3 home (the
+  "Verification fixture" and "work" projects).
+- `sidebar-palette-keys.test.ts` (new, 18 tests): SH-1's row-key gate, SH-2's undo step (row and chord alike, the
+  window's instant under the agent's clock, ⇧⌘S un-settling only an explicit settle), SH-3's numbering, the chords the
+  field takes (`threadJumpChords`, the view's `jumpKeys` on the root page, New thread in… and closed), SH-4's header
+  facts (`projectGroupCount`, `hasProjects`) and gate, SH-5's start alignment, TH-8's month grid (week starts, outside,
+  disabled, today, the Tab stop), its keys, its local ops and the dialog wiring. The few source reads pin the wiring
+  between the data and the Contract test.
+- Updated: `chat.test.ts` (settle goes through the sidebar's settle), `palette.test.ts` and `r3-palette-items.test.ts`
+  (the desktop build numbers the picks), `dialog-focus.test.ts` (the date button is a Tab stop; X52 now skips Time and
+  Unit only).
+
+- Final head checks (merge of `origin/feat(example)/t3-code` at `f13e222bd`, after the review fixes): `bun test
+  examples/t3-code` 3802 pass, 1 skip, 0 fail (exit 0); strict `tsc` 0; `contract build` 0; the five checks (cargo
+  build, test, clippy + fmt, caps, boot) all 0; the Contract test on that build 5 passed, 0 failed. No Rust or Swift changed. `app.contract` is 1254 lines.
+
+## Attempts and evidence
+
+- SH-1's cause: a focused row's `key` handler sent every key to `sidebarRun` as a `row-key` command (it looks for the
+  context-menu key), the modifier's own keydown included. ⌘ held before N set `commandPending`, and chat.new's
+  ShortcutButton, pressed next by the same chord, found it set (`sidebarNewThread` and `newThread` wait on it). The
+  audit drive's log shows `key view 312 (sidebarRun)` at the ⌘N. The row now leaves a modifier's own press alone (the
+  reference's thread row has no key handler). Not a host cause.
+- SH-2 took three rounds: the chord's `chat:settle` became the sidebar's settle (undo record); under the agent the
+  notice was hidden because the chat command did not carry the window's instant (`adoptCommandTime`), so the notice's
+  `undoUntil` was on the driver's clock; and the chord's Settle/Un-settle choice now follows ChatView's
+  `activeThreadSettled` (`settledOverride === "settled"`), not the sidebar's automatic settle rule.
+- TH-8: the card's 96% tint let the dialog's Cancel show through; it is opaque now.
+- Review (2026-10-10), four findings, one round: TH-8's `gridKey` moved from the wrapper (which also held the month
+  buttons) to the grid, out of the Tab order, and opening the card clears the remembered day; the palette field takes
+  every thread.jump.N chord (`jumpKeys`), not only a displayed row's; the Contract wiring got a behaviour test
+  (`sidebar-palette-keys.test.contract`), and SH-3 and SH-4's Bun tests read data instead of source; the PR's
+  "Not done" now names both real-input steps. One bundle build and one live run (the Contract test), first try.
+- Live drives: before main and fresh; after main (one retry: the first used October dates, the agent's clock is
+  January); then three SH-2 drives for the two SH-2 fixes and a lane reset (the row's Un-settle hover action was
+  not tapped, so the thread stayed settled and ⇧⌘S correctly un-settled it). Reference over CDP once.
+
+## Real-input batch steps
+
+Build this branch (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle --run`, lane
+home as usual with two projects, Verification fixture and work).
+1. **⌘N and ⇧⌘N on a focused row (SH-1).** Click the "Timeline verification" row (the row keeps the focus). Press ⌘N:
+   the palette opens on "New thread in…" with Verification fixture ⌘1 and work ⌘2. Press Escape, click the row again,
+   press ⇧⌘N: a new draft opens in Verification fixture (breadcrumb "Verification fixture / New thread").
+2. **⌘1–⌘9 in the palette (SH-3).** ⌘N again, then ⌘2: a draft opens in work.
+
 ## Next action
 
-Prepare a branch from `feat(example)/t3-code`. Build and unit-test. Then do one batched live drive at the end for every
-row's before/after pair. Close every row in this PR, or record the blocker of a row that cannot pass.
+Coordinator: review the draft PR; run "Real-input batch steps" 1–2 in the next batch. Step 1 closes SH-1 (open until
+then); step 2 confirms SH-3's ⌘2 with real keys (SH-3's acceptance is agent-only and passes).

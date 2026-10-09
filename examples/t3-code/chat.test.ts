@@ -55,20 +55,22 @@ describe('sidebar row actions', () => {
     const dispatched: Obj[] = [];
     const value = {
       shell: { threads: [{ id: 't1', title: 'Settled one' }, { id: 't2', title: 'Live one' }] },
-      config: { environment: { capabilities } },
+      config: { environment: { capabilities } }, writable: true, connection: 'connected',
       restAccess: () => ({ ids: async (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`),
+        // Settle goes through the sidebar's settle (its undo notice), which dispatches by request.
+        request: async (method: string, payload: Obj) => { dispatched.push({ ...payload, method }); return {}; },
         dispatch: async (_storage: Files, payload: Obj, description: string) => { dispatched.push({ ...payload, description }); return {}; } }),
     } as unknown as T3Client;
     return { value, dispatched };
   }
-  const native = {} as Native, storage = {} as Files;
+  const native = { later: async () => ({}) } as unknown as Native, storage = {} as Files;
 
   test('settle and un-settle dispatch the row thread, not the selected thread', async () => {
     const { value, dispatched } = client();
     await chatCommand(value, native, storage, 'settle', 't2');
     await chatCommand(value, native, storage, 'unsettle', 't1');
     expect(dispatched).toEqual([
-      { type: 'thread.settle', commandId: 'id-0', threadId: 't2', description: 'Settle Live one' },
+      { type: 'thread.settle', commandId: 'id-0', threadId: 't2', method: 'orchestration.dispatchCommand' },
       { type: 'thread.unsettle', commandId: 'id-0', threadId: 't1', reason: 'user', description: 'Un-settle Settled one' },
     ]);
   });
