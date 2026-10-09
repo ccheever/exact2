@@ -122,23 +122,29 @@ export function notifyEnvironments(client: T3Client, source: EnvironmentFleet = 
  * "Open thread" and a clicked notification name the thread with its environment
  * (`fleet:<environment>:<thread>`, the reference's /$environmentId/$threadId route), which
  * `select-thread` opens in place when that environment is the focus and focuses it otherwise.
+ * Every environment is diffed and remembered before the first notification is awaited, so a
+ * later call that runs during those awaits diffs a newer shell against memory no older than the
+ * shells this call read, and this call never writes an older shell's memory over a newer one.
  */
 export async function threadNotifications(client: T3Client, native: Native, status: NotifyStatus, source: EnvironmentFleet = fleet): Promise<void> {
   const state = notifyState(client);
   const prefs = client.local.clientSettings;
   const mode = str(prefs.notificationMode, 'off'), inApp = prefs.inAppNotificationsEnabled === true;
-  if (state.mode !== mode) await bridgeReply(native, { op: 'notifyClear' }).catch(() => undefined);
+  const modeChanged = state.mode !== mode;
   state.mode = mode;
+  if (modeChanged) await bridgeReply(native, { op: 'notifyClear' }).catch(() => undefined);
   if (mode === 'off' && !inApp) { state.previous.clear(); return; }
   const environments = notifyEnvironments(client, source);
   const listed = new Set(environments.map(environment => environment.environmentId));
   for (const environmentId of [...state.previous.keys()]) if (!listed.has(environmentId)) state.previous.delete(environmentId);
+  const pending: { environment: WatchedEnvironment; transition: Transition }[] = [];
   for (const environment of environments) {
     if (!environment.live) { state.previous.delete(environment.environmentId); continue; }
     const { next, transitions } = threadTransitions(environment, state.previous.get(environment.environmentId) ?? null);
     state.previous.set(environment.environmentId, next);
-    for (const transition of transitions) await notifyTransition(client, native, status, environment, transition, mode, inApp);
+    for (const transition of transitions) pending.push({ environment, transition });
   }
+  for (const { environment, transition } of pending) await notifyTransition(client, native, status, environment, transition, mode, inApp);
 }
 
 /** One transition: the sound, then the in-app toast (focused window, not the open thread) or the system notification. */

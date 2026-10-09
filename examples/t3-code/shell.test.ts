@@ -264,6 +264,32 @@ describe('thread notifications', () => {
       expect(toasts(client).map(toast => toast.action?.id)).toEqual(['fleet:env-b:b1']);
     });
 
+    test('a call that runs while an earlier one awaits its notifications never rewinds an environment\'s memory', async () => {
+      const { requests, native, client, source, entry } = setup();
+      client.shell = { threads: [thread('a1'), thread('a2', { title: 'Build A' })], projects: [], sequence: 1 } as never;
+      await threadNotifications(client, native, active, source);
+      // A's a2 and B's b1 complete; the first call is held at A's sound, before it reaches B.
+      let holding = true, release = () => {};
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const reply = native.later.bind(native);
+      native.later = async (request: unknown) => { if (holding && (request as Obj).op === 'notifySound') await held; return reply(request); };
+      client.shell = { ...client.shell, threads: [thread('a1'), done('a2', '2026-10-09T10:01:00.000Z', { title: 'Build A' })] };
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B' })] };
+      const first = threadNotifications(client, native, active, source);
+      // Meanwhile B's shell is fetched again (a newer object: b1's next turn completed) and a second call runs to the end.
+      holding = false;
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:02:00.000Z', { title: 'Build B' })] };
+      await threadNotifications(client, native, active, source);
+      release();
+      await first;
+      const settled = toasts(client).map(toast => [toast.title, toast.description, toast.action?.id]);
+      expect(settled).toEqual([['Thread completed', 'Build B', 'fleet:env-b:b1'], ['Thread completed', 'Build A', 'fleet:env-a:a2'], ['Thread completed', 'Build B', 'fleet:env-b:b1']]);
+      // Each completion notified once: a pass over the same shells adds nothing (no older shell's memory left behind).
+      await threadNotifications(client, native, active, source);
+      expect(toasts(client)).toHaveLength(settled.length);
+      expect(requests.filter(request => request.op === 'notifySound')).toHaveLength(settled.length);
+    });
+
     test('Open thread: a thread of the focused environment opens in place; another environment\'s is focused there', async () => {
       const opened: string[] = [];
       const self = fakeClient({ environmentId: 'env-a', openSelected: async (_native: Native, id: string) => { opened.push(id); } });
