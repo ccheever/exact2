@@ -5,6 +5,7 @@
 // ChatView.tsx closePreviewPanel and shouldRenderPreviewMiniPlayer). The module is a fake answering the capture ops as
 // T3BrowserCapture.swift does; PreviewView.test.tsx's annotation rows ("forwards Cmd/Ctrl+Enter annotations to the
 // composer send path", "warns when main dropped the crop before handing over the pick") are followed here.
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { applyCaptureResults, artifactLocal, browserCaptureView, browserMiniView, captureHost, captureLocal, floatingTabOf } from './browser-capture';
 import { browserMiniSessions, browserHost, browserView } from './browser-surface';
@@ -234,6 +235,40 @@ describe('the floating player and the separate window', () => {
     await surfaceLocal(client, module.native, 'hide', '', '');
     expect(panelState(client).visible).toBe(false);
     expect(floatingTabOf(client)).toBe('tab-1');
+  });
+
+  it('the pill\'s Open in right panel and Close (a new thread\'s draft too)', async () => {
+    for (const draft of [false, true]) {
+      const client = fakeClient(), module = fakeModule({});
+      if (draft) {
+        Object.assign(client, { threadId: '', draftKey: 'local:new:p1' });
+        (client.local as Obj).composerControls = { draftThreads: { 'local:new:p1': 'thread-1' } };
+      }
+      const state = panelState(client);
+      Object.assign(state, browserPanel());
+      await captureLocal(client, module.native, state, 'float', target, '');
+      expect([floatingTabOf(client), panelState(client).visible]).toEqual(['tab-1', false]);
+      await surfaceLocal(client, module.native, 'browser-mini-restore', runtimeId, '');
+      expect([floatingTabOf(client), panelState(client).visible, panelState(client).active]).toEqual([null, true, 'browser:tab-1']);
+      await captureLocal(client, module.native, panelState(client), 'float', target, '');
+      await surfaceLocal(client, module.native, 'browser-mini-close', runtimeId, '');
+      expect([floatingTabOf(client), panelState(client).visible]).toEqual([null, false]);
+    }
+  });
+
+  it('the pill sits inside the handle\'s hover box, as the reference\'s group (no hover hand-off that flips every frame)', () => {
+    // ThreadPreviewMiniPlayer: the pill is a child of the handle's `group`, so moving from the handle onto the pill
+    // keeps one hover. Two sibling hover boxes hand the hover over through a state where neither is hovered: the pill
+    // hides, refuses the pointer, the handle is hit again and shows it (drive 3: ~110 renders a second, an untappable pill).
+    const lines = readFileSync(new URL('./browser-capture.contract', import.meta.url), 'utf8').split('\n');
+    const indent = (line: string) => line.length - line.trimStart().length;
+    const handle = lines.findIndex(line => line.includes('testId="browser-mini-handle"'));
+    const pill = lines.findIndex(line => line.includes('testId="browser-mini-pill"'));
+    expect(lines[handle]).toContain('hover=');
+    expect(pill).toBeGreaterThan(handle);
+    expect(lines.slice(handle + 1, pill).every(line => !line.trim() || indent(line) > indent(lines[handle]!))).toBe(true);
+    expect(indent(lines[pill]!)).toBeGreaterThan(indent(lines[handle]!));
+    expect(lines[pill]).not.toContain('hover=');
   });
 
   it('handleNativePictureInPicture opens and closes the separate window, and the More menu names it', async () => {

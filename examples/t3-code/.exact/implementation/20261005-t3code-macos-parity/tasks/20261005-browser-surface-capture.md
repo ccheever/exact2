@@ -48,7 +48,9 @@ Built (2026-10-09), on part 1's seams (X1 path B, the `WKWebView` in the clone's
   (`assets/browser-recording.js`: RecordingCursor and RecordingInput, password fields excluded), polls `takeSnapshot` at
   30 or 60 fps, composites the key badges and press rings (RecordingDecorations) and encodes H.264 MP4; the stop saves
   `browser-recording-<id>.mp4` with "Recording saved" (Reveal in Finder, Copy path). `uploadBrowserRecording` is ported
-  with an injected uploader: its caller is part 5's automation host.
+  with an injected uploader for part 5's automation host, whose `preview_recording_*` (merged with #346) still answer
+  that nothing records: wiring them needs the module's automation answer to wait on the data module's recording and
+  upload, a follow-up declared in `EXACT2-GAPS.md` (Part 5, "Recording (part 3)").
 - **Separate window**: `T3BrowserPictureInPicture` (480×320, at least 240×160, floating panel on all spaces, about 12
   fps, the aspect ratio kept by `fitPictureInPictureContentSize`).
 - **Floating player**: `previewMiniPlayerStore` has the browser source again; `BrowserMiniPlayer` floats the tab's page
@@ -58,12 +60,12 @@ Built (2026-10-09), on part 1's seams (X1 path B, the `WKWebView` in the clone's
 - **Held pages**: a page a recording or the separate window needs while no view shows it moves into an offscreen host
   window (`T3BrowserParking`), as acquireBrowserSurfaceActivity keeps a hidden surface painting.
 - **Downloads**: `.download` for a response the page cannot show, an attachment and `<a download>` (WKDownload): an agent
-  run saves `browser-download-<id>-<name>` in the artifact directory; a person's download asks with a save panel until
-  part 5 marks agent-driven pages.
+  run saves `browser-download-<id>-<name>` in the artifact directory; a person's download asks with a save panel (part
+  5 does not mark its pages agent-driven yet, a follow-up).
 - **Settings keys**: `browserRecordingFrameRate` (30/60, default 30), `browserRecordingShowKeyPresses`,
   `browserRecordingShowMousePresses` (off) and `browserAutoShowFloatingPreview` (on), the reference's names and defaults,
-  are client settings (`settings-core.ts`) the recording reads (`browserRecordingSettings`, `browserAutoShowFloatingPreview`
-  for part 5). Their rows in Settings › Integrations › Browser are part 4's (coordinator, 2026-10-09): this branch built
+  are client settings (`settings-core.ts`) the recording reads (`browserRecordingSettings`); part 5's planner reads
+  `browserAutoShowFloatingPreview` (`browser-automation.ts`, wired at the merge of #346, with a Bun row). Their rows in Settings › Integrations › Browser are part 4's (coordinator, 2026-10-09): this branch built
   them first (the drives used them) and then left them to part 4.
 
 Decisions at `prepare` (2026-10-09):
