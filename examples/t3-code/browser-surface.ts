@@ -26,6 +26,10 @@ import {
   type DesktopPreviewOverlay, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting,
 } from './browser-state';
 import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHost } from './browser-url';
+// browser-surface part 2: history, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
+import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserHistory } from './browser-history';
+import { environmentHostname } from './browser-targets';
 import { adoptAutomationTabs, automationOverlay, automationPrepare } from './browser-automation';
 
 // ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
@@ -39,7 +43,7 @@ export const browserProfileName = (profiles: readonly BrowserProfileChoice[], pr
   profiles.find(profile => profile.id === profileId)?.name ?? 'Removed profile';
 /** RightPanelEmptyState: the launcher's Browser row shows its profile chevron only with a choice to make. */
 export const launcherOffersProfiles = (profiles: readonly BrowserProfileChoice[]): boolean => profiles.length > 1;
-/** browserDefaultOpenViewport: fill until part 2 adds the default viewport setting. */
+/** browserDefaultOpenViewport: fill, the reference's default (the Settings row that changes it moved to browser-surface-profiles, part 4). */
 export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
 // ── The data module's browser host, one per client ─────────────────────────────────────────────
@@ -171,6 +175,8 @@ export type NativeTab = {
   canGoBack: boolean; canGoForward: boolean; favicon: { dataUrl: string; pageUrl: string; capturedAt: number } | null;
   /** How many loads of this page have failed: each failure is reported once. */
   failures: number;
+  /** Part 2: the page's zoom (`pageZoom`) and the appearance it is told to prefer. */
+  zoomFactor: number; colorScheme: string;
 };
 export function nativeTabs(client: T3Client): Record<string, NativeTab> {
   const tabs: Record<string, NativeTab> = {};
@@ -180,7 +186,7 @@ export function nativeTabs(client: T3Client): Record<string, NativeTab> {
       kind: kind === 'Loading' || kind === 'Success' || kind === 'LoadFailed' ? kind : 'Idle', url: str(value.url), title: str(value.title),
       code: Number(value.code) || 0, description: str(value.description), canGoBack: value.canGoBack === true, canGoForward: value.canGoForward === true,
       favicon: str(favicon.dataUrl) && str(favicon.pageUrl) ? { dataUrl: str(favicon.dataUrl), pageUrl: str(favicon.pageUrl), capturedAt: Number(favicon.capturedAt) || 0 } : null,
-      failures: Number(value.failures) || 0,
+      failures: Number(value.failures) || 0, ...readTabNavigation(value),
     };
   }
   return tabs;
@@ -192,8 +198,8 @@ export const navOf = (tab: NativeTab): PreviewNavStatus =>
 export function projectDesktopState(tab: NativeTab): DesktopPreviewOverlay {
   const navOrigin = tab.kind === 'Idle' ? null : originOf(tab.url);
   return {
-    hasWebContents: true, canGoBack: tab.canGoBack, canGoForward: tab.canGoForward, loading: tab.kind === 'Loading', zoomFactor: 1, pictureInPicture: false,
-    colorScheme: 'system', audioMuted: false, audible: false, controller: 'none',
+    hasWebContents: true, canGoBack: tab.canGoBack, canGoForward: tab.canGoForward, loading: tab.kind === 'Loading', zoomFactor: tab.zoomFactor, pictureInPicture: false,
+    colorScheme: tab.colorScheme === 'light' || tab.colorScheme === 'dark' ? tab.colorScheme : 'system', audioMuted: false, audible: false, controller: 'none',
     favicon: tab.favicon && originOf(tab.favicon.pageUrl) === navOrigin ? tab.favicon : null,
   };
 }
@@ -297,15 +303,15 @@ export type BrowserView = {
   empty: boolean; failed: boolean; failHost: string; failMessage: string; failLabel: string; live: boolean;
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
   profiles: BrowserProfileChoice[];
-};
+} & BrowserNavigationView;
 export const emptyBrowserView = (): BrowserView => ({
   tabId: '', runtimeId: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
-  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })), ...emptyNavigationView(),
 });
 
 /** PreviewView's chrome and body for the active Browser tab. */
-export function browserView(client: T3Client, surface: Surface | null): BrowserView {
+export function browserView(client: T3Client, surface: Surface | null, now = 0): BrowserView {
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
   if (!ref || !surface?.browser) return emptyBrowserView();
   const host = browserHost(client), { nav, tab, snapshot, runtimeId } = effectiveNav(client, ref, surface.browser.tabId);
@@ -316,7 +322,7 @@ export function browserView(client: T3Client, surface: Surface | null): BrowserV
     canGoForward: tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle', hasWebContents: !!tab,
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
-    profiles: BROWSER_PROFILES.map(profile => ({ ...profile })),
+    profiles: BROWSER_PROFILES.map(profile => ({ ...profile })), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
   };
 }
 
@@ -336,6 +342,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     }
     await mirrorNativeState(client, native);
     await syncNativeSessions(client, native);
+    await navigationPrepare(client, native, state);
     await automationPrepare(client, native); // part 5: the previewAutomation host (browser-automation.ts)
   } catch (error) { if (letGo(error)) throw error; }
 }
@@ -344,6 +351,7 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
 export async function browserLocal(client: T3Client, native: Native, state: PanelState, op: string, id: string, value: string): Promise<string> {
   const host = browserHost(client);
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
+  if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
   if (!ref || !surface?.browser) return '';
@@ -357,6 +365,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       try { url = normalizePreviewUrl(value); } catch { return ''; }
       await nativeOp(client, native, { op: 'browserNavigate', tab: runtimeId, url, profile, environment: ref.environmentId });
       host.store.rememberUrl(ref, url);
+      browserHistory(client.local).recordVisitForThread(ref, url, navigationNow(client), environmentHostname(client)); // part 2: recordVisitForThread
       return '';
     }
     case 'toggle-mute': { // part 5: the tab menu's Mute / Unmute and the tab's audio button (previewBridge.setAudioMuted)
@@ -374,5 +383,5 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       return '';
     }
   }
-  return '';
+  return (await navigationLocal(client, native, surface, op, value)) ?? ''; // part 2: zoom, appearance, the viewport, the empty state's rows
 }
