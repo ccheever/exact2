@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-capture
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/349
 verified_commit: null
 ---
 
@@ -136,6 +136,17 @@ PreviewView.test.tsx's annotation rows followed). AppKit `macos/tests/browser-ca
 clone: Annotate 9, recording 8, capture 6. `macos/tests/browser` 23 (two part 1 rows now expect downloads).
 Substitutions are in each file's header.
 
+## Checks
+
+At the PR's head (after merging `origin/feat(example)/t3-code` at `0fe34a3b0`): `bun test examples/t3-code --timeout
+60000` 3,631 pass, 0 fail; strict `tsc` clean; `contract build` of `app.contract` OK (1,237 lines);
+`cargo test -p t3-code-macos --lib` 13 pass; the README's AppKit recipe over every directory: all pass (browser-capture
+34, browser 23, composer-files 4, …) but `mermaid`, which needs `T3_SERVER` (a running T3 server's origin, unset here; no
+file it reads changed); `timeline-keyboard` (its own recipe) not touched; `git add -A && bun scripts/caps.mjs` within
+caps; the five checks (`cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests --no-fail-fast`,
+`cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt --all -- --check`, caps, `bun scripts/boot.mjs`)
+pass.
+
 ## Progress
 
 2026-10-09: written at part 1's `prepare` (planned split). Built the same day: the frame-source and content-world
@@ -172,5 +183,5 @@ the AX focus):
 
 ## Next action
 
-Draft PR open; the coordinator flips it after a conflict check. Then the real-input batch above (STATUS "Next real-input
+Draft PR [#349](https://github.com/ccheever/exact2/pull/349) open; the coordinator flips it after a conflict check. Then the real-input batch above (STATUS "Next real-input
 batch").
