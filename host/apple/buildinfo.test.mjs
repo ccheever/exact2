@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { buildInfo, commitOf } from './buildinfo.mjs';
+import { buildInfo, commitOf, releaseNotes, NOTES_MAX } from './buildinfo.mjs';
 
 const root = resolve(import.meta.dir, '../..');
 const now = new Date('2026-10-08T10:00:00Z');
@@ -44,4 +44,18 @@ test('an app in its own repository carries its commit and whether it was dirty',
   writeFileSync(resolve(dir, 'new.contract'), 'component N\n');
   expect(buildInfo({ dir }, { root, now }).ExactAppCommitDirty).toBe(true);
   expect(buildInfo({ dir: tmpdir() }, { root, now }).ExactAppCommit).toBeUndefined();
+});
+
+test('release notes: none or blank is no section, long ones are cut at a character, and non-UTF-8 fails the build', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-notes-'));
+  expect(releaseNotes(dir)).toBe('');
+  writeFileSync(resolve(dir, 'release-notes.md'), '  \n\n');
+  expect(releaseNotes(dir)).toBe('');
+  writeFileSync(resolve(dir, 'release-notes.md'), 'a'.repeat(NOTES_MAX - 1) + '🙂 and more');
+  const cut = releaseNotes(dir);
+  expect(cut.endsWith('\n…')).toBe(true);
+  expect(cut).not.toContain('\uFFFD');
+  expect(cut.startsWith('a'.repeat(NOTES_MAX - 1))).toBe(true);
+  writeFileSync(resolve(dir, 'release-notes.md'), Buffer.from([0x68, 0xe9, 0x6c, 0x6c, 0x6f]));
+  expect(() => releaseNotes(dir)).toThrow(/not UTF-8/);
 });

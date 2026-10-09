@@ -1433,6 +1433,17 @@ agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
 
+An Apple build's dev menu (a four-finger tap; on a Mac, Develop › App Info…, ⌘D) opens with the
+build it is in: the app and version, when, where and with which Xcode it was
+built, the exact2 commit and the app's own (with branch and a dirty flag), the
+build kind, the device, and the app's release notes. `host/apple/build.mjs`
+stamps these into the bundle's Info.plist on every build, `--archive` included,
+so a shipped binary carries the build machine's host name and the commits too.
+Release notes are `release-notes.md` beside `app.contract`: UTF-8 text, shown as
+written, up to 16 KB; no file, no section. A deploy script that publishes the
+build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
+it. Copy takes all of it as text.
+
 Build diagnostics include stable ids and original file ranges. Locations are
 1-based line/byte-column coordinates, with exclusive end columns; a usage, I/O or
 manifest error has no range (line and columns 0). Honor related

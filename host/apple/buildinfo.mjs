@@ -6,7 +6,7 @@
 // the bundle's Info.plist, so it is baked into the binary, for a normal build
 // and an `--archive` alike. Every key is optional.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -22,13 +22,34 @@ export function commitOf(dir) {
 }
 
 /** The app's release notes: `release-notes.md` beside its `app.contract`,
- * plain text (Markdown is shown as written), at most this many characters. */
-export const RELEASE_NOTES = 'release-notes.md', NOTES_MAX = 8000;
+ * UTF-8 plain text (Markdown is shown as written). At most `NOTES_MAX` bytes
+ * are read; longer notes are cut at a character and end with `…`. Notes that
+ * are not UTF-8 fail the build, naming the file. */
+export const RELEASE_NOTES = 'release-notes.md', NOTES_MAX = 16384;
 
-const xcode = () => {
-  const r = spawnSync('xcodebuild', ['-version'], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim().split('\n').join(' ') : null;
+export function releaseNotes(dir) {
+  const file = dir && resolve(dir, RELEASE_NOTES);
+  if (!file || !existsSync(file)) return '';
+  const fd = openSync(file, 'r'), bytes = Buffer.alloc(NOTES_MAX + 1);
+  const read = (() => { try { return readSync(fd, bytes, 0, bytes.length, 0); } finally { closeSync(fd); } })();
+  const cut = read > NOTES_MAX;
+  // A cut can split a character: back off over its continuation bytes.
+  let end = cut ? NOTES_MAX : read;
+  if (cut) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, end)); }
+  catch { throw new Error(`host/apple: ${file} is not UTF-8 text`); }
+  return (cut ? text.trimEnd() + '\n…' : text).trim();
+}
+
+const memo = new Map(), once = (key, f) => (memo.has(key) ? memo.get(key) : memo.set(key, f()).get(key));
+const tool = (cmd, args) => {
+  const r = spawnSync(cmd, args, { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
 };
+// One probe a build, whatever the number of bundles it stamps.
+const xcode = () => once('xcode', () => tool('xcodebuild', ['-version'])?.split('\n').join(' ') ?? null);
+const sdkOf = (sdk) => once(`sdk ${sdk}`, () => tool('xcrun', ['--sdk', sdk, '--show-sdk-version']));
 
 /** The Info.plist keys for `app` built from the exact2 checkout at `root`.
  * Its kind is `archive` (an `--archive`), `release` (production trust, or a
@@ -38,22 +59,23 @@ const xcode = () => {
  * repository (they are exact2's). `EXACT_DISTRIBUTION_REVISION` is the
  * revision a deploy script publishes the build as (AppDrop's), when it names
  * one. */
-export function buildInfo(app, { root, archive = false, production = false, now = new Date(), env = process.env }) {
+export function buildInfo(app, { root, archive = false, production = false, sdk = null, now = new Date(), env = process.env }) {
   const exact = commitOf(root);
   const top = (dir) => git(dir, ['rev-parse', '--show-toplevel']);
   const own = app.dir && top(app.dir) && top(app.dir) !== top(root) ? commitOf(app.dir) : null;
-  const branch = own && git(app.dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  const notesFile = app.dir && resolve(app.dir, RELEASE_NOTES);
-  const notes = notesFile && existsSync(notesFile) ? readFileSync(notesFile, 'utf8').trim().slice(0, NOTES_MAX) : '';
-  const tools = xcode();
+  const branchOf = (dir) => { const b = dir && git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']); return b && b !== 'HEAD' ? b : null; };
+  const branch = branchOf(root), appBranch = own && branchOf(app.dir);
+  const notes = releaseNotes(app.dir);
+  const tools = xcode(), sdkVersion = sdk && sdkOf(sdk);
   return {
     ExactBuildTime: now.toISOString(),
     ExactBuildKind: archive ? 'archive' : production ? 'release' : 'debug',
     ExactBuildHost: hostname(),
-    ...(tools ? { ExactBuildXcode: tools } : {}),
+    ...(tools ? { ExactBuildXcode: sdkVersion ? `${tools} · ${sdk} ${sdkVersion}` : tools } : {}),
     ...(exact ? { ExactCommit: exact.sha, ExactCommitDirty: exact.dirty } : {}),
+    ...(exact && branch ? { ExactBranch: branch } : {}),
     ...(own ? { ExactAppCommit: own.sha, ExactAppCommitDirty: own.dirty } : {}),
-    ...(branch && branch !== 'HEAD' ? { ExactAppBranch: branch } : {}),
+    ...(appBranch ? { ExactAppBranch: appBranch } : {}),
     ...(env.EXACT_DISTRIBUTION_REVISION ? { ExactDistributionRevision: env.EXACT_DISTRIBUTION_REVISION } : {}),
     ...(notes ? { ExactReleaseNotes: notes } : {}),
   };

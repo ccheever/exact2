@@ -19,7 +19,10 @@ enum BuildInfo {
             lines.append("built \(local.string(from: built)) (\(age(of: built, now: now)))\(host)")
         }
         if let xcode = info["ExactBuildXcode"] as? String { lines.append(xcode) }
-        if let sha = info["ExactCommit"] as? String { lines.append("exact2 \(commit(sha, dirty: info["ExactCommitDirty"]))") }
+        if let sha = info["ExactCommit"] as? String {
+            let branch = (info["ExactBranch"] as? String).map { " on \($0)" } ?? ""
+            lines.append("exact2 \(commit(sha, dirty: info["ExactCommitDirty"]))\(branch)")
+        }
         if let sha = info["ExactAppCommit"] as? String {
             let branch = (info["ExactAppBranch"] as? String).map { " on \($0)" } ?? ""
             lines.append("app \(commit(sha, dirty: info["ExactAppCommitDirty"]))\(branch)")
