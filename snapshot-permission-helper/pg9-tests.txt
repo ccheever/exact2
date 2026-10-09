@@ -1,0 +1,33 @@
+snapshot-permission-helper, PG-9: text before/after (placement, tracking and close checks)
+
+== Before: feature tip 950e8e2e5 (the evidence base) ==
+$ git grep -n 'PermissionHelper\|helperBounds' 950e8e2e5 -- examples/t3-code
+(no match: no helper panel, no placement, no tests)
+$ git grep -n 'Privacy_\|CGRequestScreenCaptureAccess\|AXIsProcessTrustedWithOptions' 950e8e2e5 -- examples/t3-code/modules
+950e8e2e5:examples/t3-code/modules/apple/T3SnapShot.swift:280:            let settings = "x-apple.systempreferences:com.apple.preference.security?Privacy_"
+950e8e2e5:examples/t3-code/modules/apple/T3SnapShot.swift:282:                if !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary), le
+950e8e2e5:examples/t3-code/modules/apple/T3SnapShot.swift:286:                if !CGRequestScreenCaptureAccess(), let url = URL(string: settings + "ScreenCapture") { NSWorkspace.shared.open(url) }
+(Allow only opened the System Settings URL)
+
+== After: branch head 109c5a78c ==
+$ AppKit snapshot binary (README recipe), macos/tests/snapshot
+5 selected-window identity checks passed
+12 capture lifetime/budget checks passed
+6 native draft-file persistence/cleanup checks passed
+3 image validation/cancellation checks passed
+2 oversized-image resize checks passed
+20 shortcut normalization/layout/transaction/recorder checks passed
+5 physical modifier and timeout checks passed
+1 capture animation screen-geometry check passed (no OS capture)
+20 capture flight lifetime/deadline/identity checks passed (synthetic image, no OS capture)
+13 composer-owner focus, setup-guard and thumbnail checks passed
+48 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)
+
+Placement checks in permission-helper.swift (reference MacSettingsWindow.test.ts / MacPermissionHelper.test.ts numbers):
+  helperBounds(367,100,723,719) == (599,663,475,140); helperBounds(-800,200,723,719) == (-568,763,475,140)
+  x in {-900,20} x width in {668,1000}: minX >= x+216, maxX <= x+width-16, maxY == 714
+  docked panel frame (AppKit, primary height 1000): (599,197,475,140), then (-568,97,475,140) after the move
+
+$ bun test examples/t3-code/snapshot-settings.test.ts
+ 8 pass
+ 0 fail
