@@ -175,7 +175,11 @@ CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME). A lane app copy needs its own name and
 ## Next action
 
 1. The real-input batch (steps 1–4 above; STATUS "Next real-input batch").
-2. When part 2 re-lands on `feat(example)/t3-code`: merge the base, re-run the checks, and re-drive the defaults rows
-   (the default zoom and appearance on a new page through `browserSet`).
+2. When part 2 re-lands (#352), merge the base and set the default zoom in liveSessions' zoom field; re-drive a
+   default-viewport tab at 125% and check its first layout and zoom with the first-layout probe from #352's fixture.
+   (#352's `T3BrowserSessions.ensure` makes a fixed-size page at its target size before `navigate()`, from the
+   width × height × zoom that `liveSessions`/`browserSync` carry; a page the module has not reported yet gets zoom 1,
+   so without part 4's default in that field a new tab is made at 100% and then re-zoomed by `browserSet`.) Then
+   re-run the checks.
 3. After the Settings › Integrations request-loop fix (`feat(example)/t3-code-fix-settings-integrations-loop`) lands:
    merge it, keeping both sides on the Integrations page.
