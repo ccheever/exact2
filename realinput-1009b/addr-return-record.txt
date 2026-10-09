@@ -1,0 +1,63 @@
+# realinput-1009b: the Browser address field's Return, by real input, on 950e8e2e5 and on #352's 26f5c9066. 2026-10-09 13:54:50-13:58:36Z
+Lock: target/t3-ui-parity/lanes/.realinput-lock taken 13:54:50Z, released 13:58:36Z (owner: realinput-20261009b coordinator).
+The screen was checked (ioreg) before each step; it stayed unlocked.
+Apps: normal launches of lane copies, ad-hoc signed, env -i, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3_LOCAL_HOME, telemetry off:
+  'T3 Code (Lane Base 1009b)' of the evidence-base build 950e8e2e5: server 16962, fixture 16963 (fixture.mjs.txt in browser-surface-navigation-v2/)
+  'T3 Code (Lane Nav 1009b)' of #352's e2416b381aa012047eb1a569 build (26f5c9066): server 16960, fixture 16961
+Input: a real click into the field (`orca computer click`), keys by `orca computer type-text` / `press-key` / `hotkey` to the copy's pid.
+No accessibility set-value, no paste; the input source was not touched. Read back: the accessibility tree, the host log
+(the app logs 't3.browser: navigate <url>'; there is no line named surface-browser-navigate), the fixture log, window images.
+
+## 950e8e2e5 (base): PASS once the field holds one copy of the URL
+Thread 'Timeline verification', + -> Browser: tab_1 'No preview yet'. Click (912, 67): the field takes the focus.
+a04 type-text '127.0.0.1:16963' -> the field holds the text twice:
+    79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963127.0.0.1:16963
+    84 heading No preview yet
+    The focused UI element is 79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963127.0.0.1:16963.
+a05 Return -> the field empties and loses the focus; no navigate line, no fixture request:
+    79 text field (settable) Search or enter URL
+    85 heading No preview yet
+a06-a08 click, Cmd-A, Delete -> empty, focused; a09 type-text again -> twice again:
+    79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963127.0.0.1:16963
+    84 heading No preview yet
+    The focused UI element is 79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963127.0.0.1:16963.
+a10-a16 Cmd-A, Delete, then one press-key per character (1 2 7 . 0 . 0 . 1, Shift-; for ':', 1 6 9 6 3) -> once:
+    79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963
+    84 heading No preview yet
+    The focused UI element is 79 text field (settable) Search or enter URL, Value: 127.0.0.1:16963.
+a17 Return at 13:56:48Z -> the page loads (addr-return-950e8e2e5.png):
+    79 text field (settable) Search or enter URL, Value: http://127.0.0.1:16963/
+    87 HTML content Lane fixture
+    88 heading Lane fixture
+    89 text 539 × 748 · dpr 2 · dark
+    app log: t3.browser: navigate http://127.0.0.1:16963/
+    fixture: 2026-10-09T13:56:49.085Z GET / 2026-10-09T13:56:49.101Z GET /favicon.png 
+
+## 26f5c9066 (#352): PASS once the field holds one copy of the URL
+New thread, Toggle right panel -> Browser: tab_1 with Local servers (not used). Click (912, 67): the field takes the focus.
+n04 type-text '127.0.0.1:16961' -> twice:
+    49 text field (settable) Search or enter URL, Value: 127.0.0.1:16961127.0.0.1:16961
+    The focused UI element is 49 text field (settable) Search or enter URL, Value: 127.0.0.1:16961127.0.0.1:16961.
+n05 Return -> the field empties and loses the focus; no navigate line. (The fixture's GET / at 13:57:34, 13:57:50.691 and
+    13:58:07.026 come before a Return, not after one; the first came as the tab listed its Local servers. Their source is
+    not traced; the app logged no navigate for them.)
+n06-n11 click, Cmd-A, Delete, then one press-key per character -> once:
+    49 text field (settable) Search or enter URL, Value: 127.0.0.1:16961
+    The focused UI element is 49 text field (settable) Search or enter URL, Value: 127.0.0.1:16961.
+n12 Return at 13:58:16Z -> the page loads (addr-return-26f5c9066.png):
+    49 text field (settable) Search or enter URL, Value: http://127.0.0.1:16961/
+    57 HTML content Lane fixture
+    58 heading Lane fixture
+    59 text 539 × 748 · dpr 2 · dark
+    app log: t3.browser: navigate http://127.0.0.1:16961/
+    fixture: 2026-10-09T13:57:34.191Z GET / 2026-10-09T13:57:50.691Z GET / 2026-10-09T13:58:07.026Z GET / 2026-10-09T13:58:17.105Z GET / 2026-10-09T13:58:17.114Z GET /favicon.png 
+
+Result: on both builds, Return in the address field loads the typed address when the field holds one copy of it (the
+navigate line, the fixture's GET / after the Return, the page in the tree). `orca computer type-text` put its text into the
+field twice on both builds ('127.0.0.1:16963127.0.0.1:16963'); Return on that text cleared the field and loaded nothing.
+One key event per character gave one copy. Not traced: whether the double text comes from the tool or the field, and why
+row 2's m11 (row2-record.txt) loaded nothing although the tree showed one copy; that field had first been filled by
+accessibility set-value and then Cmd-A + type-text, so the field's own text may have differed from the tree's value.
+
+After: both copies quit by an Apple Event (app and server exited), fixtures stopped, ports 16960-16979 free, both
+`defaults delete`, lane app copies removed, no keychain item created (none dated after 13:50Z).
