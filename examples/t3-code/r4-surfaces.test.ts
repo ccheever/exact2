@@ -332,7 +332,7 @@ describe('the surface launcher keyboard', () => {
     return lines.slice(start, end).join('\n');
   };
   test('one highlight over the available rows: the arrows move and wrap it, Enter opens it, a chord or a letter is the panel\'s', async () => {
-    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui)');
+    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)'); // part 4: the Browser row's profile chevron
     const launcher = await component('SurfaceLauncher');
     expect(launcher).toContain('state highlight = -1');
     expect(launcher).toContain('derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)');
@@ -353,4 +353,6 @@ describe('the surface launcher keyboard', () => {
     // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
+  // browser-surface part 4: the Browser row's profile chevron by keys (its Enter, ↑ and its list's Enter stay out of the
+  // launcher) is browser-launcher-chevron.test.contract, run against the app (`agent.mjs macos --test`).
 });

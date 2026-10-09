@@ -9,7 +9,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
-| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture), part 2 (history and local servers, zoom, appearance, the device toolbar, the preview keys) and part 5 (the `previewAutomation` host, "Open links in", Mute) built, parts 3–4 planned |
+| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture), part 2 (history and local servers, zoom, appearance, the device toolbar, the preview keys) and part 5 (the `previewAutomation` host, "Open links in", Mute) built, part 4 (profiles, clearing, cookie import, the Browser defaults group) in draft PR #354, part 3 in progress |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`: done on main, round 7 adopts it and removes nothing) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
@@ -126,7 +126,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream a
 - X2 `host/apple/build.mjs:1021-1045`: module dependencies link only as static libraries or framework slices from `modules/apple/*.xcframework` ("a dynamic library is not linked into the module").
 - X2 `host/apple/build.mjs:1229-1244`: the macOS bundle copies only exact's binaries and `assets/`. No `Contents/Frameworks` for third-party frameworks, and no helper apps.
 
-**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Part 2 (`20261005-browser-surface-navigation`) adds the empty state's Recently used and Local servers, the history store, target resolution, the unreachable page's Details, zoom (WebKit's `pageZoom`), the appearance pages are told to prefer (the web view's `appearance`), the device toolbar (a web view sized to the viewport and drawn scaled to fit) and the preview keys (a key monitor in the module), with its own rows below. Parts 3–4 (annotate, capture and picture in picture; profiles and cookie import) are planned records. Part 5 (2026-10-09) built the `previewAutomation` host (all 14 `preview_*` tools, by injected script and native input), "Open links in" and Mute; its rows are declared below.
+**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Part 2 (`20261005-browser-surface-navigation`) adds the empty state's Recently used and Local servers, the history store, target resolution, the unreachable page's Details, zoom (WebKit's `pageZoom`), the appearance pages are told to prefer (the web view's `appearance`), the device toolbar (a web view sized to the viewport and drawn scaled to fit) and the preview keys (a key monitor in the module), with its own rows below. Part 3 (annotate, capture and picture in picture) is its own record. Part 4 built profiles, Clear cookies / Clear cache, Settings › Integrations › Browser (profiles and the defaults group) and the cookie import wizard (`20261005-browser-surface-profiles`). Part 5 (2026-10-09) built the `previewAutomation` host (all 14 `preview_*` tools, by injected script and native input), "Open links in" and Mute; its rows are declared below.
 
 **Why it does not work.**
 1. Chromium (CEF) needs a dynamic framework plus GPU/renderer/plugin helper apps inside the bundle. The exact2 Apple build cannot embed either.
@@ -461,6 +461,42 @@ table, built here. Parts 2–5 add their own rows when they build them.
   it on hover of the Browser row (`MenuSubTrigger`); here its chevron opens it, until a popover can open from an action.
 - **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
   environment and the profile), apart from the app's other web views; agent runs keep it in memory.
+
+Part 4 (`20261005-browser-surface-profiles`: `browser-profiles*.ts`, `browser-defaults.ts`, `browser-import*.ts`,
+`browser-profiles.contract`, `browser-defaults.contract`, `T3BrowserSessions+Profiles.swift`, `T3BrowserImportIO.swift`)
+adds these rows:
+- **Profiles and their stores.** Default and every named profile persist in their own `WKWebsiteDataStore(forIdentifier:)`
+  per environment (a UUID from the environment and the profile, macOS 14), the reference's `persist:` partitions;
+  Incognito is one non-persistent store per environment, discarded when the app quits (its in-memory partition). An
+  agent run keeps every store in memory. Removing a profile clears its stores in every known environment; the store's
+  folder stays, as the reference leaves its partition's.
+- **Clear cookies and Clear cache.** Clear cookies removes WebKit's cookies, local storage, IndexedDB and service worker
+  registrations (the reference's `clearStorageData` storages); Clear cache removes the disk, memory and fetch caches
+  (`session.clearCache()`). Both act on the tab's environment and profile only.
+- **Writing imported cookies.** Each cookie goes through the store's `WKHTTPCookieStore` in batches, and the store is
+  read back: a cookie WebKit dropped (expired, malformed) counts as skipped, as a refused `cookies.set` does. A host-only
+  cookie keeps no leading dot, a domain cookie keeps it. WebKit has no explicit `SameSite=None` cookie property: an
+  imported None cookie and an unspecified one are both written without a policy, which WebKit treats as None (Chromium
+  treats an unspecified one as Lax). There is no `flushStore`: WebKit persists the store on its own.
+- **Reading the other browsers.** The reference's readers (`BrowserImport/*`) run in Electron's main process on Node;
+  the clone's port runs in the data module over the module's primitives (`browserImportIO`: SQLite, CommonCrypto and
+  CryptoKit, the Keychain, fcntl). macOS only: Chromium's Linux keyring helper and Windows' DPAPI unwrap are not ported
+  (their Linux paths and Firefox's Snap home are), and Firefox's `.parentlock` is probed with `fcntl` in-process where
+  the reference spawns python3. The Keychain prompt names this app (in-process `SecItemCopyMatching`), as the reference's
+  binding does.
+- **Development builds read fixtures only.** Only the packaged build reads the user's browsers and Keychain. Every other
+  build, agent runs included, lists no browser unless `T3_BROWSER_IMPORT_HOME` names a fixture home (never the account's
+  own home): every path must resolve inside it, its `.t3-browser-import.json` answers the Keychain, and the paths it
+  lists under `tccDenied` fail an open with EPERM as TCC does, so the Full Disk Access step can be shown. Full Disk Access
+  is never requested from code: Allow opens System Settings › Privacy & Security › Full Disk Access in the packaged build
+  and is only recorded in any other.
+- **A new page's first layout at the default zoom (X1 path B, [#100](https://github.com/ccheever/exact2/issues/100)).**
+  A page the module makes (from the launcher, a link, an agent or a relaunch) at a fixed viewport is made at the default
+  zoom (the zoom `browserSync` carries for a page the module has not reported yet), so its first layout is already at it: an iPhone 12 Pro tab at 125% lays its first page
+  out at 389 × 844 CSS px at devicePixelRatio 2.5, where the reference's guest lays it out at 488 × 1055 at 2 and takes
+  the zoom after it loads (measured 2026-10-10). Its appearance, and a Fill page's zoom, follow right after it is made,
+  through part 2's `browserSet`; the reference passes both with the tab's state at creation. Show device toolbar on a
+  fill tab opens at the configured default viewport when it is fixed (part 2's `browserResponsiveViewportForToggle`).
 
 Part 2, `20261005-browser-surface-navigation` (`browser-history.ts`, `browser-targets.ts`, `browser-viewport.ts`,
 `browser-navigation.ts`, `browser-stage.contract`, `T3BrowserSession+Navigation.swift`, `T3BrowserView.swift`):

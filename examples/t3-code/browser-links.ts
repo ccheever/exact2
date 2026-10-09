@@ -16,8 +16,10 @@ import { activeRef } from './terminal-drawer-view';
 import { scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
 import { surfaceStore } from './r4-surfaces-panel';
 import { pushToast } from './toast';
-import { DEFAULT_BROWSER_PROFILE_ID, DEFAULT_OPEN_VIEWPORT, browserHost, installBrowserCleanup, listPreviewSessions, openBrowserIn, openPreviewSession, syncNativeSessions } from './browser-surface';
+import { browserHost, installBrowserCleanup, listPreviewSessions, openBrowserIn, openPreviewSession, syncNativeSessions } from './browser-surface';
 import type { PreviewSessionSnapshot, PreviewViewportSetting } from './browser-state';
+import { resolveBrowserOpenDefaults } from './browser-defaults';
+import { BrowserSettingsReadError } from './browser-profiles';
 import { mediaFileReference } from './media-reference';
 import { assetUrl } from './settings-b-icons';
 
@@ -38,14 +40,20 @@ export function resolveLinkTarget(input: { url: string; event: LinkEvent; prefer
   if (!isWebUrl(input.url)) return 'system';
   return 'app';
 }
-/** The configured default (the client settings are read before any answer projects, so there is no hydration wait). */
+/** The stored "Open links in" value, as the settings row shows it (useClientSettings). */
 export const linkTargetPreference = (client: T3Client): BrowserLinkTarget => str(obj(client.local.clientSettings).browserLinkTarget) === 'app' ? 'app' : 'system';
+/** resolveBrowserLinkTargetPreference: the configured default once the client's settings were read (a command reads them
+ *  before its op runs, the clone's ensureClientSettingsHydrated); unread, it is refused (BrowserSettingsReadError) and no
+ *  browser opens, as a failed hydration rejects in the reference. */
+export function resolveLinkTargetPreference(client: T3Client): BrowserLinkTarget {
+  if ((client as { preferencesLoaded?: boolean }).preferencesLoaded === false) throw new BrowserSettingsReadError();
+  return linkTargetPreference(client);
+}
 /** Whether the in-app target exists: a thread to open beside, on this macOS client (isPreviewSupportedInRuntime). */
 export const canOpenLinksInApp = (hasThread: boolean, native: Native | null | undefined): boolean => hasThread && !!native?.available;
 
-/** browserDefaults (part 2 adds the configured viewport and profile; until then Fill and Default). */
+/** browserDefaultOpenViewport / browserDefaultOpenProfileId: what a new tab opens with (part 4, `resolveBrowserOpenDefaults`). */
 export type BrowserDefaults = { viewport: PreviewViewportSetting; profileId: string };
-export const resolveBrowserDefaults = async (): Promise<BrowserDefaults> => ({ viewport: DEFAULT_OPEN_VIEWPORT, profileId: DEFAULT_BROWSER_PROFILE_ID });
 
 /** rightPanelStore.openBrowser for a thread that may not be the shown one. */
 function openBesideThread(client: T3Client, ref: ScopedThreadRef, tabId: string): void {
@@ -57,10 +65,11 @@ function openBesideThread(client: T3Client, ref: ScopedThreadRef, tabId: string)
   openBrowserIn(state, tabId, scopedThreadKey(ref));
 }
 
-/** openUrlInPreview: a new tab at the URL under the configured defaults, beside the thread. */
-export async function openUrlInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, url: string): Promise<PreviewSessionSnapshot> {
+/** openUrlInPreview: a new tab at the URL under the configured defaults (or the ones a caller already resolved), beside the thread. */
+export async function openUrlInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, url: string, resolved?: BrowserDefaults): Promise<PreviewSessionSnapshot> {
   installBrowserCleanup(client, native);
-  const host = browserHost(client), defaults = await resolveBrowserDefaults();
+  // Read once, and refused while the settings are unread (BrowserSettingsReadError): never a tab born at the schema defaults.
+  const host = browserHost(client), defaults = resolved ?? resolveBrowserOpenDefaults(client);
   await listPreviewSessions(client, native, ref); // the server's epoch first: the tab's native identity names it
   const snapshot = await openPreviewSession((method, payload) => client.rpc(native, method, payload, true), host.store, ref, { url, viewport: defaults.viewport, profileId: defaults.profileId });
   openBesideThread(client, ref, snapshot.tabId);
@@ -85,13 +94,14 @@ export async function openInSystemBrowser(native: Native, url: string): Promise<
   if (!reply.ok || obj(reply.value).opened === false) throw new ClientError('Link opening is unavailable.');
 }
 
-/** useOpenLink: the setting decides; a failed in-app open falls back to the system browser rather than dropping the click. */
+/** useOpenLink: the setting decides; a failed in-app open falls back to the system browser rather than dropping the click.
+ *  Unread settings open neither browser (BrowserSettingsReadError is thrown, as the reference rethrows it). */
 export async function openLink(client: T3Client, native: Native, url: string, options: { event?: LinkEvent; threadRef?: ScopedThreadRef | null } = {}): Promise<BrowserLinkTarget> {
   const ref = options.threadRef === undefined ? activeRef(client) : options.threadRef;
-  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: linkTargetPreference(client), canOpenInApp: canOpenLinksInApp(!!ref, native) });
+  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: resolveLinkTargetPreference(client), canOpenInApp: canOpenLinksInApp(!!ref, native) });
   if (target === 'app' && ref) {
     try { await openUrlInPreview(client, native, ref, url); return 'app'; }
-    catch (error) { if (letGo(error)) throw error; }
+    catch (error) { if (letGo(error) || error instanceof BrowserSettingsReadError) throw error; }
   }
   await openInSystemBrowser(native, url);
   return 'system';
@@ -125,13 +135,14 @@ export async function openLinkFromUi(client: T3Client, native: Native, kind: str
  *  browser. A preview that fails to open is reported and falls back; one let go (interrupted) does neither. */
 export async function openTerminalLinkInPreview(input: {
   url: string; threadRef: ScopedThreadRef; forceBrowser: boolean; supported: boolean;
-  preference: () => Promise<BrowserLinkTarget> | BrowserLinkTarget; defaults?: () => Promise<BrowserDefaults>;
+  preference: () => Promise<BrowserLinkTarget> | BrowserLinkTarget; defaults: () => Promise<BrowserDefaults> | BrowserDefaults;
   openPreview: (input: { environmentId: string; input: { threadId: string; url: string; viewport: PreviewViewportSetting; profileId: string } }) => Promise<PreviewSessionSnapshot>;
   fallbackToBrowser: () => void | Promise<void>; opened?: (snapshot: PreviewSessionSnapshot) => void; report?: (error: TerminalLinkPreviewOpenError) => void;
 }): Promise<void> {
   const supportsPreview = !input.forceBrowser && isWebUrl(input.url) && input.supported && input.threadRef.threadId.length > 0 && (await input.preference()) === 'app';
   if (!supportsPreview) return void (await input.fallbackToBrowser());
-  const defaults = await (input.defaults ?? resolveBrowserDefaults)();
+  // resolveBrowserDefaults: read before the open and outside its fallback, so unread settings open neither browser.
+  const defaults = await input.defaults();
   let snapshot: PreviewSessionSnapshot;
   try {
     snapshot = await input.openPreview({ environmentId: input.threadRef.environmentId, input: { threadId: input.threadRef.threadId, url: input.url, viewport: defaults.viewport, profileId: defaults.profileId } });

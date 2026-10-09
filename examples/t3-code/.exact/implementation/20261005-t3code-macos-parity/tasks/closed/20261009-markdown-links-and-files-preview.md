@@ -3,12 +3,12 @@ name: 20261009-markdown-links-and-files-preview
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-markdown-links-and-files-preview
 pr_url: https://github.com/ccheever/exact2/pull/371
-verified_commit: null
+verified_commit: 256c189d8ef90e768e2f78ba6f15679cd01f4ba7
 ---
 
 # Markdown: relative ":line" file links, and the chat renderer in the Files rendered preview
@@ -185,3 +185,7 @@ Checks: see the PR ("Checks").
 ## Next action
 
 The coordinator reviews and merges the PR. No real-input rows.
+
+## Delivery
+
+Merged on 2026-10-10 as `256c189d8` (#371, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".
