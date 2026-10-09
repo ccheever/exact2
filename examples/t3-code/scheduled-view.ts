@@ -12,6 +12,7 @@ import { providerAvailable, type Native } from './protocol';
 import { providerBadge } from './presentation';
 import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { liveEnvironments, watchLive, type LiveEnvironment } from './live-streams';
+import { letGo } from './let-go';
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
 export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
@@ -78,11 +79,18 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
-export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '') {
+// WorktreeBaseBranchPicker's refs (usePaginatedBranches, vcs.listRefs) and its selectedRefQuery lookups by name: read when the
+// editor opens and kept while it stays open, as the picker's query atoms are, never again on a wake or the minute tick;
+// Refresh, a new connection and a new base to look up read again.
+type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[] };
+const editorRefs = new WeakMap<T3Client, { key: string; branches: Refs[] }>();
+
+export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[],
     editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
-    branches: [] as { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+    branches: [] as Refs[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+  if (!active || editor !== 'task') editorRefs.delete(client);
   if (!active) return empty;
   try {
     if (!native?.available) throw new Error('Open this app on macOS to connect to T3 Code.');
@@ -123,17 +131,27 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const switched = new URLSearchParams(taskBase);
     const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }];
     if (switched.get('key') === key) wanted.push({ projectId: str(switched.get('project')), ref: str(switched.get('ref')).trim() });
-    const branches = await Promise.all(projects.map(async project => {
-      const cwd = str(project.workspaceRoot), projectId = str(project.id);
-      try {
-        // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches).
-        const refs = arr((await editing.request('vcs.listRefs', { cwd, limit: 100 })).refs);
-        const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !refs.some(ref => str(ref.name) === entry.ref)).map(entry => entry.ref))];
-        const selected = (await Promise.all(unlisted.map(async name => arr((await editing.request('vcs.listRefs', { cwd, query: name, limit: 10 }).catch((): Obj => ({}))).refs)
-          .filter(ref => str(ref.name) === name)))).flat();
-        return { projectId, error: '', refs: refs.map(ref => branchRef(ref, cwd)), selected: selected.map(ref => branchRef(ref, cwd)) };
-      } catch (error) { return { projectId, error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[], selected: [] as BranchRef[] }; }
-    }));
+    // Once per editor visit: the bases to look up are part of the key, so a new one reads again.
+    const refsKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
+      ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`), ...wanted.map(entry => `${entry.projectId}@${entry.ref}`)].join('|');
+    let kept = editorRefs.get(client);
+    if (!kept || kept.key !== refsKey) {
+      // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
+      // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
+      const listRefs = async (payload: Obj) => arr((await (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload))).refs);
+      const branches = await Promise.all(projects.map(async project => {
+        const cwd = str(project.workspaceRoot), projectId = str(project.id);
+        try {
+          const refs = await listRefs({ cwd, limit: 100 });
+          const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !refs.some(ref => str(ref.name) === entry.ref)).map(entry => entry.ref))];
+          const selected = (await Promise.all(unlisted.map(async name => (await listRefs({ cwd, query: name, limit: 10 }).catch((error: unknown): Obj[] => { if (letGo(error)) throw error; return []; }))
+            .filter(ref => str(ref.name) === name)))).flat();
+          return { projectId, error: '', refs: refs.map(ref => branchRef(ref, cwd)), selected: selected.map(ref => branchRef(ref, cwd)) };
+        } catch (error) { if (letGo(error)) throw error; return { projectId, error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[], selected: [] as BranchRef[] }; }
+      }));
+      editorRefs.set(client, kept = { key: refsKey, branches });
+    }
+    const branches = kept.branches;
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,

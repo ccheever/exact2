@@ -70,13 +70,14 @@ describe('resource telemetry', () => {
     await syncTelemetry(t3, native, false);
     expect(client.calls.at(-1)).toEqual({ op: 'unsubscribe', key: 'resource-telemetry' });
   });
-  test('collapsing hides descendants; the timeline window and history are cached for five seconds', async () => {
+  test('collapsing hides descendants; the history is read once per visit and timeline window, not again on a later answer', async () => {
     const processes = snapshot().processes as Obj[];
     expect(visibleProcesses(processes, new Set(['11:110'])).map(entry => (entry.identity as Obj).pid)).toEqual([10, 11]);
     expect(visibleProcesses(processes, new Set(['10:100'])).map(entry => (entry.identity as Obj).pid)).toEqual([10]);
     const client = fake(), t3 = as(client);
     await telemetryPage(t3, native, true, NOW, 0);
     await telemetryPage(t3, native, true, NOW + 1000, 0);
+    await telemetryPage(t3, native, true, NOW + 60_000, 0); // the minute tick (settings-pages-subscribed-config): Atom.swr revalidates on mount only
     expect(client.requests.filter(([method]) => method === 'server.getResourceTelemetryHistory').length).toBe(1);
     telemetryLocal(t3, 'diag-window', '1h');
     await telemetryPage(t3, native, true, NOW + 2000, 0);

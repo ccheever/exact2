@@ -106,15 +106,17 @@ component Sidebar
             button cursor="pointer" press=search("") aria-label="Clear thread search" testId="clear-thread-search" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
               Icon(name="x", size=14, color="light-dark(#71717b, #a3a3a3)")
         row flex-shrink=0 align-items="center"
-          SidebarTip(tip="sidebar-filter", hoverCard=hoverCard)
-            button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project"
-              when data.sidebar.scopeKey == ""
-                Icon(name="folder", size=16, color=(data.sidebar.scopeOpen or hoverId == "sidebar-filter" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
-              else
-                SidebarProjectGlyph(g=data.sidebar.scopeGlyph, size=16, dim=false)
-          SidebarTip(tip="sidebar-add-project", hoverCard=hoverCard)
-            button cursor="pointer" press=addProject width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Add project" testId="add-project" disabled=(not data.connected)
-              Icon(name="folder-plus", size=16, color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
+          // shell-sidebar-palette-keys (SH-4): Filter and Add project show only with a project group (SidebarThreadHeader `hasProjects`).
+          when data.sidebar.projectGroupCount > 0
+            SidebarTip(tip="sidebar-filter", hoverCard=hoverCard)
+              button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project"
+                when data.sidebar.scopeKey == ""
+                  Icon(name="folder", size=16, color=(data.sidebar.scopeOpen or hoverId == "sidebar-filter" ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
+                else
+                  SidebarProjectGlyph(g=data.sidebar.scopeGlyph, size=16, dim=false)
+            SidebarTip(tip="sidebar-add-project", hoverCard=hoverCard)
+              button cursor="pointer" press=addProject width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Add project" testId="add-project" disabled=(not data.connected)
+                Icon(name="folder-plus", size=16, color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
           // r4-polish: these controls hover the root sidebar hover id; SidebarOverlays draws their tooltips (r4-polish-tip.contract).
           SidebarTip(tip="sidebar-new-thread", hoverCard=hoverCard)
             button cursor="pointer" press=newThread width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects)

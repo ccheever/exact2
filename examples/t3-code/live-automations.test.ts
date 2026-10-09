@@ -32,6 +32,8 @@ function fakeClient(tracking = true, listRefs = (_payload: Record<string, unknow
     async openProjectDraft(_native: Native, projectId: string) { calls.push({ method: 'openProjectDraft', payload: { projectId }, write: false }); this.projectId = projectId; this.threadId = ''; },
     restAccess: () => ({
       request: async (method: string, payload: Record<string, unknown>, write = false) => { calls.push({ method, payload, write }); return method === 'vcs.listRefs' ? listRefs(payload) : {}; },
+      // client.ts restAccess `read`: the focused environment's shared read (settings-pages-subscribed-config).
+      read: async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload, write: false }); return method === 'vcs.listRefs' ? listRefs(payload) : {}; },
       call: async (request: Record<string, unknown>) => { calls.push({ method: String(request.op), payload: request, write: false }); const id = `3-${++serial}`; subs[String(request.method)] = id; return { id }; },
       ids: async (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`),
       http: async () => { calls.push({ method: 'http', payload: {}, write: false }); return { snapshotSequence: 1, projects: [], threads: [] }; },
@@ -134,6 +136,10 @@ describe('Settings › Scheduled tasks', () => {
     ({ view, reads } = await open(fake, 'key=env%3Anew&project=p2&ref=feature-200'));
     expect(reads.slice(-1)).toEqual([{ cwd: '/second', query: 'feature-200', limit: 10 }]);
     expect(view.branches.map(entry => [entry.projectId, entry.selected.map(ref => ref.value)])).toEqual([['p1', []], ['p2', ['feature-200']]]);
+    // Asked again in the same editor visit (a wake, the minute tick): the refs and the lookup are kept, nothing is read.
+    const read = reads.length;
+    ({ view, reads } = await open(fake, 'key=env%3Anew&project=p2&ref=feature-200'));
+    expect([reads.length - read, view.branches[1]!.selected.map(ref => ref.value)]).toEqual([0, ['feature-200']]);
     ({ view, reads } = await open(fake, 'key=env%3Aold&project=p2&ref=feature-200'));
     expect(view.branches.map(entry => entry.selected.length)).toEqual([0, 0]);
   });
