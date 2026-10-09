@@ -1,0 +1,87 @@
+# browser-surface-navigation-v2: Charlie's check 4 (Rotate/Lock by real input) on 878e605b8, 2026-10-09 08:38:51-08:41:13Z
+Lock: target/t3-ui-parity/lanes/.realinput-lock taken 08:38:51Z (owner: this task), released 08:41:13Z. Screen unlocked (lockstate).
+App: a normal launch of a lane copy 'T3 Code (Lane Navigation)' (bundle id com.exact.t3code.macos.lanenavigation, ad-hoc signed)
+of the 878e605b8 bundle, embedded server on 16710, fixture on 16711, isolated HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/T3_LOCAL_HOME,
+telemetry off. Input: `orca computer click` at window coordinates (real pointer events); read back from the accessibility tree
+(`orca computer get-app-state`). No keys typed, no paste, input source and system settings untouched.
+
+r01-toast-dismissed: click (1240, 91): the "Update Available: Codex" toast × (a second toast, "Nightly needs the beta mobile app", came up)
+    72 heading Nightly needs the beta mobile app
+r02-toasts-dismissed: click (1240, 91): its ×; no toast left
+r03-panel: click (1252, 26): Toggle right panel -> "Open a surface"
+    35 heading Open a surface
+r04-browser-tab: click (912, 334): Browser -> empty state with Local servers (rows of other local servers on this Mac redacted below)
+    55 heading Local servers
+    58 button t3 localhost:16710
+    59 button bun localhost:16711
+r05-page: click (900, 370): "bun localhost:16711" -> the fixture page, 539 x 748 (fill)
+    32 button Close Lane fixture
+    33 button Lane fixture
+    56 HTML content Lane fixture
+    57 heading Lane fixture
+    58 text 539 × 748 · dpr 2 · dark
+r06-more: click (1259, 71): Preview menu -> Show device toolbar, Appearance, Zoom rows
+    32 button Close Lane fixture
+    33 button Lane fixture
+    57 HTML content Lane fixture
+    58 heading Lane fixture
+    59 text 539 × 748 · dpr 2 · dark
+    83 button Show device toolbar
+r07-toolbar: click (1078, 158): Show device toolbar -> Responsive 519 x 706
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 519
+    58 text field (settable) Viewport height, Value: 706
+    59 toggle button Lock viewport aspect ratio, Value: 0
+    60 button Rotate viewport
+    64 HTML content Lane fixture
+r08-presets: click (815, 107): the preset list
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 519
+    58 text field (settable) Viewport height, Value: 706
+    59 toggle button Lock viewport aspect ratio, Value: 0
+    60 button Rotate viewport
+    64 HTML content Lane fixture
+r09-iphone12pro: click (828, 248): iPhone 12 Pro -> 390 x 844
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 390
+    58 text field (settable) Viewport height, Value: 844
+    59 toggle button Lock viewport aspect ratio, Value: 0
+    60 button Rotate viewport
+    64 HTML content Lane fixture
+r10-rotated: click (1056, 107): Rotate viewport
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 844
+    58 text field (settable) Viewport height, Value: 390
+    59 toggle button Lock viewport aspect ratio, Value: 0
+    60 button Rotate viewport
+    64 HTML content Lane fixture
+r11-locked: click (1030, 107): Lock viewport aspect ratio
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 844
+    58 text field (settable) Viewport height, Value: 390
+    59 toggle button Unlock viewport aspect ratio, Value: 1
+    60 text Unlock aspect ratio
+    61 button Rotate viewport
+r12-locked-drag: `orca computer drag` (1010, 601) -> (1010, 561) on the bottom rail: no change registered (not part of check 4; left for the real-input batch)
+    32 button Close Lane fixture
+    33 button Lane fixture
+    54 button Browser device preset
+    56 text field (settable) Viewport width, Value: 844
+    58 text field (settable) Viewport height, Value: 390
+    59 toggle button Unlock viewport aspect ratio, Value: 1
+    60 text Unlock aspect ratio
+    61 button Rotate viewport
+
+Result: Rotate turned iPhone 12 Pro 390 x 844 into 844 x 390 with the preset kept (label 'iPhone 12 Pro'), and the page
+measured 844 x 390; Lock turned the button into 'Unlock viewport aspect ratio', Value 1 (pressed). After: the copy quit by an
+Apple Event, the fixture stopped (pid 76948), `defaults delete com.exact.t3code.macos.lanenavigation`.
