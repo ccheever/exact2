@@ -1437,7 +1437,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.feed = self.p.last_wheel();
         }
         self.p.hold_collections(false);
-        self.rescue();
     }
 
     /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.

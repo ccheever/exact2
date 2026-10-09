@@ -63,6 +63,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.feed_rows(&mut before);
             before.sort_unstable();
         }
+        if lead.is_some() || !stepped {
+            self.travel.recovered();
+        }
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
         self.leftover = self.p.collections_pending();
@@ -134,16 +137,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
             || (self.led && self.now() - self.scrolled_at >= STEP_MS)
     }
 
-    /// After a scroll step: when the feed has turned back from a travel its
-    /// window led ([`crate::travel::Travel::turned`]), the rows the step
-    /// brought into view are built now, and nothing else.
-    pub(super) fn rescue(&mut self) {
-        if self.travel.turned() {
-            self.p.slice_collections(Some(0), 0.0);
-            self.p.refine_deferred(true);
-        }
-    }
-
     /// `timer` (ms until the next one), or sooner: when a window that leads
     /// is owed the pass that ends its lead ([`crate::travel::SETTLE_MS`]
     /// after the last step). A reader asks [`CanvasHost::owed`] as its last
@@ -210,9 +203,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// Whether a slice left rows to build: the reader then asks for the next
     /// pass at once. A pass that waits for more travel left none (it is
-    /// asked for again at the reader's next third step, or its timer).
+    /// asked for again at the reader's next third step, or its timer). After
+    /// a turn back from a travel its window led
+    /// ([`crate::travel::Travel::turned`]) every step is followed by a pass:
+    /// the window leaned, and the side it turned to is short.
     pub fn refine_pending(&self) -> bool {
-        !self.waiting && self.p.collections_pending()
+        !self.waiting && (self.p.collections_pending() || self.travel.turned())
     }
 
     /// Pictures coming into view while frames move: requested now, where

@@ -49,7 +49,7 @@ const FAR_VIEWPORTS: f64 = 2.0;
 
 /// What a window that leans ([`CollectionFill::lean`]) keeps behind its
 /// travel, in viewports.
-const LEAN_BEHIND: f64 = 0.25;
+const LEAN_BEHIND: f64 = 0.5;
 
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter

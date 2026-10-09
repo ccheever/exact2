@@ -65,7 +65,7 @@ pub struct CollectionFill {
     /// optional row, retires within `limit` as a slice does, and runs edge
     /// actions. The immediate report after a build-only one.
     pub no_build: bool,
-    /// With a velocity, the window keeps a quarter of a viewport behind its
+    /// With a velocity, the window keeps half a viewport behind its
     /// travel instead of a whole one. For a host that leads its window far
     /// and waits for its passes (the rows behind then pile up to two and a
     /// half viewports before a pass retires them), and whose travel turns

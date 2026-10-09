@@ -106,7 +106,8 @@ pub(crate) struct Travel {
     tier: u8,
     /// A step came since the reader last asked for a pass.
     stepped: bool,
-    /// The feed turned while its window led, and no pass has run since.
+    /// The feed turned while its window led, and neither leads again nor
+    /// has come to rest.
     turned: bool,
     /// Since the last collection pass.
     since_pass: f32,
@@ -200,13 +201,20 @@ impl Travel {
         std::mem::take(&mut self.stepped)
     }
 
-    /// Whether the feed turned back while its window led and no pass has
-    /// run since: the window kept little behind it ([`TIERS`] lean), so what
-    /// each step brings into view is built with the step, not at the
-    /// reader's next ask three steps on (at 24,000 dp/s that was 600 dp:
-    /// four frames with up to 40% of crypto's view blank).
+    /// Whether the feed turned back while its window led, and its window
+    /// neither leads again nor has come to rest ([`Travel::recovered`]): the
+    /// window kept half a viewport behind it (it leans), and until the
+    /// travel's speed is known again (eight steps) its passes build a
+    /// viewport each side a slice at a time. A pass then follows every
+    /// step, not every third.
     pub(crate) fn turned(&self) -> bool {
         self.turned
+    }
+
+    /// A pass ran that led, or one asked for with the feed at rest: a turn
+    /// is made up for.
+    pub(crate) fn recovered(&mut self) {
+        self.turned = false;
     }
 
     /// The feed stopped (a touch took it): nothing leads.
@@ -242,7 +250,6 @@ impl Travel {
     /// Frames the scroll may move the last paint before one must paint to
     /// show it in time (0: paint now); `None` when that is not soon.
     pub(crate) fn passed(&mut self, lead: f32, soon: u32) -> Option<u32> {
-        self.turned = false;
         let ahead = (lead - std::mem::take(&mut self.since_pass)).max(0.0);
         if self.step <= 0.0 {
             return None;
@@ -440,6 +447,11 @@ mod tests {
         t.scrolled(-100.0, 9.0 * FRAME);
         assert!(t.turned());
         t.passed(858.0, 6);
+        assert!(
+            t.turned(),
+            "a pass that does not lead does not make up for it"
+        );
+        t.recovered();
         assert!(!t.turned());
         // A turn at a speed that leads nothing is not one to make up for.
         let mut slow = moving(10.0, 8);
