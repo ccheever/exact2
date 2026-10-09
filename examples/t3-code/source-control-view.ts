@@ -14,6 +14,7 @@ import { deviceHostsView } from './settings-a-hosts';
 import { deviceScope } from './settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from './device-support'; // 5318d054a5: Simulator support row
 import { letGo } from './let-go';
+import { linkTargetPreference } from './browser-links';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
@@ -252,7 +253,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
 export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
     hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
-    simulatorSupport: [] as SimulatorSupportRow[] };
+    simulatorSupport: [] as SimulatorSupportRow[], linkTarget: linkTargetPreference(client) }; // browser-surface part 5: "Open links in"
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
