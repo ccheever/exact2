@@ -327,7 +327,8 @@ public final class Agent {
     /// agent's clock does not wait for the platform's own timing (LLP
     /// 1086.000.000 D2; the first diaries' R2 retried until it found it).
     func settling(_ r: [String: Any]) -> [String: Any] {
-        guard let error = r["error"] as? String, nativeInFlight() else { return r }
+        // A refusal that already names it (a confirmation's) is left as it is.
+        guard let error = r["error"] as? String, !error.contains("clock settle"), nativeInFlight() else { return r }
         var out = r
         out["error"] = "\(error); native work is still in flight (a transition, the keyboard or a scroll): `clock settle` first, then try again"
         return out
