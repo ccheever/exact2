@@ -1,6 +1,8 @@
 // T3 settings primitives (settingsLayout.tsx, SettingsGroup.tsx, ui/switch,
 // ui/button, ui/input) at the computed sizes and colors of the served
 // reference, for the Providers and Connections routes.
+use PolicyTip from "./settings-kit.contract"
+use PvIcon from "./provider-icons.contract"
 
 // SettingsSection: a muted 14px title row (min-height 28, inset 16) above a group.
 component PvSectionTitle
@@ -29,6 +31,8 @@ component PvRow
     title: string
     description: string
     status: string
+    // PolicyTooltip's words beside the title ("" for none): only the Health check interval has one, so its id is fixed.
+    policy: string
     wide: bool
     divided: bool
   slot
@@ -39,6 +43,9 @@ component PvRow
           column flex=1 min-width=0 gap="0.25rem"
             row min-height="1.25rem" align-items="center" gap="0.375rem"
               text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              when policy != ""
+                PolicyTip(tip=policy, tipId="provider-health-policy")
+                  PvIcon(name="info", size=14, color="light-dark(#71717b, #818181)")
             when description != ""
               text description font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)"
             when status != ""
@@ -50,6 +57,9 @@ component PvRow
           column min-width=0 gap="0.25rem"
             row min-height="1.25rem" align-items="center" gap="0.375rem"
               text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              when policy != ""
+                PolicyTip(tip=policy, tipId="provider-health-policy")
+                  PvIcon(name="info", size=14, color="light-dark(#71717b, #818181)")
             when description != ""
               text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
             when status != ""
