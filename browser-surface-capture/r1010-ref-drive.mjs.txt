@@ -1,0 +1,115 @@
+// browser-surface-capture review round (2026-10-10): drive the reference's renderer AND its preview guest over CDP
+// (not committed). Usage: node ref-drive.mjs <cdpPort> "<op>" ...
+// Renderer ops (Playwright): size <w> <h> | role <role> <name> | shiftrole <role> <name> | hoverrole <role> <name> |
+//   css <selector> | hovercss <selector> | fill <placeholder>|<text> | press <key> | wait <ms> | aria <file> | eval <js>
+// Guest ops (raw CDP on the preview's `webview` target, by URL prefix; Playwright lists it only when it appears during
+//   its own session): gclick <x> <y> | gtype <text> | gpress <Enter|Meta+Enter|Escape>
+// shot <base>: <base>.r.png (renderer), <base>.g<i>.png (each guest, Page.captureScreenshot) and <base>.json (each
+//   [data-browser-surface-slot] rect in CSS px, the scale) for compositing.
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, ...ops] = process.argv.slice(2);
+const GUEST = 'http://127.0.0.1:16721';
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const renderer = browser.contexts().flatMap(context => context.pages()).find(page => page.url().startsWith('t3code://'));
+const out = value => console.log(JSON.stringify(value));
+const split = text => { const at = text.indexOf(' '); return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at + 1)]; };
+
+async function guestTargets() {
+  const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  return list.filter(target => target.url.startsWith(GUEST) && target.webSocketDebuggerUrl);
+}
+/** One raw CDP connection to a guest target. */
+async function connect(target) {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  let id = 0; const waiting = new Map();
+  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.id && waiting.has(message.id)) { waiting.get(message.id)(message); waiting.delete(message.id); } };
+  const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const messageId = ++id; waiting.set(messageId, message => message.error ? reject(new Error(message.error.message)) : resolve(message.result));
+    socket.send(JSON.stringify({ id: messageId, method, params }));
+  });
+  return { send, close: () => socket.close() };
+}
+async function withGuest(fn) {
+  const [target] = await guestTargets();
+  if (!target) throw new Error('no guest');
+  const cdp = await connect(target);
+  try { return await fn(cdp, target); } finally { cdp.close(); }
+}
+const KEYS = { Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }, Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 } };
+async function key(cdp, name) {
+  const meta = name.startsWith('Meta+'), base = KEYS[meta ? name.slice(5) : name];
+  const modifiers = meta ? 4 : 0;
+  if (meta) await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91, modifiers });
+  await cdp.send('Input.dispatchKeyEvent', { type: base.text && !meta ? 'keyDown' : 'rawKeyDown', ...base, ...(meta ? { text: undefined } : {}), modifiers });
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base, text: undefined, modifiers });
+  if (meta) await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91, modifiers: 0 });
+}
+
+for (const raw of ops) {
+  const [op, rest] = split(raw);
+  try {
+    switch (op) {
+      case 'size': { // 2× like the clone's window renders; the slot rects stay in CSS px
+        const [w, h] = rest.split(' ').map(Number), session = await renderer.context().newCDPSession(renderer);
+        await session.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: false });
+        out({ op, w, h }); break;
+      }
+      case 'role': case 'shiftrole': case 'hoverrole': {
+        const [role, ...name] = rest.split(' '), target = renderer.getByRole(role, { name: name.join(' '), exact: true }).first();
+        if (op === 'hoverrole') await target.hover({ timeout: 5000 });
+        else await target.click({ timeout: 5000, ...(op === 'shiftrole' ? { modifiers: ['Shift'] } : {}) });
+        out({ op, role, name: name.join(' ') }); break;
+      }
+      case 'css': await renderer.locator(rest).first().click({ timeout: 5000 }); out({ op, rest }); break;
+      case 'hovercss': await renderer.locator(rest).first().hover({ timeout: 5000 }); out({ op, rest }); break;
+      case 'fill': { const [placeholder, text] = rest.split('|'); const field = renderer.getByPlaceholder(placeholder).first(); await field.click({ timeout: 5000 }); await field.fill(text); out({ op, placeholder, text }); break; }
+      case 'press': await renderer.keyboard.press(rest); out({ op, key: rest }); break;
+      case 'wait': await renderer.waitForTimeout(Number(rest)); out({ op, ms: Number(rest) }); break;
+      case 'aria': fs.writeFileSync(rest, await renderer.locator('body').ariaSnapshot()); out({ op, file: rest }); break;
+      case 'eval': out({ op, value: await renderer.evaluate(rest) }); break;
+      case 'guests': out({ op, guests: (await guestTargets()).map(target => `${target.type} ${target.url}`) }); break;
+      case 'gclick': await withGuest(async cdp => {
+        const [x, y] = rest.split(' ').map(Number);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x - 4, y: y - 4 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        out({ op, x, y });
+      }); break;
+      case 'gtype': await withGuest(async cdp => { await cdp.send('Input.insertText', { text: rest }); out({ op, text: rest }); }); break;
+      case 'gpress': await withGuest(async cdp => { await key(cdp, rest); out({ op, key: rest }); }); break;
+      case 'shot': {
+        await renderer.screenshot({ path: `${rest}.r.png`, omitBackground: true }); // the webview's area stays transparent: the guest goes under the app's layers
+        const slots = await renderer.evaluate(() => [...document.querySelectorAll('[data-browser-surface-slot]')].map(element => {
+          const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+          return { tab: element.getAttribute('data-browser-surface-slot'), x: box.x, y: box.y, width: box.width, height: box.height, visible: box.width > 1 && box.height > 1 && style.visibility !== 'hidden' };
+        }));
+        const scale = await renderer.evaluate(() => window.devicePixelRatio);
+        // Layers above the webview (toasts, menus, tooltips, the floating player's controls): drawn back over the guest.
+        const overlays = await renderer.evaluate(selector => [...document.querySelectorAll(selector)].map(element => {
+          const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height, role: element.getAttribute('role') ?? element.tagName };
+        }).filter(box => box.width > 1 && box.height > 1), '[role="dialog"], [role="alertdialog"], [role="menu"], [role="tooltip"], [role="listbox"], [data-preview-mini-player] div.group, [data-preview-mini-player] div.group > div');
+        const shots = [];
+        for (const [index, target] of (await guestTargets()).entries()) {
+          const file = `${rest}.g${index}.png`;
+          try {
+            const cdp = await connect(target);
+            const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+            const viewport = (await cdp.send('Runtime.evaluate', { expression: '[innerWidth, innerHeight]', returnByValue: true })).result.value;
+            cdp.close();
+            fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
+            shots.push({ file, url: target.url, viewport });
+          } catch (error) { shots.push({ error: String(error.message).split('\n')[0] }); }
+        }
+        fs.writeFileSync(`${rest}.json`, JSON.stringify({ scale, slots, shots, overlays }, null, 1));
+        out({ op, base: rest, slots: slots.filter(slot => slot.visible).length, guests: shots.length }); break;
+      }
+      default: out({ op, error: 'unknown op' });
+    }
+  } catch (error) { out({ op, rest, error: String(error.message ?? error).split('\n')[0] }); }
+}
+process.exit(0);
