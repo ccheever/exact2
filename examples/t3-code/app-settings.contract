@@ -55,12 +55,16 @@ use SbPicker from "./settings-b-icons.contract"
 use SbSshHosts from "./connections.contract"
 use Snapshot from "./shapes.contract"
 use Viewport from "./shapes.contract"
+use SidebarWindowRail from "./r5-shell.contract"
+use TipCard from "./shell-tip.contract"
 
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
 // resources and actions: each component takes the root names it reads as props of the same names.
 
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.
 component SettingsWindow
+  inject
+    rem: number
   props
     settingsOpen: bool
     settingsCore: SettingsCore
@@ -155,6 +159,11 @@ component SettingsWindow
     settingsThemeSubject: string
     coreThemeChange: action
     settingsCommand: action
+    // settings-escape-and-nav: the app sidebar's width and its rail's drag (AppSidebarLayout: Settings renders inside
+    // the app Sidebar, whose SidebarRail resizes the one width both navs share).
+    resizeSidebar: action
+    finishResize: action
+    resetSidebarWidth: action
   // The root rewrite (20261008-app-contract-root-rewrite): Settings' view-only state lives here, not in app.contract:
   // the search's held Escape, the legacy rows, the restore dialog and the keybinding and licence searches. A
   // wrapper sets it, then calls the root's half (`…Root`), which keeps what a resource reads.
@@ -163,6 +172,17 @@ component SettingsWindow
   state settingsRestoreOpen = false
   state keybindingSearch = false
   state licenseSearchOpen = false
+  // settings-escape-and-nav: the provider whose "Add custom model" field is open (ProviderModelsSection isAdding),
+  // and whether the pointer is over the sidebar rail ("Drag to resize sidebar").
+  state modelAdding = ""
+  state railHover = false
+  // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
+  // Escape nothing prevented): a field's search or popup, an inline editor, a recording shortcut. While one owns it,
+  // Back gives up its Escape shortcut; with none, Escape leaves Settings. The When editor's and the font list's
+  // popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (settings-dialog below).
+  derive escapeOwned = settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingSearch or keybindingRecording)) or (settingsRoute == "open-source-licenses" and licenseSearchOpen) or (settingsRoute == "providers" and (providerPage.escapeOwned or modelAdding != ""))
+  // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
+  derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""
   action editSettingsQuery(value: string)
     settingsEscapeHeld = false
     editSettingsQueryRoot(value)
@@ -174,11 +194,24 @@ component SettingsWindow
     coreSearchKeyRoot(k)
   action coreNavigate(route: string)
     settingsEscapeHeld = false
+    modelAdding = ""
     coreNavigateRoot(route)
   action corePick(route: string, target: string, scope: string, id: string)
     if startsWith(id, "search-result-legacy-")
       settingsLegacyOpen = true
+    modelAdding = ""
     corePickRoot(route, target, scope, id)
+  // The Providers page's `ui`: "model-adding" opens (the instance id) or closes ("") an "Add custom model" field; a
+  // provider chosen in the list unmounts the open one, as the reference's section does. The rest is the root's.
+  action providerUiWindow(what: string, value: string)
+    if what == "model-adding"
+      modelAdding = value
+    else
+      if what == "select"
+        modelAdding = ""
+      providerUi(what, value)
+  action hoverRail(id: string, over: bool)
+    railHover = over
   action coreLegacy
     settingsLegacyOpen = not settingsLegacyOpen
   action coreRestoreOpen
@@ -195,6 +228,7 @@ component SettingsWindow
       keybindingSearch = open
   action keybindingSearchKey(name: string)
     if name == "Escape"
+      preventDefault()
       keybindingSearch = false
       editKeybindingQuery("")
   action openLicenseSearch
@@ -204,13 +238,14 @@ component SettingsWindow
       licenseSearchOpen = false
   action licenseSearchKey(name: string)
     if name == "Escape"
+      preventDefault()
       licenseSearchOpen = false
       editLicenseQuery("")
   view
     when settingsOpen
-      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
+      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
-          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "providers" and providerPage.escapeOwned)), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
+          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
           SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
           scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
@@ -238,15 +273,21 @@ component SettingsWindow
               when settingsRoute == "diagnostics"
                 DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
               when settingsRoute == "connections"
-                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
+                ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
+                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                   each row in settingsCore.projectModel key=row.id
                     CoreRowView(reduced=viewport.prefersReducedMotion, row=row, section="project-defaults", pal=settingsCore.palette, codePreview=settingsCore.codePreview, busy=commandPending, menu=settingsMenu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate)
               when modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
                 text modalError font-size="0.75rem" color="light-dark(#b91c1c, #fca5a5)" role="alert" testId="settings-error"
+        // settings-escape-and-nav: the app Sidebar's SidebarRail over the settings nav's edge (r5-shell.contract), and
+        // its "Drag to resize sidebar" (side right, as SidebarEdgeTips draws the thread sidebar's).
+        when data.sidebarOpen
+          SidebarWindowRail(width=sidebarWidth, hovered=railHover, line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=hoverRail)
+          row position="absolute" left=(sidebarWidth + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
+            TipCard(label="Drag to resize sidebar", shown=railHover)
     when settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     when settingsOpen and settingsRestoreOpen
