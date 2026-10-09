@@ -203,10 +203,13 @@ export async function mobileThreadSendRootAction(client:MobileDraftClient,native
     const usageKey=shown().usageKey;
     const command=async(ctx:ThreadSendCommandContext)=>{
       let didClear=false;
-      const answer=await mobileThreadSendLocalCommand(client,{snapshot:ctx.snapshot,facts:ctx.facts,now:ctx.now,usageKey,current:routeCurrent,
+      const answer=await mobileThreadSendLocalCommand(client,{snapshot:ctx.snapshot,facts:ctx.facts,now:ctx.now,usageKey,
+        // Upstream captures the original thread. Once its clear is accepted, navigation
+        // alone cannot cancel feedback while that document finishes saving.
+        current:()=>didClear?transportCurrent('orchestration:operate'):routeCurrent(),
         clearDraft:async mode=>{if(!routeCurrent())throw stale();const cleared=await mobileThreadLocalCommandClear(client,ctx.target,ctx.snapshot,mode,rawNative,storage);
           if(!cleared.applied)throw new ClientError(cleared.message);didClear=true;return {message:cleared.message};},
-        uploadFeedback:async payload=>{if(!routeCurrent()||!transportCurrent('orchestration:operate'))throw stale();
+        uploadFeedback:async payload=>{if(!didClear||!transportCurrent('orchestration:operate'))throw stale();
           const reply=await client.rpc(guarded(()=>transportCurrent('orchestration:operate')),'provider.uploadFeedback',payload,true);
           return {feedbackId:str(reply.feedbackId)};}});
       return {accepted:didClear&&(answer.kind==='feedback'||answer.kind==='usage-limits'&&answer.opened),message:answer.message};

@@ -7,7 +7,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { Obj } from './shared/domain';
-import { mobileComposerContextCompleteSend, mobileComposerContextMountedSend, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileComposerContextCompleteSend, mobileComposerContextMountedSend, mobileComposerContextMountedLocalClear, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
 import { mobileComposerContextInventoryOwnerAvailable, mobileComposerContextInsertDocument, type ComposerExternalContextContent, type ComposerExternalContextResult, mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileEditorDocumentEnroll, mobileEditorDocumentMembership, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
@@ -24,7 +24,11 @@ export interface EditorIntentCapture {
   before:string; selection:{start:number;end:number}; admission:string; mountId:string; eventCount:number;
 }
 export interface EditorUsageCommand { kind:'usage-limits'; instanceId:string; usageKey:string; config:Obj; now:number }
-export interface EditorCommandEffect { queuedSend?:string; localCommand?:EditorUsageCommand; id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
+export interface EditorLocalClear {
+  mode:'text'|'content';snapshot:import('./composer-command-context').ComposerSendDraftSnapshot;incarnation:string;revision:number;cleared:boolean|null;
+}
+export interface EditorCommandReceipt {id:string;applied:boolean|null;contentCleared:boolean|null}
+export interface EditorCommandEffect { receipt?:EditorCommandReceipt; outcome?:{id:string;applied:boolean;terminal:import('./composer-editor-state').ComposerEditorEvent}; localClear?:EditorLocalClear; queuedSend?:string; localCommand?:EditorUsageCommand; id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
 export interface EditorRootEffect { id:string; kind:'focus'|'blur'|'submit'; payload:string }
 export interface EditorOwner {
   admission:string; signature:string; target:MobileComposerTarget; route:EditorRouteInput;
@@ -259,5 +263,18 @@ export function mobileEditorCompleteMountedSend(client:T3Client,capture:EditorDo
     ||canonical(owner.state.lastEvent)!==canonical(terminal.proof.latest)))return {ok:false as const};
   const result=mobileComposerContextMountedSend(client,capture,claim,terminal);
   if(result.ok&&result.write){Object.assign(owner.document,result.ledger);r.revision++}
+  return result;
+}
+
+/** Only the current retained command can publish its typed local content clear. */
+export function mobileEditorCompleteMountedLocalClear(client:T3Client) {
+  const r=registry(client),owner=r.active,pending=owner?.pending,terminal=owner?.state.commandEffect,latest=owner?.state.lastEvent;
+  const refuse=()=>({ok:false as const});
+  if(!owner||!pending?.localClear||!terminal||!terminal.command||!latest||pending.id!==terminal.event.commandId
+    ||pending.revision!==terminal.event.commandRevision||!mobileEditorContextTargetCurrent(client,owner.target)
+    ||!Number.isSafeInteger(r.revision)||r.revision<0||r.revision>=Number.MAX_SAFE_INTEGER)return refuse();
+  const current=mobileEditorDocumentCapture(client,owner.target,'typed-local-clear');if(!current)return refuse();
+  const result=mobileComposerContextMountedLocalClear(client,current,pending.localClear,{command:terminal.command,terminal:terminal.event,latest});
+  if(result.ok){Object.assign(owner.document,result.ledger);pending.localClear.cleared=result.cleared;r.revision++}
   return result;
 }

@@ -2,7 +2,7 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
 import { mobileComposerMenuSelection } from './composer-command-selection';
 import { mobileThreadLocalUsageOpen } from './thread-send-local-commands';
-import type { EditorUsageCommand } from './composer-editor-owner';
+import type { EditorUsageCommand, EditorLocalClear, EditorCommandReceipt } from './composer-editor-owner';
 import type { T3Client } from './shared/client';
 import { arr,obj,str,type Obj } from './shared/domain';
 import { ClientError,reply,type Native,type Files } from './shared/protocol';
@@ -29,7 +29,7 @@ import { mobileComposerQueryDemand,mobileComposerQuerySnapshot,mobileComposerQue
   type ComposerQueryDemand,type ComposerQueryInput,type ComposerQueryLane } from './composer-command-query';
 import { mobileComposerEditorAccept,mobileComposerEditorDecodeEvent,mobileComposerEditorStageEffect,mobileComposerEditorCommitted,
   mobileComposerEditorControlled,mobileComposerEditorCommand,type ComposerEditorDocument,type ComposerEditorEffect } from './composer-editor-state';
-import { editorCopy,mobileEditorOwner,mobileEditorOwnerAdmit,mobileEditorOwnerRevision,mobileEditorOwnerChanged,mobileEditorCaptureIntent,
+import { editorCopy,mobileEditorOwner,mobileEditorOwnerAdmit,mobileEditorOwnerRevision,mobileEditorOwnerChanged,mobileEditorCompleteMountedLocalClear,mobileEditorCaptureIntent,
   mobileEditorIntentCurrent,mobileEditorClaimEffect as claimOwnerEffect,type EditorOwner,type EditorRouteInput,type EditorRootEffect,type EditorIntentCapture } from './composer-editor-owner';
 export { mobileEditorCaptureIntent,mobileEditorPublishCommitted,mobileEditorCaptureDocumentIntent,mobileEditorCommitDocumentIntent } from './composer-editor-owner';
 export type { EditorRouteInput,EditorIntentCapture } from './composer-editor-owner';
@@ -47,7 +47,7 @@ export interface EditorProjection {
   queries:{immediateKey:string;immediateAt:number;immediateClockOffset:number;path:EditorWake;pullRequests:EditorWake;discovery:EditorWake};
   effect:EditorRootEffect|null; message:string;
 }
-export interface EditorResult { revision:number; message:string; effect:EditorRootEffect|null; admission:string }
+export interface EditorResult { revision:number; message:string; effect:EditorRootEffect|null; admission:string; command?:{id:string;applied:boolean;contentCleared?:boolean} }
 interface Runtime {
   owner:EditorOwner; provider:ComposerQueryInput['provider']; presentation:EditorPresentation; confirmed:readonly ComposerInlineToken[];
   query:ComposerQueryDemand; trigger:ComposerTrigger|null; items:ComposerCommandItem[]; menuRevision:string;
@@ -170,10 +170,22 @@ function rootEffect(owner:EditorOwner,staged:ComposerEditorEffect):void {
 }
 /** Synchronous prefix reduces newest text and command effects before persistence awaits. */
 async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Files):Promise<EditorResult> {
-  requireCurrent(client,runtime);const owner=runtime.owner,effect=owner.state.latestEffect;
+  requireCurrent(client,runtime);const owner=runtime.owner,effect=owner.state.latestEffect,publication=owner.pending;
+  const settledCurrent=()=>requireCommandCurrent(client,runtime,publication);
   if(owner.pending?.queuedSend&&mobileThreadMountedSendConsume(client)){
     if(effect)rootEffect(owner,effect);
     await client.persist(storage);requireCurrent(client,runtime);
+    if(effect)owner.state=mobileComposerEditorCommitted(owner.state,effect);
+    return result(client,runtime);
+  }
+  if(owner.pending?.localClear?.mode==='content'&&owner.state.commandEffect){
+    const terminal=owner.state.commandEffect,pending=owner.pending;
+    if(!mobileEditorCompleteMountedLocalClear(client).ok)throw new ClientError('The command context could not be safely cleared. Keep this draft.','retained');
+    pending.outcome={id:pending.id,applied:terminal.event.kind==='commandApplied',terminal:editorCopy(terminal.event)};
+    if(pending.receipt){pending.receipt.applied=pending.outcome.applied;pending.receipt.contentCleared=pending.localClear?.cleared??null}
+    if(effect){owner.state=mobileComposerEditorStageEffect(owner.state,effect.id).state;rootEffect(owner,effect)}
+    owner.state=mobileComposerEditorStageEffect(owner.state,terminal.id).state;owner.pending=null;
+    await client.persist(storage);settledCurrent();
     if(effect)owner.state=mobileComposerEditorCommitted(owner.state,effect);
     return result(client,runtime);
   }
@@ -213,11 +225,13 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
         else owner.error='The model or mode changed before this selection finished. Keep the current choice.';
       }
     }
+    pending.outcome={id:pending.id,applied:terminal.event.kind==='commandApplied',terminal:editorCopy(terminal.event)};
+    if(pending.receipt){pending.receipt.applied=pending.outcome.applied;pending.receipt.contentCleared=pending.localClear?.cleared??null}
     const claimed=mobileComposerEditorStageEffect(owner.state,terminal.id);owner.state=claimed.state;if(claimed.effect)owner.pending=null;
   }
   }catch(error){prefixError=error}
-  if(saving){const answer=await saving;requireCurrent(client,runtime);if(answer.message)throw new ClientError(answer.message)}
-  else if(needsSave){await client.persist(storage);requireCurrent(client,runtime)}
+  if(saving){const answer=await saving;settledCurrent();if(answer.message)throw new ClientError(answer.message)}
+  else if(needsSave){await client.persist(storage);settledCurrent()}
   if(prefixError!==undefined)throw prefixError;
   if(staged)owner.state=mobileComposerEditorCommitted(owner.state,staged);
   return result(client,runtime,commandMessage);
@@ -229,33 +243,50 @@ function actionRuntime(client:T3Client,route:EditorRouteInput):Runtime {
     || route.environmentId!==owner.target.environmentId || route.threadId!==owner.target.threadId)throw superseded();
   requireCurrent(client,runtime);owner.route=editorCopy(route);return runtime;
 }
+/** After a local terminal has published, route-only navigation cannot redirect its
+ * originating thread callback. Transport/catalog replacement still ends the invocation. */
+function requireCommandCurrent(client:T3Client,runtime:Runtime,pending:EditorOwner['pending']):void {
+  if(!pending?.localClear||!pending.outcome){requireCurrent(client,runtime);return}
+  const target=runtime.owner.target;
+  if(client.origin!==target.origin||client.environmentId!==target.environmentId||client.generation!==target.generation
+    ||runtime.catalog!==mobileCacheCatalogIdentity(fleet.saved,target.environmentId))throw superseded();
+}
 async function invokeCommand(client:T3Client,runtime:Runtime,native:Native,storage:Files):Promise<EditorResult> {
   requireCurrent(client,runtime);const command=runtime.owner.state.pendingCommand;
   if(!command || !runtime.owner.pending)throw superseded();
+  const pending=runtime.owner.pending;
   const response=reply(await native.later({op:'composerEditorApply',generation:runtime.owner.target.generation,identity:mounted(runtime.owner),command}));
-  requireCurrent(client,runtime);
+  requireCommandCurrent(client,runtime,pending);
   if(!response.ok)throw new ClientError(response.error?.message||'The editor could not apply the change.',response.error?.kind||'protocol');
   if(response.generation!==runtime.owner.target.generation)throw superseded();
   const terminal=mobileComposerEditorDecodeEvent(obj(response.value).event);
-  if(!terminal || terminal.commandId!==command.commandId || terminal.commandRevision!==command.commandRevision
+  if(!terminal || !['commandApplied','commandRejected'].includes(terminal.kind) || terminal.commandId!==command.commandId || terminal.commandRevision!==command.commandRevision
     || terminal.owner!==command.owner || terminal.editorId!==command.editorId || terminal.routeVisit!==command.routeVisit
     || terminal.renderEpoch!==command.renderEpoch || terminal.mountId!==command.mountId)throw superseded();
+  if(pending.outcome){
+    const fields=(e:typeof terminal)=>[e.kind,e.commandId,e.commandRevision,e.eventCount,e.value,e.selection,e.composing,e.focused,e.reason??''];
+    if(JSON.stringify(fields(pending.outcome.terminal))!==JSON.stringify(fields(terminal)))throw superseded();
+  }
+  const receipt=()=>({id:command.commandId,applied:terminal.kind==='commandApplied',
+    ...(pending.localClear?.mode==='content'?{contentCleared:pending.localClear.cleared===true}:{})});
+  if(pending.outcome)return {...result(client,runtime),command:receipt()};
   const accepted=mobileComposerEditorAccept(runtime.owner.state,terminal);
   if(accepted.accepted)runtime.owner.state=accepted.state;
   else {
     // A later reservation is possible only after this command's terminal was ACKed.
     const state=runtime.owner.state;
-    if(state.ackCommandId===command.commandId || state.lastCommandRevision>command.commandRevision && state.issuedCommandIds.includes(command.commandId))return result(client,runtime);
+    if(state.ackCommandId===command.commandId || state.lastCommandRevision>command.commandRevision && state.issuedCommandIds.includes(command.commandId))return {...result(client,runtime),command:receipt()};
     throw superseded();
   }
-  return consume(client,runtime,native,storage);
+  const answer=await consume(client,runtime,native,storage);return {...answer,command:receipt()};
 }
 /** Reserve all plain effects before native dispatch. No settings or context change
  * occurs merely because a caller requested a replacement. */
 export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIntentCapture,next:ComposerEditorDocument,
-  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey='',localCommand?:EditorUsageCommand):Promise<EditorResult> {
+  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey='',localCommand?:EditorUsageCommand,localClear?:EditorLocalClear,receipt?:EditorCommandReceipt):Promise<EditorResult> {
   const runtime=runtimes.get(client);if(!runtime || !mobileEditorIntentCurrent(client,capture))throw superseded();
   requireCurrent(client,runtime);const owner=runtime.owner;
+  if(localClear&&(next.value!==''||next.selection.start!==0||next.selection.end!==0||added||mode||retirementKey||localCommand))throw superseded();
   if(retirementKey&&!mobileEditorRetirementAllowed(client,retirementKey))throw superseded();
   if(owner.route.readOnly || owner.route.voiceBusy || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
   const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,added));
@@ -263,7 +294,8 @@ export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIn
   const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
   const reserved=mobileComposerEditorCommand(owner.state,id,revision,{...next,tokensJson:doc.tokensJson});
   if(!reserved.command)throw superseded();
-  owner.pending={id,revision,...(localCommand?{localCommand:editorCopy(localCommand)}:{}),...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
+  if(receipt){receipt.id=id;receipt.applied=null;receipt.contentCleared=null}
+  owner.pending={id,revision,...(receipt?{receipt}:{}),...(localClear?{localClear:editorCopy(localClear)}:{}),...(localCommand?{localCommand:editorCopy(localCommand)}:{}),...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
   owner.state=reserved.state;
   return invokeCommand(client,runtime,native,storage);
 }
