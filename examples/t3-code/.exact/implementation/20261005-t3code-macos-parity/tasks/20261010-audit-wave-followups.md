@@ -99,7 +99,7 @@ fresh `--storage` per drive. The "Audit empty thread" was made with `thread.crea
 spare port 16323). The clone and reference homes have codex and claudeAgent switched off, so nothing can be sent.
 - Before: the never-edited worktree `t3-code-evidence-base` at `950e8e2e5`. That is the feature tip before #355–#366.
   Each finding was also seen at `eba445c44`.
-- After: the code of `e3443c45c`. The final head adds only a merge of #352 (browser).
+- After: the code of `e3443c45c`. The final head adds only merges of #352, #368, #369 and #370.
 - Reference: the Electron T3 Code `1e2ecbd975` over CDP.
 
 Each run is one agent drive ([drive record](https://raw.githubusercontent.com/ccheever/exact2/487098b41d7c94fc3b4bd82b5f8a70f8b3da4f68/audit-wave-followups/drive-record.txt)).
@@ -132,13 +132,16 @@ Images read before | after | reference.
 
 ## Checks
 
-These ran once on `e32ff7949`, the head after merging `origin/feat(example)/t3-code` (#352, no conflicts).
+These ran on `6b140f514`, the head after a second merge of `origin/feat(example)/t3-code` (#368, #369, #370). That
+merge had conflicts in `app.contract`, `app-window.contract` and `app-settings.contract`, resolved keeping both sides:
+the incoming `scheme` prop and Settings update pill, and this branch's `providerVisit`, `paletteOpen` and
+`modelAddingLive`. The same checks had all passed on `e32ff7949`, the merge of #352.
 
 | Check | Exit | Result |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 3,921 pass, 1 skip, 0 fail, 275 files |
+| `bun test examples/t3-code --timeout 60000` | 0 | 3,948 pass, 1 skip, 0 fail, 277 files |
 | strict `tsc` on `examples/t3-code/app.ts` (README command) | 0 | no errors |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 5,963 slots, 47 resources, 103,535 nodes; `app.contract` is 1,260 lines |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 5,968 slots, 47 resources, 103,605 nodes; `app.contract` is 1,273 lines |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
 | `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,521 pass, 0 fail, 34 ignored |
