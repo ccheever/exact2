@@ -372,6 +372,7 @@ extension T3BrowserSessions {
                 answer(["armed": true])
             }
         case "disarm":
+            session.armGrace(nil)
             recording.disarm()
             if !recording.capturing { parking.release(session, "recording") }
             note("record disarm \(session.id)")
