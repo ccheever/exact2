@@ -32,12 +32,15 @@ export function defaultModelKey(config: Obj, projectId: string, project: Obj | n
 }
 
 type Choice = { value: string; label: string; selected: boolean };
-type BranchRef = { value: string; label: string; search: string; badge: string };
-/** BranchPickerRefItem: the name and its tag (current, worktree, remote, default). */
+type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };
+/**
+ * BranchPickerRefItem: the name and its tag (current, worktree, remote, default). `remote` is the ref's own isRemote, which
+ * the trigger reads (settings-scheduled.contract taskBaseLabel: "origin/" only for a listed local branch).
+ */
 export function branchRef(ref: Obj, projectCwd: string): BranchRef {
   const name = str(ref.name), worktree = str(ref.worktreePath);
   const badge = ref.current === true ? 'current' : worktree && projectCwd && worktree !== projectCwd ? 'worktree' : ref.isRemote === true ? 'remote' : ref.isDefault === true ? 'default' : '';
-  return { value: name, label: name, search: name.toLowerCase(), badge };
+  return { value: name, label: name, search: name.toLowerCase(), badge, remote: ref.isRemote === true };
 }
 
 /** resolveSettingsScope for this page over every live environment (the groups are the focused environment's). */

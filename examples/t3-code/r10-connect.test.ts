@@ -49,6 +49,19 @@ describe('Add environment with nothing connected', () => {
     expect(toasts(client).map(toast => toast.title)).toEqual(['Could not add backend']);
     fleet.entries.clear();
   });
+  // settings-rows-and-labels S2-8: the reference's renderer escapes the spaces (https://not%20a%20url/) and its request
+  // fails at the transport; nothing reaches the native transport here.
+  test('a host with spaces fails as the reference request does, after the pairing code check', async () => {
+    const message = 'Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).';
+    for (const connected of [true, false]) {
+      const native = new Transport(), client = disconnected();
+      await expect(runConnectionOp(native, 'environment-add', 'not a url', 'ABC', connected, client)).rejects.toThrow(message);
+      expect(native.calls).toEqual([]);
+      expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add backend', message]]);
+    }
+    await expect(runConnectionOp(new Transport(), 'environment-add', 'not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
+    fleet.entries.clear();
+  });
 });
 
 // A module whose sleeps end when the test says so; wakes are counted.
