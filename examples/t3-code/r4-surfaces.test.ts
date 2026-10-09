@@ -292,6 +292,10 @@ describe('the surface launcher keyboard', () => {
     expect(launcher).toContain('else if k == "ArrowUp" or k == "ArrowLeft"\n      preventDefault()\n      highlight = lit == -1 ? length(ids) - 1 : (lit - 1 + length(ids)) % length(ids)');
     expect(launcher).toContain('else if k == "Enter" and lit >= 0\n      preventDefault()\n      match at(ids, lit)\n        case some(id)\n          ui("choose", id)');
     expect(launcher).toContain('    else\n      ui("key", k)');
+    // realinput-1010-fixes RI-1: a letter of an available row, either case, is the launcher's alone (the reference's
+    // capture listener prevents and stops it), so a real key handed on by the window's monitor goes nowhere else.
+    expect(launcher).toContain('derive letters = concat(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), map(filter(surfaces, (entry) => entry.available), (entry) => entry.letter))');
+    expect(launcher).toContain('else if includes(letters, k)\n      preventDefault()\n      stopPropagation()\n      ui("key", k)\n    else\n      ui("key", k)');
     // A pointer over an available row moves the same highlight; leaving that row clears it.
     expect(launcher).toContain('highlight = over ? indexOf(ids, id) : (highlight == indexOf(ids, id) ? -1 : highlight)');
     expect(launcher).toContain('id="surface-chooser" key=keys hatch="t3-launcher"');

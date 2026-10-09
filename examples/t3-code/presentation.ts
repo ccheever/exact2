@@ -19,7 +19,12 @@ import { composerSnapshot } from './composer-presentation';
 import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import { triggerModelName } from './r3-composer-controls-model';
-import { pickerCatalog } from './model-catalog';
+import { pickerCatalog, withJumpLabels } from './model-catalog';
+import { effectiveShortcut } from './r4-polish-shortcuts'; // model-picker-parity CO-1: the rows' ⌘1–⌘9
+import { ariaChord } from './keyboard-dispatch';
+import { shortcutInput } from './keybinding-settings';
+import { shortcutLabel } from './keybinding-view';
+import { terminalOpen } from './terminal-drawer-view';
 import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
@@ -145,6 +150,7 @@ export function snapshot(client: T3Client, now = 0) {
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
+    threadLoading: !!client.threadId && !client.thread, // audit-wave-followups FU-1: the empty timeline's placeholder waits for the detail
     diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: diffNotGit(client) || client.diffError === NOT_GIT_REPO ? '' : client.diffError,
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
@@ -170,5 +176,11 @@ export function snapshot(client: T3Client, now = 0) {
  * A target names the Settings → General row the picker chooses for (settings-model-picker.ts).
  */
 export function modelCatalog(client: T3Client, providerId: string, query: string, target = '') {
-  return target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
+  const catalog = target ? settingsPickerCatalog(client, target, providerId, query, providerBadge) : pickerCatalog(client, providerId, query, providerBadge);
+  // ModelPickerContent modelJumpLabelByKey: each jump command's shortcut in the open picker's context.
+  const context = { modelPickerOpen: true, terminalOpen: terminalOpen(client) };
+  return withJumpLabels(catalog, command => {
+    const shortcut = effectiveShortcut(client.config, command, context);
+    return shortcut ? { label: shortcutLabel(shortcutInput(shortcut)), chord: ariaChord(shortcut) } : { label: '', chord: '' };
+  });
 }

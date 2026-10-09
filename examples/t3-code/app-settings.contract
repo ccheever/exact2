@@ -63,6 +63,16 @@ use TipCard from "./shell-tip.contract"
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
 // resources and actions: each component takes the root names it reads as props of the same names.
 
+// audit-wave-followups FU-4: a root-level provider link while Settings stays open. The reference keys
+// ProviderSettingsPanelContent by the link's environment and instance (ProviderSettingsPanel.tsx), so a link to another
+// target (A → B → A too) remounts the page and an open "Add custom model" field (ProviderModelsSection isAdding)
+// closes; a link to the Providers page's own target keeps it. The target is the route's (the root's
+// `providerLinkTarget`: the last link's instance, none after any other way onto the page), not the provider chosen on
+// the page, which is the content's local state (`selectedInstanceId`). `providerVisit` counts those remounts, and the
+// field counts only on the visit it was opened on.
+fn providerLinkVisit(visit: number, onPage: bool, machine: string, target: string, nextMachine: string, nextTarget: string): number = (onPage and machine == nextMachine and target == nextTarget) ? visit : visit + 1
+fn modelAddingOn(adding: string, openedOn: number, visit: number): string = openedOn == visit ? adding : ""
+
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.
 component SettingsWindow
   inject
@@ -81,6 +91,8 @@ component SettingsWindow
     scheme: string
     settingsMenu: string
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
+    providerVisit: number // audit-wave-followups FU-4: counts the root's provider links that changed the page's target
+    paletteOpen: bool // audit-wave-followups FU-5: the command palette over Settings owns Escape (its Dialog prevents it)
     editSettingsQueryRoot: action
     coreSearchKeyRoot: action
     corePickRoot: action
@@ -181,16 +193,20 @@ component SettingsWindow
   // pointer is over the sidebar rail ("Drag to resize sidebar"). T3Window mounts this view only while Settings is
   // open, so all of it starts over each time, as the reference's settings route remounts.
   state modelAdding = ""
+  // FU-4: the provider link visit the field was opened on (providerLinkVisit above).
+  state modelAddingVisit = 0
+  derive modelAddingLive = modelAddingOn(modelAdding, modelAddingVisit, providerVisit)
   state escapeFocus = ""
   state railHover = false
   state updateTipHover = false // the Settings nav's SidebarUpdatePill (its tooltip is drawn below, past the nav)
-  derive modelAddingShown = modelAdding != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAdding))) > 0
+  derive modelAddingShown = modelAddingLive != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAddingLive))) > 0
   // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
   // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
-  // takes it, which hears it only while it has the focus. While one owns it, Back gives up its Escape shortcut; with
+  // takes it, which hears it only while it has the focus. The command palette opened over Settings is a Dialog whose
+  // Escape closes only itself (FU-5). While one owns it, Back gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
-  derive escapeOwned = settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
+  derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""
   action editSettingsQuery(value: string)
@@ -217,6 +233,7 @@ component SettingsWindow
   action providerUiWindow(what: string, value: string)
     if what == "model-adding"
       modelAdding = value
+      modelAddingVisit = providerVisit
       escapeFocusSet("custom-model-slug", false)
     else
       if what == "slug-focus"
@@ -301,7 +318,7 @@ component SettingsWindow
               when settingsRoute == "connections"
                 ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
+                ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAddingLive)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                   each row in settingsCore.projectModel key=row.id

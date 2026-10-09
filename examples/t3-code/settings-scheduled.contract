@@ -5,7 +5,7 @@ use SelectOption from "./settings-kit.contract"
 use SettingsSwitch from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
-use GhostSelect from "./settings-projects.contract"
+use SettingsPickerTrigger from "./model-picker.contract" // model-picker-parity S2-4
 use LucideLaptop from "./settings-icons.contract"
 use SettingsSelect from "./settings-kit.contract"
 use LucidePlus from "./settings-icons.contract"
@@ -99,7 +99,6 @@ shape ScheduledPage
   sections: list<TaskSectionView>
   editors: list<TaskDraftView>
   projects: list<SelectOption>
-  models: list<SelectOption>
   workspaces: list<SelectOption>
   environments: list<SelectOption>
   branches: list<TaskBranches>
@@ -242,6 +241,11 @@ fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening).
 component ScheduledEditor
+  // model-picker-parity S2-4: Model is the provider picker (ProviderModelPicker, no setup and no disabled reasons), opened by the
+  // root's `pickModel`; its pick is the root's `taskModelPick` until this editor closes.
+  inject
+    pickModel: action
+    taskModelPick: string
   props
     data: ScheduledPage
     draft: TaskDraftView
@@ -268,7 +272,8 @@ component ScheduledEditor
   state baseRef = draft.baseRef
   state startFromOrigin = draft.startFromOrigin
   state path = draft.path
-  state modelKey = draft.modelKey
+  derive modelKey = (taskModelPick != "" ? taskModelPick : draft.modelKey)
+  derive modelName = (markField(data.marks, modelKey, "name") == "" ? slice(modelKey, indexOf(modelKey, ":") + 1, length(modelKey)) : markField(data.marks, modelKey, "name"))
   state refQuery = ""
   derive refSearch = refQuery
   // The base is a local branch of the chosen project's refs (WorktreeBaseBranchPicker's selectedRef, isRemote false): from
@@ -299,8 +304,6 @@ component ScheduledEditor
       workspaceMode = value
     if field == "branch"
       baseRef = value
-    if field == "model"
-      modelKey = value
     if field == "schedule"
       scheduleMode = value
   action toggle(field: string)
@@ -411,7 +414,7 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Model" class=TkLabel
               row
-                GhostSelect(selectId="task-model", label="Model", driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=(markField(data.marks, modelKey, "accent") == "" ? "#00000000" : markField(data.marks, modelKey, "accent")), valueLabel=(markField(data.marks, modelKey, "name") == "" ? modelLabel(data.models, modelKey) : markField(data.marks, modelKey, "name")), disabled=busy, options=data.models, choose=choose("model"))
+                SettingsPickerTrigger(rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
             column gap="0.75rem"
               when draft.legacyInterval
                 text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" role="status"
@@ -453,7 +456,6 @@ component ScheduledEditor
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
 
 fn projectLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")
-fn modelLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")
 fn markField(marks: list<TaskModelMark>, value: string, field: string): string = join(map(filter(marks, mark => mark.value == value), mark => field == "driver" ? mark.driver : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name))), "")
 
 component Weekday
