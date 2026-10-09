@@ -1,0 +1,53 @@
+snapshot-permission-helper, review round (2026-10-10): snapshot AppKit test, before and after
+Recipe: examples/t3-code/README.md (AppKit test recipe), run for macos/tests/snapshot only.
+
+BEFORE (PR head fbfe66a17, the binary built for the first round)
+5 selected-window identity checks passed
+12 capture lifetime/budget checks passed
+6 native draft-file persistence/cleanup checks passed
+3 image validation/cancellation checks passed
+2 oversized-image resize checks passed
+20 shortcut normalization/layout/transaction/recorder checks passed
+5 physical modifier and timeout checks passed
+1 capture animation screen-geometry check passed (no OS capture)
+20 capture flight lifetime/deadline/identity checks passed (synthetic image, no OS capture)
+13 composer-owner focus, setup-guard and thumbnail checks passed
+48 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)
+(no check covered a drag that ends without mouseUp, the hover after the panel orders out,
+ or which helper setup and requestPermissions dock outside agent mode)
+
+AFTER (PR head ba427ae29)
+5 selected-window identity checks passed
+12 capture lifetime/budget checks passed
+6 native draft-file persistence/cleanup checks passed
+3 image validation/cancellation checks passed
+2 oversized-image resize checks passed
+20 shortcut normalization/layout/transaction/recorder checks passed
+5 physical modifier and timeout checks passed
+1 capture animation screen-geometry check passed (no OS capture)
+20 capture flight lifetime/deadline/identity checks passed (synthetic image, no OS capture)
+13 composer-owner focus, setup-guard and thumbnail checks passed
+53 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)
+16 snapshot permission request checks passed (fake grants, no TCC prompt)
+exit=0
+
+New permission-helper checks (5):
+- the panel hidden under the pointer (a Finder reveal) drops its hover
+- back under the pointer, x shows again
+- back with the pointer elsewhere, x stays hidden
+- pressing the row grabs (closed hand)
+- a drag that ends without a grant releases the press (open hand over the row again) and reveals nothing
+
+New permission-requests.swift (16), against reference DesktopSnapShot requestPermissions/setup and its tests:
+- requestPermissions(true), both missing: Accessibility prompt, then Screen Recording's prompt and pane, never
+  Accessibility's pane; Screen Recording's helper docks first, for the focused window
+- requestPermissions(false): Accessibility is never read or prompted
+- Screen Recording granted: Accessibility's pane opens and its helper docks
+- a Screen Recording prompt that grants opens no Screen Recording pane; Accessibility follows
+- without app text and Screen Recording granted, or with both grants: nothing opens or docks
+- Allow Accessibility / Allow Screen Recording: each prompts for, opens and docks only its own permission; each
+  helper polls its own grant; with the grant present no pane opens and the helper sees the grant (opens nothing)
+
+Mutation check: the same test against a copy of T3SnapShot.swift without `include &&` in requestPermissions'
+Accessibility branch fails with:
+  permission-requests.swift: Fatal error: without app text and with Screen Recording granted nothing opens or docks
