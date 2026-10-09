@@ -7,7 +7,7 @@ import { arr, obj, str, num, type Obj } from './domain';
 import type { T3Client } from './client';
 import { ClientError, type Native } from './protocol';
 import { relativeTimeLabel } from './settings-data';
-import { dxCell, dxFinish, dxHeaders, dxRow, liveCollapsed, option, telemetryPage, type DxTable } from './settings-a-telemetry';
+import { dxCell, dxFinish, dxHeaders, dxRow, liveCollapsed, option, syncTelemetry, telemetryTimeline, telemetryView, type DxTable } from './settings-a-telemetry';
 import { preferredEditor } from './shell-details';
 import { letGo } from './let-go';
 
@@ -60,33 +60,43 @@ const expandable = (text: string) => text.length > 180 || text.includes('\n');
 // One fetch per visit and Refresh: the key is the environment, period and refresh count. Each read is kept
 // as it lands and is a shared read (T3Transport `share`): an answer Exact asked again before a reply (a
 // telemetry sample, data.telemetry) joins the read still pending instead of sending it again, and keeps
-// what the earlier answer never received (settings-diagnostics-and-scope, S2-2).
+// what the earlier answer never received (settings-diagnostics-and-scope, S2-2). The reads land before the
+// telemetry stream opens (settings-a-telemetry.ts telemetryPage): its first sample comes at once, and a reply that reached the
+// transport after Exact forgot this answer is dropped, which no later answer can join.
 type Read = { value: Obj; error: string };
 type Reads = { key: string; processes?: Read; history?: Read; traces?: Read };
 const cache = new WeakMap<T3Client, Reads>();
 
 export async function diagnosticsPage(client: T3Client, native: Native | null | undefined, environmentId: string, period: string, active: boolean, now = 0, refresh = 0) {
   const blankTable: DxTable = { id: '', minWidth: 0, headers: [], rows: [], empty: '' };
-  const telemetry = await telemetryPage(client, native, active && !!native?.available && client.ready && (environmentId === '' || environmentId === client.environmentId), now, refresh);
+  const scoped = active && !!native?.available && client.ready && (environmentId === '' || environmentId === client.environmentId);
+  const window = WINDOWS[period];
+  if (!active) cache.delete(client);
+  const pageReads = async (): Promise<[Read, Read, Read] | null> => {
+    if (!scoped || !window) return null;
+    const access = client.restAccess(native!);
+    const key = `${client.environmentId}|${period}|${refresh}`;
+    let reads = cache.get(client);
+    if (!reads || reads.key !== key) cache.set(client, reads = { key });
+    const kept = reads;
+    const read = async (slot: 'processes' | 'history' | 'traces', method: string, payload: Obj): Promise<Read> => {
+      const hit = kept[slot]; if (hit) return hit;
+      try { return kept[slot] = { value: await access.read(method, payload), error: '' }; }
+      catch (error) { if (letGo(error)) throw error; return kept[slot] = { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; }
+    };
+    return Promise.all([read('processes', 'server.getProcessDiagnostics', {}), read('history', 'server.getProcessResourceHistory', { windowMs: window[0], bucketMs: window[1] }), read('traces', 'server.getTraceDiagnostics', {})]);
+  };
+  const [timeline, reads] = await Promise.all([telemetryTimeline(client, native, scoped, refresh), pageReads()]);
+  await syncTelemetry(client, native, scoped);
+  const telemetry = telemetryView(client, now, timeline);
   const empty = { available: false, error: '', period, checkedProcesses: '', checkedHistory: '', checkedTraces: '', checkedProcessesValue: '', checkedHistoryValue: '', checkedTracesValue: '',
     canOpenLogs: false, processStats: [] as Stat[], processErrors: [] as string[], processes: blankTable,
     historyStats: [] as Stat[], historyErrors: [] as string[], history: blankTable, buckets: [] as { id: string; avg: number; peak: number; label: string }[],
     traceStats: [] as Stat[], traceErrors: [] as string[], latestFailures: blankTable, commonFailures: blankTable, slowest: blankTable, logs: blankTable, topSpans: blankTable, telemetry };
-  if (!active) { cache.delete(client); return empty; }
-  if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId)) return { ...empty, error: 'Choose one connected environment to view diagnostics.' };
-  const window = WINDOWS[period];
-  if (!window) return { ...empty, error: 'Unsupported resource history period.' };
-  const access = client.restAccess(native);
-  const key = `${client.environmentId}|${period}|${refresh}`;
-  let reads = cache.get(client);
-  if (!reads || reads.key !== key) cache.set(client, reads = { key });
-  const kept = reads;
-  const read = async (slot: 'processes' | 'history' | 'traces', method: string, payload: Obj): Promise<Read> => {
-    const hit = kept[slot]; if (hit) return hit;
-    try { return kept[slot] = { value: await access.read(method, payload), error: '' }; }
-    catch (error) { if (letGo(error)) throw error; return kept[slot] = { value: {} as Obj, error: error instanceof Error ? error.message : 'Could not load diagnostics.' }; }
-  };
-  const [processes, history, traces] = await Promise.all([read('processes', 'server.getProcessDiagnostics', {}), read('history', 'server.getProcessResourceHistory', { windowMs: window[0], bucketMs: window[1] }), read('traces', 'server.getTraceDiagnostics', {})]);
+  if (!active) return empty;
+  if (!scoped) return { ...empty, error: 'Choose one connected environment to view diagnostics.' };
+  if (!reads) return { ...empty, error: 'Unsupported resource history period.' };
+  const [processes, history, traces] = reads;
   const checked = (value: Obj) => str(value.readAt) ? relativeTimeLabel(str(value.readAt), now) : '';
   const checkedLabel = (value: Obj) => str(value.readAt) ? (/ago$/.test(checked(value)) ? 'Checked' : `Checked ${checked(value)}`) : 'Checking';
   const checkedValue = (value: Obj) => /ago$/.test(checked(value)) ? checked(value).replace(/ ago$/, '') : '';

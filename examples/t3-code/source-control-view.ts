@@ -234,9 +234,9 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
   if (error || !native) return { ...empty, error };
   try {
     const access = client.restAccess(native);
-    const config = await access.request('server.getConfig');
+    // useScopedSettings (SourceControlSettings.tsx): the connection's subscribed config, never a read per answer.
+    const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const settings = await access.request('server.getSettings');
     const rows = sourceControlRows(settings, projectId, environmentLabel(client), arr(config.providers), client.writable);
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.
     const key = `${client.origin}:${client.generation}:${rescan}`;
