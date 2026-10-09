@@ -1,0 +1,155 @@
+browser-surface-profiles live drive branch-6 (agent mode) at 5a7522e56
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/); lane ports 16780 (server), 16781 (probe page).
+The probe page names cookies, never their values.
+
+  1 clock +15000 real  -> clock 15000 (real 15015 ms)
+  2 clock +6000 real  -> clock 21000 (real 6013 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1519 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 40193 ms)
+  8 screenshot 10-integrations.png window  -> screenshot 10-integrations.png
+  9 tree  -> tree (1142 nodes)
+ 10 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 11 clock +5000 real  -> clock 30500 (real 40660 ms)
+ 12 tap browser-import-source-chrome  -> tapped browser-import-source-chrome at [1069.31, 444]
+ 13 clock +2000 real  -> clock 32500 (real 40678 ms)
+ 14 screenshot 20-chrome-configure.png window  -> screenshot 20-chrome-configure.png
+ 15 tap browser-import-run  -> tapped browser-import-run at [837.13, 548.5]
+ 16 clock +4000 real  -> clock 36500 (real 40687 ms)
+ 17 screenshot 21-chrome-done.png window  -> screenshot 21-chrome-done.png
+ 18 tap browser-import-done  -> tapped browser-import-done at [841.7, 498.5]
+ 19 clock +1500 real  -> clock 38000 (real 40631 ms)
+ 20 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 21 clock +5000 real  -> clock 43000 (real 40649 ms)
+ 22 tap browser-import-source-firefox  -> tapped browser-import-source-firefox at [1068.97, 556]
+ 23 clock +2000 real  -> clock 45000 (real 40649 ms)
+ 24 tap browser-import-tile-existing:default  -> tapped browser-import-tile-existing:default at [767.5, 441.5]
+ 25 clock +800 real  -> clock 45800 (real 20628 ms)
+ 26 tap browser-import-run  -> tapped browser-import-run at [837.13, 579.5]
+ 27 clock +4000 real  -> clock 49800 (real 40362 ms)
+ 28 screenshot 29-firefox-done.png window  -> screenshot 29-firefox-done.png
+ 29 tap browser-import-done  -> tapped browser-import-done at [841.7, 470.5]
+ 30 clock +1000 real  -> clock 50800 (real 40371 ms)
+ 31 tree  -> tree (1168 nodes)
+ 32 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+ 33 clock +1000 real  -> clock 51800 (real 40342 ms)
+ 34 tap browser-default-viewport  -> tapped browser-default-viewport at [1087.5, 446]
+ 35 clock +1000 real  -> clock 52800 (real 40353 ms)
+ 36 screenshot 40-viewport-menu.png window  -> screenshot 40-viewport-menu.png
+ 37 tap browser-default-viewport-option-iphone-12-pro  -> tapped browser-default-viewport-option-iphone-12-pro at [1131.91, 595]
+ 38 clock +1500 real  -> clock 54300 (real 40359 ms)
+ 39 tap browser-default-zoom  -> tapped browser-default-zoom at [1095.5, 530]
+ 40 clock +1000 real  -> clock 55300 (real 40351 ms)
+ 41 tap browser-default-zoom-option-1.25  -> tapped browser-default-zoom-option-1.25 at [1095.5, 751]
+ 42 clock +1500 real  -> clock 56800 (real 40354 ms)
+ 43 tap browser-default-appearance  -> tapped browser-default-appearance at [1095.5, 596]
+ 44 clock +1000 real  -> clock 57800 (real 40352 ms)
+ 45 tap browser-default-appearance-option-dark  -> tapped browser-default-appearance-option-dark at [1095.5, 689]
+ 46 clock +1500 real  -> clock 59300 (real 40358 ms)
+ 47 tap browser-recording-frame-rate  -> tapped browser-recording-frame-rate at [1095.5, 662]
+ 48 clock +1000 real  -> clock 60300 (real 40360 ms)
+ 49 tap browser-recording-frame-rate-option-60  -> tapped browser-recording-frame-rate-option-60 at [1095.5, 727]
+ 50 clock +1500 real  -> clock 61800 (real 40366 ms)
+ 51 tap browser-recording-key-presses  -> tapped browser-recording-key-presses at [1160.5, 728]
+ 52 clock +1500 real  -> clock 63300 (real 40338 ms)
+ 53 tap browser-auto-show-floating-preview  -> tapped browser-auto-show-floating-preview at [1160.5, 446]
+ 54 clock +1500 real  -> clock 64800 (real 40346 ms)
+ 55 screenshot 41-defaults-set.png window  -> screenshot 41-defaults-set.png
+ 56 tree  -> tree (1200 nodes)
+ 57 tap reset-browser-default-frame-rate  -> tapped reset-browser-default-frame-rate at [570.8, 153]
+ 58 clock +1000 real  -> clock 65800 (real 40340 ms)
+ 59 tap reset-browser-default-auto-show  -> tapped reset-browser-default-auto-show at [558.67, 435]
+ 60 clock +1000 real  -> clock 66800 (real 40344 ms)
+ 61 screenshot 42-defaults-reset.png window  -> screenshot 42-defaults-reset.png
+ 62 tree  -> tree (1192 nodes)
+ 63 tap settings-go-to-threads  -> tapped settings-go-to-threads at [156.88, 26]
+ 64 clock +3000 real  -> clock 69800 (real 3021 ms)
+ 65 tap toggle-right-panel  -> tapped toggle-right-panel at [1253, 26]
+ 66 clock +2000 real  -> clock 71800 (real 2011 ms)
+ 67 screenshot 30-launcher.png window  -> screenshot 30-launcher.png
+ 68 tree  -> tree (547 nodes)
+ 69 tap surface-browser-profiles  -> tapped surface-browser-profiles at [1126.5, 334]
+ 70 clock +1000 real  -> clock 72800 (real 1010 ms)
+ 71 screenshot 31-launcher-profiles.png window  -> screenshot 31-launcher-profiles.png
+ 72 tree  -> tree (547 nodes)
+ 73 tap "Chrome"  -> tapped Chrome at [1026.5, 427]
+ 74 clock +3000 real  -> clock 75800 (real 3010 ms)
+ 75 screenshot 32-chrome-tab.png window  -> screenshot 32-chrome-tab.png
+ 76 tree  -> tree (740 nodes)
+ 77 type browser-url 127.0.0.1:16781/cookies  -> typed into browser-url
+ 78 type browser-url key Enter  -> typed into browser-url key Enter
+ 79 clock +4000 real  -> clock 79800 (real 4011 ms)
+ 80 screenshot 33-chrome-cookies.png window  -> screenshot 33-chrome-cookies.png
+ 81 logs  -> logs
+ 82 tap browser-more  -> tapped browser-more at [1260, 71.5]
+ 83 clock +1000 real  -> clock 80800 (real 1012 ms)
+ 84 screenshot 34-more-profile.png window  -> screenshot 34-more-profile.png
+ 85 tree  -> tree (819 nodes)
+ 86 tap browser-more-clear-cookies  -> tapped browser-more-clear-cookies at [1140, 292.5]
+ 87 clock +2000 real  -> clock 82800 (real 2009 ms)
+ 88 tap browser-refresh  -> tapped browser-refresh at [813, 71.5]
+ 89 clock +3000 real  -> clock 85800 (real 3011 ms)
+ 90 screenshot 35-cleared.png window  -> screenshot 35-cleared.png
+ 91 logs  -> logs
+ 92 tap panel-add-surface  -> tapped panel-add-surface at [872.52, 26]
+ 93 clock +1000 real  -> clock 86800 (real 1012 ms)
+ 94 tap add-surface-browser-profiles  -> tapped add-surface-browser-profiles at [1033.52, 57]
+ 95 clock +1000 real  -> clock 87800 (real 1013 ms)
+ 96 screenshot 36-plus-profiles.png window  -> screenshot 36-plus-profiles.png
+ 97 tree  -> tree (819 nodes)
+ 98 tap browser-profile-incognito  -> tapped browser-profile-incognito at [1101.52, 116]
+ 99 clock +3000 real  -> clock 90800 (real 3005 ms)
+100 type browser-url 127.0.0.1:16781/set  -> typed into browser-url
+101 type browser-url key Enter  -> typed into browser-url key Enter
+102 clock +3000 real  -> clock 93800 (real 3011 ms)
+103 tap browser-refresh  -> tapped browser-refresh at [813, 71.5]
+104 clock +3000 real  -> clock 96800 (real 3011 ms)
+105 screenshot 37-incognito.png window  -> screenshot 37-incognito.png
+106 tree  -> tree (827 nodes)
+107 tap panel-add-surface  -> tapped panel-add-surface at [968.5, 26]
+108 clock +1000 real  -> clock 97800 (real 1012 ms)
+109 tap add-surface-browser  -> tapped add-surface-browser at [1052.5, 57]
+110 clock +3000 real  -> clock 100800 (real 3011 ms)
+111 type browser-url 127.0.0.1:16781/cookies  -> typed into browser-url
+112 type browser-url key Enter  -> typed into browser-url key Enter
+113 clock +4000 real  -> clock 104800 (real 4020 ms)
+114 screenshot 38-default-tab.png window  -> screenshot 38-default-tab.png
+115 tree  -> tree (830 nodes)
+116 logs  -> logs
+117 state  -> background, canvas, clock, collections, contentRegion, delivery, derives, device, dialog, documents, epoch, focus, hatch
+
+Module browser lines (t3.browser):
+  app: t3.browser: import sources chrome=ready(2) edge=notInstalled brave=browserRunning vivaldi=notInstalled opera=notInstalled arc=ready(1) helium=notInstalled safari=needsFullDiskAccess firefox=ready(1)
+  app: t3.browser: import 3/3 cookies d6dcb5de-a195-4a95-bbc4-9f166f70f438 profile-7bbf3da0-8991-4485-82e4-718474e96153
+  app: t3.browser: import 1/1 cookies d6dcb5de-a195-4a95-bbc4-9f166f70f438 default
+  app: t3.browser: open ["d6dcb5de-a195-4a95-bbc4-9f166f70f438","39c45517-a21f-4557-bc1a-f8012aefdbd6","36c7ecbb-70de-4151-b123-580bec71bf03","tab_1"]
+  app: t3.browser: navigate http://127.0.0.1:16781/cookies
+  app: t3.browser: clear-cookies d6dcb5de-a195-4a95-bbc4-9f166f70f438 profile-7bbf3da0-8991-4485-82e4-718474e96153
+  app: t3.browser: refresh ["d6dcb5de-a195-4a95-bbc4-9f166f70f438","39c45517-a21f-4557-bc1a-f8012aefdbd6","36c7ecbb-70de-4151-b123-580bec71bf03","tab_1"]
+  app: t3.browser: open ["d6dcb5de-a195-4a95-bbc4-9f166f70f438","39c45517-a21f-4557-bc1a-f8012aefdbd6","36c7ecbb-70de-4151-b123-580bec71bf03","tab_2"]
+  app: t3.browser: navigate http://127.0.0.1:16781/set
+  app: t3.browser: refresh ["d6dcb5de-a195-4a95-bbc4-9f166f70f438","39c45517-a21f-4557-bc1a-f8012aefdbd6","36c7ecbb-70de-4151-b123-580bec71bf03","tab_2"]
+  app: t3.browser: open ["d6dcb5de-a195-4a95-bbc4-9f166f70f438","39c45517-a21f-4557-bc1a-f8012aefdbd6","36c7ecbb-70de-4151-b123-580bec71bf03","tab_3"]
+
+End:
+  fixture pid 4404
+  brave stand-in pid 4405
+  agent pid 4412
+  t3 app exit 0
+  server pid 4571
+  agent exit 0
+
+Probe page (127.0.0.1:16781) requests, cookie names only:
+  fixture on 16781
+  2026-10-09T08:05:41.575Z GET / cookie names=[]
+  2026-10-09T08:05:44.619Z GET /cookies cookie names=[lane_chrome, lane_session]
+  2026-10-09T08:05:44.630Z GET /favicon.ico cookie names=[]
+  2026-10-09T08:05:51.855Z GET /cookies cookie names=[]
+  2026-10-09T08:05:57.763Z GET / cookie names=[]
+  2026-10-09T08:06:00.259Z GET /set cookie names=[]
+  2026-10-09T08:06:00.267Z GET /favicon.ico cookie names=[]
+  2026-10-09T08:06:03.240Z GET /set cookie names=[incognito_probe]
+  2026-10-09T08:06:10.501Z GET /cookies cookie names=[lane_firefox]
+  2026-10-09T08:06:10.508Z GET /favicon.ico cookie names=[]
