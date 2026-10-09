@@ -13,12 +13,13 @@ const git = (dir, args) => {
 /** `{ sha, dirty }` for the repository holding `dir`, or `null` outside one. */
 export function commitOf(dir) {
   const sha = git(dir, ['rev-parse', 'HEAD']);
-  return sha ? { sha, dirty: git(dir, ['status', '--porcelain', '--untracked-files=no']) !== '' } : null;
+  return sha ? { sha, dirty: git(dir, ['status', '--porcelain']) !== '' } : null;
 }
 
 /** The Info.plist keys for `app` built from the exact2 checkout at `root`:
- * `kind` is `archive` (an `--archive`), `release` (production trust) or
- * `debug`. The app's own commit is left out when the app lives in exact2's
+ * its kind is `archive` (an `--archive`), `release` (production trust, or a
+ * distributed build: Swift's release configuration) or `debug`. A tree is
+ * dirty with a change to a tracked file or a new file git does not ignore. The app's own commit is left out when the app lives in exact2's
  * repository (its commit is exact2's). */
 export function buildInfo(app, { root, archive = false, production = false, now = new Date() }) {
   const exact = commitOf(root);

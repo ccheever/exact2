@@ -8,13 +8,14 @@ class BuildInfoTests: XCTestCase {
         let lines = BuildInfo.lines([
             "CFBundleDisplayName": "Bluesky Exact2", "CFBundleIdentifier": "dev.tuft.blueskyclone",
             "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "12",
-            "ExactBuildTime": "2026-10-08T10:00:00.123Z", "ExactBuildKind": "archive",
+            "ExactBuildTime": "2026-10-08T09:59:59.500Z", "ExactBuildKind": "archive",
             "ExactCommit": "3adf67106ead52aa2ee5221151013b06c09fd238", "ExactCommitDirty": true,
             "ExactAppCommit": "575c6e8aa", "ExactAppCommitDirty": false,
         ], now: now)
         XCTAssertEqual(lines[0], "Bluesky Exact2 — dev.tuft.blueskyclone")
         XCTAssertEqual(lines[1], "version 0.1.0 (12)")
-        XCTAssertTrue(lines[2].hasPrefix("built 2026-10-08 ") && lines[2].hasSuffix("(2 h ago)"), lines[2])
+        let built = ISO8601DateFormatter().date(from: "2026-10-08T09:59:59Z")!
+        XCTAssertEqual(lines[2], "built \(BuildInfo.local.string(from: built)) (2 h ago)", "local time, whatever the zone")
         XCTAssertEqual(Array(lines[3...]), ["exact2 3adf67106e (dirty)", "app 575c6e8aa", "archive"])
     }
 

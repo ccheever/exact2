@@ -270,7 +270,7 @@ public enum DevMenu {
     }
 
     static func info() -> String {
-        var lines = BuildInfo.lines(Bundle.main.infoDictionary ?? [:]) + [CommandLine.arguments[0]]
+        var lines = BuildInfo.lines(ExactEnv.appMetadata) + [CommandLine.arguments[0]]
         if let status = ExactApp.shared.connectionStatus { lines.append("url: \(status)") }
         if let path = ExactEnv.environment["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date

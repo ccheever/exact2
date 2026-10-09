@@ -33,8 +33,11 @@ enum BuildInfo {
         return "\(Int(s / 86400)) d ago"
     }
 
-    private static let local: DateFormatter = {
+    /// The device's time zone, on the Gregorian calendar whatever the locale.
+    static let local: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
         f.dateFormat = "yyyy-MM-dd HH:mm"
         return f
     }()
