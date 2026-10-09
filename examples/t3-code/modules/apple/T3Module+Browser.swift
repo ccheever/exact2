@@ -15,7 +15,7 @@ extension T3Module: T3BrowserSessionOwner {
             let tab = request["tab"] as? String ?? "", muted = request["muted"] as? Bool == true
             return DispatchQueue.main.async { [browserAutomation] in reply.send(["ok": true, "generation": generation, "value": ["done": browserAutomation.setMuted(tab, muted)]]) }
         default:
-            guard let answer = browserSessions.perform(request) else { return next() }
+            guard let answer = browserSessions.perform(request) ?? browserSessions.performNavigation(request) else { return next() } // part 2: browserSet
             reply.send(answer)
         }
     }
