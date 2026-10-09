@@ -291,6 +291,8 @@ shape Snapshot
   // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
   chatgptPlan: list<ChatGptPlanNotice>
   revision: number
+  // Resource telemetry samples drained (client.ts drain): Diagnostics' live Resource monitor redraws on it alone.
+  telemetry: number
   available: bool
   connected: bool
   connecting: bool

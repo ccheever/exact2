@@ -267,9 +267,9 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const rows = integrationRows(settings, projectId, environmentLabel(client), client.writable);
     // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
     // the selected targets, and Agent device access open once any connected environment runs the hub.
-    // A checkout chosen by this page's own scope (settingsProjectId) is that checkout's group and checkout.
+    // A bare project id (settingsProjectId with no project key: Project settings' target) is its project on every environment (settingsScopeOf).
     const legacy = !projectKey && projectId ? client.projectGroups().find(group => group.members.some(member => member.id === projectId)) : undefined;
-    const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? projectId : checkout);
+    const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,

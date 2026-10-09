@@ -44,7 +44,9 @@ export function branchRef(ref: Obj, projectCwd: string): BranchRef {
 export function taskScope(client: T3Client, environments: { environmentId: string }[], machine: string, projectKey: string, checkout: string, projectId = ''): TaskScope {
   const member = (project: Obj) => ({ environmentId: client.environmentId, id: str(project.id), physicalProjectKey: str(project.id) });
   const groups = client.projectGroups().map(group => ({ projectKey: group.key, memberProjects: group.members.map(member) }));
-  // A bare project id (the Projects route's legacy target) is that project's checkout.
+  // A bare project id (Project settings' target) is its project on every environment (settingsScopeOf); one in no group is that project's checkout.
+  const group = !projectKey && projectId ? groups.find(entry => entry.memberProjects.some(project => project.id === projectId)) : undefined;
+  if (group) return resolveTaskScope({ machine, project: group.projectKey, checkout: '' }, groups, environments);
   if (!projectKey && projectId) groups.push({ projectKey: `project:${projectId}`, memberProjects: client.shell.projects.filter(project => project.id === projectId).map(member) });
   return resolveTaskScope({ machine, project: projectKey || (projectId ? `project:${projectId}` : ''), checkout: checkout || (!projectKey && projectId ? projectId : '') }, groups, environments);
 }

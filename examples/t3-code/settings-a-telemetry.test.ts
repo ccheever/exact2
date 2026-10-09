@@ -31,6 +31,7 @@ const as = (client: Fake) => {
   Object.assign(target, { restAccess: () => ({
     call: async (request: Obj) => { client.calls.push(request); return request.op === 'subscribe' ? { id: '7' } : {}; },
     request: async (method: string, payload: Obj) => { client.requests.push([method, payload]); const reply = client.replies[method]; if (reply instanceof Error) throw reply; return reply ?? {}; },
+    read: async (method: string, payload: Obj) => { client.requests.push([method, payload]); const reply = client.replies[method]; if (reply instanceof Error) throw reply; return reply ?? {}; },
   }) });
   return target as T3Client;
 };

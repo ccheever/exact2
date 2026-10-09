@@ -64,6 +64,8 @@ export class T3Client {
   /** The embedded server's status (local-backend.ts); "This machine" reads it. */
   localBackend: LocalBackendStatus = unknownLocalBackend();
   revision = 0;
+  /** Resource telemetry samples drained (settings-diagnostics-and-scope): only Diagnostics is keyed on it, as only ResourceTelemetryDiagnostics re-renders on a sample. */
+  telemetryRevision = 0;
   generation = -1;
   environmentId = '';
   origin = DEFAULT_ORIGIN;
@@ -473,6 +475,10 @@ export class T3Client {
       if (batch.reset === true && this.lastEvent > 0) settleLostReplies(this); // composer-replies.ts: an overflowed inbox may have dropped a reply
       let through = this.lastEvent;
       let awaitingRegistration = false;
+      // A batch of resource telemetry samples alone redraws Diagnostics only (`data.telemetry`), not every
+      // `data.revision` reader: a sample a second replaced the Diagnostics answer before its reads came back.
+      const samplesOnly = batch.reset !== true && arr(batch.events).length > 0 && arr(batch.events).every(entry => str(entry.key) === TELEMETRY_KEY);
+      let samples = 0;
       for (const entry of arr(batch.events)) {
         const seq = num(entry.seq);
         if (seq <= this.lastEvent) continue;
@@ -486,7 +492,7 @@ export class T3Client {
           break;
         }
         through = Math.max(through, seq);
-        if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); continue; } // settings-a-telemetry.ts
+        if (key === TELEMETRY_KEY) { telemetryEvent(this, entry); samples++; continue; } // settings-a-telemetry.ts
         if (key === WORKTREE_SETUP_KEY) { worktreeSetupEvent(this, entry); continue; } // timeline-worktree.ts
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
         if (key === PR_REFRESH_KEY) { prRefreshEvent(this, entry); continue; } // pages-pr-refresh.ts: pullRequests.subscribeRefreshes
@@ -542,7 +548,8 @@ export class T3Client {
       if (batch.reset === true && arr(batch.events).length === 0) through = Math.max(through, num(batch.latest));
       this.lastEvent = through;
       const ack = through > 0 ? await this.call(native, { op: 'ack', through }, generation) : {};
-      this.changed();
+      if (samples) this.telemetryRevision++;
+      if (!samplesOnly) this.changed();
       if (awaitingRegistration) break;
       if (through >= Math.max(num(batch.latest), num(ack.latest))) break;
       if (arr(batch.events).length === 0 && num(ack.latest) <= through) break;
