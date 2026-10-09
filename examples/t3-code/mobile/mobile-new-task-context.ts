@@ -27,7 +27,7 @@ export function mobileReferencedComposerContext(text: string, context?: MobileMe
 /** Only the live record plus at most 200 undo payloads stay in this invocation-owned history. */
 export function mobileCreateContextHistory() {
   const records = new Map<string, Obj>();
-  return (text: string, current?: MobileMessageContext): MobileMessageContext | undefined => {
+  const restore = (text: string, current?: MobileMessageContext): MobileMessageContext | undefined => {
     for (const record of current?.records ?? []) {
       records.delete(str(record.contextId)); records.set(str(record.contextId), clone(record));
     }
@@ -35,6 +35,8 @@ export function mobileCreateContextHistory() {
     while (records.size > limit) records.delete(records.keys().next().value!);
     return mobileReferencedComposerContext(text, { version: 1, records: [...records.values()] });
   };
+  // Batch publication must inspect dependency records without changing undo history.
+  return Object.assign(restore, { snapshot: (): Obj[] => [...records.values()].map(record => clone(record)) });
 }
 function decode(raw: unknown): MobileNewTaskContextResult {
   if (raw === undefined) return { ok: true, context: undefined };
