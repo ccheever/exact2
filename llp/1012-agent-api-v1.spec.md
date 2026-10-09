@@ -599,8 +599,8 @@ type     the same, `typed`; a reply with an error or `delivery: unsupported` rea
 others   the JSON on one line
 ```
 
-**What an agent pays to read (2026-10-08, revised 2026-10-09; from an agent's
-30-screen build in exact2-playground, `findings/01-token-efficiency.md`).** A
+**What an agent pays to read (2026-10-08, revised 2026-10-09; measured while
+an agent built and drove a 30-screen app).** A
 `tap` printed its whole reply, 144–165 bytes, so 60 taps were about 9 KB; it
 is now one line of 74–92 bytes. `delivery` stays, since it says whether a
 finger was simulated or substituted (LLP 1080.000). A failed input says
