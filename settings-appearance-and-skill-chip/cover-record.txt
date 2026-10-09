@@ -1,0 +1,122 @@
+settings-appearance-and-skill-chip, review round (2026-10-10): a composer chip's details under Settings and the palette
+Clone: agent drives of this worktree's bundle, lane settings-appearance-and-skill-chip, 1280x840, the same steps (cover-drive.sh).
+Before = the PR's previous head 5ddda47d4 (built). After = this head. Reference = Electron 1e2ecbd975 over CDP (Settings by a route change to #/settings: CDP cannot fire the native ⌘, menu accelerator).
+
+Steps:
+  clock +20000 real
+  clock +3000 real
+  tap "Dismiss notification"
+  clock +600 real
+  type composer $frontend-design now
+  clock +1500 real
+  tap composer mouse at 60 12
+  clock +1000 real
+  screenshot c0-open.png window
+  tree
+  type composer key Meta+,
+  clock +1500 real
+  screenshot c1-settings.png window
+  tree
+  state
+  tap settings-go-to-threads
+  clock +1500 real
+  screenshot c2-back.png window
+  tree
+  tap composer mouse at 60 12
+  clock +1000 real
+  tree
+  type composer key Meta+k
+  clock +1000 real
+  screenshot c3-palette.png window
+  tree
+  type palette-input key Escape
+  clock +1000 real
+  screenshot c4-palette-closed.png window
+  tree
+  type composer key Escape
+  clock +600 real
+  tap connection-settings
+  clock +1000 real
+  tap settings-appearance
+  clock +1000 real
+  tap prompt-font-preview down at 90 13
+  tap up
+  clock +1000 real
+  screenshot p0-open.png window
+  tree
+  type prompt-font-preview key Meta+k
+  clock +1000 real
+  screenshot p1-palette.png window
+  tree
+  type palette-input key Escape
+  clock +1000 real
+  screenshot p2-palette-closed.png window
+  tree
+
+== before
+ 3 tap "Dismiss notification"
+ 5 type composer $frontend-design now
+ 7 tap composer mouse at 60 12
+10 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+11 type composer key Meta+,
+14 tree: chip-popover SHOWN (Skill Frontend Design); settings open; palette closed
+15 state settingsOpen=true
+15 state paletteOpen=false
+16 tap settings-go-to-threads
+19 tree: chip-popover absent; settings closed; palette closed
+20 tap composer mouse at 60 12
+22 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+23 type composer key Meta+k
+26 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette open
+27 type palette-input key Escape
+30 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+31 type composer key Escape
+33 tap connection-settings
+35 tap settings-appearance
+37 tap prompt-font-preview down at 90 13
+38 tap up
+41 tree: chip-popover SHOWN (Skill Frontend Design); settings open; palette closed
+42 type prompt-font-preview key Meta+k
+45 tree: chip-popover SHOWN (Skill Frontend Design); settings open; palette open
+46 type palette-input key Escape
+49 tree: chip-popover absent; settings closed; palette closed
+15 state resources.chip.open = True ; derives.chipCovered = (none)
+
+== after
+ 3 tap "Dismiss notification"
+ 5 type composer $frontend-design now
+ 7 tap composer mouse at 60 12
+10 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+11 type composer key Meta+,
+14 tree: chip-popover absent; settings open; palette closed
+15 state settingsOpen=true
+15 state paletteOpen=false
+16 tap settings-go-to-threads
+19 tree: chip-popover absent; settings closed; palette closed
+20 tap composer mouse at 60 12
+22 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+23 type composer key Meta+k
+26 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette open
+27 type palette-input key Escape
+30 tree: chip-popover SHOWN (Skill Frontend Design); settings closed; palette closed
+31 type composer key Escape
+33 tap connection-settings
+35 tap settings-appearance
+37 tap prompt-font-preview down at 90 13
+38 tap up
+41 tree: chip-popover SHOWN (Skill Frontend Design); settings open; palette closed
+42 type prompt-font-preview key Meta+k
+45 tree: chip-popover SHOWN (Skill Frontend Design); settings open; palette open
+46 type palette-input key Escape
+49 tree: chip-popover absent; settings closed; palette closed
+15 state resources.chip.open = False ; derives.chipCovered = False
+
+== reference (aria snapshots)
+  c0-open            chip expanded: 1; popover dialog in aria: 1; palette: 0
+  c1-settings        chip expanded: 0; popover dialog in aria: 0; palette: 0
+  c2-back            chip expanded: 0; popover dialog in aria: 0; palette: 0
+  c3-palette         chip expanded: 0; popover dialog in aria: 0; palette: 1
+  c4-palette-closed  chip expanded: 1; popover dialog in aria: 1; palette: 0
+  p1-palette         chip expanded: 0; popover dialog in aria: 0; palette: 1
+  p2-palette-closed  chip expanded: 1; popover dialog in aria: 1; palette: 0
+  (with the palette open the page under it is aria-hidden, so its aria lists the palette only; the shot shows the popover above it)
