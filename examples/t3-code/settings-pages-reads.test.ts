@@ -13,6 +13,7 @@ import { Backend, storage, thread } from './client-fixture';
 import { arr, obj, str, type Obj } from './domain';
 import { SCHEDULED_TASKS_KEY } from './live-streams';
 import { resetPrimary } from './local-primary-fixture';
+import type { Native } from './protocol';
 import { resetHighlightSlicing } from './r12-render-highlight';
 import { TELEMETRY_KEY } from './settings-a-telemetry';
 
@@ -155,6 +156,28 @@ describe('a change still reaches each page, without a read', () => {
     // Closing the editor and opening it again reads the refs again, as the picker's mount does.
     await ask(PAGES['Scheduled tasks']!);
     expect((await ask(editor)).sent).toEqual(['vcs.listRefs']);
+  });
+
+  test("Diagnostics: the stream's first sample, which lets the opening answer go, costs no second read", async () => {
+    // The server sends subscribeResourceTelemetry's current sample at once; draining it moves data.telemetry and Exact asks
+    // Diagnostics again, forgetting the opening answer. A reply that had reached the transport but not that answer is
+    // dropped (executor_core.rs `forget`: a completed outcome is dropped undrained), and the next answer's shared read joins
+    // only a read still pending. Lane trace before this fix: getResourceTelemetryHistory sent again 13 ms after the first
+    // reply ended. Here every call the opening answer makes after its subscribe has its reply dropped that way.
+    const { server, clock, files, ask, wake } = await launched();
+    let subscribed = false;
+    const forgotten: Native = { available: true, watch: topic => server.watch(topic), later: async request => {
+      const value = await server.later(request);
+      if (obj(request).op === 'subscribe' && obj(request).key === TELEMETRY_KEY) { subscribed = true; server.emit(TELEMETRY_KEY, { readAt: '2026-10-10T07:59:59.000Z', sampleIntervalMs: 1000 }); return value; }
+      if (subscribed) throw Object.assign(new Error('the answer was let go before this reply'), { name: 'FetchError', kind: 'Aborted' });
+      return value;
+    } };
+    const from = server.calls.length;
+    await answer('diagnosticsSettings', PAGES.Diagnostics!.args(clock, true), null, files, forgotten).catch(() => undefined);
+    const again = await wake(PAGES.Diagnostics!);
+    expect({ sent: server.requests(from).sort(), again: again.sent, sample: obj(again.view.telemetry).updated })
+      .toEqual({ sent: [...PAGES.Diagnostics!.opens].sort(), again: [], sample: 'Updated' });
+    expect((await ask(PAGES.Diagnostics!)).sent).toEqual([]);
   });
 
   test("Archive and Diagnostics read again on Refresh and after the page's own action, once each", async () => {

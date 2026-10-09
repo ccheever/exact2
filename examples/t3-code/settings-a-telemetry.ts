@@ -114,6 +114,10 @@ export async function syncTelemetry(client: T3Client, native: Native | null | un
 }
 
 const WINDOWS: Record<string, [number, number]> = { '5m': [300_000, 15_000], '15m': [900_000, 30_000], '30m': [1_800_000, 60_000], '1h': [3_600_000, 120_000] };
+/** The timeline the page shows while `active` (null otherwise): read before the stream opens (telemetryPage). */
+export async function telemetryTimeline(client: T3Client, native: Native | null | undefined, active: boolean, refresh: number): Promise<Telemetry['history']> {
+  return active && native?.available && client.ready ? history(client, native, refresh) : null;
+}
 async function history(client: T3Client, native: Native, refresh: number): Promise<Telemetry['history']> {
   const state = stateOf(client), window = WINDOWS[state.window] ?? WINDOWS['15m']!, key = `${generationOf(client)}|${state.window}|${refresh}`;
   // resourceTelemetryHistory (staleTimeMs 5_000): Atom.swr revalidates when the page mounts, never on a re-render (a sample,
@@ -234,10 +238,15 @@ export function telemetryView(client: T3Client, now: number, timeline: Telemetry
   };
 }
 
-/** The Diagnostics page's telemetry: subscribe, read the timeline, project the view. */
+/**
+ * The Diagnostics page's telemetry: read the timeline, then subscribe, then project the view. The reads land first: the
+ * server sends the stream's current sample at once, draining it asks the page again (data.telemetry) and Exact forgets
+ * this answer, dropping a reply that reached the transport but not yet this answer; the next answer's shared read joins
+ * only a read still pending, so it sent the timeline again (lane trace: 13 ms after the first reply ended).
+ */
 export async function telemetryPage(client: T3Client, native: Native | null | undefined, active: boolean, now: number, refresh: number) {
+  const timeline = await telemetryTimeline(client, native, active, refresh);
   await syncTelemetry(client, native, active);
-  const timeline = active && native?.available && client.ready ? await history(client, native, refresh) : null;
   return telemetryView(client, now, timeline);
 }
 
