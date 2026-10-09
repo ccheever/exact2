@@ -20,6 +20,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private let lock = NSLock()
     private let root: URL
+    private lazy var composerPaste = T3MobileComposerPasteStore(root: root, replace: replace)
     private let outboxStore: T3MobileOutbox
     private var outboxOwner: T3MobileOutboxOwner!
     private var file: URL { root.appendingPathComponent("mobile-queued-edit.json") }
@@ -1099,6 +1100,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                 journal["incomingShares"] = captured; try save(journal)
             }
         }
+        try composerPaste.validatePreferences(previous: readJSON(preferences), next: value)
         try replace(Self.encoded(value), preferences)
     }
     func retire(_ request: [String: Any]) throws -> [String: Any] {
@@ -1228,8 +1230,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         return found
     }
-    private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
+    private func held(_ identifier: String, value: [String: Any], excludingPaste operation: String? = nil) throws -> Bool {
         if fileHoldOwners.values.contains(where: { $0.records.values.contains { !$0.released && $0.receipt["id"] as? String == identifier } }) { return true }
+        if try composerPaste.protects(identifier, excluding: operation) { return true }
         if try T3MobileIncomingShareTransfer.protects(identifier, records: value["incomingShares"]) { return true }
         let preparing = inlinePreparations.values.contains { entry in
             let prepared = entry["prepared"] as! [String: Any]
@@ -1338,12 +1341,24 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     /// Called instead of the old unconditional attachment remover. Check and unlink share the CAS lock.
     func removeAttachment(_ request: [String: Any]) throws -> [String: Any] {
+        try locked { try removeAttachmentLocked(request) }
+    }
+    private func removeAttachmentLocked(_ request: [String: Any], excludingPaste operation: String? = nil) throws -> [String: Any] {
+        guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { throw refusal("That attachment is unavailable.") }
+        let value = try store(), identifier = id.lowercased()
+        guard try !held(identifier, value: value, excludingPaste: operation) else { return ["removed": false, "retained": true] }
+        try unlink(identifier, image: request["op"] as? String == "snapshotDraftRemove")
+        return ["removed": true]
+    }
+    /// Claims happened on main before dispatch; only disk work runs under this existing owner mutex.
+    func composerPasteFiles(_ request: T3ComposerPasteRequest, inputs: [T3ComposerPasteInput]?) throws -> [String: Any] {
         try locked {
-            guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { throw refusal("That attachment is unavailable.") }
-            let value = try store(), identifier = id.lowercased()
-            guard try !held(identifier, value: value) else { return ["removed": false, "retained": true] }
-            try unlink(identifier, image: request["op"] as? String == "snapshotDraftRemove")
-            return ["removed": true]
+            if request.action == "stage" { return try composerPaste.stage(request, inputs: inputs) }
+            return try composerPaste.transition(request) { id, operation in
+                try T3MobileComposerPasteStore.validateInventory(self.readJSON(self.preferences))
+                let value = try self.removeAttachmentLocked(["op": "snapshotDraftRemove", "id": id], excludingPaste: operation)
+                return value["removed"] as? Bool == true
+            }
         }
     }
 }

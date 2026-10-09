@@ -142,6 +142,38 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
     }
 
+    /// Source paste policy: skip unreadable/oversize bytes, but refuse substituted filesystem ownership.
+    static func pastedImageBytes(_ source: URL) throws -> Data? {
+        guard source.isFileURL else { throw T3ComposerPasteError.arguments }
+        let manager = FileManager.default
+        if let attributes = try? manager.attributesOfItem(atPath: source.path), attributes[.type] as? FileAttributeType == .typeSymbolicLink {
+            throw T3ComposerPasteError.recovery
+        }
+        let parent = try? source.deletingLastPathComponent().resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard parent?.isSymbolicLink != true else { throw T3ComposerPasteError.recovery }
+        guard let resource = try? source.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey]),
+              resource.isSymbolicLink != true, resource.isRegularFile == true,
+              let size = resource.fileSize, size > 0, size <= maxImageBytes,
+              let bytes = try? Data(contentsOf: source), bytes.count == size,
+              let image = CGImageSourceCreateWithData(bytes as CFData, nil),
+              let type = CGImageSourceGetType(image), type as String == UTType.png.identifier else { return nil }
+        return bytes
+    }
+    /// Called only after the paste journal reserved this exact UUID durably.
+    static func writePastedImage(_ bytes: Data, id: String, dataRoot: URL, replace: (Data, URL) throws -> Void) throws {
+        guard UUID(uuidString: id) != nil, id == id.lowercased(), !bytes.isEmpty, bytes.count <= maxImageBytes else { throw T3ComposerPasteError.arguments }
+        let snapshots = dataRoot.appendingPathComponent("snapshots", isDirectory: true)
+        let drafts = snapshots.appendingPathComponent("drafts", isDirectory: true)
+        for directory in [snapshots, drafts] {
+            if let attributes = try? FileManager.default.attributesOfItem(atPath: directory.path), attributes[.type] as? FileAttributeType == .typeSymbolicLink { throw T3ComposerPasteError.recovery }
+        }
+        try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
+        let destination = drafts.appendingPathComponent(id)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { throw T3ComposerPasteError.recovery }
+        try replace(bytes, destination)
+        try T3MobileIncomingShares.sync(drafts); try T3MobileIncomingShares.sync(snapshots); try T3MobileIncomingShares.sync(dataRoot)
+    }
+
     private func chooseSource(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let gen = request["generation"] as? Int ?? 0
         guard completion == nil else { reply(failure("An attachment picker is already open.", generation: gen)); return }
