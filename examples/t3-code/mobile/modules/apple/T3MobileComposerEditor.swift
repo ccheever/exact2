@@ -19,6 +19,7 @@ private final class T3ComposerContainer: UIView {
 final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoint {
     private let root = T3ComposerContainer()
     private weak var voice: T3MobileVoiceEditor?
+    private weak var fileHolds: T3MobileComposerFileHolds?
     private weak var operations: T3MobileComposerOperations?
     private var editor: T3MobileOwnedComposerView?
     private var state: T3ComposerProtocolState?
@@ -41,9 +42,12 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
             && control?.editable == true && control?.readOnly == false && UIApplication.shared.applicationState == .active
     }
 
-    init(voice: T3MobileVoiceEditor, operations: T3MobileComposerOperations? = nil, events: ExactNativeEvents) {
+    var composerFileHoldEligible: Bool { alive && root.window != nil && control?.active == true && control?.readOnly == false }
+
+    init(voice: T3MobileVoiceEditor, operations: T3MobileComposerOperations? = nil, fileHolds: T3MobileComposerFileHolds? = nil, events: ExactNativeEvents) {
         self.voice = voice
         self.operations = operations
+        self.fileHolds = fileHolds
         super.init(events: events)
         root.isAccessibilityElement = false
     }
@@ -97,6 +101,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         voiceOwner = next.voiceOwner ?? next.owner
         voice?.register(self, owner: voiceOwner)
         operations?.register(self)
+        fileHolds?.register(self)
         emit("ready", allowUnacknowledged: true)
     }
 
@@ -259,6 +264,7 @@ final class T3MobileComposerEditor: ExactNativeInstance, T3MobileComposerEndpoin
         return true
     }
     private func retireEditor() {
+        fileHolds?.unregister(self)
         operations?.unregister(self)
         voice?.unregister(self)
         editor?.destroyOwned(); editor?.removeFromSuperview(); editor = nil; root.editor = nil

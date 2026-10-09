@@ -50,7 +50,7 @@ final class T3MobileModule: ExactModule {
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-composer-material": T3MobileComposerMaterial.factory,
         "t3-composer-editor": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
-            let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, events: events)
+            let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, fileHolds: module.composerFileHolds, events: events)
             try instance.setProps(props); return instance
         },
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
@@ -93,6 +93,7 @@ final class T3MobileModule: ExactModule {
     private let scheduledControls: T3MobileScheduledControls
     private let scheduledNavigation = T3MobileScheduledNavigation()
     private let voice: T3MobileVoice
+    private lazy var composerFileHolds = T3MobileComposerFileHolds(coordinator: queuedEdits)
     private let composerOperations = T3MobileComposerOperations()
     let terminal: T3MobileTerminal
     private let documentRoot: URL
@@ -185,6 +186,9 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if request["op"] as? String == "composerFileHold" {
+            composerFileHolds.perform(request) { reply.send($0) }; return
+        }
         if request["op"] as? String == "composerEditorApply" {
             reply.send(composerOperations.perform(request)); return
         }
@@ -533,6 +537,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        composerFileHolds.destroy()
         composerOperations.destroy()
         keyboard.destroy()
         faviconDownload?.shutdown(); faviconDownload = nil
