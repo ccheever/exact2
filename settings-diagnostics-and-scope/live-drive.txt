@@ -1,0 +1,32 @@
+settings-diagnostics-and-scope: live agent-mode drive, same steps on both builds (1280x840, embedded server on 16802)
+before = /Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base (feature tip 950e8e2e5, never edited)
+after  = this branch's bundle (EXACT_APP_DIR=... bun host/apple/build.mjs t3-code-macos --bundle)
+Steps: drive.sh.txt. Settings > General > View diagnostics, wait 4 s and 8 s more; then Cmd-K > Project settings > Enter; then the thread title menu > Project settings.
+
+=== before ===
+waits (clock ms -> real ms): [(20000, 20016), (23000, 3015), (24500, 1519), (28500, 40195), (36500, 40646), (37300, 20605), (38800, 1510), (39800, 1008), (40800, 1008), (43300, 2511), (44800, 1511), (46800, 2011), (47600, 810), (50100, 2509)]
+log lines in session: 46000 (last 4096 kept)
+in kept window: forget (diagnostics): 35 | query diagnostics: 35 | fulfil (diagnostics): 0 | query data: 34 | fulfil (data): 274
+diagnostics-settings nodes: 1 | section titles present: []
+scope sentence: ['Project scope: work', 'Environment scope: Daehyeon’s MacBook Pro'] connective: ['on']
+scope sentence: ['Project scope: Verification fixture', 'Environment scope: Daehyeon’s MacBook Pro'] connective: ['on']
+
+=== after ===
+waits (clock ms -> real ms): [(20000, 20019), (23000, 3018), (24500, 1522), (28500, 4020), (36500, 8018), (37300, 813), (38800, 1511), (39800, 1009), (40800, 1005), (43300, 2510), (44800, 1510), (46800, 2011), (47600, 812), (50100, 2520)]
+log lines in session: 3295 (last 3295 kept)
+in kept window: forget (diagnostics): 3 | query diagnostics: 32 | fulfil (diagnostics): 5 | query data: 32 | fulfil (data): 235
+diagnostics-settings nodes: 1507 | section titles present: ['Resource monitor', 'Host & collection', 'Resource timeline', 'Live process tree', 'Instrumented application I/O', 'Live Processes', 'Resource History', 'Trace Diagnostics', 'Latest Failures', 'Most Common Failures', 'Slowest Spans', 'Span Logs', 'Top Span Names']
+scope sentence: ['Project scope: work', 'Environment scope: All environments'] connective: ['across']
+scope sentence: ['Project scope: Verification fixture', 'Environment scope: All environments'] connective: ['across']
+
+Diagnostics open, agent clock 24.6 s to 36.5 s (the 12 s of waits):
+  89 request N (data): POST exact-native:
+  48 request N (shell): POST exact-native:
+  24 query branches: composerBranches
+  24 query shell: shellView
+  24 query details: shellDetails
+  12 query data: snapshot
+  11 query diagnostics: diagnosticsSettings
+
+Reading the waits: before, 'clock +4000 real' took 40195 ms and 'clock +8000 real' 40646 ms (the driver's settle cap with the Diagnostics request always in flight); after, 4020 ms and 8018 ms.
+Before, every Diagnostics answer was forgotten before its reply (35 forgets in the last 4096 log lines, no fulfil); the session logged 46000 lines. After: 3 forgets while the stream's first sample arrived, then every read landed; the session logged 3295 lines.
