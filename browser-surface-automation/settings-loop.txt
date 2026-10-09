@@ -1,0 +1,32 @@
+# Settings › Integrations request loop: base d564a5c02 vs this branch (2026-10-09, agent mode, lane 16750/16751)
+# Steps (both builds): launch with the seeded lane home; one agent turn; open a Browser tab and its menu; tap connection-settings,
+# wait 1.5 s, tap settings-integrations, wait 3 s, screenshot 20, wait 30 s, screenshot 21. Counted: the lane server's ws.rpc spans
+# that start between the two screenshots, across its rotated trace files (bsa-rate.mjs).
+
+## base d564a5c02 (evidence-base build), run base-2
+window 2026-10-09T04:32:51.968Z → 2026-10-09T04:33:52.823Z (60.9 s)
+  1604    26.36/s  ws.rpc.server.getSettings
+  1604    26.36/s  ws.rpc.device.list
+  1604    26.36/s  ws.rpc.server.getConfig
+     2     0.03/s  ws.rpc.server.reportClientActivity
+getConfig + getSettings + device.list: 4812 (79.07/s)
+
+## this branch, built at d6b8b05ec, run branch-1
+window 2026-10-09T04:38:06.545Z → 2026-10-09T04:39:16.696Z (70.2 s)
+   909    12.96/s  ws.rpc.server.getConfig
+   909    12.96/s  ws.rpc.server.getSettings
+   909    12.96/s  ws.rpc.device.list
+     3     0.04/s  ws.rpc.server.reportClientActivity
+getConfig + getSettings + device.list: 2727 (38.87/s)
+
+## base-2: ws.rpc.server.getConfig per 10 s (UTC), from the first request
+04:31:20 1  04:32:10 223  04:32:20 268  04:32:30 266  04:32:40 269  04:32:50 261  04:33:00 256  04:33:10 252  04:33:20 249  04:33:30 270  04:33:40 285  04:33:50 292  04:34:00 292  04:34:10 292  04:34:20 286  04:34:30 89
+## branch-1: ws.rpc.server.getConfig per 10 s (UTC), from the first request
+04:36:10 1  04:37:30 93  04:37:40 80  04:37:50 125  04:38:00 116  04:38:10 111  04:38:20 120  04:38:30 115  04:38:40 138  04:38:50 142  04:39:00 149  04:39:10 144  04:39:20 144  04:39:30 130  04:39:40 138  04:39:50 131  04:40:00 108  04:40:10 136  04:40:20 204  04:40:30 73
+
+Result: the base has it (26.4 getConfig/s, 26.4 getSettings/s and 26.4 device.list/s over 60.9 s), so it is not this
+branch's (13.0/s each over 70.2 s on the branch). It starts when Settings › Integrations opens (base: the tap at about
+04:32:11Z, the first burst in the 04:32:10 bucket; branch: about 04:37:31Z) and runs while the page is open. The runner
+was busy throughout: the drive's 'clock +3000 real' right after opening the page took 40.2 s (base) and 34.8 s (branch),
+and the 30-s wait took 60.7 s and 69.9 s. The branch run left Settings at about 04:40:34Z; the requests stopped within
+seconds, and the next 3-s wait took 3.0 s. The base run quit right after leaving, so it cannot show when the loop stops.
