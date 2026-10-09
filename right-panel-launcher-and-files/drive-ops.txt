@@ -133,3 +133,54 @@ Fixture: the lane's work project plus docs/logo.png (copied from the panel audit
   thread: Dismiss notification, Audit work thread, Toggle right panel, ArrowDown x3, ArrowUp x3, ArrowDown x3, Enter
   files: treeitem page.html / guide.pdf / logo.png; Add panel surface > Terminal T; Files F > docs > page.html > Open file in preview browser
   draft: New thread > Enter (work) > Toggle right panel > hover Device > press m ("Set up devices" dialog)
+
+== Review fixes (2026-10-10): one more live drive of this branch (bundle rebuilt once), fresh app storage audit-rplf-v2
+   clone-drive.sh right-panel-launcher-and-files 16860 (CLONE_STORAGE=audit-rplf-v2)
+  clock +20000 real
+  clock +3000 real
+  tap toast-dismiss-2
+  clock +1500 real
+  tap toast-dismiss-1
+  clock +500 real
+  tap thread-c3f98c40-7999-47e7-bb08-bff2bde33dc6
+  clock +2500 real
+  tap toggle-right-panel
+  clock +1500 real
+  tree right-panel                      # before any `type` op: which node holds the focus
+  screenshot right-panel-launcher-and-files/shots2/pa2-open.png window
+  tap surface-files
+  clock +2500 real
+  tap tree-docs
+  clock +1500 real
+  tap "guide.pdf"
+  clock +3000 real
+  screenshot right-panel-launcher-and-files/shots2/pa4-pdf.png window
+  tap file-toggle-open-browser
+  clock +5000 real
+  screenshot right-panel-launcher-and-files/shots2/pa4-pdf-browser.png window
+  tree right-panel
+  state
+  logs
+  result: exit 0; 7 platform-delivered taps; no error lines in the app log (4096 lines)
+
+  PA-2 focus on mount (first tree, right after Toggle right panel, no `type` op yet): exactly one focused node of 93,
+    {"id": 852, "type": "View", "focused": true, "props": {"testId": "surface-chooser", "accessibilityLabel": "Open a surface",
+     "hatch": "t3-launcher", "dataset": "{\"surface-launcher-keys\":\"BTFDM\"}"}, "handlers": ["key"]}
+    This shows the launcher holds Exact's focus after the panel opens. That a real keyboard's arrow keys then reach it
+    (AppKit's first responder) is the real-input batch step in the task record.
+  PA-4 guide.pdf: the body starts with the page at the top on the #282828 surface; the globe opened a Browser tab
+    (second tree: tabs file:docs/guide.pdf and browser:tab_1, label 127.0.0.1:16862) at
+    http://127.0.0.1:16862/api/assets/<workspace-file token>/guide.pdf, which WebKit renders.
+
+== Reference, same day: ref-app.sh right-panel-launcher-and-files 16860; ref-cdp.mjs 16861 "size 1280 840" …
+  clickrole button "Audit work thread, work" (guide.pdf was the active Files tab) > shot >
+  clickrole button "Open file in preview browser" > wait 5000 > aria > shot
+  result: a Browser tab "127.0.0.1:16860/api/assets/<workspace-file token>/guide.pdf" opens and Chromium's PDF viewer
+  shows the page (its toolbar and thumbnails are Chromium's; the clone's tab is WebKit's PDF view, X1 path B).
+
+== PDF body, AppKit (examples/t3-code/macos/tests/r6-media, testShortPdfStartsAtTheTop: one US-letter page, a 300x700 panel)
+  before the fix: XCTAssertLessThan failed: ("158.4758064516136") is not less than ("24.0") - the page starts at the top of
+    the panel (top gap 158.48, page (1.9, 158.3, 296.1, 383.2), view (0, 0, 300, 700)); PDFKit's PDFClipView centers a
+    document shorter than the view (clip bounds origin y -322.4 of 1446.7)
+  after: pass (top gap < 12, surface below > 250, still at the top after growing to 840, full height and the first
+    page's top when the page is taller than the panel); r6-media: Executed 10 tests, with 0 failures
