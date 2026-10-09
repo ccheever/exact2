@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-shell-sidebar-palette-keys
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/370
 verified_commit: null
 ---
 
