@@ -1,19 +1,21 @@
-# settings-pages-subscribed-config: examples/t3-code/settings-pages-reads.test.ts on the base and on the branch
+# settings-pages-subscribed-config: examples/t3-code/settings-pages-reads.test.ts without and with the fix
 
-Base = feat(example)/t3-code at 3b334f704 with only the test file added; branch = the fix (715aad968) merged with the feature branch (bc0961d08). bun test examples/t3-code/settings-pages-reads.test.ts --timeout 60000
+Base = this branch's head (9304c148a + the test's own app.ts instance) with the fix's source changes (3b334f704..715aad968: app.ts,
+settings-data.ts, source-control-view.ts, keybinding-settings.ts, scheduled-view.ts, settings-a-telemetry.ts) reverted; branch = the head.
+bun test examples/t3-code/settings-pages-reads.test.ts --timeout 60000
 
-## base 3b334f704 (exit 1)
+## without the fix (exit 1)
 
 ```
 bun test v1.4.2 (744846f84)
 
 examples/t3-code/settings-pages-reads.test.ts:
- 97 |   for (const [name, page] of Object.entries(PAGES)) {
- 98 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
- 99 |       const { server, clock, ask, wake } = await launched();
-100 |       const opened = await ask(page);
-101 |       expect(opened.view.error ?? '').toBe('');
-102 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
+ 99 |   for (const [name, page] of Object.entries(PAGES)) {
+100 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
+101 |       const { server, clock, ask, wake } = await launched();
+102 |       const opened = await ask(page);
+103 |       expect(opened.view.error ?? '').toBe('');
+104 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
                                        ^
 error: expect(received).toEqual(expected)
 
@@ -26,14 +28,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 0
 + Received  + 2
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:102:34)
-(fail) each settings page reads the subscribed config and asks the server only when the reference does > Source control: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [16.00ms]
- 97 |   for (const [name, page] of Object.entries(PAGES)) {
- 98 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
- 99 |       const { server, clock, ask, wake } = await launched();
-100 |       const opened = await ask(page);
-101 |       expect(opened.view.error ?? '').toBe('');
-102 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:104:34)
+(fail) each settings page reads the subscribed config and asks the server only when the reference does > Source control: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [59.25ms]
+ 99 |   for (const [name, page] of Object.entries(PAGES)) {
+100 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
+101 |       const { server, clock, ask, wake } = await launched();
+102 |       const opened = await ask(page);
+103 |       expect(opened.view.error ?? '').toBe('');
+104 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
                                        ^
 error: expect(received).toEqual(expected)
 
@@ -46,14 +48,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 4
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:102:34)
-(fail) each settings page reads the subscribed config and asks the server only when the reference does > Storage: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [1.95ms]
-100 |       const opened = await ask(page);
-101 |       expect(opened.view.error ?? '').toBe('');
-102 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
-103 |       // A thread list change wakes `data`; its drain bumps data.revision, and the page is asked again.
-104 |       server.rename('Example (renamed)');
-105 |       expect((await wake(page)).sent).toEqual([]);
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:104:34)
+(fail) each settings page reads the subscribed config and asks the server only when the reference does > Storage: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [13.72ms]
+102 |       const opened = await ask(page);
+103 |       expect(opened.view.error ?? '').toBe('');
+104 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
+105 |       // A thread list change wakes `data`; its drain bumps data.revision, and the page is asked again.
+106 |       server.rename('Example (renamed)');
+107 |       expect((await wake(page)).sent).toEqual([]);
                                             ^
 error: expect(received).toEqual(expected)
 
@@ -65,14 +67,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 3
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:105:39)
-(fail) each settings page reads the subscribed config and asks the server only when the reference does > Archive: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [2.82ms]
-105 |       expect((await wake(page)).sent).toEqual([]);
-106 |       server.rename('Example');
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:107:39)
+(fail) each settings page reads the subscribed config and asks the server only when the reference does > Archive: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [4.27ms]
 107 |       expect((await wake(page)).sent).toEqual([]);
-108 |       // The clock's minute tick (wallTime.epochAtZero + elapsed) asks Archive, Diagnostics and Scheduled tasks again.
-109 |       clock.now += 60_000;
-110 |       expect((await ask(page)).sent).toEqual([]);
+108 |       server.rename('Example');
+109 |       expect((await wake(page)).sent).toEqual([]);
+110 |       // The clock's minute tick (wallTime.epochAtZero + elapsed) asks Archive, Diagnostics and Scheduled tasks again.
+111 |       clock.now += 60_000;
+112 |       expect((await ask(page)).sent).toEqual([]);
                                            ^
 error: expect(received).toEqual(expected)
 
@@ -84,14 +86,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 3
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:110:38)
-(fail) each settings page reads the subscribed config and asks the server only when the reference does > Diagnostics: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [3.46ms]
- 97 |   for (const [name, page] of Object.entries(PAGES)) {
- 98 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
- 99 |       const { server, clock, ask, wake } = await launched();
-100 |       const opened = await ask(page);
-101 |       expect(opened.view.error ?? '').toBe('');
-102 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:112:38)
+(fail) each settings page reads the subscribed config and asks the server only when the reference does > Diagnostics: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [24.07ms]
+ 99 |   for (const [name, page] of Object.entries(PAGES)) {
+100 |     test(`${name}: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new`, async () => {
+101 |       const { server, clock, ask, wake } = await launched();
+102 |       const opened = await ask(page);
+103 |       expect(opened.view.error ?? '').toBe('');
+104 |       expect(opened.sent.sort()).toEqual([...page.opens].sort());
                                        ^
 error: expect(received).toEqual(expected)
 
@@ -103,14 +105,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 3
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:102:34)
-(fail) each settings page reads the subscribed config and asks the server only when the reference does > Keybindings: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [2.72ms]
-122 |     expect(obj(arr((await ask(PAGES.Storage!)).view.artifacts).find(row => row.key === 'logsAfterDays'))).toMatchObject({ enabled: true, days: '7' });
-123 |     server.config.settings = { ...obj(server.config.settings), defaultAutoPull: true, storageCleanup: { logsAfterDays: 14 } };
-124 |     server.emit('config', { type: 'settingsUpdated', payload: { settings: server.config.settings } });
-125 |     const source = await wake(PAGES['Source control']!), stored = await ask(PAGES.Storage!);
-126 |     expect({ sent: [...source.sent, ...stored.sent], pull: obj(arr(source.view.repositories)[0]).checked, logs: obj(arr(stored.view.artifacts).find(row => row.key === 'logsAfterDays')).days })
-127 |       .toEqual({ sent: [], pull: true, logs: '14' });
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:104:34)
+(fail) each settings page reads the subscribed config and asks the server only when the reference does > Keybindings: opening reads only the page's own data, and a wake, a minute tick and a reopen read nothing new [18.62ms]
+124 |     expect(obj(arr((await ask(PAGES.Storage!)).view.artifacts).find(row => row.key === 'logsAfterDays'))).toMatchObject({ enabled: true, days: '7' });
+125 |     server.config.settings = { ...obj(server.config.settings), defaultAutoPull: true, storageCleanup: { logsAfterDays: 14 } };
+126 |     server.emit('config', { type: 'settingsUpdated', payload: { settings: server.config.settings } });
+127 |     const source = await wake(PAGES['Source control']!), stored = await ask(PAGES.Storage!);
+128 |     expect({ sent: [...source.sent, ...stored.sent], pull: obj(arr(source.view.repositories)[0]).checked, logs: obj(arr(stored.view.artifacts).find(row => row.key === 'logsAfterDays')).days })
+129 |       .toEqual({ sent: [], pull: true, logs: '14' });
              ^
 error: expect(received).toEqual(expected)
 
@@ -128,14 +130,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 6
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:127:8)
-(fail) a change still reaches each page, without a read > Source control and Storage show a settingsUpdated value from subscribeServerConfig [2.26ms]
-131 |     const { server, ask, wake } = await launched();
-132 |     expect((await ask(PAGES.Keybindings!)).view).toMatchObject({ count: '1 binding', path: '/lane/keybindings.json' });
-133 |     server.config.keybindings = [...arr(server.config.keybindings), { command: 'chat.new', shortcut: { key: 'n', modKey: true } }];
-134 |     server.emit('config', { type: 'keybindingsUpdated', payload: { keybindings: server.config.keybindings, issues: [] } });
-135 |     const view = await wake(PAGES.Keybindings!);
-136 |     expect({ sent: view.sent, count: view.view.count }).toEqual({ sent: [], count: '2 bindings' });
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:129:8)
+(fail) a change still reaches each page, without a read > Source control and Storage show a settingsUpdated value from subscribeServerConfig [4.25ms]
+133 |     const { server, ask, wake } = await launched();
+134 |     expect((await ask(PAGES.Keybindings!)).view).toMatchObject({ count: '1 binding', path: '/lane/keybindings.json' });
+135 |     server.config.keybindings = [...arr(server.config.keybindings), { command: 'chat.new', shortcut: { key: 'n', modKey: true } }];
+136 |     server.emit('config', { type: 'keybindingsUpdated', payload: { keybindings: server.config.keybindings, issues: [] } });
+137 |     const view = await wake(PAGES.Keybindings!);
+138 |     expect({ sent: view.sent, count: view.view.count }).toEqual({ sent: [], count: '2 bindings' });
                                                               ^
 error: expect(received).toEqual(expected)
 
@@ -150,14 +152,14 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 3
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:136:57)
-(fail) a change still reaches each page, without a read > Keybindings show a keybindingsUpdated list [3.27ms]
-147 |     server.emit(SCHEDULED_TASKS_KEY, { tasks: server.tasks });
-148 |     server.config.settings = { ...obj(server.config.settings), defaultModelSelection: { instanceId: 'codex-personal', model: 'model-b' } };
-149 |     server.emit('config', { type: 'settingsUpdated', payload: { settings: server.config.settings } });
-150 |     const view = await wake(editor);
-151 |     expect({ sent: view.sent, tasks: arr(view.view.tasks).map(entry => entry.title), model: obj(arr(view.view.editors)[0]).modelKey })
-152 |       .toEqual({ sent: [], tasks: ['Nightly check', 'Weekly report'], model: 'codex-personal:model-b' });
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:138:57)
+(fail) a change still reaches each page, without a read > Keybindings show a keybindingsUpdated list [4.66ms]
+149 |     server.emit(SCHEDULED_TASKS_KEY, { tasks: server.tasks });
+150 |     server.config.settings = { ...obj(server.config.settings), defaultModelSelection: { instanceId: 'codex-personal', model: 'model-b' } };
+151 |     server.emit('config', { type: 'settingsUpdated', payload: { settings: server.config.settings } });
+152 |     const view = await wake(editor);
+153 |     expect({ sent: view.sent, tasks: arr(view.view.tasks).map(entry => entry.title), model: obj(arr(view.view.editors)[0]).modelKey })
+154 |       .toEqual({ sent: [], tasks: ['Nightly check', 'Weekly report'], model: 'codex-personal:model-b' });
              ^
 error: expect(received).toEqual(expected)
 
@@ -172,16 +174,16 @@ error: expect(received).toEqual(expected)
 - Expected  - 1
 + Received  + 3
 
-      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:152:8)
-(fail) a change still reaches each page, without a read > Scheduled tasks show the live list and the editor a new default model; the editor reads its refs once [3.99ms]
+      at <anonymous> (examples/t3-code/settings-pages-reads.test.ts:154:8)
+(fail) a change still reaches each page, without a read > Scheduled tasks show the live list and the editor a new default model; the editor reads its refs once [23.57ms]
 
  2 pass
  8 fail
  43 expect() calls
-Ran 10 tests across 1 file. [120.00ms]
+Ran 10 tests across 1 file. [465.00ms]
 ```
 
-## branch bc0961d08 (exit 0)
+## with the fix (exit 0)
 
 ```
 bun test v1.4.2 (744846f84)
@@ -189,5 +191,5 @@ bun test v1.4.2 (744846f84)
  10 pass
  0 fail
  67 expect() calls
-Ran 10 tests across 1 file. [322.00ms]
+Ran 10 tests across 1 file. [541.00ms]
 ```
