@@ -1,0 +1,17 @@
+#!/bin/zsh
+# Usage: drive.sh <before|after>  — the same steps on the base build (before) and the branch build (after).
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+S=$A/lanes/settings-diagnostics-and-scope/shots
+W=$1
+if [ $W = before ]; then export EXACT_ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=settings-diagnostics-and-scope-before
+else export EXACT_ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-diagnostics-and-scope; LANE=settings-diagnostics-and-scope; fi
+$A/clone-drive.sh $LANE 16800 \
+  "clock +20000 real" "clock +3000 real" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap \"View diagnostics\"" "clock +4000 real" "screenshot $S/$W-s2-2-4s.png window" \
+  "clock +8000 real" "screenshot $S/$W-s2-2-12s.png window" "tree diagnostics-settings" "logs" "tap diagnostics-settings wheel 0 2600" "clock +800 real" "screenshot $S/$W-s2-2-lower.png window" \
+  "tap close-settings" "clock +1500 real" \
+  "type new-thread key Meta+k" "clock +1000 real" "type palette-input Project settings" "clock +1000 real" "type palette-input key Enter" "clock +2500 real" \
+  "screenshot $S/$W-pg8-palette.png window" "tree settings-scope-sentence" \
+  "tap close-settings" "clock +1500 real" "tap thread-verify-timeline" "clock +2000 real" "tap thread-title" "clock +800 real" "tap title-menu-project-settings" "clock +2500 real" \
+  "screenshot $S/$W-pg8-thread-menu.png window" "tree settings-scope-sentence"
