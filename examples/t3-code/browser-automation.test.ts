@@ -17,14 +17,16 @@ import {
   type OpenInput, type PlanContext, type PreviewAutomationRequest, type Timers,
 } from './browser-automation-plan';
 import {
-  PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, adoptAutomationTabs, automationHost, automationPrepare, previewStreamEvent, readPreviewEvent, reportAutomationFocus,
+  PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, adoptAutomationTabs, automationFleetEvent, automationHost, automationPrepare, focusedLink, previewStreamEvent, readPreviewEvent,
+  reportAutomationFocus,
 } from './browser-automation';
+import { fleet, type FleetEntry } from './settings-b-fleet';
 import { browserHost } from './browser-surface';
 import { EMPTY_THREAD_PREVIEW_STATE, PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot, type ThreadPreviewState } from './browser-state';
 import { surfaceStore } from './r4-surfaces-panel';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
-import type { Obj } from './domain';
+import { obj, type Obj } from './domain';
 
 const snapshotOf = (navStatus: PreviewSessionSnapshot['navStatus'], tabId = 'tab-1'): PreviewSessionSnapshot => ({
   threadId: 'thread-1', tabId, navStatus, canGoBack: false, canGoForward: false, updatedAt: '2026-06-26T00:00:00.000Z',
@@ -244,7 +246,7 @@ function fakeClient(options: { list?: (payload: Obj) => Obj; presentation?: Obj 
     environmentId: 'env-1', threadId: 'thread-1', projectId: 'p1', generation: 3, connection: 'connected', ready: true, origin: 'http://127.0.0.1:16750',
     draftKey: 'env-1:thread-1', presentation: options.presentation ?? {}, revision: 0, diffOpen: true, local: { composerControls: false }, shell: { threads: [], projects: [] },
     async ids() { return ['0123abcd-4567-89ab-cdef-0123456789ab']; },
-    restAccess() { return { call: async (request: Obj) => { sent.push(request); return { id: `3-${++serial}` }; } }; },
+    restAccess() { return { call: async (request: Obj) => { sent.push(request); return request.op === 'request' ? (rpcs.push({ method: String(request.method), payload: obj(request.payload) }), {}) : { id: `3-${++serial}` }; } }; },
     async rpc(_native: Native, method: string, payload: Obj) {
       rpcs.push({ method, payload });
       if (method === 'preview.list') return options.list?.(payload) ?? { sessions: [], serverEpoch: 'epoch-1', revision: 1 };
@@ -326,7 +328,7 @@ describe('previewAutomationRequestConsumer', () => {
 // ── The clone's routing rows ──────────────────────────────────────────────────────────────────────
 const ref = { environmentId: 'env-1', threadId: 'thread-1' };
 function context(request: PreviewAutomationRequest, state: ThreadPreviewState, extra: Partial<PlanContext> = {}): PlanContext {
-  return { request, connectionId: 'connection-1', clientId: 'preview-client', environmentId: 'env-1', environmentUrl: 'http://127.0.0.1:16750', generation: 3, state, deadline: 13_500, suppressed: new Set(), autoShowFloatingPreview: true, ...extra };
+  return { request, connectionId: 'connection-1', clientId: 'preview-client', environmentId: 'env-1', environmentUrl: 'http://127.0.0.1:16750', generation: 3, state, budgetMs: 13_500, suppressed: new Set(), autoShowFloatingPreview: true, ...extra };
 }
 function stateWith(...snapshots: PreviewSessionSnapshot[]): ThreadPreviewState {
   const store = new PreviewStateStore();
@@ -338,7 +340,7 @@ const loaded = (tabId = 'tab-1') => snapshotOf({ _tag: 'Success', url: 'http://1
 describe('planRequest (the request handler up to the page)', () => {
   it('targets the thread’s current tab by its runtime id, shown unless the agent said otherwise', () => {
     const { plan, effects } = planRequest(context(requestOf('r1', { operation: 'click', input: { locator: 'text=Go' } }), stateWith(loaded())));
-    expect(plan).toMatchObject({ operation: 'click', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), deadline: 13_500, generation: 3, viewportSetting: { _tag: 'fill' } });
+    expect(plan).toMatchObject({ operation: 'click', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), budgetMs: 13_500, generation: 3, viewportSetting: { _tag: 'fill' } });
     expect(effects.present).toBe('tab-1');
     expect(planRequest(context(requestOf('r2', { operation: 'click' }), stateWith(loaded()), { suppressed: new Set([previewRuntimeTabId(ref, 'epoch-1', 'tab-1')]) })).effects.present).toBeNull();
   });
@@ -404,15 +406,13 @@ describe('the host on the client', () => {
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
   });
-  it('drops a request whose time ran out and sends a plan once', async () => {
+  it('sends a plan once, with the request’s host wait budget (the module’s deadline starts at its receipt)', async () => {
     const { client, sent } = await subscribed();
-    previewStreamEvent(client, requestEntry('r-old', { timeoutMs: 1 }));
-    await new Promise(resolve => setTimeout(resolve, 5));
-    previewStreamEvent(client, requestEntry('r-new'));
-    previewStreamEvent(client, requestEntry('r-new'));
+    previewStreamEvent(client, requestEntry('r-new', { timeoutMs: 1_000 }));
+    previewStreamEvent(client, requestEntry('r-new', { timeoutMs: 1_000 }));
     await automationPrepare(client, module);
     await automationPrepare(client, module);
-    expect(plans(sent).map(plan => plan.requestId)).toEqual(['r-new']);
+    expect(plans(sent).map(plan => [plan.requestId, plan.budgetMs])).toEqual([['r-new', 800]]);
   });
   it('adopts a tab the module opened: into the thread’s store, shown as the agent asked', () => {
     const presentation = { browserAutomation: { opened: [{ requestId: 'r1', connectionId: 'connection-1', environmentId: 'env-1', threadId: 'thread-2', epoch: 'epoch-1', present: true, snapshot: { ...loaded('tab-7'), threadId: 'thread-2' } }] } };
@@ -439,10 +439,43 @@ describe('the host on the client', () => {
     previewStreamEvent(client, entry({ type: 'connected', connectionId: 'connection-1' }));
     browserHost(client).store.reconcileServerSessions(ref, { sessions: [loaded()], serverEpoch: 'epoch-1', revision: 1 });
     browserHost(client).store.applyDesktopState(ref, 'tab-1', { hasWebContents: true, canGoBack: false, canGoForward: false, loading: false, zoomFactor: 1, pictureInPicture: false, colorScheme: 'system', audioMuted: false, audible: false, controller: 'none', favicon: null });
-    await reportAutomationFocus(client, module);
-    await reportAutomationFocus(client, module);
+    await reportAutomationFocus(client, focusedLink(client, module));
+    await reportAutomationFocus(client, focusedLink(client, module));
     const focus = rpcs.filter(call => call.method === 'previewAutomation.focusHost');
     expect(focus).toHaveLength(1);
     expect(focus[0]?.payload).toEqual({ clientId: 'preview-0123abcd456789abcdef0123456789ab', environmentId: 'env-1', connectionId: 'connection-1', focused: true, liveTabs: [{ threadId: 'thread-1', tabId: 'tab-1', visible: true }] });
   });
 });
+
+describe('a background environment’s host (PreviewAutomationHosts mounts one per environment)', () => {
+  it('serves a request that came on a fleet transport, on that transport, under that environment', async () => {
+    const { client, sent } = fakeClient();
+    const key = 'http://127.0.0.1:16760\nenv-2';
+    const entry = { key, origin: 'http://127.0.0.1:16760', environmentId: 'env-2', phase: 'connected', message: '', traceId: '', generation: 7, synchronized: 7, lastEvent: 0,
+      subscriptions: {}, config: {}, shell: { projects: [], threads: [] }, scopes: [], error: '', requested: true } as unknown as FleetEntry;
+    fleet.entries.set(key, entry);
+    const fleetCalls: Obj[] = [];
+    let serial = 0;
+    const native = { available: true, watch() {}, async later(request: unknown) {
+      const op = obj(request);
+      if (op.op === 'browserAutomation') { sent.push(op); return { ok: true, generation: 3, value: { accepted: true } }; }
+      fleetCalls.push(op);
+      if (op.op === 'ids') return { ok: true, generation: 7, value: ['fffffffe-0000-0000-0000-000000000001'] };
+      if (op.op === 'subscribe') return { ok: true, generation: 7, value: { id: `7-${++serial}` } };
+      if (op.op === 'request' && op.method === 'preview.list') return { ok: true, generation: 7, value: { sessions: [{ ...loaded('tab-5'), threadId: 'thread-b' }], serverEpoch: 'epoch-2', revision: 3 } };
+      return { ok: true, generation: 7, value: {} };
+    } } as Native;
+    try {
+      await automationPrepare(client, native);
+      expect(fleetCalls.filter(op => op.op === 'subscribe').map(op => [op.fleet, op.method])).toEqual([[key, 'subscribePreviewEvents'], [key, 'previewAutomation.connect']]);
+      expect(automationFleetEvent(entry, { key: PREVIEW_AUTOMATION_KEY, subscriptionId: '7-2', generation: 7, value: { type: 'request', connectionId: 'c-2', request: requestOf('r-b', { threadId: 'thread-b', operation: 'snapshot' }) } })).toBe(true);
+      expect(automationFleetEvent(entry, { key: 'shell', generation: 7, value: {} })).toBe(false);
+      await automationPrepare(client, native);
+      const plan = plans(sent).at(-1) ?? {};
+      expect(plan).toMatchObject({ requestId: 'r-b', connectionId: 'c-2', environmentId: 'env-2', fleet: key, generation: 7, tabId: 'tab-5',
+        runtimeId: previewRuntimeTabId({ environmentId: 'env-2', threadId: 'thread-b' }, 'epoch-2', 'tab-5'), clientId: 'preview-fffffffe000000000000000000000001' });
+      expect(fleetCalls.some(op => op.op === 'request' && op.method === 'preview.list' && op.fleet === key)).toBe(true);
+    } finally { fleet.entries.delete(key); }
+  });
+});
+

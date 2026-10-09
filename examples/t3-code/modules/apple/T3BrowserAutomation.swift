@@ -20,8 +20,9 @@ import WebKit
 final class T3BrowserAutomation: NSObject {
     typealias Reply = ([String: Any]) -> Void
     private weak var sessions: T3BrowserSessions?
-    /// One RPC on the connection a request came from: method, payload, connection generation, reply.
-    var rpc: (String, [String: Any], Int, @escaping Reply) -> Void = { _, _, _, done in done(["ok": false]) }
+    /// One RPC on the connection a request came from: method, payload, connection generation, the fleet transport's
+    /// key (nil: the focused connection), reply.
+    var rpc: (String, [String: Any], Int, String?, @escaping Reply) -> Void = { _, _, _, _, done in done(["ok": false]) }
     /// Publishes a `t3.status` (the module's state changed).
     var changed: () -> Void = {}
     /// The agent's clicks and keys reach a page in a window as native events, else as DOM events.
@@ -132,7 +133,7 @@ final class T3BrowserAutomation: NSObject {
         if answered.count > 64 { answered.removeFirst(answered.count - 64) }
         let summary: String = { if case .failure(let error) = outcome { return error.tag } else { return "ok" } }()
         note("\(context.operation) \(context.requestId) \(summary)")
-        rpc("previewAutomation.respond", payload, context.generation) { [weak self] reply in
+        rpc("previewAutomation.respond", payload, context.generation, context.fleet) { [weak self] reply in
             if reply["ok"] as? Bool != true { self?.note("respond \(context.requestId) failed: \((reply["error"] as? [String: Any])?["message"] ?? "")") }
         }
         changed()
@@ -265,7 +266,7 @@ final class T3BrowserAutomation: NSObject {
         var needsOverlay = plan["needsOverlay"] as? Bool ?? false
         if !reused {
             guard let create = plan["create"] as? [String: Any] else { throw HostError.operation("no tab to reuse and nothing to create") }
-            let reply = await call("preview.open", create, context.generation)
+            let reply = await call("preview.open", create, context)
             guard reply["ok"] as? Bool == true, let snapshot = reply["value"] as? [String: Any], let created = snapshot["tabId"] as? String else {
                 throw HostError.operation("preview.open failed: \((reply["error"] as? [String: Any])?["message"] ?? "")")
             }
@@ -273,7 +274,7 @@ final class T3BrowserAutomation: NSObject {
             runtimeId = Self.runtimeId(environment: context.environmentId, thread: context.threadId, epoch: plan["epoch"] as? String, tab: created)
             let idle = (snapshot["navStatus"] as? [String: Any])?["_tag"] as? String ?? "Idle"
             needsOverlay = create["url"] != nil || idle != "Idle" // previewAutomationOpenNeedsOverlay
-            opened.append(["requestId": context.requestId, "connectionId": context.connectionId, "environmentId": context.environmentId, "threadId": context.threadId,
+            opened.append(["requestId": context.requestId, "connectionId": context.connectionId, "environmentId": context.environmentId, "threadId": context.threadId, "fleet": context.fleet ?? "",
                            "epoch": plan["epoch"] ?? NSNull(), "snapshot": snapshot, "present": plan["present"] as? Bool ?? false])
             if opened.count > 16 { opened.removeFirst(opened.count - 16) }
             note("opened \(created) for \(context.requestId)")
@@ -300,9 +301,9 @@ final class T3BrowserAutomation: NSObject {
         return text
     }
 
-    @MainActor private func call(_ method: String, _ payload: [String: Any], _ generation: Int) async -> [String: Any] {
+    @MainActor private func call(_ method: String, _ payload: [String: Any], _ context: Context) async -> [String: Any] {
         await withCheckedContinuation { continuation in
-            rpc(method, payload, generation) { reply in DispatchQueue.main.async { continuation.resume(returning: reply) } }
+            rpc(method, payload, context.generation, context.fleet) { reply in DispatchQueue.main.async { continuation.resume(returning: reply) } }
         }
     }
 
@@ -313,7 +314,7 @@ final class T3BrowserAutomation: NSObject {
         guard let setting = context.plan["viewport"] as? [String: Any], let tag = setting["_tag"] as? String else { throw HostError.operation("no viewport setting") }
         // Hook: browser-surface part 2 (navigation) renders a freeform or preset viewport (the device toolbar).
         guard tag == "fill" || T3BrowserViewport.renders(setting, session) else { throw HostError.operation("a \(tag) viewport arrives with browser-surface part 2 (the device toolbar)") }
-        let reply = await call("preview.resize", ["threadId": context.threadId, "tabId": context.tabId ?? "", "viewport": setting], context.generation)
+        let reply = await call("preview.resize", ["threadId": context.threadId, "tabId": context.tabId ?? "", "viewport": setting], context)
         guard reply["ok"] as? Bool == true else { throw HostError.operation("preview.resize failed") }
         let timeoutMs = context.input["timeoutMs"] as? Int ?? context.timeoutMs
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
@@ -449,6 +450,7 @@ final class T3BrowserAutomation: NSObject {
     private func pointer(_ id: String, _ phase: String, _ point: (x: Double, y: Double)) {
         pointerSequence += 1
         tabs[id]?.pointer = ["phase": phase, "x": point.x, "y": point.y, "sequence": pointerSequence, "createdAt": Self.iso()]
+        if let web = sessions?.sessions[id]?.web { T3BrowserAgentCursor.show(on: web, phase: phase, x: point.x, y: point.y, sequence: pointerSequence, controller: tabs[id]?.controller ?? "none") }
         changed()
     }
 
@@ -555,7 +557,9 @@ final class T3BrowserAutomation: NSObject {
         let timeoutMs, generation: Int
         let deadline: Date
         let failure: [String: Any]?
-        var key: String { connectionId + "\u{0}" + requestId }
+        /// A background environment's fleet transport (nil: the focused connection).
+        let fleet: String?
+        var key: String { (fleet ?? "") + "\u{0}" + connectionId + "\u{0}" + requestId }
         init(_ plan: [String: Any]) {
             self.plan = plan
             requestId = plan["requestId"] as? String ?? ""; connectionId = plan["connectionId"] as? String ?? ""; clientId = plan["clientId"] as? String ?? ""
@@ -564,9 +568,11 @@ final class T3BrowserAutomation: NSObject {
             input = plan["input"] as? [String: Any] ?? [:]
             timeoutMs = (plan["timeoutMs"] as? NSNumber)?.intValue ?? 15_000
             generation = (plan["generation"] as? NSNumber)?.intValue ?? 0
-            let deadline = (plan["deadline"] as? NSNumber)?.doubleValue ?? (Date().timeIntervalSince1970 * 1000 + Double(timeoutMs))
-            self.deadline = Date(timeIntervalSince1970: deadline / 1000)
+            // The host wait budget (resolveHostWaitBudgetMs) from the plan's receipt: a data source has no clock.
+            let budget = (plan["budgetMs"] as? NSNumber)?.doubleValue ?? Double(timeoutMs)
+            deadline = Date().addingTimeInterval(budget / 1000)
             failure = plan["failure"] as? [String: Any]
+            fleet = (plan["fleet"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
     }
 }

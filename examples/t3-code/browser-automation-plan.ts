@@ -52,10 +52,10 @@ export function resolveHostWaitBudgetMs(requestTimeoutMs: number): number {
   return Math.max(0, requestTimeoutMs - reservedMs);
 }
 export type Timers = { now: () => number; setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (handle: unknown) => void };
-const realTimers: Timers = { now: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: handle => clearTimeout(handle as ReturnType<typeof setTimeout>) };
-/** Both readiness probes and polling delays share the request's host deadline. (The module's waits use the same
- *  rule, T3BrowserAutomation.waitForHostReadiness; here the session sync before a plan is bounded by it.) */
-export async function waitForHostReadiness(deadlineMs: number, isReady: () => Promise<boolean>, timers: Timers = realTimers): Promise<boolean> {
+/** Both readiness probes and polling delays share the request's host deadline. A data source has no clock and no
+ *  timers (LLP 1027.000), so the module runs this rule (T3BrowserAutomation.waitForHostReadiness, from the budget it
+ *  is handed); this port, over an injected clock, is the rule's tested statement. */
+export async function waitForHostReadiness(deadlineMs: number, isReady: () => Promise<boolean>, timers: Timers): Promise<boolean> {
   while (timers.now() < deadlineMs) {
     let timeout: unknown;
     let ready: boolean | null;
@@ -160,8 +160,8 @@ export type PlanContext = {
   request: PreviewAutomationRequest; connectionId: string; clientId: string; environmentId: string; environmentUrl: string; generation: number;
   /** The thread's preview state after any session sync the request needed. */
   state: ThreadPreviewState;
-  /** The request's host deadline (`Date.now() + resolveHostWaitBudgetMs(timeoutMs)` when it arrived). */
-  deadline: number;
+  /** The request's host wait budget (`resolveHostWaitBudgetMs(timeoutMs)`): the module's deadline is its receipt plus this. */
+  budgetMs: number;
   /** Tabs whose presentation the agent suppressed (`open: false`) in this thread. */
   suppressed: ReadonlySet<string>;
   /** The floating-preview preference (`browserAutoShowFloatingPreview`, part 3's setting; on until then). */
@@ -181,7 +181,7 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
   const tabId = request.tabId ?? state.snapshot?.tabId ?? null;
   const base: Plan = {
     requestId: request.requestId, connectionId: context.connectionId, clientId: context.clientId, operation: request.operation, input: request.input,
-    environmentId: context.environmentId, threadId: request.threadId, timeoutMs: request.timeoutMs, generation: context.generation, deadline: context.deadline,
+    environmentId: context.environmentId, threadId: request.threadId, timeoutMs: request.timeoutMs, generation: context.generation, budgetMs: context.budgetMs,
     tabId, runtimeId: tabId && state.sessions[tabId] ? runtimeOf(tabId) : null,
     ...(request.tabIdExplicit ? { tabIdExplicit: true } : {}),
   };

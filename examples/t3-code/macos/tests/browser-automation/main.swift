@@ -89,7 +89,7 @@ final class BrowserAutomationTests: XCTestCase {
         automation = T3BrowserAutomation(sessions: sessions)
         sessions.created = { [weak automation] in automation?.prepare($0) }
         sessions.ended = { [weak automation] in automation?.forget($0) }
-        automation.rpc = { [weak self] method, payload, _, done in
+        automation.rpc = { [weak self] method, payload, _, _, done in
             guard let self else { return }
             self.calls.append((method, payload))
             if method == "previewAutomation.respond", let id = payload["requestId"] as? String { self.responses[id] = payload; return done(["ok": true]) }
@@ -128,7 +128,7 @@ final class BrowserAutomationTests: XCTestCase {
         serial += 1
         var plan: [String: Any] = ["requestId": "preview-\(serial)", "connectionId": "connection-1", "clientId": "preview-client", "operation": operation, "input": input,
                                    "environmentId": "env-1", "threadId": "thread-1", "timeoutMs": timeoutMs, "generation": 1,
-                                   "deadline": Date().timeIntervalSince1970 * 1000 + Double(timeoutMs) - min(1_500, ceil(Double(timeoutMs) * 0.2))]
+                                   "budgetMs": Double(timeoutMs) - min(1_500, ceil(Double(timeoutMs) * 0.2))]
         if let runtimeId { plan["runtimeId"] = runtimeId }
         if let tabId { plan["tabId"] = tabId }
         for (key, value) in extra { plan[key] = value }
@@ -243,6 +243,10 @@ final class BrowserAutomationTests: XCTestCase {
         let pointer = automation.status["browserAutomation"] as? [String: Any]
         let tab = (pointer?["tabs"] as? [String: Any])?[Self.runtime] as? [String: Any]
         XCTAssertEqual((tab?["pointer"] as? [String: Any])?["phase"] as? String, "click", "the agent cursor's last event")
+        let cursor = session.web.layer?.sublayers?.first { $0.name == "t3-agent-cursor" }
+        XCTAssertNotNil(cursor, "the agent cursor is drawn over the page")
+        spin(until: { (cursor?.opacity ?? 1) < 0.5 }, timeout: 2)
+        XCTAssertEqual(cursor?.opacity ?? 0, 0.35, accuracy: 0.001, "it settles to 35 % (agentBrowserCursorOpacity)")
     }
 
     func testClicksInQuickSuccessionEachLand() {

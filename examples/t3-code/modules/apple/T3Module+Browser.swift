@@ -26,9 +26,11 @@ extension T3Module: T3BrowserSessionOwner {
         browserSessions.created = { [weak browserAutomation] session in browserAutomation?.prepare(session) }
         browserSessions.ended = { [weak browserAutomation] id in browserAutomation?.forget(id) }
         browserAutomation.changed = { [weak browserSessions] in browserSessions?.publish() }
-        browserAutomation.rpc = { [weak transport] method, payload, generation, done in
+        browserAutomation.rpc = { [weak transport, weak fleet] method, payload, generation, key, done in
+            let request: [String: Any] = ["op": "request", "method": method, "payload": payload, "generation": generation]
+            if let key { guard let fleet else { return done(["ok": false]) }; return fleet.perform(key, request, completion: done) }
             guard let transport else { return done(["ok": false]) }
-            transport.perform(["op": "request", "method": method, "payload": payload, "generation": generation], completion: done)
+            transport.perform(request, completion: done)
         }
     }
 }

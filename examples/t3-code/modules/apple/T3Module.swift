@@ -9,7 +9,7 @@ final class T3Module: ExactModule {
     private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
-    private let fleet: T3Fleet // Background environments (T3Fleet.swift).
+    let fleet: T3Fleet // Background environments (T3Fleet.swift); browser-surface part 5 answers their previewAutomation hosts.
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
     /// Settings › Appearance's editable prompt sample: its own editor, never the composer's (T3ComposerEditor.swift).

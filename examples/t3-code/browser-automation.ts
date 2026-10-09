@@ -1,4 +1,4 @@
-// browser-surface part 5: the previewAutomation host on the focused connection (MIT reference, see LICENSE-T3,
+// browser-surface part 5: the previewAutomation hosts, one per connected environment (MIT reference, see LICENSE-T3,
 // T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts,
 // previewAutomationRequestConsumer.ts; packages/contracts/src/rpc.ts `previewAutomation.connect`, `.respond`,
 // `.focusHost`, `subscribePreviewEvents`).
@@ -12,48 +12,86 @@
 // the data-source answer that planned it (a let-go answer's replies are dropped).
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
-import type { Native } from './protocol';
+import { bridgeReply, ClientError, type Native } from './protocol';
+import { EnvironmentFleet, fleet, type FleetEntry } from './settings-b-fleet';
 import { letGo } from './let-go';
 import { subscriptionSerial } from './shell-vcs';
 import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
 import { activeRef } from './terminal-drawer-view';
 import { surfaceStore } from './r4-surfaces-panel';
 import { browserHost, listPreviewSessions, openBrowserIn } from './browser-surface';
-import { EMPTY_THREAD_PREVIEW_STATE, previewRuntimeTabId, readSnapshot, type PreviewEvent } from './browser-state';
+import { EMPTY_THREAD_PREVIEW_STATE, previewRuntimeTabId, readSnapshot, type PreviewEvent, type PreviewSessionSnapshot } from './browser-state';
 import {
   PREVIEW_AUTOMATION_OPERATIONS, PreviewAutomationRequestConsumer, needsPreviewAutomationSessionSync, planRequest, previewAutomationClientId,
-  readStreamEvent, resolveHostWaitBudgetMs, waitForHostReadiness, type PreviewAutomationRequest,
+  readStreamEvent, resolveHostWaitBudgetMs, type PreviewAutomationRequest,
 } from './browser-automation-plan';
 
 export const PREVIEW_AUTOMATION_KEY = 'preview-automation';
 export const PREVIEW_EVENTS_KEY = 'preview-events';
 
+/** One environment's connection the host serves (PreviewAutomationHosts mounts one host per environment): the focused
+ *  client's, or a background environment's fleet transport (settings-b-fleet.ts). Its state lives with its owner. */
+export type Link = {
+  owner: object; environmentId: string; generation: number; environmentUrl: string;
+  /** The fleet transport's key; null for the focused connection. The module answers on the same transport. */
+  fleet: string | null;
+  /** A transport op on this connection, generation-checked (subscribe, request). */
+  call: (request: Obj) => Promise<Obj>;
+  /** One request identifier from the connection's module (`ids`). */
+  id: () => Promise<string>;
+};
+export const focusedLink = (client: T3Client, native: Native): Link => ({
+  owner: client, environmentId: client.environmentId, generation: client.generation, environmentUrl: client.origin, fleet: null,
+  call: request => client.restAccess(native).call(request),
+  id: async () => (await client.ids(native, 1))[0] ?? '',
+});
+export function fleetLink(entry: FleetEntry, native: Native): Link {
+  return { owner: entry, environmentId: entry.environmentId, generation: entry.generation, environmentUrl: entry.origin, fleet: entry.key,
+    call: async request => {
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
+      if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+      if (reply.generation !== entry.generation) throw new ClientError('The connection changed.', 'stale');
+      return obj(reply.value);
+    },
+    id: async () => {
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'ids', count: 1 });
+      return Array.isArray(reply.value) && typeof reply.value[0] === 'string' ? reply.value[0] : '';
+    } };
+}
+
 type Stream = { id: string; floor: number; maxSeen: number; tried: boolean };
-type Pending = { request: PreviewAutomationRequest; connectionId: string; deadline: number; expires: number; listed: boolean; sending: boolean };
+type Pending = { request: PreviewAutomationRequest; connectionId: string; listed: boolean; sending: boolean };
 type Host = {
   clientId: string; generation: number; automation: Stream; events: Stream; consumer: PreviewAutomationRequestConsumer;
-  queue: Pending[]; suppressed: Map<string, Set<string>>; adopted: Set<string>; focusKey: string; windowFocused: boolean;
+  queue: Pending[]; suppressed: Map<string, Set<string>>; focusKey: string;
+  /** A fleet transport's entries, kept by the fleet's drain until the next shell answer serves them. */
+  inbox: Obj[];
 };
-const hosts = new WeakMap<T3Client, Host>();
+const hosts = new WeakMap<object, Host>();
+/** The tabs the module opened that this client adopted (by connection and request), and the window's focus. */
+const adopted = new WeakMap<T3Client, Set<string>>();
+const windows = new WeakMap<T3Client, boolean>();
+/** The client a background environment's events wake (the window has one client; app.ts). */
+let wakes: T3Client | null = null;
 const stream = (previous?: Stream): Stream => ({ id: '', floor: previous?.maxSeen ?? 0, maxSeen: previous?.maxSeen ?? 0, tried: false });
-export function automationHost(client: T3Client): Host {
-  let host = hosts.get(client);
+export function automationHost(owner: object, generation = (owner as { generation?: number }).generation ?? 0): Host {
+  let host = hosts.get(owner);
   if (!host) {
-    host = { clientId: '', generation: client.generation, automation: stream(), events: stream(), consumer: new PreviewAutomationRequestConsumer(),
-      queue: [], suppressed: new Map(), adopted: new Set(), focusKey: '', windowFocused: true };
-    hosts.set(client, host);
+    host = { clientId: '', generation, automation: stream(), events: stream(), consumer: new PreviewAutomationRequestConsumer(), queue: [], suppressed: new Map(), focusKey: '', inbox: [] };
+    hosts.set(owner, host);
   }
-  if (host.generation !== client.generation) {
+  if (host.generation !== generation) {
     // A new connection: new subscriptions (serials only grow, so the high-water marks carry over); the queued
     // requests of the old one can no longer be answered there.
-    host.generation = client.generation; host.automation = stream(host.automation); host.events = stream(host.events);
-    host.consumer = new PreviewAutomationRequestConsumer(); host.queue = []; host.focusKey = '';
+    host.generation = generation; host.automation = stream(host.automation); host.events = stream(host.events);
+    host.consumer = new PreviewAutomationRequestConsumer(); host.queue = []; host.focusKey = ''; host.inbox = [];
   }
   return host;
 }
 
 /** shell.ts: the window's `exactPage()` focus and visibility (the reference's `document.hasFocus()` and visibility). */
-export function noteAutomationWindow(client: T3Client, focused: boolean): void { automationHost(client).windowFocused = focused; }
+export function noteAutomationWindow(client: T3Client, focused: boolean): void { windows.set(client, focused); }
+const windowFocused = (client: T3Client) => windows.get(client) ?? true;
 
 /** One entry of a subscription (the newest subscription's entries count; an ended one subscribes again). */
 function current(state: Stream, entry: Obj): Obj | null {
@@ -68,20 +106,28 @@ function current(state: Stream, entry: Obj): Obj | null {
 
 /** client.ts drain: the `preview-automation` and `preview-events` entries of the focused connection. */
 export function previewStreamEvent(client: T3Client, entry: Obj): void {
-  const host = automationHost(client);
+  streamEvent(client, client, client.environmentId, client.generation, entry);
+}
+/** settings-b-fleet.ts drain: a background environment's entries wait for the next shell answer (which has the client). */
+export function automationFleetEvent(entry: FleetEntry, event: Obj): boolean {
+  const key = str(event.key);
+  if (key !== PREVIEW_AUTOMATION_KEY && key !== PREVIEW_EVENTS_KEY) return false;
+  if (Number(event.generation) === entry.generation) { automationHost(entry, entry.generation).inbox.push(event); if (wakes) wakes.revision++; }
+  return true;
+}
+function streamEvent(client: T3Client, owner: object, environmentId: string, generation: number, entry: Obj): void {
+  const host = automationHost(owner, generation);
   if (str(entry.key) === PREVIEW_AUTOMATION_KEY) {
     const value = current(host.automation, entry), event = value ? readStreamEvent(value) : null;
     const request = event ? host.consumer.consume(event) : null;
     if (!request || !event || host.queue.some(pending => pending.request.requestId === request.requestId && pending.connectionId === event.connectionId)) return;
-    // Session sync and tab creation consume the same budget as the page's readiness.
-    const now = Date.now();
-    host.queue.push({ request, connectionId: event.connectionId, deadline: now + resolveHostWaitBudgetMs(request.timeoutMs), expires: now + request.timeoutMs, listed: false, sending: false });
+    host.queue.push({ request, connectionId: event.connectionId, listed: false, sending: false });
     client.revision++;
     return;
   }
   const value = current(host.events, entry), event = value ? readPreviewEvent(value) : null;
-  if (!event || !client.environmentId) return;
-  applyPreviewEvent(client, { environmentId: client.environmentId, threadId: event.threadId }, event);
+  if (!event || !environmentId) return;
+  applyPreviewEvent(client, { environmentId, threadId: event.threadId }, event);
 }
 
 /** usePreviewSession's event handling: an event of another server process asks for the list again. Events
@@ -127,69 +173,97 @@ function suppressions(host: Host, threadId: string): Set<string> {
 /** The tabs the module opened for `preview_open` (`presentation.browserAutomation.opened`): into the thread's
  *  store (applyPreviewServerSnapshot), shown or suppressed as the request asked. Runs before the panel reconciles. */
 export function adoptAutomationTabs(client: T3Client): void {
-  const host = automationHost(client), notes = Array.isArray(obj(obj(client.presentation).browserAutomation).opened) ? obj(obj(client.presentation).browserAutomation).opened as unknown[] : [];
-  for (const raw of notes) {
+  let seen = adopted.get(client);
+  if (!seen) { seen = new Set(); adopted.set(client, seen); }
+  const notes = obj(obj(client.presentation).browserAutomation).opened;
+  for (const raw of Array.isArray(notes) ? notes : []) {
     const note = obj(raw), key = `${str(note.connectionId)}\u0000${str(note.requestId)}`, snapshot = readSnapshot(note.snapshot);
-    if (host.adopted.has(key) || !snapshot || str(note.environmentId) !== client.environmentId) continue;
-    host.adopted.add(key);
+    if (seen.has(key) || !snapshot || !str(note.environmentId)) continue;
+    seen.add(key);
     const ref = { environmentId: str(note.environmentId), threadId: str(note.threadId) }, store = browserHost(client).store;
+    const owner = str(note.fleet) ? fleet.entries.get(str(note.fleet)) ?? null : client;
     store.applyServerSnapshot(ref, snapshot);
     const runtimeId = previewRuntimeTabId(ref, store.read(ref).serverEpoch, snapshot.tabId);
-    if (note.suppress === true) suppressions(host, ref.threadId).add(runtimeId);
-    if (note.present === true) { suppressions(host, ref.threadId).delete(runtimeId); present(client, ref, snapshot.tabId); }
+    const suppressed = owner ? suppressions(automationHost(owner), ref.threadId) : new Set<string>();
+    if (note.suppress === true) suppressed.add(runtimeId);
+    if (note.present === true) { suppressed.delete(runtimeId); present(client, ref, snapshot.tabId); }
     client.revision++;
   }
 }
 
-async function subscribe(client: T3Client, native: Native, state: Stream, key: string, method: string, payload: Obj): Promise<void> {
+async function subscribe(link: Link, state: Stream, key: string, method: string, payload: Obj): Promise<void> {
   if (state.id || state.tried) return;
   state.tried = true; state.floor = state.maxSeen;
   try {
-    const reply = await client.restAccess(native).call({ op: 'subscribe', key, method, payload });
+    const reply = await link.call({ op: 'subscribe', key, method, payload });
     const serial = subscriptionSerial(str(reply.id));
     state.maxSeen = Math.max(state.maxSeen, serial);
     if (serial > state.floor && (!state.id || serial > subscriptionSerial(state.id))) state.id = str(reply.id);
   } catch (error) { state.tried = false; if (letGo(error)) throw error; }
 }
 
-/** PreviewAutomationHosts: the streams, the queued requests, the focus report. */
+/** PreviewAutomationHosts: one host per connected environment (the focused one and each background one), each with
+ *  its streams, its queued requests and its focus report. */
 export async function automationPrepare(client: T3Client, native: Native): Promise<void> {
-  if (!native.available || client.connection !== 'connected' || !client.ready || !client.environmentId) return;
-  const host = automationHost(client);
-  if (!host.clientId) {
-    const [uuid] = await client.ids(native, 1);
-    host.clientId ||= previewAutomationClientId(uuid ?? '');
+  if (!native.available) return;
+  wakes = client;
+  const links: Link[] = [];
+  if (client.connection === 'connected' && client.ready && client.environmentId) links.push(focusedLink(client, native));
+  for (const entry of fleet.entries.values()) {
+    if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || !entry.environmentId || entry.environmentId === client.environmentId) continue;
+    const host = automationHost(entry, entry.generation), inbox = host.inbox;
+    host.inbox = [];
+    for (const event of inbox) streamEvent(client, entry, entry.environmentId, entry.generation, event);
+    links.push(fleetLink(entry, native));
   }
-  await subscribe(client, native, host.events, PREVIEW_EVENTS_KEY, 'subscribePreviewEvents', {});
-  await subscribe(client, native, host.automation, PREVIEW_AUTOMATION_KEY, 'previewAutomation.connect',
-    { clientId: host.clientId, environmentId: client.environmentId, supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS] });
-  await serveAutomation(client, native);
-  await reportAutomationFocus(client, native);
+  for (const link of links) {
+    const host = automationHost(link.owner, link.generation);
+    try {
+      if (!host.clientId) {
+        const id = await link.id();
+        if (id) host.clientId ||= previewAutomationClientId(id);
+      }
+      if (!host.clientId) continue;
+      await subscribe(link, host.events, PREVIEW_EVENTS_KEY, 'subscribePreviewEvents', {});
+      await subscribe(link, host.automation, PREVIEW_AUTOMATION_KEY, 'previewAutomation.connect',
+        { clientId: host.clientId, environmentId: link.environmentId, supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS] });
+      await serveAutomation(client, native, link);
+      await reportAutomationFocus(client, link);
+    } catch (error) { if (letGo(error)) throw error; }
+  }
 }
 
-/** Each queued request's plan, to the module once; a request whose time ran out is dropped (the broker timed it out). */
-export async function serveAutomation(client: T3Client, native: Native): Promise<void> {
-  const host = automationHost(client);
+/** `preview.list` on the request's connection, as an authoritative reconcile. */
+async function listOn(client: T3Client, native: Native, link: Link, ref: ScopedThreadRef): Promise<void> {
+  const host = browserHost(client);
+  host.listed.delete(scopedThreadKey(ref));
+  if (!link.fleet) return listPreviewSessions(client, native, ref);
+  const result = await link.call({ op: 'request', method: 'preview.list', payload: { threadId: ref.threadId } });
+  const sessions = (Array.isArray(result.sessions) ? result.sessions : []).map(readSnapshot).filter((entry): entry is PreviewSessionSnapshot => !!entry);
+  if (str(result.serverEpoch)) host.store.reconcileServerSessions(ref, { sessions, serverEpoch: str(result.serverEpoch), revision: Number(result.revision) || 0 });
+}
+
+/** Each queued request's plan, to the module once (a data source has no clock: the module keeps the request's time). */
+export async function serveAutomation(client: T3Client, native: Native, link: Link = focusedLink(client, native)): Promise<void> {
+  const host = automationHost(link.owner, link.generation);
   for (const pending of [...host.queue]) {
     if (pending.sending) continue;
-    if (Date.now() > pending.expires) { host.queue = host.queue.filter(entry => entry !== pending); continue; }
     pending.sending = true;
     try {
-      const ref = { environmentId: client.environmentId, threadId: pending.request.threadId }, store = browserHost(client).store;
+      const ref = { environmentId: link.environmentId, threadId: pending.request.threadId }, store = browserHost(client).store;
       if (!pending.listed && pending.request.operation !== 'recordingStop' && needsPreviewAutomationSessionSync(store.read(ref), pending.request.tabId)) {
-        // registry.refresh(previewEnvironment.list): an authoritative list, within the request's host deadline.
-        browserHost(client).listed.delete(scopedThreadKey(ref));
-        await waitForHostReadiness(pending.deadline, async () => { await listPreviewSessions(client, native, ref); return true; });
+        // registry.refresh(previewEnvironment.list): an authoritative list (the transport bounds the read).
+        await listOn(client, native, link, ref);
         pending.listed = true;
       }
       const { plan, effects } = planRequest({
-        request: pending.request, connectionId: pending.connectionId, clientId: host.clientId, environmentId: client.environmentId, environmentUrl: client.origin,
-        generation: client.generation, state: store.read(ref), deadline: pending.deadline, suppressed: suppressions(host, ref.threadId), autoShowFloatingPreview: true,
+        request: pending.request, connectionId: pending.connectionId, clientId: host.clientId, environmentId: link.environmentId, environmentUrl: link.environmentUrl,
+        generation: link.generation, state: store.read(ref), budgetMs: resolveHostWaitBudgetMs(pending.request.timeoutMs), suppressed: suppressions(host, ref.threadId), autoShowFloatingPreview: true,
       });
       if (effects.suppress) suppressions(host, ref.threadId).add(effects.suppress);
       if (effects.unsuppress) suppressions(host, ref.threadId).delete(effects.unsuppress);
       if (effects.present) present(client, ref, effects.present);
-      const reply = await client.raw(native, { op: 'browserAutomation', plan });
+      const reply = await client.raw(native, { op: 'browserAutomation', plan: link.fleet ? { ...plan, fleet: link.fleet } : plan });
       if (reply.ok) host.queue = host.queue.filter(entry => entry !== pending);
     } catch (error) { if (letGo(error)) throw error; }
     finally { pending.sending = false; }
@@ -197,24 +271,24 @@ export async function serveAutomation(client: T3Client, native: Native): Promise
 }
 
 /** The host's focus and its live tabs (PreviewAutomationHost's focus effect), whenever they change. */
-export async function reportAutomationFocus(client: T3Client, native: Native): Promise<void> {
-  const host = automationHost(client), connectionId = host.consumer.activeConnectionId;
+export async function reportAutomationFocus(client: T3Client, link: Link): Promise<void> {
+  const host = automationHost(link.owner, link.generation), connectionId = host.consumer.activeConnectionId;
   if (!connectionId) return;
-  const tabs = obj(obj(client.presentation).browserTabs), liveTabs: Array<{ threadId: string; tabId: string; visible: boolean }> = [];
+  const tabs = obj(obj(client.presentation).browserTabs), liveTabs: Array<{ threadId: string; tabId: string; visible: boolean }> = [], focused = windowFocused(client);
   for (const [key, state] of browserHost(client).store.active()) {
     const ref = parseScopedThreadKey(key);
-    if (!ref || ref.environmentId !== client.environmentId) continue;
+    if (!ref || ref.environmentId !== link.environmentId) continue;
     for (const snapshot of Object.values(state.sessions)) {
       if (!state.desktopByTabId[snapshot.tabId]?.hasWebContents) continue;
       const tab = obj(tabs[previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId)]);
-      liveTabs.push({ threadId: ref.threadId, tabId: snapshot.tabId, visible: tab.attached === true && host.windowFocused });
+      liveTabs.push({ threadId: ref.threadId, tabId: snapshot.tabId, visible: tab.attached === true && focused });
     }
   }
-  const input = { clientId: host.clientId, environmentId: client.environmentId, connectionId, focused: host.windowFocused, liveTabs };
+  const input = { clientId: host.clientId, environmentId: link.environmentId, connectionId, focused, liveTabs };
   const key = JSON.stringify(input);
   if (host.focusKey === key) return;
   host.focusKey = key;
-  try { await client.rpc(native, 'previewAutomation.focusHost', input, true); }
+  try { await link.call({ op: 'request', method: 'previewAutomation.focusHost', payload: input }); }
   catch (error) { if (host.focusKey === key) host.focusKey = ''; if (letGo(error)) throw error; }
 }
 
