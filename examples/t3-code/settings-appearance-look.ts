@@ -42,12 +42,20 @@ const DIFF = {
     addLine: 'light-dark(#155dfc, #51a2ff)', delLine: 'light-dark(#f54900, #ff8904)' },
 };
 
+/**
+ * What the app wears: the stored themes in the mode they resolve to (audit-wave-followups-2 FV-3, resolveThemeAppearance),
+ * or, while the theme editor is open, its draft: on its appearance's half and in that appearance whatever the mode
+ * (ThemeEditorPanel's applyThemeColorPreview toggles the `dark` class to the appearance being edited). The root's
+ * `scheme`, the window (devicePresentation) and the palettes all take it.
+ */
+export function paintOf(client: T3Client): { prefs: ClientPrefs; custom: CustomTheme[]; mode: string } {
+  const preview = previewTheme(client), prefs = prefsOf(client), custom = customOf(client);
+  if (!preview) return { prefs, custom, mode: effectiveMode(client.local.deviceSettings.appearanceMode, prefs, custom) };
+  return { prefs: { ...prefs, [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id }, custom: [...custom, preview], mode: preview.appearance };
+}
+
 export function look(client: T3Client): Look {
-  const preview = previewTheme(client);
-  const prefs = preview ? { ...prefsOf(client), [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id } : prefsOf(client);
-  const custom = preview ? [...customOf(client), preview] : customOf(client);
-  // audit-wave-followups-2 FV-3: the mode the app draws in (resolveThemeAppearance), which the root's `scheme` and the window take.
-  const mode = effectiveMode(client.local.deviceSettings.appearanceMode, prefs, custom);
+  const { prefs, custom, mode } = paintOf(client);
   const pal = palette(prefs, custom, mode);
   const diffState = (client as unknown as { diffState?: DiffState }).diffState;
   if (diffState) seedDiffState(client, diffState);
@@ -72,10 +80,9 @@ export function look(client: T3Client): Look {
   };
 }
 
-/** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance). */
-export function windowAppearanceMode(local: T3Client['local']): string {
-  const prefs = (local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
-  return effectiveMode(local.deviceSettings.appearanceMode, prefs, (local as unknown as { customThemes?: CustomTheme[] }).customThemes || []);
+/** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */
+export function windowAppearanceMode(client: T3Client): string {
+  return paintOf(client).mode;
 }
 
 /** bg-message (--message-surface): the theme's messageSurface role; the stock theme keeps --accent. */

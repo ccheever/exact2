@@ -14,6 +14,7 @@ import { applyDeviceSetting, decodeClientPrefs, DEVICE_DEFAULTS } from './settin
 import { editDraft, editorView, saveDraft, submitLabel, syncDraft, themeLocal } from './settings-appearance-editor';
 import type { CustomTheme } from './settings-themes';
 import { ipcFailure, networkUi, resetNetwork, runNetworkOp } from './connections-network';
+import { settingsCore } from './settings-core-view';
 import { DesktopServerExposureModePersistenceError, DesktopTailscaleServePersistenceError } from './server-exposure';
 import { primary } from './local-primary';
 import { resetPrimary } from './local-primary-fixture';
@@ -35,13 +36,13 @@ function listRefs(payload: Obj): Obj {
   const page = matches.slice(cursor, cursor + limit);
   return { refs: page, isRepo: true, hasPrimaryRemote: true, nextCursor: cursor + limit < matches.length ? cursor + limit : null, totalCount: matches.length };
 }
-function fakeClient() {
+function fakeClient(projects: Obj[] = [{ id: 'p1', title: 'many-refs', workspaceRoot: '/many' }]) {
   const reads: Obj[] = [];
   const client = {
     environmentId: 'env', threadId: '', projectId: 'p1', ready: true, writable: true, revision: 0, generation: 1, busy: false, presentation: { scrollEnds: {} as Record<string, number> },
     config: { environment: { label: 'Laptop', capabilities: {} }, providers: [{ instanceId: 'codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'gpt', name: 'GPT' }] }], settings: {} },
     local: { drafts: {} as Record<string, string> },
-    shell: { ...initialShell(), projects: [{ id: 'p1', title: 'many-refs', workspaceRoot: '/many' }], threads: [] },
+    shell: { ...initialShell(), projects, threads: [] },
     projectGroups() { return [{ key: 'g1', name: 'many-refs', members: this.shell.projects }]; },
     restAccess: () => ({
       read: async (method: string, payload: Obj) => { if (method === 'vcs.listRefs') { reads.push(payload); return listRefs(payload); } return {}; },
@@ -52,8 +53,15 @@ function fakeClient() {
   return { client: client as unknown as T3Client & typeof client, reads };
 }
 const native = { available: true, watch: () => {}, later: async () => ({ ok: true, value: {} }) } as unknown as Native;
+/** A native that counts the page's own wakes (R10Connect `r10Wake`) and what it watches. */
+function wakingNative() {
+  const wakes: string[] = [], watched: string[] = [];
+  const module = { available: true, watch: (topic: string) => { watched.push(topic); },
+    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+  return { module, wakes, watched };
+}
 const KEY = 'env:new';
-const picker = (query: string, ref = '') => `key=${encodeURIComponent(KEY)}&project=p1&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`;
+const picker = (query: string, ref = '', project = 'p1') => `key=${encodeURIComponent(KEY)}&project=${project}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`;
 
 describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
   test('FV-1: a ref\'s name starts at the left of its row (a button centres its text)', async () => {
@@ -86,21 +94,65 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect(reads.length).toBe(3);
   });
 
-  test('FV-2: the search is the server\'s (sanitized, any case), past the first page; clearing it shows the pages loaded', async () => {
+  test('FV-2: the search is the server\'s (sanitized, any case), past the first page; clearing it shows the first page kept', async () => {
     const { client, reads } = fakeClient();
-    await watchLive(client, native);
-    const open = async (taskBase = '') => (await scheduledPage(client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase)).branches[0]!;
+    const { module, wakes, watched } = wakingNative();
+    await watchLive(client, module);
+    const open = async (taskBase = '') => (await scheduledPage(client, module, 'env', '', 'task', '', true, NOW, '', '', '', taskBase)).branches[0]!;
     await open();
+    expect(wakes).toEqual([]);
+    // A search not read yet: no refs and "Loading refs..." (usePaginatedBranches' first page pending), the page watches
+    // its wake topic and wakes it, so it is asked again for the read.
     let group = await open(picker('TOPIC-12'));
-    expect([group.refs.map(ref => ref.value), group.status, reads.at(-1)]).toEqual([['topic-120'], '', { cwd: '/many', limit: 100, query: 'TOPIC-12' }]);
+    expect([group.refs.length, group.status, reads.length, wakes, watched]).toEqual([0, 'Loading refs...', 2, ['t3.notify'], ['t3.notify']]);
+    expect(group.selected.map(ref => ref.value)).toEqual(['main']); // the base keeps its label (the lookup is kept)
+    group = await open(picker('TOPIC-12'));
+    expect([group.refs.map(ref => ref.value), group.status, reads.at(-1), wakes.length]).toEqual([['topic-120'], '', { cwd: '/many', limit: 100, query: 'TOPIC-12' }, 1]);
+    await open(picker(' topic 11 '));
     group = await open(picker(' topic 11 '));
     expect(reads.at(-1)).toEqual({ cwd: '/many', limit: 100, query: 'topic-11' });
     expect(group.refs.map(ref => ref.value)).toEqual(['topic-110', 'topic-111', 'topic-112', 'topic-113', 'topic-114', 'topic-115', 'topic-116', 'topic-117', 'topic-118', 'topic-119']);
+    // A search read before shows its answer at once.
     const read = reads.length;
+    group = await open(picker('TOPIC-12'));
+    expect([group.refs.map(ref => ref.value), reads.length - read, wakes.length]).toEqual([['topic-120'], 0, 2]);
     group = await open(picker(''));
-    expect([group.refs.length, group.status, reads.length - read]).toEqual([100, 'Showing 100 of 122 refs', 0]);
+    expect([group.refs.length, group.status, reads.length - read, wakes.length]).toEqual([100, 'Showing 100 of 122 refs', 0, 2]);
     // Another editor's picker is not this one's.
     expect(pickerOf(picker('x'), 'env:task-9')).toBeNull();
+  });
+
+  test('FV-2: a list shown again starts from its first page; another list\'s scrolls do not page it', async () => {
+    const { client, reads } = fakeClient([{ id: 'p1', title: 'many-refs', workspaceRoot: '/many' }, { id: 'p2', title: 'more-refs', workspaceRoot: '/more' }]);
+    await watchLive(client, native);
+    const open = async (taskBase = '') => (await scheduledPage(client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase)).branches;
+    const of = (groups: Awaited<ReturnType<typeof open>>, id: string) => groups.find(group => group.projectId === id)!;
+    await open();
+    expect(reads.filter(read => read.limit === 100).map(read => read.cwd)).toEqual(['/many', '/more']); // each project's first page
+    // P1 scrolled to its end: its second page.
+    client.presentation.scrollEnds['scroll:task-refs'] = 1;
+    await open();
+    expect(of(await open(), 'p1').refs.length).toBe(122);
+    // P2 chosen: its first page and "Showing 100 of 122 refs", no "Loading more refs...", no read of its cursor.
+    const read = reads.length;
+    let groups = await open(picker('', '', 'p2'));
+    expect([of(groups, 'p2').refs.length, of(groups, 'p2').status]).toEqual([100, 'Showing 100 of 122 refs']);
+    groups = await open(picker('', '', 'p2'));
+    expect([of(groups, 'p2').refs.length, of(groups, 'p2').status, reads.length - read, scheduledRefsWanted(client)]).toEqual([100, 'Showing 100 of 122 refs', 0, false]);
+    // P1 again: from its first page (usePaginatedBranches resets its cursors for another targetKey).
+    groups = await open(picker('', '', 'p1'));
+    expect([of(groups, 'p1').refs.length, of(groups, 'p1').status, reads.length - read]).toEqual([100, 'Showing 100 of 122 refs', 0]);
+    // A search's results scrolled, then the search cleared: the list shows its first page, no next page read.
+    await open(picker('topic', '', 'p1'));
+    groups = await open(picker('topic', '', 'p1'));
+    expect([of(groups, 'p1').refs.length, of(groups, 'p1').status]).toEqual([100, 'Showing 100 of 120 refs']);
+    client.presentation.scrollEnds['scroll:task-refs'] = 2;
+    await open(picker('topic', '', 'p1'));
+    expect(of(await open(picker('topic', '', 'p1')), 'p1').refs.length).toBe(120);
+    const cleared = reads.length;
+    groups = await open(picker('', '', 'p1'));
+    groups = await open(picker('', '', 'p1'));
+    expect([of(groups, 'p1').refs.length, of(groups, 'p1').status, reads.length - cleared]).toEqual([100, 'Showing 100 of 122 refs', 0]);
   });
 
   test('FV-2: a failed page is the status line ("Failed to load refs." without a message) and "No refs found."', async () => {
@@ -144,8 +196,36 @@ describe('FV-3: a theme with one palette', () => {
     // The window and the palette draw in the resolved mode: Dusk's canvas, not light-dark().
     expect(palette(whole, [DUSK], 'system').canvas).toBe('#101820');
     const local = { deviceSettings: { ...DEVICE_DEFAULTS }, clientSettings: whole, customThemes: [DUSK] };
-    expect(windowAppearanceMode(local as never)).toBe('dark');
+    expect(windowAppearanceMode({ local } as unknown as T3Client)).toBe('dark');
     expect(look({ local, diffState: undefined } as unknown as T3Client).mode).toBe('dark');
+  });
+
+  test('the whole app wears the editor\'s draft in the appearance being edited, the window too (applyThemeColorPreview)', async () => {
+    // Dusk the whole theme, mode System on a light Mac: dark. Create theme opens on Dark; its Light draft turns the app light.
+    const whole = prefs('dusk', 'dusk', 'dusk');
+    const client = { local: { deviceSettings: { ...DEVICE_DEFAULTS, appearanceMode: 'system' }, clientSettings: whole, customThemes: [DUSK] }, diffState: undefined,
+      ready: true, environmentId: 'env1', revision: 0, config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;
+    expect([look(client).mode, windowAppearanceMode(client)]).toEqual(['dark', 'dark']);
+    const wakes: string[] = [];
+    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+    const core = (kind: string) => settingsCore(client, module, '', '', '', '', 'appearance', '', true, kind, kind ? '#1' : '', 'embedded', false, look(client).mode);
+    await core('');
+    expect(wakes).toEqual([]);
+    let page = await core('create');
+    expect([page.editor.appearance, look(client).mode, windowAppearanceMode(client), page.palette.canvas, wakes]).toEqual(['dark', 'dark', 'dark', '#101820', []]);
+    editDraft(client, 'appearance', 'light');
+    page = await core('create');
+    expect([look(client).mode, windowAppearanceMode(client), look(client).canvas, page.palette.canvas]).toEqual(['light', 'light', '#fcfcfc', '#fcfcfc']);
+    // The editor opening or closing is no command: the page wakes the data source, whose read sends the window's mode.
+    expect(wakes).toEqual(['t3.notify']);
+    await core('');
+    expect([look(client).mode, windowAppearanceMode(client), wakes]).toEqual(['dark', 'dark', ['t3.notify', 't3.notify']]);
+    // In mode Dark, a Light draft is light all the same (the `dark` class follows the draft, not the mode).
+    (client.local.deviceSettings as { appearanceMode: string }).appearanceMode = 'dark';
+    (client.local as unknown as { clientSettings: unknown }).clientSettings = prefs('t3-code', 't3-code');
+    await core('create');
+    editDraft(client, 'appearance', 'light');
+    expect([look(client).mode, windowAppearanceMode(client)]).toEqual(['light', 'light']);
   });
 
   test('the library\'s Use puts a one-palette theme on its own half (assignHalf); a two-palette one is the whole theme', () => {

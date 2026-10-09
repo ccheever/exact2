@@ -108,9 +108,15 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
 // page (r5-composer-paging.ts), and the selectedRefQuery lookups by name. Read when the editor opens and kept while it
 // stays open, as the picker's query atoms are, never again on a wake or the minute tick; Refresh, a new connection and
 // another environment, task or project list read again. (audit-wave-followups-2 FV-2)
-type ProjectRefs = RefPages & { error: string };
+// The list the picker shows (its project and search, usePaginatedBranches' targetKey) starts again from its first page
+// whenever it changes (`cursors = INITIAL_BRANCH_CURSORS`): a kept list shows its first page, and scrolls of another list
+// are not its own. A search not read yet shows "Loading refs..." (its first page pending, `data === null`) over no refs,
+// and the answer asks itself again (`t3.notify`, R10Connect.swift's wake) for the read.
+type ProjectRefs = RefPages & { error: string; first: Obj | null; loading?: boolean };
 type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[]; status: string };
-type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string, BranchRef[]>; picker: string };
+type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string, BranchRef[]>; picker: string; looks: number };
+/** The topic the page watches while a search's first page is pending: its own wake asks it again (r10-connect-timing.ts). */
+export const TASK_REFS_WAKE = 't3.notify';
 const editorRefs = new WeakMap<T3Client, Visit>();
 export const TASK_REFS = 'task-refs'; // settings-scheduled.contract's list: `data-anchor="scroll:task-refs"`
 const failed = (error: unknown) => (error instanceof Error && error.message.trim() ? error.message : 'Failed to load refs.');
@@ -130,9 +136,12 @@ export function pickerOf(taskBase: string, key: string): { project: string; ref:
   return params.get('key') === key ? { project: str(params.get('project')), ref: str(params.get('ref')).trim(), query: str(params.get('query')) } : null;
 }
 
-/** BranchPicker's status line: the error, "Loading more refs..." while a page is out, or "Showing N of M refs" while more remain. */
+/**
+ * BranchPicker's status line: the error, "Loading refs..." while the first page is out, "Loading more refs..." while the
+ * next one is, or "Showing N of M refs" while more remain.
+ */
 export function taskRefsStatus(pages: ProjectRefs): string {
-  return pages.error || refsStatus(pages, false);
+  return pages.error || refsStatus(pages, pages.loading === true);
 }
 
 export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
@@ -180,38 +189,66 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const visitKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
       ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`)].join('|');
     let visit = editorRefs.get(client);
-    if (!visit || visit.key !== visitKey) editorRefs.set(client, visit = { key: visitKey, pages: new Map(), lookups: new Map(), picker: '' });
+    if (!visit || visit.key !== visitKey) editorRefs.set(client, visit = { key: visitKey, pages: new Map(), lookups: new Map(), picker: '', looks: 0 });
+    // Another list shown (a project, a search): it starts from its first page (usePaginatedBranches' targetKey).
+    const moved = visit.picker !== `${shown}\n${search}`, opening = visit.looks++ === 0;
     visit.picker = `${shown}\n${search}`;
     // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches). The focused
     // environment's read is shared (T3Transport `share`): an answer asked again before its reply joins it.
     const listRefs = async (payload: Obj) => (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload));
     const kept = visit, presentation = obj(client.presentation);
+    let pending = false;
     const branches: Refs[] = await Promise.all(projects.map(async project => {
       const cwd = str(project.workspaceRoot), projectId = str(project.id), query = projectId === shown ? search : '';
       const list = (cursor?: number) => listRefs({ cwd, limit: REF_PAGE, ...(query ? { query } : {}), ...(cursor === undefined ? {} : { cursor }) });
-      const pagesKey = `${projectId}\n${query}`;
+      const pagesKey = `${projectId}\n${query}`, ends = scrollEnds(presentation, TASK_REFS);
       let pages = kept.pages.get(pagesKey);
-      if (!pages) {
-        try { pages = { ...firstPage(await list(), scrollEnds(presentation, TASK_REFS)), error: '' }; }
-        catch (error) { if (letGo(error)) throw error; pages = { refs: [], total: 0, nextCursor: null, ends: scrollEnds(presentation, TASK_REFS), error: failed(error) }; }
+      if (pages && projectId === shown && moved) {
+        // Shown again: its first page, and only a scroll from now on loads the next (a failed read is read again).
+        if (pages.error || !pages.first) { kept.pages.delete(pagesKey); pages = undefined; }
+        else Object.assign(pages, firstPage(pages.first, ends), { loadingMore: false });
+      }
+      if (!pages && projectId === shown && !opening) {
+        pages = { refs: [], total: 0, nextCursor: null, ends, error: '', first: null, loading: true };
         kept.pages.set(pagesKey, pages);
+        pending = true;
+      } else if (!pages || pages.loading) {
+        let read: ProjectRefs;
+        try { const first = await list(); read = { ...firstPage(first, ends), error: '', first }; }
+        catch (error) { if (letGo(error)) throw error; read = { refs: [], total: 0, nextCursor: null, ends, error: failed(error), first: null }; }
+        if (pages) Object.assign(pages, read, { loading: false }); else kept.pages.set(pagesKey, pages = read);
       } else if (projectId === shown && !pages.error) {
         // A scroll toward the list's end loads the next page (BranchPicker maybeFetchNextBranchPage).
         try { Object.assign(pages, await morePages(pages, presentation, TASK_REFS, list)); }
         catch (error) { if (letGo(error)) throw error; Object.assign(pages, { error: failed(error), loadingMore: false }); }
       }
-      const listed = pages.refs.map(ref => branchRef(ref, cwd));
+      const shownPages = pages;
+      const listed = shownPages.refs.map(ref => branchRef(ref, cwd));
+      // A base another of this project's kept lists has is known (no lookup), so a pending search keeps its label at once.
+      const keptRef = (name: string): BranchRef[] | undefined => {
+        for (const [key, entry] of kept.pages) {
+          const ref = key.startsWith(`${projectId}\n`) ? entry.refs.find(item => str(item.name) === name) : undefined;
+          if (ref) return [branchRef(ref, cwd)];
+        }
+        return undefined;
+      };
       const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !listed.some(ref => ref.value === entry.ref)).map(entry => entry.ref))];
       const selected = (await Promise.all(unlisted.map(async name => {
-        const found = kept.lookups.get(`${projectId}\n${name}`);
+        const found = kept.lookups.get(`${projectId}\n${name}`) ?? keptRef(name);
         if (found) return found;
         const refs = await listRefs({ cwd, query: name, limit: 10 }).then(answer => arr(answer.refs)).catch((error: unknown): Obj[] => { if (letGo(error)) throw error; return []; });
         const named = refs.filter(ref => str(ref.name) === name).map(ref => branchRef(ref, cwd));
         kept.lookups.set(`${projectId}\n${name}`, named);
         return named;
       }))).flat();
-      return { projectId, error: pages.error, refs: listed, selected, status: taskRefsStatus(pages) };
+      return { projectId, error: shownPages.error, refs: listed, selected, status: taskRefsStatus(shownPages) };
     }));
+    // The status is drawn first; the page asks again now for the search's first page (watched, so it is asked again
+    // after this answer lands, LLP 1016.002 D4).
+    if (pending) {
+      native.watch(TASK_REFS_WAKE);
+      try { await native.later({ op: 'r10Wake', topic: TASK_REFS_WAKE }); } catch (error) { if (letGo(error)) throw error; }
+    }
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,
