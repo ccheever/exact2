@@ -1,0 +1,23 @@
+#311 B step 3 (pr-links-previews-and-routing): agent mode, 2026-10-09, GitHub lane primary on 127.0.0.1:16660 (sandbox daehyeonmun2021/playground), the screen locked (captures blank; the proof is the tree)
+Ops: pair (the link redacted), wizard Continue x2, Do not import; Pull Requests, search #168, row, Code; tick catalog/entry-001.txt Viewed;
+then, mid-drive, one commit pushed to #168's feature/catalog by the second account's lane git (fb68053, 'Note the first entry was checked');
+More > Refresh; hover the Changed tip; tick it again. Afterwards the file was unmarked viewed with the primary's lane gh (restored).
+
+op 1: target=welcome-pairing-link, delivery=platform
+op 2: target=welcome-pair, delivery=platform
+op 4: target=welcome-continue, delivery=platform
+op 6: target=welcome-agents-continue, delivery=platform
+op 8: target=welcome-skip-import, delivery=platform
+op 10: target=open-pull-requests, delivery=platform
+op 12: target=pull-requests-search, delivery=platform
+op 14: target=pr-row-168, delivery=platform
+op 16: target=pull-request-tab-code, delivery=host-activation
+op 18: target=pull-request-code-viewed-catalog/entry-001.txt, delivery=platform
+op 20: tree: [('pull-request-code-viewed-catalog/entry-001.txt', 'Viewed')]
+op 22: target=pull-request-more, delivery=platform
+op 24: target=pr-more-refresh, delivery=platform
+op 26: tree: [('pull-request-code-viewed-catalog/entry-001.txt', 'Changed'), ('pull-request-code-changed-tip-catalog/entry-001.txt', None)]
+op 27: target=pull-request-code-changed-tip-catalog/entry-001.txt, hover=True, delivery=platform
+op 29: tree: [('pull-request-code-viewed-catalog/entry-001.txt', 'Changed'), ('pull-request-code-changed-tip-catalog/entry-001.txt', None), ('pull-request-code-changed-tip-catalog/entry-001.txt-bubble', None)]
+op 30: target=pull-request-code-viewed-catalog/entry-001.txt, delivery=platform
+op 32: tree: [('pull-request-code-viewed-catalog/entry-001.txt', 'Viewed'), ('pull-request-code-changed-tip-catalog/entry-001.txt-bubble', None)]
