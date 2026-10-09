@@ -7,7 +7,7 @@
 // `chatlocal:link-open`, a terminal link in the app, the tab menu's Mute row, and the "Open links in" setting.
 import { describe, expect, it } from 'bun:test';
 import {
-  TerminalLinkPreviewOpenError, linkTargetPreference, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, type BrowserLinkTarget,
+  TerminalLinkPreviewOpenError, linkTargetPreference, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
 } from './browser-links';
 import { tabAudioState, tabContextMenuItems, tabMuteMenuItem } from './right-panel-tabs';
 import { browserTabMute } from './browser-automation-tabs';
@@ -22,6 +22,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { toasts } from './toast';
 import type { Obj } from './domain';
 import { scopedThreadKey } from './terminal-ui-state';
+import { BrowserSettingsReadError } from './browser-profiles';
 
 const click = { metaKey: false, ctrlKey: false };
 describe('resolveLinkTarget', () => {
@@ -45,10 +46,13 @@ describe('resolveLinkTarget', () => {
 
 describe('resolveBrowserLinkTargetPreference', () => {
   for (const preference of ['system', 'app'] as const) {
-    it(`reads the saved ${preference} preference (the client's settings are loaded before any answer)`, () => {
+    it(`rejects failed reads instead of using the current ${preference} preference`, () => {
+      // The clone's hydration is the command's preference read (client.ts load): until it has run, the read is refused.
       const client = new T3Client();
       client.local.clientSettings = { ...client.local.clientSettings, browserLinkTarget: preference } as typeof client.local.clientSettings;
-      expect(linkTargetPreference(client)).toBe(preference);
+      expect(() => resolveLinkTargetPreference(client)).toThrow(BrowserSettingsReadError);
+      Object.assign(client, { loaded: true });
+      expect(resolveLinkTargetPreference(client)).toBe(preference);
     });
   }
 });
@@ -168,14 +172,16 @@ describe('openLink (useOpenLink)', () => {
     expect(surfaceStore(client).panels.get('local:thread-1')).toMatchObject({ active: browserSurfaceId('tab-1'), visible: true });
     expect(external(ops)).toEqual([]);
   });
-  it('opens under the configured profile and viewport, and in the system browser while the settings are unread (part 4)', async () => {
+  it('opens under the configured profile and viewport, and opens neither browser while the settings are unread (part 4)', async () => {
     const { client, rpcs, ops, native } = linkClient();
     Object.assign(client.local, { browserProfiles: [{ id: 'work', name: 'Work', kind: 'persistent' }], browserDefaultProfileId: 'work', browserDefaultViewport: { _tag: 'preset', presetId: 'ipad-mini', width: 768, height: 1024 } });
     expect(await openLink(client, native, 'https://example.com/docs')).toBe('app');
     expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ viewport: { _tag: 'preset', presetId: 'ipad-mini' }, profileId: 'work' });
     Object.assign(client, { loaded: false });
-    expect(await openLink(client, native, 'https://example.com/later')).toBe('system');
-    expect(external(ops)).toEqual(['https://example.com/later']);
+    await expect(openLink(client, native, 'https://example.com/later')).rejects.toBeInstanceOf(BrowserSettingsReadError);
+    await expect(openLink(client, native, 'https://example.com/system', { event: { metaKey: true, ctrlKey: false } })).rejects.toBeInstanceOf(BrowserSettingsReadError);
+    expect(rpcs.filter(call => call.method === 'preview.open')).toHaveLength(1);
+    expect(external(ops)).toEqual([]);
   });
   it('falls back to the system browser when the in-app open fails', async () => {
     const { client, ops, native } = linkClient({ failOpen: true });
@@ -244,6 +250,19 @@ describe('terminal links in the app', () => {
     const { client, ops, native } = linkClient({ failOpen: true });
     await terminalLinkAction(client, native, { text: 'http://localhost:5173/', threadId: 'thread-1', environmentId: 'local', terminalId: 'term-1' });
     expect(external(ops)).toEqual(['http://localhost:5173/']);
+  });
+  it('opens under the configured viewport and profile, and opens neither browser while the settings are unread', async () => {
+    const { client, rpcs, ops, native } = linkClient();
+    Object.assign(client.local, { browserProfiles: [{ id: 'work', name: 'Work', kind: 'persistent' }], browserDefaultProfileId: 'work', browserDefaultViewport: { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } });
+    await terminalLinkAction(client, native, { text: 'http://localhost:5173/', threadId: 'thread-1', environmentId: 'local', terminalId: 'term-1' });
+    expect(rpcs.find(call => call.method === 'preview.open')?.payload).toEqual({ threadId: 'thread-1', url: 'http://localhost:5173/', viewport: { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 }, profileId: 'work' });
+    Object.assign(client, { loaded: false });
+    await expect(terminalLinkAction(client, native, { text: 'http://localhost:5174/', threadId: 'thread-1', environmentId: 'local', terminalId: 'term-1' })).rejects.toBeInstanceOf(BrowserSettingsReadError);
+    expect(rpcs.filter(call => call.method === 'preview.open')).toHaveLength(1);
+    expect(external(ops)).toEqual([]);
+    // ⌘-click asks for the system browser, which needs no setting.
+    await terminalLinkAction(client, native, { text: 'http://localhost:5175/', threadId: 'thread-1', environmentId: 'local', terminalId: 'term-1', metaKey: true });
+    expect(external(ops)).toEqual(['http://localhost:5175/']);
   });
 });
 

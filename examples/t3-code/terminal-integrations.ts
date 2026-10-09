@@ -11,7 +11,8 @@ import { favoriteEditor } from './keyboard-dispatch';
 import { lastEditor } from './shell-details';
 import { resolvePathLinkTarget } from './terminal-links';
 import { letGo } from './let-go';
-import { openTerminalLinkInPreview, openUrlInPreview } from './browser-links';
+import { openTerminalLinkInPreview, openUrlInPreview, resolveLinkTargetPreference } from './browser-links';
+import { resolveBrowserOpenDefaults } from './browser-defaults';
 
 
 export interface TerminalContextSelection { terminalId: string; terminalLabel: string; lineStart: number; lineEnd: number; text: string }
@@ -132,13 +133,18 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
   const threadId = str(message.threadId) || client.threadId;
   const thread = client.shell.threads.find(thread => thread.id === threadId);
   const project = client.shell.projects.find(project => project.id === (str(thread?.projectId) || client.projectId));
-  const target = terminalLinkTarget(message, str(obj(client.local.clientSettings).browserLinkTarget, 'system'), !!threadId);
+  // A web link with no ⌘ or Ctrl reads "Open links in" only from read settings (resolveLinkTargetPreference refuses unread ones:
+  // neither browser opens), as openTerminalLinkInPreview awaits the preference only for a link it could open in the app.
+  const asks = /^https?:\/\//i.test(str(message.text)) && message.metaKey !== true && message.ctrlKey !== true && !!threadId;
+  const target = terminalLinkTarget(message, asks ? resolveLinkTargetPreference(client) : 'system', !!threadId);
   if (target === 'unsupported') return;
   if (target === 'app') {
-    // openTerminalLinkInPreview (browser-links.ts): a Browser tab beside the thread; a failed open falls back to the system browser.
+    // openTerminalLinkInPreview (browser-links.ts): a Browser tab beside the thread under the configured viewport and profile;
+    // a failed open falls back to the system browser.
     const ref = { environmentId: str(message.environmentId) || client.environmentId, threadId };
-    await openTerminalLinkInPreview({ url: str(message.text), threadRef: ref, forceBrowser: false, supported: native.available, preference: () => 'app',
-      openPreview: async ({ input }) => openUrlInPreview(client, native, ref, input.url), fallbackToBrowser: () => openTerminalLinkExternally(client, native, message, threadId) });
+    await openTerminalLinkInPreview({ url: str(message.text), threadRef: ref, forceBrowser: false, supported: native.available, preference: () => resolveLinkTargetPreference(client),
+      defaults: () => resolveBrowserOpenDefaults(client), openPreview: async ({ input }) => openUrlInPreview(client, native, ref, input.url, input),
+      fallbackToBrowser: () => openTerminalLinkExternally(client, native, message, threadId) });
     return;
   }
   try {
