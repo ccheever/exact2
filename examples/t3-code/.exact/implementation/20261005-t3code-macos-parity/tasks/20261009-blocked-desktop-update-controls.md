@@ -106,7 +106,11 @@ utility page, Back + the control), `SettingsSidebarNav.tsx:351-366` (the Setting
   `0.0.46-nightly.20261004.1`; the reference build is 0.0.45, so Stable). A pick goes through `desktopSettingsSet
   {updateChannel}` (`T3LocalBackend.swift`, `T3DesktopSettings.settingUpdateChannel` = `setUpdateChannel`), which
   writes the sparse document and publishes the new key; the same track sends nothing; a failed write keeps the track
-  and shows the reference's toast "Could not change update track" with the write error. The select is disabled while
+  and shows the reference's toast "Could not change update track" with what the reference's renderer reads: the write
+  failure wrapped as `DesktopUpdates.setChannel` wraps it (`DesktopUpdateChannelPersistenceError`,
+  `DesktopUpdates.ts:92-101`, as the clone's exposure and Tailscale persistence errors in `server-exposure.ts`), behind
+  Electron's invoke prefix: "Error invoking remote method 'desktop:update-set-channel':
+  DesktopUpdateChannelPersistenceError: Failed to persist the latest desktop update channel.". The select is disabled while
   the command runs (`isChangingUpdateChannel`). With a linked Exact update store the track stays the stream's channel,
   shown and not switchable, as before.
 - Not built (X40 stays closed): any feed, check, download, install, release notes or channel-driven check. About's
@@ -122,15 +126,19 @@ image: before | after | reference.
 | --- | --- | --- |
 | SH-6 | pass (agent): the footer ends in the disabled control (tree: `sidebar-check-updates`, label "Check for updates", disabled, no handlers); hovering it at (231, 820) shows "Check for updates" above it (reference: `aria-disabled`, opacity 0.6, not-allowed, centre (231, 820), the same tooltip) | [sh-6-sidebar-footer.png](https://raw.githubusercontent.com/ccheever/exact2/e42830c75e92d4b96177458f2ad30345ed47b56a/desktop-update-controls/sh-6-sidebar-footer.png) |
 | S1-13 nav | pass (agent): the Settings nav footer is Back + the disabled control (`settings-check-updates`); hovering it at (232, 820) shows the tooltip over the nav's edge | [s1-13-settings-nav-footer.png](https://raw.githubusercontent.com/ccheever/exact2/58164230fc82b320623181050885314bec68d5a8/desktop-update-controls/s1-13-settings-nav-footer.png) |
-| S1-13 track | pass (agent): the Update track is enabled (tree `disabled: false`), opens Stable/Nightly, and a pick saves `{"updateChannel":"latest","updateChannelConfiguredByUser":true}` to the lane's `userdata/desktop-settings.json` and shows Stable (reference: a pick of Nightly saves `"updateChannel":"nightly","updateChannelConfiguredByUser":true` and shows Nightly). Check for Updates stays disabled | [s1-13-update-track-menu.png](https://raw.githubusercontent.com/ccheever/exact2/d42d997dbc9f6f14a4907cf21d97cb4281af958b/desktop-update-controls/s1-13-update-track-menu.png), [s1-13-update-track-saved.png](https://raw.githubusercontent.com/ccheever/exact2/84122b44359b08e7d0a7be0fac57ee13b9d3de0e/desktop-update-controls/s1-13-update-track-saved.png) |
-| Real pointer | open: the not-allowed cursor and the tooltip under a real pointer (real-input step 1) | — |
+| S1-13 track | pass (agent): the Update track is enabled (tree `disabled: false`), opens Stable/Nightly, and a pick saves `{"updateChannel":"latest","updateChannelConfiguredByUser":true}` to the lane's `userdata/desktop-settings.json` and shows Stable (reference: a pick of Nightly saves `"updateChannel":"nightly","updateChannelConfiguredByUser":true` and shows Nightly). Check for Updates stays disabled | [s1-13-update-track-menu.png](https://raw.githubusercontent.com/ccheever/exact2/51a15fed5f333a5390cbc56eacb22a43d6b8cb8c/desktop-update-controls/s1-13-update-track-menu.png), [s1-13-update-track-saved.png](https://raw.githubusercontent.com/ccheever/exact2/5e3ddc82b9e600fc8fa0d9a67c9dca59d3c75e9d/desktop-update-controls/s1-13-update-track-saved.png) (retaken in the review round with the pointer moved to the select first) |
+| Tooltip leaves | pass (agent, review fix 2026-10-10): with the tooltip showing, moving the agent's pointer to the Update track hides it; the first round's menu and saved shots kept it because a plain `tap` presses without moving the resting pointer (LLP 1012), so the pointer stayed parked on the control | [s1-13-tooltip-leaves.png](https://raw.githubusercontent.com/ccheever/exact2/b9e99c4a9dd65add166291978a36285274464e31/desktop-update-controls/s1-13-tooltip-leaves.png) |
+| S1-13 track, failed save | pass (test, review fix 2026-10-10): the toast's description is the reference's persistence error behind Electron's invoke prefix. Before: "Desktop settings write failed during replace-settings-file at <path>."; after: "Error invoking remote method 'desktop:update-set-channel': DesktopUpdateChannelPersistenceError: Failed to persist the latest desktop update channel." (an error path: no screenshot) | `settings-a-about.test.ts` "a failed save keeps the track …" |
+| Real pointer | open: the not-allowed cursor, the tooltip under a real pointer, and the tooltip hiding when the pointer leaves the control (real-input step 1) | — |
 
 Drive record (steps, tree excerpts, both apps' desktop-settings.json):
-[drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/b8b8da13bd81e5fa2fde10a9b32c1dcbb09e4701/desktop-update-controls/drive-record.txt).
+[drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/fd28253e2e5e148c212c0d07d8564da4f0d21e2c/desktop-update-controls/drive-record.txt)
+(both rounds; the review round's drive ran on the bundle at the merge with feature tip `284254a72`).
 
 Tests: `settings-a-about.test.ts` (the no-feed select reads the saved track; a pick sends `desktopSettingsSet
 {updateChannel}` and the row follows; the same track sends nothing; a failed write keeps the track and shows "Could not
-change update track"; a linked stream fixes the track; the three footers draw the disabled control and its tooltips),
+change update track"; a linked stream fixes the track; the toast reads the reference's `DesktopUpdateChannelPersistenceError` behind Electron's invoke prefix; the three
+footers draw the disabled control and its tooltips),
 `local-backend.test.ts` and `server-exposure.test.ts` (the fifth desktop key and its version default),
 `macos/tests/local-backend/settings.swift` (`setUpdateChannel` and its no-op, ported from the reference's
 `DesktopAppSettings.test.ts`; `desktopSettingsSet {updateChannel}` persists and publishes, an unknown channel is
@@ -140,7 +148,11 @@ refused). Checks: see the PR.
 
 - **No Tab stop on the disabled control.** The reference's control is `aria-disabled`, so Tab still reaches it; Contract
   has no `aria-disabled` (`contract vocab`), and a `disabled` button takes no focus, as a disabled `<button>` on the web.
-  New framework gap (not filed: task briefs file nothing upstream); `EXACT2-GAPS.md` "Desktop update controls".
+  New framework gap, `EXACT2-GAPS.md` "Desktop update controls". **Issue: number pending.** The 2026-10-07 rule accepts
+  a difference only with an issue, and builders file nothing: the coordinator files it from the draft in the PR
+  ("Coordinator action": title `[Feature] Contract: aria-disabled, a control that reads disabled and keeps its Tab
+  stop`) and puts the number here and in the `EXACT2-GAPS.md` row. No existing issue matches (`aria-disabled`: none;
+  #280 is select/date inputs as Tab stops, closed).
 
 ## Real-input batch steps
 
@@ -149,10 +161,16 @@ T3_LOCAL_PORT=16302 EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs
 (`<A>` = `target/t3-audit` of the base checkout; never port 3773 or `~/.t3`).
 1. **SH-6, S1-13 under a real pointer.** Rest the pointer on the round arrows at the right end of the sidebar's bottom
    row. Expect: the not-allowed cursor, and "Check for updates" above the control after about half a second. Click it:
-   nothing happens. Open Settings: the same control sits right of Back, with the same cursor, tooltip and no effect.
+   nothing happens. Move the pointer up off the control: the tooltip hides. Open Settings: the same control sits right
+   of Back, with the same cursor, tooltip and no effect. Rest on it until the tooltip shows, then move to General ›
+   About › Update track and click it: the tooltip is gone before the menu opens (agent mode's `tap` presses without
+   moving the pointer, so the agent drive parks it on the control; see the PR's captions).
 
 ## Next action
 
 The user decides: merge the draft PR (option a: this record closes as built), or close it (option b: this record closes
 as a declared difference; add the row to `EXACT2-GAPS.md` and correct `app-update-feed` lines 19 and 91). Real-input
 step 1 goes into the next real-input batch either way it lands.
+
+Coordinator, before a merge (review of 2026-10-10): file the `aria-disabled` issue from the PR's draft and put its number
+in "Declared difference (option a)" above and in the `EXACT2-GAPS.md` row (both say "number pending").
