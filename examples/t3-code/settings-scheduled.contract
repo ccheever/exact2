@@ -65,12 +65,14 @@ shape TaskRef
   search: string
   badge: string
   remote: bool
-// `selected`: the editor's base when `refs` (the first page) does not list it, as the picker's selectedRefQuery finds it.
+// `refs`: the pages loaded for the picker's search (all of them for another project: its first page). `selected`: the
+// editor's base when `refs` does not list it, as the picker's selectedRefQuery finds it. `status`: BranchPicker's line.
 shape TaskBranches
   projectId: string
   error: string
   refs: list<TaskRef>
   selected: list<TaskRef>
+  status: string
 shape TaskModelMark
   value: string
   name: string
@@ -237,6 +239,9 @@ component TaskMessage
 // and the ref is a local branch the project lists; a ref it does not list (the Verification fixture's "No refs found.")
 // or a remote one reads as it is (settings-rows-and-labels S2-6).
 fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)
+// The editor's picker as the root's page resource reads it (scheduled-view.ts pickerOf): the project it shows, the base to
+// look up when that project's list lacks it, and the search the server filters by (usePaginatedBranches' query).
+fn taskPicker(key: string, project: string, ref: string, query: string): string = `key=${encodeURIComponent(key)}&project=${encodeURIComponent(project)}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`
 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening).
@@ -275,7 +280,6 @@ component ScheduledEditor
   derive modelKey = (taskModelPick != "" ? taskModelPick : draft.modelKey)
   derive modelName = (markField(data.marks, modelKey, "name") == "" ? slice(modelKey, indexOf(modelKey, ":") + 1, length(modelKey)) : markField(data.marks, modelKey, "name"))
   state refQuery = ""
-  derive refSearch = refQuery
   // The base is a local branch of the chosen project's refs (WorktreeBaseBranchPicker's selectedRef, isRemote false): from
   // the loaded page, else from the lookup by name (`selected`), which the page makes for the draft's project and after a
   // switch (chooseProject).
@@ -283,6 +287,7 @@ component ScheduledEditor
   action setText(field: string, value: string)
     if field == "refs"
       refQuery = value
+      lookupBase(taskPicker(draft.key, projectId, baseRef, value))
     if field == "title"
       title = value
     if field == "prompt"
@@ -293,17 +298,24 @@ component ScheduledEditor
       timeOfDay = value
     if field == "path"
       path = value
-  // The picker is keyed by project, so another project asks for the base again (selectedRefQuery): when its first page
-  // does not list the base, the root's page resource looks it up by name (scheduled-view.ts `taskBase`).
+  // The picker is keyed by project, so another project asks for the base again (selectedRefQuery): when its list does not
+  // have the base, the root's page resource looks it up by name (scheduled-view.ts `taskBase`).
   action chooseProject(value: string)
     projectId = value
-    if baseRef != "" and length(filter(data.branches, (group) => group.projectId == value and group.error == "" and length(filter(group.refs, (ref) => ref.value == baseRef)) == 0)) > 0
-      lookupBase(`key=${encodeURIComponent(draft.key)}&project=${encodeURIComponent(value)}&ref=${encodeURIComponent(baseRef)}`)
+    refQuery = ""
+    lookupBase(taskPicker(draft.key, value, baseRef, ""))
+  // WorktreeBaseBranchPicker's handleOpenChange: the search starts empty each time the picker opens.
+  action openRefs
+    if refQuery != ""
+      refQuery = ""
+      lookupBase(taskPicker(draft.key, projectId, baseRef, ""))
   action choose(field: string, value: string)
     if field == "workspace"
       workspaceMode = value
     if field == "branch"
       baseRef = value
+      refQuery = ""
+      lookupBase(taskPicker(draft.key, projectId, value, ""))
     if field == "schedule"
       scheduleMode = value
   action toggle(field: string)
@@ -374,7 +386,7 @@ component ScheduledEditor
             when workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel
-                button popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
+                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
                   LucideGitBranch(size=14, color="light-dark(#71717b, #818181)")
                   text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
@@ -385,25 +397,29 @@ component ScheduledEditor
                     row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")
                       input value=refQuery input=setText("refs") placeholder="Search refs..." aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
-                  scroll max-height="14rem" width="100%"
+                  // The server's answer for the search (filteredItems = items); a scroll toward the end loads the next
+                  // page (R5ComposerScroll.swift counts it for `scroll:task-refs`, scheduled-view.ts loads it).
+                  scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"
                     column padding-left="0.25rem" padding-top="0.5rem" padding-bottom="0.25rem" width="100%" box-sizing="border-box"
                       each group in data.branches key=group.projectId
                         when group.projectId == projectId
-                          when group.error != ""
-                            text group.error font-size="0.75rem" color="light-dark(#dc2626, #f87171)" padding="0.5rem"
-                          when group.error == "" and length(filter(group.refs, (r) => refSearch == "" or includes(r.search, refSearch))) == 0
+                          when length(group.refs) == 0
                             text "No refs found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #818181)" testId="task-branch-empty"
                           each ref in group.refs key=ref.value
-                            when refSearch == "" or includes(ref.search, refSearch)
-                              button press=choose("branch", ref.value) popovertarget="task-branch-menu" popovertargetaction="hide" role="option" aria-selected=(ref.value == baseRef) testId=`task-branch-${ref.value}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" justify-content="flex-start" background-color=(ref.value == baseRef ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000")
-                                text ref.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #fafafa)" flex=1 min-width=0 line-clamp=1
-                                when ref.badge != ""
-                                  text ref.badge font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b73, #81818173)" flex-shrink=0
+                            button press=choose("branch", ref.value) popovertarget="task-branch-menu" popovertargetaction="hide" role="option" aria-selected=(ref.value == baseRef) testId=`task-branch-${ref.value}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" justify-content="flex-start" background-color=(ref.value == baseRef ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000")
+                              // A button centres its text: the name starts at the left as BranchPickerRefItem's (FV-1).
+                              text ref.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #fafafa)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                              when ref.badge != ""
+                                text ref.badge font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b73, #81818173)" flex-shrink=0
                   row align-items="center" justify-content="space-between" gap="0.75rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)"
                     row align-items="center" gap="0.375rem" min-width=0
                       LucideRefreshCw(size=12, color="light-dark(#71717b, #818181)")
                       text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1
                     SettingsSwitch(checked=startFromOrigin, label="Start worktree from origin", disabled=busy, switchId="task-origin", toggle=toggle("origin"))
+                  // ComboboxStatus: the error, "Loading more refs..." or "Showing 100 of 122 refs" while more remain.
+                  each group in data.branches key=group.projectId
+                    when group.projectId == projectId and group.status != ""
+                      text group.status font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)" role="status" testId="task-branch-status"
             when workspaceMode == "existing_worktree"
               column gap="0.375rem"
                 text "Checkout path" class=TkLabel

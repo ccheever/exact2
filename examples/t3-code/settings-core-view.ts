@@ -11,7 +11,9 @@ import { scopeMachine, singleEnvironmentRoute } from './settings-b-scope';
 import { isPrimaryEnvironment } from './local-primary';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
-import { editorView, previewTheme, syncDraft } from './settings-appearance-editor';
+import { editorView, syncDraft } from './settings-appearance-editor';
+import { paintOf } from './settings-appearance-look';
+import { letGo } from './let-go';
 import { importView, resetImport } from './settings-appearance-import';
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
 import { killConfirmation } from './settings-a-telemetry';
@@ -47,6 +49,21 @@ export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
   return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
 }
 
+/**
+ * The editor's draft opened or closed (a window state, no command): the window (devicePresentation) and the root's
+ * `scheme` take its mode when the data source reads again, so ask it now (`t3.notify`, R10Connect.swift's wake). A wake
+ * let go is made again by the next answer.
+ */
+const worn = new WeakMap<T3Client, string>();
+async function wearMode(client: T3Client, native: Native | null | undefined, mode: string): Promise<void> {
+  const was = worn.get(client);
+  if (was === mode) return;
+  if (was !== undefined && native?.available) {
+    try { await native.later({ op: 'r10Wake', topic: 't3.notify' }); } catch (error) { if (letGo(error)) throw error; }
+  }
+  worn.set(client, mode);
+}
+
 export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false, scheme = 'light') {
   rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
   const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
@@ -61,10 +78,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   // It opens on the app's resolved scheme (app.contract `scheme`; SettingsPanels.tsx and CommandPalette.tsx pass
   // useTheme's resolvedTheme), so mode System on a dark Mac opens the Dark appearance.
   const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, scheme === 'dark' ? 'dark' : 'light');
-  const preview = previewTheme(client);
+  const paint = paintOf(client);
+  await wearMode(client, native, paint.mode);
   if (dialogKind !== 'import') resetImport(client);
-  const paintCustom = preview ? [...custom, preview] : custom;
-  const paintPrefs = preview ? { ...prefs, [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id } : prefs;
   let sections: CoreSection[] = [];
   if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
   if (active && route === 'appearance') sections = appearanceSections(prefs, true);
@@ -89,7 +105,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
     sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
-    palette: palette(paintPrefs, paintCustom, device.appearanceMode), editor: editorView(draft), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
+    palette: palette(paint.prefs, paint.custom, paint.mode), editor: editorView(draft, custom), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
     wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs,
     archiveConfirm: archiveConfirmation(client),
     updateConfirm: updateConfirmation(client),

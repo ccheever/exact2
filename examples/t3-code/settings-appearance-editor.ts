@@ -102,10 +102,13 @@ export type Draft = { kind: string; subject: string; sessionId: number; editingI
   pickerSeq: Record<string, number> };
 const drafts = new WeakMap<T3Client, Draft>();
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
-/** A theme's full role set for one appearance: its own roles over the standard ones. */
+/**
+ * A theme's full role set for one appearance: its own roles over the standard ones. A palette the theme lacks is the
+ * standard one (ThemeEditorPanel.tsx:385-390 seeds getThemeEditorColorsByAppearance, then the theme's own palettes).
+ */
 function rolesOf(id: string, mode: Mode, custom: CustomTheme[]): Record<string, string> {
   const own = custom.find(theme => theme.id === id);
-  if (own) return { ...STANDARD[mode], ...(own[mode] ?? own[own.appearance] ?? {}) };
+  if (own) return { ...STANDARD[mode], ...(own[mode] ?? {}) };
   if (id === 't3-code' || !id) return { ...STANDARD[mode] };
   // A built-in source seeds its own definition, every role (ThemeEditorPanel's sourceTheme colours).
   return { ...STANDARD[mode], ...(builtInThemeColors(id, mode) ?? themeRoles(id, mode, custom) as Record<string, string>) };
@@ -152,12 +155,39 @@ export function previewTheme(client: T3Client): CustomTheme | null {
   return { id: '__theme-editor-draft', label: draft.name || 'Draft', appearance: draft.appearance, light: draft.colors.light, dark: draft.colors.dark };
 }
 
+const modesOf = (theme: CustomTheme): Mode[] => (['light', 'dark'] as Mode[]).filter(mode => theme[mode] != null || theme.appearance === mode);
+/**
+ * ThemeEditorPanel's mergeTarget (:421-430): another installed theme the draft's name already names, by its derived id
+ * or its label. A create adds the draft's palette to it; an edit renamed onto it folds its palettes in.
+ */
+export function mergeTargetOf(draft: Pick<Draft, 'name' | 'editingId'>, custom: CustomTheme[]): CustomTheme | null {
+  const name = draft.name.trim().toLowerCase();
+  if (!name) return null;
+  const id = themeIdFromName(draft.name.trim());
+  return custom.find(theme => theme.id !== draft.editingId && (theme.id === id || theme.label.trim().toLowerCase() === name)) ?? null;
+}
+/** The submit button (ThemeEditorPanel.tsx:1252-1266): its label and icon. */
+export function submitLabel(draft: Pick<Draft, 'name' | 'editingId' | 'appearance'>, custom: CustomTheme[]): { label: string; icon: string } {
+  const target = mergeTargetOf(draft, custom);
+  if (draft.editingId) return { label: target ? `Merge into “${target.label}”` : 'Save changes', icon: '' };
+  return target ? { label: `Add ${draft.appearance} palette`, icon: 'plus' } : { label: 'Create theme', icon: 'paintbrush' };
+}
+/**
+ * The name changed (ThemeEditorPanel.tsx:449-462): a create named like a theme that has only the selected appearance
+ * flips the draft to the free one, so the merge works without a manual toggle.
+ */
+function followName(draft: Draft, custom: CustomTheme[]): void {
+  const target = draft.editingId ? null : mergeTargetOf(draft, custom);
+  const taken = target ? modesOf(target) : [];
+  if (taken.length === 1 && taken[0] === draft.appearance) draft.appearance = draft.appearance === 'light' ? 'dark' : 'light';
+}
+
 /** A family row: its value, the picker's starting point for it, and the last picker op applied (`seq`). */
 export type EditorRow = { id: string; label: string; role: string; value: string; seq: number } & PickerFields;
 export type EditorGroup = { id: string; title: string; rows: EditorRow[] };
-export type EditorView = { open: boolean; title: string; saveLabel: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; canSave: boolean; session: string };
-export function editorView(draft: Draft | null): EditorView {
-  if (!draft) return { open: false, title: '', saveLabel: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], canSave: false, session: '' };
+export type EditorView = { open: boolean; title: string; saveLabel: string; saveIcon: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; canSave: boolean; session: string };
+export function editorView(draft: Draft | null, custom: CustomTheme[] = []): EditorView {
+  if (!draft) return { open: false, title: '', saveLabel: '', saveIcon: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], canSave: false, session: '' };
   const colors = draft.colors[draft.appearance];
   const row = ([id, label, role]: [string, string, string]): EditorRow => {
     const value = colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000';
@@ -167,7 +197,8 @@ export function editorView(draft: Draft | null): EditorView {
   const groups = ROLE_GROUPS.map(group => ({ id: group.id, title: group.title, rows: group.families.filter(([, label]) => !filter || label.toLowerCase().includes(filter)).map(row) }))
     .filter(group => group.rows.length > 0);
   const name = draft.name.trim();
-  return { open: true, title: draft.editingId ? 'Edit theme' : 'Create theme', saveLabel: draft.editingId ? 'Save theme' : 'Create theme', name: draft.name, appearance: draft.appearance,
+  const submit = submitLabel(draft, custom);
+  return { open: true, title: draft.editingId ? 'Edit theme' : 'Create theme', saveLabel: submit.label, saveIcon: submit.icon, name: draft.name, appearance: draft.appearance,
     advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `session-${draft.sessionId}` };
 }
 const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.some(([, , familyRole]) => familyRole === role));
@@ -183,6 +214,11 @@ const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.
 export function themeLocal(client: T3Client, part: string, id: string, value: string, n: number): string {
   const draft = drafts.get(client);
   const [session, role = ''] = id.split('|');
+  // audit-wave-followups-2 FV-4: the name as it is typed, so the submit label follows it (`<session>|name`).
+  if (draft && part === 'name' && role === 'name' && session === `session-${draft.sessionId}` && n > (draft.pickerSeq.name ?? -Infinity)) {
+    draft.pickerSeq.name = n; draft.name = value; followName(draft, customOf(client));
+    return '';
+  }
   if (!draft || session !== `session-${draft.sessionId}` || !isFamilyRole(role)) return '';
   if (n <= (draft.pickerSeq[role] ?? -Infinity)) return '';
   draft.pickerSeq[role] = n;
@@ -196,7 +232,7 @@ export function themeLocal(client: T3Client, part: string, id: string, value: st
 export function editDraft(client: T3Client, part: string, value: string): void {
   const draft = drafts.get(client);
   if (!draft) throw new ClientError('Open the theme editor first.');
-  if (part === 'name') { if (value.length > 48) throw new ClientError('Use a name of 48 characters or fewer.'); draft.name = value; return; }
+  if (part === 'name') { if (value.length > 48) throw new ClientError('Use a name of 48 characters or fewer.'); draft.name = value; followName(draft, customOf(client)); return; }
   if (part === 'appearance') { if (value !== 'light' && value !== 'dark') throw new ClientError('Choose Light or Dark.'); draft.appearance = value; return; }
   if (part === 'advanced') { draft.advanced = value === 'true'; return; }
   if (part === 'filter') { draft.filter = value.slice(0, 64); return; }
@@ -222,10 +258,19 @@ export function saveDraft(client: T3Client): { theme: CustomTheme; context: Them
   const custom = customOf(client);
   const local = client.local as unknown as { customThemes?: CustomTheme[] };
   const editing = draft.editingId ? custom.find(theme => theme.id === draft.editingId) ?? null : null;
-  const mergeTarget = editing ? null : custom.find(theme => theme.label.trim().toLowerCase() === name.toLowerCase()) ?? null;
+  const mergeTarget = mergeTargetOf({ name, editingId: editing?.id ?? '' }, custom);
   let theme: CustomTheme, context: ThemeSaveContext;
-  if (mergeTarget) {
-    if (mergeTarget[draft.appearance]) throw new ClientError(`“${mergeTarget.label}” already has light and dark palettes. Pick another name.`);
+  if (editing && mergeTarget) {
+    // Renamed onto another installed theme (ThemeEditorPanel.tsx:788-828): this theme's palettes fold into it and the
+    // edited entry retires; colliding palettes cannot merge.
+    const edited = modesOf(editing), collision = edited.find(mode => modesOf(mergeTarget).includes(mode));
+    if (collision) throw new ClientError(`“${mergeTarget.label}” already has a ${collision} palette. Pick another name.`);
+    const { managed: _managed, ...target } = mergeTarget;
+    theme = { ...target, ...Object.fromEntries(edited.map(mode => [mode, { ...draft.colors[mode] }])), ...(mergeTarget.managed === true && !draft.advanced ? { managed: true } : {}) };
+    local.customThemes = custom.filter(entry => entry.id !== editing.id).map(entry => entry.id === mergeTarget.id ? theme : entry);
+    context = { created: false, mergedAppearance: edited[0] };
+  } else if (mergeTarget) {
+    if (modesOf(mergeTarget).includes(draft.appearance)) throw new ClientError(`“${mergeTarget.label}” already has light and dark palettes. Pick another name.`);
     // The guided (managed) flag survives only when every palette in the theme came from the guided editor.
     const { managed: _managed, ...target } = mergeTarget;
     theme = { ...target, [draft.appearance]: { ...draft.colors[draft.appearance] }, ...(mergeTarget.managed === true && !draft.advanced ? { managed: true } : {}) };
