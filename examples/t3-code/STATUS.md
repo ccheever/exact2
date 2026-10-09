@@ -109,6 +109,7 @@ Rows deferred after the 2026-10-08 batch (#298). Each task record has the steps.
 
 | Task (PR) | Row | Steps |
 | --- | --- | --- |
+| audit-wave-followups-3 (#378) | FW-3: a Filters submenu's Escape with real keys and pointer (the focus returns to the row when the pointer stayed, to nothing when it moved; ArrowDown then reaches Labels); FW-4: Anyone has no check with no author chosen | record "Real-input batch steps" 1-4 |
 | realinput-1010-fixes (#373) | RI-1: after a launcher reopen, a real F, Shift-F and D open their surfaces (repeat once after a relaunch); RI-2: one real click on the PG-9 helper's row brings Finder front with the bundle selected and hides the helper (note whether T3 Code's main window came above System Settings) | record "Real-input batch steps" 1-2 |
 | model-picker-parity (#374) | CO-7: real Shift+click adds a model and removes one (also the draft's original model); ⌘1 within 2 s after a Shift pick switches models, not adds | record "Real-input batch steps" |
 | audit-wave-followups (#372) | FU-3: real ⌘Return in a Files preview comment draft saves it; FU-5: real Escape in the palette opened over Settings closes only the palette | record "Real-input batch steps" |
