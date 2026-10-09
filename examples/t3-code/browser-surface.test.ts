@@ -319,3 +319,26 @@ describe('desktopTabLifetime (through the panel)', () => {
     expect(panelState(client).surfaces).toEqual([]);
   });
 });
+
+// The real-input session's three findings (task record, "Real-input batch steps"), read from the Contract sources as
+// menu-keys.test.ts reads its menus; the behavior is proven by that session's live check.
+describe('the chrome row as a hand finds it', () => {
+  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+  async function component(file: string, name: string): Promise<string> {
+    const lines = (await source(file)).split('\n');
+    const start = lines.findIndex(line => line === `component ${name}`);
+    if (start < 0) throw new Error(`${file}: no component ${name}`);
+    const end = lines.findIndex((line, index) => index > start && /^\S/.test(line) && !line.startsWith('//'));
+    return lines.slice(start, end < 0 ? undefined : end).join('\n');
+  }
+  it('Open in system browser shows while the address is hovered or the button has the focus (focus-within)', async () => {
+    const reveal = await component('browser-surface.contract', 'BsRevealButton');
+    expect(reveal).toContain('opacity=(shown or focused ? 1 : 0) pointer-events=(shown or focused ? "auto" : "none")');
+    expect(reveal).toContain('focus=focusOn(true) blur=focusOn(false) aria-label="Open in system browser" testId="browser-open-external"');
+    expect(await component('browser-surface.contract', 'BrowserChrome')).toContain('BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))');
+  });
+  it('a More row cuts its label before its part note, and a tab title keeps its start (X57)', async () => {
+    expect(await component('browser-surface.contract', 'BsMenuItem')).toContain('text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left"');
+    expect(await component('r4-surfaces.contract', 'R4TabChip')).toContain('text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left"');
+  });
+});
