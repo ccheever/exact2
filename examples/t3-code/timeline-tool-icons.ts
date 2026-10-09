@@ -7,6 +7,7 @@ import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { assetUrl } from './settings-b-icons';
+import { activityIcon } from './timeline-work-rows';
 
 /**
  * Mirrors Codex's generic Browser Use fallback: ask the page origin for its
@@ -103,10 +104,11 @@ type Asset = { src: string; at: number };
 const nativeUrls = new WeakMap<IconClient, Map<string, Asset>>();
 const inflight = new WeakMap<IconClient, Map<string, Promise<void>>>();
 const nativeKey = (client: IconClient, app: Obj) => JSON.stringify([client.generation, client.environmentId, client.origin, app]);
+// The app as the ToolActivityIcon schema decodes it (trimmed, no extra fields): an entry's raw icon and a
+// work group's decoded one (groupToolPresentation) share one cache key and one assets.createUrl request.
 const nativeApp = (icon: Obj): Obj | null => {
-  const app = obj(icon.app);
-  return icon._tag === 'native-app' &&
-    ((app._tag === 'app-id' && str(app.appId)) || (app._tag === 'display-name' && str(app.displayName))) ? app : null;
+  const decoded = activityIcon(icon);
+  return decoded?._tag === 'native-app' ? obj(decoded.app) : null;
 };
 
 export function toolActivityIconSources(client: IconClient, item: Obj): { iconLight: string; iconDark: string } {
