@@ -100,9 +100,9 @@ final class ModalDetentIOSTests: XCTestCase {
         return top
     }
 
-    /// The fixture's menu: 16 points of padding around More, Fewer and its
-    /// rows, 44 points each.
-    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(2 + n) + 16 }
+    /// The fixture's menu: 16 points of padding around More, Fewer, its
+    /// rows, Close and Close both, 44 points each.
+    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(4 + n) + 16 }
 
     /// `invalidateDetents()` calls on any sheet while `body` runs. This
     /// window finishes no presentation transition (the sheet's view stays

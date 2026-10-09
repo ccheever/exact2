@@ -1167,7 +1167,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
-  route under it is dimmed.
+  route under it is dimmed. One pushed over a sheet (a confirmation over a dialog)
+  is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
+  under it, and popping both closes both. Under the agent a `tap` or `type` that
+  opens or closes a sheet replies once iOS has finished it (two seconds at most).
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with

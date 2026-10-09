@@ -282,6 +282,18 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
     // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends (LLP 1035.003 D5).
     await s.clock('settle');
+    // A sheet over a sheet (the Bluesky clone's prompt over its muted words
+    // sheet), tapped back to back as a drive sends its taps: an input replies
+    // once the sheet it opened or closed is up (LLP 1035.003 D5), so the next
+    // tap finds its target. Close returns to the sheet under it; Close both
+    // closes the two.
+    const onScreen = async (id) => {
+      const error = await s.tap(id).then((r) => r?.error, (e) => String(e?.message ?? e));
+      check(!error, `${host} native: sheet over sheet: ${id} taps${error ? `: ${error}` : ''}`);
+    };
+    for (const id of ['sheet', 'sheet-menu', 'menu-more', 'menu-close', 'sheet-menu', 'menu-home']) await onScreen(id);
+    await s.clock('settle');
+    check(!(await sheetShown()), `${host} native: Close both dismisses the two sheets`);
     // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
     await s.tap('tab-second'); await settle(s); await s.clock('settle');
     await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');

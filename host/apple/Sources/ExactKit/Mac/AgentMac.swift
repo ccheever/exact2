@@ -61,6 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// A sheet is a route in the window here, with no native presentation
+    /// to wait for (the iOS host's `awaitModalTransitions`).
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.

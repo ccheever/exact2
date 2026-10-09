@@ -90,6 +90,28 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// An input that started or met a sheet's presentation or dismissal
+    /// returns once UIKit has finished it, bounded at two seconds (LLP
+    /// 1035.003 D5, frozen timing). Unanimated, UIKit still takes a few
+    /// frames of the wall to end one, and a sheet over a sheet is presented
+    /// only once the one under it has finished presenting: a drive's next
+    /// `tap`, a few milliseconds later, found the second sheet's route in
+    /// the tree and not on screen (the Bluesky clone's prompt over its muted
+    /// words sheet). Platform timing leaves this to `clock settle`. Answers
+    /// whether the hosts left their transitions.
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool {
+        let modals = presenter.modals, navigation = presenter.navigation
+        guard modals.inTransition else { return true }
+        let deadline = Date(timeIntervalSinceNow: bound)
+        // The navigation host's pending sync is the next sheet waiting on
+        // the one now presenting or leaving.
+        while modals.inTransition || navigation.inTransition {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {

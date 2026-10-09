@@ -254,6 +254,9 @@ component NativeFixture
     menuLarge = not menuLarge
   action openSheet
     nav = push(nav, "/sheet")
+  // The menu over Sheet and Sheet, closed at once.
+  action closeSheets
+    nav = back(back(nav))
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
   // route pushed with the tablist hidden, and one with no header.
   state subtitle = "Online"
@@ -535,6 +538,16 @@ component NativeFixture
                     each i in menuItems key=i
                       row height=44
                         text `Row ${i}`
+                    button id="back" press=back testId="menu-close" height=44
+                      text "Close"
+                    button press=closeSheets testId="menu-home" height=44
+                      text "Close both"
+                // A sheet over a sheet: the menu pushed over Sheet presents
+                // from Sheet's controller, and closing it returns to Sheet.
+                when e.name == "sheet"
+                  column testId="sheet-body" padding=16
+                    button press=openMenu testId="sheet-menu" height=44
+                      text "Menu over the sheet"
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
