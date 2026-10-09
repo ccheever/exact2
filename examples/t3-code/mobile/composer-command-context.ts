@@ -9,6 +9,8 @@ import type { MobileComposerTarget } from './composer-target';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileContextRecordValid } from './mobile-context-record';
 import { mobileCreateContextHistory, mobileNewTaskContextProject, mobileReferencedComposerContext, type MobileMessageContext } from './mobile-new-task-context';
+import { mobileEditorDocumentCommit, mobileEditorDocumentIntentCurrent, type EditorDocumentIntent } from './composer-editor-persistence';
+import type { ComposerEditorDocument } from './composer-editor-state';
 
 interface Scope { origin:string; environmentId:string; key:string }
 interface Entry extends Scope { incarnation:number; revision:number; text:string; context?:unknown }
@@ -135,6 +137,50 @@ export function mobileComposerContextCommitBatch(client:T3Client,guard:ComposerC
   histories.set(entry,history);
   if(checked.context) entry.context=checked.context; else delete entry.context;
   entry.revision++;client.revision++;return true;
+}
+export type ComposerContextDocumentResult = {ok:true;documentRevision:number;contextRevision:number}
+  | {ok:false;reason:'superseded'|'invalid-document'|'invalid-context'|'limit'};
+/** Internal transaction seam: only mobileEditorCommitDocumentContextIntent supplies mounted-owner
+ * admission. The concrete document commit is the only write before metadata installation; no caller
+ * callback or prepared installer is exposed. Attachment inventory and byte ownership are NOT reconciled. */
+export function mobileComposerContextCommitDocument(client:T3Client,capture:EditorDocumentIntent,
+  next:ComposerEditorDocument,addedRecords:readonly Obj[]):ComposerContextDocumentResult {
+  if(!mobileEditorDocumentIntentCurrent(client,capture))return {ok:false,reason:'superseded'};
+  if(typeof next.value!=='string'||!next.selection||!Number.isSafeInteger(next.selection.start)
+    ||!Number.isSafeInteger(next.selection.end)||next.selection.start<0||next.selection.end<next.selection.start
+    ||next.selection.end>next.value.length)return {ok:false,reason:'invalid-document'};
+  if(next.value.length>1_000_000||!Number.isSafeInteger(capture.revision)||capture.revision<0
+    ||capture.revision>=Number.MAX_SAFE_INTEGER||!Number.isSafeInteger(client.revision)||client.revision<0
+    ||client.revision>=Number.MAX_SAFE_INTEGER)return {ok:false,reason:'limit'};
+  const scope=scopeFor(client,capture.target.key),registry=store(client);
+  if(!scope||registry.invalid!==undefined)return {ok:false,reason:'invalid-context'};
+  const id=slot(scope),entry=registry.entries.get(id);
+  if(entry&&entry.text!==capture.before)return {ok:false,reason:'superseded'};
+  if(entry&&(!Number.isSafeInteger(entry.revision)||entry.revision<0||entry.revision>=Number.MAX_SAFE_INTEGER)
+    ||!entry&&incarnation>=Number.MAX_SAFE_INTEGER)return {ok:false,reason:'limit'};
+  const current=batchContext(entry?.context),added=batchContext({version:1,records:addedRecords},true);
+  if(!current.ok||!added.ok)return {ok:false,reason:'invalid-context'};
+  const previous=entry?histories.get(entry):undefined, snapshot=previous?.snapshot()??[];
+  if(!batchContext({version:1,records:snapshot}).ok)return {ok:false,reason:'invalid-context'};
+  const records=new Map(snapshot.map(record=>[str(record.contextId),record]));
+  for(const record of [...(current.context?.records??[]),...added.context!.records])records.set(str(record.contextId),record);
+  const checked=batchContext(mobileReferencedComposerContext(next.value,{version:1,records:[...records.values()]}),true);
+  if(!checked.ok)return {ok:false,reason:'limit'};
+  // Build a detached fork completely before the document write. A refusal never changes undo recency.
+  const history=mobileCreateContextHistory();
+  history('',{version:1,records:snapshot});
+  history(next.value,{version:1,records:[...(current.context?.records??[]),...added.context!.records]});
+  history(next.value,checked.context);
+  const prepared={value:next.value,selection:{start:next.selection.start,end:next.selection.end}},
+    contextRevision=(entry?.revision??0)+1,documentRevision=capture.revision+1;
+  const installed:Entry=entry??{...scope,incarnation:incarnation+1,revision:0,text:capture.before};
+  const result:ComposerContextDocumentResult={ok:true,documentRevision,contextRevision};
+  if(!mobileEditorDocumentCommit(client,capture,prepared))return {ok:false,reason:'superseded'};
+  // No callback, validation or throwing clone after text publication. The document commit notified once.
+  if(!entry){incarnation=installed.incarnation;registry.entries.set(id,installed)}
+  if(checked.context)installed.context=checked.context;else delete installed.context;
+  installed.text=prepared.value;installed.revision=contextRevision;histories.set(installed,history);
+  return result;
 }
 export function mobileComposerContextRead(client:T3Client,key=client.draftKey,text=client.local.drafts[key]??''):ComposerContextRead {
   const scope=scopeFor(client,key); if(!scope) return {ok:true,context:undefined,revision:0};

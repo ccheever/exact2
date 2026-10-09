@@ -26,6 +26,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private var preferences: URL { root.appendingPathComponent("t3-code.json") }
     private var active: [UUID: String] = [:]
     private var sending = Set<String>()
+    private var fileHoldOwners: [ObjectIdentifier: T3ComposerFileClaim] = [:]
     // Native-only admission while UUID image files are hashed outside this mutex.
     private var inlinePreparations: [UUID: [String: Any]] = [:]
     private var inlineSendPreparations: [UUID: [String: Any]] = [:]
@@ -1228,6 +1229,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         return found
     }
     private func held(_ identifier: String, value: [String: Any]) throws -> Bool {
+        if fileHoldOwners.values.contains(where: { $0.records.values.contains { !$0.released && $0.receipt["id"] as? String == identifier } }) { return true }
         if try T3MobileIncomingShareTransfer.protects(identifier, records: value["incomingShares"]) { return true }
         let preparing = inlinePreparations.values.contains { entry in
             let prepared = entry["prepared"] as! [String: Any]
@@ -1275,8 +1277,64 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         do { try save(value); return remaining }
         catch { return releases } // Already-removed files are harmless on the next idempotent attempt.
     }
+    // All new hold state and byte deletion share this mutex. Never enter main from here.
+    func performFileHold(_ request: T3ComposerFileRequest, claim: T3ComposerFileClaim) throws -> [String: Any] {
+        try locked {
+            guard claim.live, claim.identity == request.identity else { throw T3ComposerFileRequest.error("The native file owner ended.") }
+            if request.action == "release" {
+                guard var record = claim.records[request.requestId], request.object["holdId"] == nil || request.object["holdId"] as? String == record.receipt["holdId"] as? String else {
+                    throw T3ComposerFileRequest.error("That file hold was not issued to this request.")
+                }
+                var value = try store()
+                try saveFileHoldCandidates(claim, value: &value)
+                record.released = true; claim.records[request.requestId] = record
+                return ["status": "released", "requestId": request.requestId]
+            }
+            let file = try request.file(), signature = try request.signature
+            if let old = claim.records[request.requestId] {
+                guard old.request == signature, !old.released else { throw T3ComposerFileRequest.error("A file hold request cannot change or be revived.") }
+                guard try T3ComposerFileRequest.fingerprint(root: root, file: file) == old.fingerprint else { throw T3ComposerFileRequest.error("The retained canonical bytes changed.") }
+            } else {
+                guard claim.records.count < 4096 else { throw T3ComposerFileRequest.error("This editor's file hold request limit was reached.") }
+                try T3ComposerFileRequest.saved(file, preferences: readJSON(preferences))
+                let fingerprint = try T3ComposerFileRequest.fingerprint(root: root, file: file)
+                guard claim.live else { throw T3ComposerFileRequest.error("The native file owner ended while reading.") }
+                let receipt: [String: Any] = ["identity": claim.identity.json, "requestId": request.requestId,
+                    "holdId": UUID().uuidString.lowercased(), "fileIdentity": UUID().uuidString.lowercased(), "id": file["id"]!, "sizeBytes": file["sizeBytes"]!]
+                claim.records[request.requestId] = .init(request: signature, fingerprint: fingerprint, receipt: receipt)
+                fileHoldOwners[ObjectIdentifier(claim)] = claim
+            }
+            // Hold survives uncertain queue persistence. Even identical replay saves again.
+            var value = try store()
+            guard value["releases"] is [[String: Any]] else { throw T3ComposerFileRequest.error("Attachment release ownership is invalid.") }
+            enqueueReleases([["id": file["id"]!, "kind": "file"]], in: &value)
+            try save(value)
+            guard claim.live else { throw T3ComposerFileRequest.error("The native file owner ended before publication.") }
+            return ["status": "held", "receipt": claim.records[request.requestId]!.receipt]
+        }
+    }
+    private func saveFileHoldCandidates(_ claim: T3ComposerFileClaim, value: inout [String: Any]) throws {
+        guard value["releases"] is [[String: Any]] else { throw T3ComposerFileRequest.error("Attachment release ownership is invalid.") }
+        enqueueReleases(claim.records.values.map { ["id": $0.receipt["id"]!, "kind": "file"] }, in: &value)
+        try save(value)
+    }
+    private func retireEndedFileHolds(_ value: inout [String: Any]) {
+        for (id, claim) in fileHoldOwners where !claim.live {
+            do {
+                // A failed acquire may have left no durable candidate. Do not drop its hold first.
+                try saveFileHoldCandidates(claim, value: &value)
+                fileHoldOwners.removeValue(forKey: id); claim.records.removeAll()
+            } catch { /* Retain unknown cleanup ownership for the next explicit drain. */ }
+        }
+    }
+    func endFileHoldOwner(_ claim: T3ComposerFileClaim) {
+        claim.end()
+        locked {
+            if var value = try? store() { retireEndedFileHolds(&value); _ = drainReleases(&value) }
+        }
+    }
     func releaseAttachments() throws -> [String: Any] {
-        try locked { var value = try store(); return ["releases": drainReleases(&value)] }
+        try locked { var value = try store(); retireEndedFileHolds(&value); return ["releases": drainReleases(&value)] }
     }
     /// Called instead of the old unconditional attachment remover. Check and unlink share the CAS lock.
     func removeAttachment(_ request: [String: Any]) throws -> [String: Any] {

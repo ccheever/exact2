@@ -4,6 +4,7 @@ import type { T3Client } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
 import type { Obj } from './shared/domain';
 import { mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileEditorDocumentEnroll, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
 import { mobileComposerEditorAdmit, type ComposerEditorState, type ComposerEditorDocument } from './composer-editor-state';
@@ -132,4 +133,23 @@ export function mobileEditorCommitDocumentIntent(client:T3Client,capture:EditorD
   if(entry)Object.assign(entry,{value:next.value,selection:{...next.selection},revision:capture.revision+1,incarnation:capture.incarnation});
   if(active?.target.key===capture.target.key&&active.target.origin===capture.target.origin)r.active=null;
   r.revision++;return true;
+}
+/** Atomic unmounted named text/selection/context publication. No producer activation or attachment
+ * inventory/byte reconciliation: file-affecting producers still require the full publication owner. */
+export function mobileEditorCommitDocumentContextIntent(client:T3Client,capture:EditorDocumentIntent,
+  next:ComposerEditorDocument,addedRecords:readonly Obj[]):ComposerContextDocumentResult {
+  const r=registry(client),active=r.active;
+  const sameDocument=active?.target.key===capture.target.key&&active.target.origin===capture.target.origin
+    &&active.target.environmentId===capture.target.environmentId;
+  // A different durable incarnation does not permit writing through a still-mounted native editor.
+  if(sameDocument&&active.state.mountId)return {ok:false,reason:'superseded'};
+  if(!Number.isSafeInteger(r.revision)||r.revision<0||r.revision>=Number.MAX_SAFE_INTEGER)return {ok:false,reason:'limit'};
+  const entry=r.documents.get(keyOf(capture.target));
+  const ledger={value:next.value,selection:next.selection?{start:next.selection.start,end:next.selection.end}:null,
+    revision:capture.revision+1,incarnation:capture.incarnation};
+  const result=mobileComposerContextCommitDocument(client,capture,next,addedRecords);
+  if(!result.ok)return result;
+  if(entry)Object.assign(entry,ledger);
+  if(sameDocument)r.active=null;
+  r.revision++;return result;
 }
