@@ -1,0 +1,53 @@
+usage-and-pr-pages: text evidence (2026-10-10). Drives: target/usage-and-pr-pages/drive.sh (same steps both sides; the after side also types in Search authors).
+Clone: agent mode, 1280x840, --epoch <now> --time-zone Asia/Seoul; before = evidence-base 950e8e2e5 (lane usage-and-pr-pages-before), after = this branch (lane usage-and-pr-pages).
+
+--- drive.sh ---
+#!/bin/zsh
+# usage-and-pr-pages: one live drive of the clone for the before/after evidence. Usage: drive.sh <before|after>
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-usage-and-pr-pages
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+SIDE=$1
+if [ "$SIDE" = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=usage-and-pr-pages-before; else ROOT=$W; LANE=usage-and-pr-pages; fi
+S=$A/lanes/$LANE/shots; mkdir -p $S
+NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+OPS=(
+  "clock +20000 real" "clock +3000 real"
+  "clock +2000 real" "tap toast-dismiss-1" "clock +500"
+  "tap open-usage" "clock +3000 real"
+  "tap usage-metric-tokens" "tap usage-period-1" "clock +4000 real" "clock settle"
+  "screenshot $S/pg2-tokens-24h.png window"
+  "tap usage-metric-cost" "tap usage-period-30" "clock +4000 real" "tap usage-breakdown-time" "clock settle"
+  "screenshot $S/pg2-day.png window"
+  "tap usage-breakdown-model" "clock settle" "tap usage-model-codex:gpt-5.5" "clock +1500 real" "clock settle"
+  "screenshot $S/pg2-model.png window" "tap usage-model-dialog-close" "clock +500 real"
+  "tap usage-unpriced hover" "clock +600" "clock settle" "screenshot $S/pg3-hover.png window"
+  "tap usage-total hover" "clock +400" "clock settle" "screenshot $S/pg3-left.png window"
+  "tree --ax"
+  "tap usage-environment" "clock +500" "clock settle" "screenshot $S/pg5-menu.png window" "tap usage-environment" "clock +300"
+  "tap thread-verify-timeline" "clock +2500 real" "clock settle" "screenshot $S/pg7-thread.png window"
+  "tap open-pull-requests" "clock +3000 real" "clock settle"
+  "tap pull-requests-filters" "clock +300" "tap pr-filter-author" "clock +500" "clock settle" "screenshot $S/pg6-author.png window" "state"
+)
+if [ "$SIDE" = after ]; then OPS+=("type pr-author-search zz" "clock +300" "clock settle" "screenshot $S/pg6-author-typed.png window" "type pr-author-search key Escape" "clock +500"); else OPS+=("type pr-filter-author key Escape" "clock +500"); fi
+OPS+=("clock settle" "screenshot $S/pg7-prs.png window" "state" "type pull-requests-page key Escape" "clock +1500 real" "clock settle" "screenshot $S/pg7-after-escape.png window" "state")
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16360 --epoch $NOW --time-zone Asia/Seoul "${OPS[@]}" > $W/target/usage-and-pr-pages/drive-$SIDE.jsonl 2> $W/target/usage-and-pr-pages/drive-$SIDE.err
+echo "exit $?"
+
+
+--- before ---
+PG-4 usageShortcuts (label -> title): 90 days -> (none), 30 days -> (none), 7 days -> (none), Past 24h -> (none), Limits -> (none), Tokens -> (none), Cost -> (none)
+focus after Filters > Author opened, then later states: "focus":{"pending":null,"editor":null,"responder":"NodeView","logical":2116} | "focus":{"pending":null,"responder":"NodeView","editor":null,"logical":2085} | "focus":{"pending":null,"responder":"NodeView","editor":null,"logical":2085}
+utilityPage at the three state ops (Author open, menu closed, after Escape on the page): pull-requests, pull-requests, pull-requests
+
+--- after ---
+PG-4 usageShortcuts (label -> title): 90 days -> 90 days (⇧⌘4), 30 days -> 30 days (⇧⌘3), 7 days -> 7 days (⇧⌘2), Past 24h -> Past 24h (⇧⌘1), Limits -> Limits (L), Tokens -> Tokens (T), Cost -> Cost (C)
+focus after Filters > Author opened, then later states: "focus":{"pending":null,"responder":"NSTextView","logical":2328,"editor":2328} | "focus":{"logical":2168,"responder":"NodeView","pending":null,"editor":null} | "focus":{"pending":null,"logical":null,"editor":null,"responder":null}
+utilityPage at the three state ops (Author open, menu closed, after Escape on the page): pull-requests, pull-requests, 
+
+--- after, retry drive (search field centred; ArrowDown; Escape twice) ---
+focus: "focus":{"pending":null,"logical":1077,"editor":null,"responder":"NodeView"} | "focus":{"editor":null,"pending":null,"responder":"NodeView","logical":916} | "focus":{"logical":null,"editor":null,"responder":null,"pending":null}
+utilityPage: pull-requests, pull-requests, 
+
+--- reference (CDP) ---
+{"op":"eval","value":"Cost title=Cost (C) | Tokens title=Tokens (T) | Limits title=Limits (L) | Past 24h title=Past 24h (⇧⌘1) | 7 days title=7 days (⇧⌘2) | 30 days title=30 days (⇧⌘3) | 90 days title=90 days (⇧⌘4) | Cost title=Cost (C) | Tokens title=Tokens (T) | Limits title=Limits (L) | Past 24h title=Past 24h (⇧⌘1) | 7 days title=7 days (⇧⌘2) | 30 days title=30 days (⇧⌘3) | 90 days title=90 days (⇧⌘4)"}
+Escape sequence: Filters > Author open, focus "Search authors"; Escape, Escape (menus close, #/pull-requests stays); Escape: #/draft/64c5dc68-4305-4172-9b62-93ae656f5f34
