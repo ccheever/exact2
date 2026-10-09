@@ -85,8 +85,8 @@ screen is unlocked.
 
 ## Real-input batch steps
 
-Screen unlocked, the user present (rows 1-2 need a missing grant: the user revokes it in person and grants it again at
-the end). The agent build already holds both grants on this Mac, so first remove them for "T3 Code (Exact)" in System
+Screen unlocked, the user present (every step needs a missing grant: the user revokes it in person and grants it again
+at the end). The agent build already holds both grants on this Mac, so first remove them for "T3 Code (Exact)" in System
 Settings › Privacy & Security › Screen Recording and › Accessibility (select it, "−"), by hand.
 
 Build and launch the branch outside agent mode (agent mode refuses every prompt, so it never docks a helper), on the
