@@ -1,0 +1,37 @@
+#!/bin/zsh
+# settings-pages-subscribed-config: the live drive (agent mode, audit lane). Not committed; uploaded as evidence.
+# Usage: drive.sh <before|after>. before = the never-edited evidence-base build (lane <task>-before), after = this
+# worktree's build (lane <task>). Same steps: connect, open Settings, hold each page (Source control, Storage, Archive,
+# Diagnostics, Scheduled tasks, the New task editor, Keybindings) 30 s while renamer.sh renames the lane project every
+# 7 s (a shell stream event: `data` drains and data.revision moves), then leave Settings. count.mjs reads the lane
+# server's trace per window (the screenshots' write times).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-pages-subscribed-config
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+T=settings-pages-subscribed-config
+if [ $1 = before ]; then LANE=$T-before; ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; else LANE=$T; ROOT=$W; fi
+S=$W/target/sc/runs/$1; rm -rf $S; mkdir -p $S
+$A/lane-init.sh $LANE
+L=$A/lanes/$LANE
+OPS=("clock +20000 real" "clock +3000 real" "screenshot $S/00-start.png window" "tap connection-settings" "clock +1500 real")
+add() { OPS+=("clock +3000 real" "screenshot $S/$1.png window" "clock +30000 real" "screenshot $S/$1-30s.png window"); }
+OPS+=("tap settings-source-control"); add 01-source-control
+OPS+=("tap settings-storage"); add 02-storage
+OPS+=("tap settings-archived"); add 03-archived
+OPS+=("tap settings-general" "clock +1500 real" "tap \"View diagnostics\""); add 04-diagnostics
+OPS+=("tap settings-scheduled-tasks"); add 05-scheduled-tasks
+OPS+=("tap settings-keybindings"); add 07-keybindings
+# The lane finds the real Codex CLI, so its update toast (and the Nightly mobile notice under it) covers New task:
+# dismiss both, then hold the New task editor open. Last, so a missing toast cannot cost the other windows.
+OPS+=("tap settings-scheduled-tasks" "clock +1500 real" "tap \"Dismiss notification\"" "clock +1000 real" "tap \"Dismiss notification\"" "clock +1000 real" "tap new-scheduled-task"); add 06-scheduled-editor
+OPS+=("tap close-scheduled-task" "clock +1000 real")
+OPS+=("tree" "tap settings-go-to-threads" "clock +3000 real" "screenshot $S/08-left.png window")
+printf '%s\n' "${OPS[@]}" > $S/ops.txt
+rm -f $S/stop
+$W/target/sc/tools/renamer.sh $L/clone-t3-home $LANE 600 $S/stop $S/renames.log &
+echo "renamer pid $!" > $S/pids.txt
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16200 "${OPS[@]}" 2> $S/agent.err | perl -MTime::HiRes=time -ne 'printf "%.3f %s", time, $_' > $S/agent.jsonl.ts
+echo "driver exit $?" >> $S/pids.txt
+touch $S/stop
+for f in $S/*.png; do echo "$(stat -f %Fm $f) ${f:t}"; done > $S/png-mtimes.txt
+cp $L/clone-t3-home/userdata/logs/server.trace.ndjson* $S/ 2>/dev/null
+echo DRIVE-DONE
