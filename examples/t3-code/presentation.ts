@@ -16,6 +16,8 @@ import { requestPresentation } from './requests';
 import { threadErrorView } from './timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
+import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6
+import { fanoutSelections } from './r3-composer-controls-fanout';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog } from './model-catalog';
 import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
@@ -94,12 +96,15 @@ export function snapshot(client: T3Client, now = 0) {
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);
-  const currentModel = arr(provider?.models).find(model => model.slug === client.modelId);
+  // The composer's trigger, options and send follow the instance and model the turn runs on (composer-provider-selection.ts).
+  const chosen = composerSelection(client, !!fanoutSelections(client));
+  const selectedProvider = chosen.provider ?? provider, selectedModel = chosen.entry ? chosen.model : client.modelId;
+  const currentModel = arr(selectedProvider?.models).find(model => model.slug === selectedModel);
   const option = arr(obj(currentModel?.capabilities).optionDescriptors)
     .find(option => option.type === 'select' && ['reasoningEffort', 'effort'].includes(str(option.id)));
   const selectedOption = client.modelOptions.find(selection => selection.id === option?.id)?.value
     ?? option?.currentValue ?? arr(option?.options).find(choice => choice.isDefault === true)?.id;
-  const modelReady = !!provider && providerAvailable(provider) && !!currentModel;
+  const modelReady = !!selectedProvider && providerAvailable(selectedProvider) && !!currentModel;
   const run = activeRun(client.projection);
   const pending = client.pending;
   const transcript = transcriptPresentation(client);
@@ -114,7 +119,7 @@ export function snapshot(client: T3Client, now = 0) {
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
     status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // auto-balance: a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
@@ -127,14 +132,14 @@ export function snapshot(client: T3Client, now = 0) {
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
-    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : client.modelId || 'Choose model',
+    providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : selectedModel || 'Choose model',
     composerCollapseOnScroll: client.local.deviceSettings.composerCollapseOnScroll,
     planModeEnabled: client.local.deviceSettings.planModeEnabled,
     composerResting: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.resting === true,
     transcriptAway: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.atEnd === false,
     ...composerOverlaySnapshot(client, transcript), // the composer over the transcript (r4-composer-overlay.ts)
     ...composerVideoSnapshot(client), // the shelf's videos and their preview (r4-composer-attachments.ts)
-    providerDriver: str(provider?.driver), ...providerBadge(provider,providers), optionId: str(option?.id),
+    providerDriver: str(selectedProvider?.driver), ...providerBadge(selectedProvider, providers), optionId: str(option?.id),
     optionLabel: str(arr(option?.options).find(choice => choice.id === selectedOption)?.label, 'Default'),
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,

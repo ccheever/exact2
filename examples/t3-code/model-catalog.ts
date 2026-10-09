@@ -9,6 +9,7 @@ import { fanoutSelections } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
 import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from './provider-picker-setup'; // provider-sign-in-and-install
 import { usesChatGptSharing } from './chatgpt-plan';
+import { composerPair } from './composer-provider-selection'; // composer-provider-state-and-details: the checked row
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
@@ -88,6 +89,9 @@ export type PickerTarget = { reason: (instanceId: string, model: string) => stri
 export function pickerCatalog(client: { config: Obj; local: { favoriteModels: string[] }; providerId: string; modelId: string; threadId?: string; projection?: Obj },
   requested: string, query: string, badge: Badge, target?: PickerTarget) {
   const providers = arr(client.config.providers);
+  // The composer's picker checks the instance and model the composer shows (activeInstanceId and model are
+  // ChatComposer's resolved selection, composer-provider-selection.ts); a settings target keeps its own value.
+  const current = target ? { providerId: client.providerId, modelId: client.modelId } : composerPair(client);
   // A started thread offers only its driver's (and account group's) models (ModelPickerContent lockedProvider).
   const lock = target ? null : providerLock(client);
   const keys = favoriteKeys(client.local.favoriteModels);
@@ -99,9 +103,9 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
       legacy: model.isLegacy === true, isNew: model.badge === 'new', order };
   }));
   // An active instance that needs setup opens selected, so its footer offers the setup (ModelPickerContent:245-264).
-  const active = providers.find(provider => provider.instanceId === client.providerId);
+  const active = providers.find(provider => provider.instanceId === current.providerId);
   const activeNeedsSetup = !!active && shouldOfferModelPickerSetup(active, pickerOptions(active));
-  const selected = requested || (activeNeedsSetup || client.local.favoriteModels.length === 0 ? client.providerId : 'favorites');
+  const selected = requested || (activeNeedsSetup || client.local.favoriteModels.length === 0 ? current.providerId : 'favorites');
   const searching = normalize(query) !== '';
   const original = (item: Item) => (instanceOrder.get(item.providerId) ?? 0) * 10000 + item.order;
   let list: Item[];
@@ -126,7 +130,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
   const row = (item: Item, index: number, kind: string) => ({ key: `${item.providerId}:${item.id}`, kind, id: item.id, providerId: item.providerId,
     name: display(item), label: item.subProvider ? `${item.providerName} · ${item.subProvider}` : item.providerName, driver: item.driver,
-    favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === client.providerId && item.id === client.modelId, isNew: item.isNew,
+    favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === current.providerId && item.id === current.modelId, isNew: item.isNew,
     index, highlighted: false, expanded: false, checked: !!fan && fanKeys.has(`${item.providerId}:${item.id}`), reason: target?.reason(item.providerId, item.id) ?? '' });
   const rows = ordered.map((item, index) => item === null
     ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: 'Legacy models', label: `${legacy.length} models`,
@@ -143,12 +147,12 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     selected: str(provider.instanceId) === selected, ...badge(provider, enabled) }));
   const at = rail.findIndex(entry => entry.selected);
   // expandedLegacyInstances starts with the active instance when its model is a legacy one.
-  const legacyDefault = selected === client.providerId && legacy.some(item => item.id === client.modelId);
+  const legacyDefault = selected === current.providerId && legacy.some(item => item.id === current.modelId);
   return { searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length, legacyDefault,
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
     railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,
     setup: pickerSetupEntries(enabled.filter(provider => matchesLock(provider, lock)), selected, searching, list.length),
     // ChatGptSharingControl: the active instance (the composer's) shares a ChatGPT plan (managed-codex-chatgpt).
-    chatgptSharing: usesChatGptSharing(providers.find(provider => provider.instanceId === client.providerId)) };
+    chatgptSharing: usesChatGptSharing(providers.find(provider => provider.instanceId === current.providerId)) };
 }

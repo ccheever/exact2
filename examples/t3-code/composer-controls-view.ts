@@ -9,7 +9,9 @@ import { systemComposerNotices } from './server-update-notices';
 import { autoBalanceState } from './auto-balance'; // auto-balance
 import { autoBalanceNotices, type MachineRow } from './auto-balance-banner'; // auto-balance
 import { arr, obj, str, num, type Obj } from './domain';
-import { activeRun, providerAvailable } from './protocol';
+import { activeRun } from './protocol';
+import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: one provider rule
+import { fanoutSelections } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
 import { followUpBehavior, planFollowUp, resolveDispatchMode, resumeState } from './composer-controls';
 import { wokeAt, wokeWatermark } from './composer-controls-commands';
@@ -269,24 +271,16 @@ export function tasksProgress(client: T3Client) {
 
 // ── Provider-unavailable control ───────────────────────────────────────────
 
-/** hasProviderSetup (ProviderStatusBanner.tsx): the instance can be signed in or installed from Settings. */
-const hasProviderSetup = (provider: Obj) => provider.driver === 'antigravity' || obj(provider.setup).canAuthenticate === true || obj(provider.setup).canInstall === true;
 /**
- * showProviderUnavailable: no selectable provider. Its setup target is the
- * instance the draft or thread asked for (resolveComposerProviderSelection's
- * unavailableProviderInstanceId), else the first that can be set up; with
- * neither the control reads "No provider available" and is disabled.
+ * showProviderUnavailable: no instance can run the turn (composer-provider-selection.ts, the rule
+ * the placeholder also reads). Its setup target is the instance the draft or thread asked for
+ * (unavailableProviderInstanceId), else, unlocked, the first that can be set up; with neither the
+ * control reads "No provider available" and is disabled.
  */
 export function providerControl(client: T3Client) {
-  const providers = arr(client.config.providers);
-  if (!client.configLive && !providers.length) return { noProvider: '', providerSetupId: '' };
-  if (providers.some(provider => providerAvailable(provider))) return { noProvider: '', providerSetupId: '' };
-  const settings = obj(client.config.settings), project = client.shell.projects.find(entry => entry.id === client.projectId);
-  const requested = [client.providerId, str(obj(obj(client.projection.thread).modelSelection).instanceId),
-    str(obj(obj(obj(settings.projectSettingsOverrides)[client.projectId]).defaultModelSelection).instanceId),
-    str(obj(project?.defaultModelSelection).instanceId), str(obj(settings.defaultModelSelection).instanceId)].find(Boolean) ?? '';
-  const setup = requested || str(providers.find(hasProviderSetup)?.instanceId);
-  return { noProvider: setup ? 'Open provider settings' : 'No provider available', providerSetupId: setup };
+  const selected = composerSelection(client, !!fanoutSelections(client));
+  if (!selected.showProviderUnavailable) return { noProvider: '', providerSetupId: '' };
+  return { noProvider: selected.providerSetupInstanceId ? 'Open provider settings' : 'No provider available', providerSetupId: selected.providerSetupInstanceId };
 }
 
 // ── Context window meter ───────────────────────────────────────────────────
