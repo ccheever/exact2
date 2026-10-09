@@ -20,6 +20,7 @@ import { environmentRequest, prEnvironment, readsPullRequests, type PrEnvironmen
 import { pullRequestRefreshEpoch } from './pages-pr-refresh';
 import { relativeLabel } from './pages-prs';
 import { row, closedView, type Item, type PaletteView } from './palette';
+import { openLink as openLinkByTarget } from './browser-links';
 
 // ── The panel's link context ────────────────────────────────────────────────
 
@@ -283,7 +284,9 @@ export async function openLink(client: T3Client, native: Native, page: boolean, 
   const [kind = '', target = '', href = ''] = value.split('\n');
   const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, value: {} }))).value);
   const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
-  if (str(gesture.modifiers) || !target) return browser(href);
+  if (str(gesture.modifiers)) return browser(href);
+  // No project to open it beside: an ordinary link, which follows "Open links in" (useOpenPrLink → useOpenLink; browser-links.ts).
+  if (!target) { if (href) await openLinkByTarget(client, native, href); return ''; }
   let url = href;
   if (kind === 'reference') {
     try { url = str((await client.rpc(native, 'pullRequests.preview', obj(JSON.parse(target)))).url); }

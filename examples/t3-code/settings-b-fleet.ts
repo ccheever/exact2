@@ -20,6 +20,7 @@ import { letGo } from './let-go';
 import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
 import { usageFleetEvent, usageFleetReset, usageFleetSynced } from './usage-replies'; // usage-pooled-view
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
+import { automationFleetEvent } from './browser-automation';
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
 import { fleetSetupHost } from './codex-fleet-host'; // managed-codex-chatgpt: a background computer's Codex setup streams
@@ -201,6 +202,7 @@ export class EnvironmentFleet {
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
+        if (automationFleetEvent(entry, event)) { this.revision++; continue; } // browser-automation.ts: this environment's previewAutomation host
         if (usageFleetEvent(entry, event)) { this.revision++; continue; } // usage-replies.ts: the Usage page's detached requests
         if (num(event.generation, -1) === entry.generation && (codexHandoffEvent(event) || providerSetupEvent(fleetSetupHost(entry), event))) { this.revision++; continue; } // codex-handoff-events.ts, codex-fleet-host.ts
         const key = str(event.key), item = obj(event.value);

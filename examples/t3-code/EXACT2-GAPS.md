@@ -9,7 +9,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
-| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) built, parts 2–5 planned |
+| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) and part 5 (the `previewAutomation` host, "Open links in", Mute) built, parts 2–4 planned |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`: done on main, round 7 adopts it and removes nothing) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
@@ -125,7 +125,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream a
 - X2 `host/apple/build.mjs:1021-1045`: module dependencies link only as static libraries or framework slices from `modules/apple/*.xcframework` ("a dynamic library is not linked into the module").
 - X2 `host/apple/build.mjs:1229-1244`: the macOS bundle copies only exact's binaries and `assets/`. No `Contents/Frameworks` for third-party frameworks, and no helper apps.
 
-**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Parts 2–5 (navigation aids, zoom and the device toolbar; annotate, capture and picture in picture; profiles and cookie import; the automation host, links and Mute) are planned records. "Open links in" stays disabled (`settings-source-control.contract`) until part 5.
+**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Parts 2–4 (navigation aids, zoom and the device toolbar; annotate, capture and picture in picture; profiles and cookie import) are planned records. Part 5 (2026-10-09) built the `previewAutomation` host (all 14 `preview_*` tools, by injected script and native input), "Open links in" and Mute; its rows are declared below.
 
 **Why it does not work.**
 1. Chromium (CEF) needs a dynamic framework plus GPU/renderer/plugin helper apps inside the bundle. The exact2 Apple build cannot embed either.
@@ -460,6 +460,50 @@ table, built here. Parts 2–5 add their own rows when they build them.
   it on hover of the Browser row (`MenuSubTrigger`); here its chevron opens it, until a popover can open from an action.
 - **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
   environment and the profile), apart from the app's other web views; agent runs keep it in memory.
+
+**Part 5 (`20261005-browser-surface-automation`: the `previewAutomation` host, links, Mute).** `browser-automation*.ts`,
+`browser-links.ts`, `T3BrowserAutomation*.swift`, the vendored Playwright injected script (`assets/vendor/playwright`,
+1.60.0, Apache-2.0, `VENDOR.json`). The host serves all 14 `preview_*` tools; each row is X1 path B's, against the
+reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
+- **Input.** A page in a window gets native input: `NSEvent` mouse and key events sent to the page's view, trusted in the
+  page (`event.isTrusted`), the window's focus lent to the page for the event and given back
+  (`runPreviewClickKeepingHostFocus`, for every action). A page in no window (the panel hidden, another thread shown) has
+  no native event path: a click is the pointer and mouse events, the focus move and `click` as DOM events, and a key is
+  `keydown`/`keyup` with its default edit (typed text, Enter submitting a form or breaking a line, Backspace, Delete), all
+  untrusted. The answer waits for the page's own `mouseup`/`keyup` listener (Chromium's `performance.eventCounts`
+  receipt does not exist in WebKit), at most 5 s. Human input during an agent action does not interrupt it (the
+  reference's `PreviewAutomationControlInterruptedError`), and a key goes to the main frame's focused element, not into a
+  focused cross-origin iframe (the reference attaches to its renderer).
+- **Evaluate.** In the page's main world with `callAsyncJavaScript`, awaited as `awaitPromise`, the value returned as
+  JSON (a DOM node is `{}`, as CDP's `returnByValue`); an expression that is a script (`const a = 1; a + 1`) runs through
+  `eval`, so a page whose Content Security Policy forbids `unsafe-eval` refuses it; `returnByValue: false` (a remote
+  object) is always by value.
+- **Snapshot.** `accessibilityTree` is Playwright's ARIA snapshot of the body (`{format: "playwright-aria-snapshot",
+  snapshot}`), not CDP's full AX tree (the server leaves it out of the agent's text either way); the screenshot is
+  WebKit's `takeSnapshot` of the page, at most 1,280 pixels wide, also for a page in no window.
+- **Console and network.** A page-world user script reports console calls, uncaught errors and unhandled rejections, and
+  failed `fetch` and XHR requests (status 400 and up, or a network error) and elements whose load failed (no status), in
+  the main frame. Other failed subresources (a stylesheet's `@import`, a font) and subframes have no entry.
+- **Locators.** Playwright's injected script runs in the host's own content world with WebKit's options
+  (`browserName: "webkit"`), so `role=`, `text=` and CSS locators resolve as Playwright's do on WebKit; a page cannot see
+  or replace the script.
+- **Appearance.** `preview_set_appearance` sets the page view's appearance (`NSAppearance`), which WebKit reports as
+  `prefers-color-scheme`; it also restyles the page's form controls and scroll bars (CDP emulates the media feature only).
+- **Viewport (part 2).** `preview_resize` with Fill works; a freeform or preset size answers an execution error until part
+  2's device toolbar renders a fixed viewport (the `T3BrowserViewport` hook), and a tab an agent opens keeps Fill (the
+  reference gives it 1280×800).
+- **Recording (part 3).** `preview_recording_start` answers an execution error (no capture) once the tab is ready, and
+  `preview_recording_stop` answers that nothing records, as the reference does when no recording is active.
+- **Presentation (part 3).** The reference shows an agent's tab in the floating preview; until part 3 builds it, the tab
+  opens in its thread's right panel (`rightPanelStore.openBrowser`), with the same `open: false` suppression.
+- **Mute.** WebKit has no public page mute (`_setPageMuted:` and `_isPlayingAudio` are SPI). Mute silences the document's
+  `<audio>` and `<video>` elements and keeps them silent; Unmute gives back each element's own muted state. Audible means a
+  media element plays with sound the page asked for, muted or not, as Chromium's tab audio state. Web Audio is neither
+  muted nor heard, and media in subframes are not covered. WebKit pauses a muted element while its page is out of the
+  window (another tab shown, Settings open) and plays it again when the page is shown, so a muted tab's media does not
+  advance meanwhile (Chromium's muted background tab plays on); the tab still shows muted.
+- **Agent cursor.** Drawn as a layer of the page's view (so the screenshot, which is the page's own paint, leaves it out,
+  as the reference's DOM overlay is left out of `capturePage`), with the reference's timings.
 
 ## Not exact2 asks (stay in the app module)
 

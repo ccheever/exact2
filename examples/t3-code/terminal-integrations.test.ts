@@ -5,6 +5,7 @@ import { handleTerminalMessage } from './terminal-drawer-view';
 import { insertContext, messageContext } from './composer-editor';
 import { obj } from './domain';
 import { toasts } from './toast';
+import { surfaceStore } from './r4-surfaces-panel';
 import { adoptTerminalContexts, buildExpiredTerminalContextToastCopy, canRunShellCommand, formatTerminalContextLabel,
   formatTerminalContextReference, isTerminalContextExpired, migrateLegacyTerminalContextPlaceholders, normalizeTerminalContextText,
   omitExpiredTerminalContexts, parseTerminalContext, runnableShellCommands, shouldClearTerminalSelectionAction,
@@ -140,14 +141,28 @@ describe('project script integration', () => {
     expect(calls[3]?.payload.data).toBe('bun build\r');
     expect(calls[2]?.payload.terminalId).toBe(calls[0]?.payload.terminalId);
   });
-  test('autoOpenPreview runs the script but reports the unmatched Browser dependency', async () => {
+  test('autoOpenPreview runs the script, then opens its preview URL in a Browser tab (browser-surface part 5)', async () => {
     const { client, calls } = scriptClient();
+    const request = client.request;
+    client.request = async (nativeArg, method, payload, ...rest) => method === 'preview.open'
+      ? (calls.push({ method, payload }), { threadId: 't', tabId: 'tab-1', navStatus: { _tag: 'Loading', url: 'http://localhost:3000/', title: '' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00Z' })
+      : request.call(client, nativeArg, method, payload, ...rest);
     const project = client.shell.projects[0];
     if (!project) throw new Error('fixture project missing');
     project.scripts = [{ id: 'preview', name: 'Preview', command: 'bun dev', autoOpenPreview: true, previewUrl: 'http://localhost:3000' }];
     await runProjectTerminalScript(client, native, storage, 'preview');
-    expect(calls.map(call => call.method)).toEqual(['terminal.open', 'terminal.write']);
-    expect(toasts(client).at(-1)).toMatchObject({ title: 'Could not open preview', description: 'The in-app Browser is not available in this build.' });
+    expect(calls.map(call => call.method)).toEqual(['terminal.open', 'terminal.write', 'preview.list', 'preview.open']);
+    expect(calls[3]?.payload).toMatchObject({ threadId: 't', url: 'http://localhost:3000' });
+    expect(surfaceStore(client).panels.get('e:t')).toMatchObject({ active: 'browser:tab-1', visible: true });
+    expect(toasts(client)).toEqual([]);
+  });
+  test('a script preview that fails to open says so', async () => {
+    const { client } = scriptClient('preview.open');
+    const project = client.shell.projects[0];
+    if (!project) throw new Error('fixture project missing');
+    project.scripts = [{ id: 'preview', name: 'Preview', command: 'bun dev', autoOpenPreview: true, previewUrl: 'http://localhost:3000' }];
+    await runProjectTerminalScript(client, native, storage, 'preview');
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Could not open preview', description: 'preview.open refused' });
   });
   test('open failures never write and write failures surface original server message', async () => {
     const failedOpen = scriptClient('terminal.open');

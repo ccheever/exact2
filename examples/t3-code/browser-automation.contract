@@ -1,0 +1,19 @@
+// browser-surface part 5: a Browser tab's audio button (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// apps/web/src/components/RightPanelTabs.tsx, the tab's Volume2 / VolumeOff MorphIcon button and its tooltip).
+// It shows while the page makes sound (`audio` "audible"), or makes sound muted ("muted"); a press toggles Mute
+// (`surface-toggle-mute`, browser-automation-tabs.ts), as the tab menu's Mute / Unmute row does.
+use Tip from "./shell-tip.contract"
+
+component BrowserAudioButton
+  props
+    tabId: string
+    title: string
+    audio: string
+    color: string
+    local: action
+  view
+    Tip(label=(audio == "muted" ? "Unmute tab" : "Mute tab"), side="top", align="center", offset=4)
+      button press=local("surface-toggle-mute", tabId, "") aria-label=(audio == "muted" ? `Unmute ${title}` : `Mute ${title}`) testId=`tab-audio-${tabId}` width="1rem" height="1rem" padding=0 border-width=0 border-radius="0.25rem" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
+        // lucide volume-off and volume-2.
+        svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+          path d=(audio == "muted" ? "M16 9a5 5 0 0 1 .95 2.293M19.364 5.636a9 9 0 0 1 1.889 9.96M2 2l20 20M7 7l-.587.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298V11M9.828 4.172A.686.686 0 0 1 11 4.657v.686" : "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298zM16 9a5 5 0 0 1 0 6M19.364 18.364a9 9 0 0 0 0-12.728")

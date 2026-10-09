@@ -30,6 +30,7 @@ import { letGo } from './let-go';
 import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
 import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
 import { stackLayerTarget } from './pages-pr-stack';
+import { openLinkFromUi } from './browser-links';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -79,6 +80,7 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
+  if (op === 'link-open') return openLinkFromUi(client, native, id, value); // browser-surface part 5: "Open links in" (browser-links.ts)
   if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)

@@ -119,6 +119,8 @@ shape IntegrationsPage
   hostsRow: ScopedRow
   deviceHosts: DeviceHostsView
   simulatorSupport: list<SimulatorSupportRow>
+  // browser-surface part 5: "Open links in" ("system" or "app", the client setting browserLinkTarget).
+  linkTarget: string
 
 component SectionTitle
   props
@@ -403,7 +405,7 @@ component IntegrationsPanel
           Card()
             column width="100%" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" background-color="light-dark(#fafafa33, #ffffff02)"
               SettingsNotice(message="Only available in the desktop app.", warning=false)
-              BrowserDefaults()
+              BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Devices")
@@ -440,6 +442,9 @@ component DeviceRow
 // IntegrationsSettings preview defaults: client-local and unavailable outside
 // the Electron desktop shell, shown as the reference shows them (inert at 64%).
 component BrowserDefaults
+  props
+    linkTarget: string
+    restInput: action
   view
     column width="100%" testId="browser-defaults-unavailable"
       DisabledRow(title="Browser profiles", description="Profiles separate cookies and logins. Incognito data is cleared when the app closes.", control="Add profile", kind="button")
@@ -456,8 +461,31 @@ component BrowserDefaults
       DisabledRow(title="Browser recording frame rate", description="Maximum recording rate. 30 fps saves CPU and storage; 60 fps is smoother.", control="30 fps", kind="select")
       DisabledRow(title="Show key presses in recordings", description="Show pressed keys and shortcuts in new recordings. Password fields are excluded.", control="", kind="switch")
       DisabledRow(title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", control="", kind="switch")
-      DisabledRow(title="Open links in", description="Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way.", control="Your default browser", kind="wide-select")
+      BrowserLinkTargetRow(value=linkTarget, restInput=restInput)
       DisabledRow(title="Auto-show floating preview", description="Show the floating preview when an agent opens a browser or device unless the agent says otherwise.", control="on", kind="switch")
+
+// browser-surface part 5: IntegrationsSettings `BrowserLinkTargetSetting`, live (the client setting, written by
+// `rest:browser-link-target`); its reset shows while it is not the default.
+component BrowserLinkTargetRow
+  inject
+    rem: number
+  props
+    value: string
+    restInput: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-link-target-row"
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text "Open links in" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            when value != "system"
+              button press=restInput("browser-link-target", "", "system") aria-label="Reset link target to default" testId="reset-browser-link-target" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text "Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+        SettingsSelect(selectId="browser-link-target", label="Open links in", valueLabel=(value == "app" ? "T3 Code" : "Your default browser"), value=(value == "app" ? "app" : "system"), width=(160 * rem / 16), disabled=false, options=linkTargetOptions(), choose=restInput("browser-link-target", ""))
+
+fn linkTargetOptions(): list<SelectOption> = [SelectOption(value="system", label="Your default browser", selected=false), SelectOption(value="app", label="T3 Code", selected=false)]
 
 // SettingsUnavailableGroup's inert row: titles and descriptions at 64% (its
 // [&_h3]/[&_p] opacity), controls drawn as they are but inert.

@@ -11,6 +11,7 @@ import { ClientError, type Native, type Files } from './protocol';
 import { runTerminalCommand } from './terminal-drawer-view';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
+import { openScriptPreview } from './browser-links';
 
 export type CardScript = { id: string; label: string; icon: string };
 export type CardScripts = { scriptName: string; scriptIcon: string; scripts: CardScript[] };
@@ -41,6 +42,5 @@ export async function runProjectTerminalScript(client: T3Client, native: Native,
   remembered.set(client.projectId, script.id);
   try { await runTerminalCommand(client, native, storage, script.command, script.name); }
   catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : `Failed to run script "${script.name}".`); }
-  if (script.autoOpenPreview && str(script.previewUrl)) pushToast(client, { kind: 'error', title: 'Could not open preview',
-    description: 'The in-app Browser is not available in this build.' });
+  if (script.autoOpenPreview && str(script.previewUrl)) await openScriptPreview(client, native, str(script.previewUrl)); // browser-surface part 5 (browser-links.ts)
 }
