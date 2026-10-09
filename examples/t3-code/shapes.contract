@@ -196,6 +196,15 @@ shape DiffFile
   additions: number
   deletions: number
   markdown: bool
+// One row of the Diff panel's comparison target picker: a ref, its value, the remote column ("switch", "only" or "") and the ref its switch picks.
+shape DiffBaseRef
+  id: string
+  label: string
+  value: string
+  remote: string
+  remoteOn: bool
+  other: string
+  selected: bool
 shape DiffItem
   id: string
   kind: string
@@ -232,6 +241,10 @@ shape DiffItem
   expandable: bool
   entry: string
   text: string
+  // diff-panel-parity: a file header's counts (diff.ts headerStat): Pierre's "-d +a", or DiffStatLabel's aligned "+a -d" for a large source.
+  statAligned: bool
+  addText: string
+  delText: string
 // Appearance › Typography's code sample (settings-font-previews.ts): the sample patch's
 // unified rows, each with its tone, number and syntax/emphasis segments.
 shape FontDiffLine
@@ -373,6 +386,15 @@ shape Snapshot
   diffEmptyLabel: string
   diffAdditions: number
   diffDeletions: number
+  diffAdditionsText: string
+  diffDeletionsText: string
+  // diff-panel-parity: the Changes header's "<head> → <base>" and the comparison target picker (diff-base-ref.ts).
+  diffCompare: bool
+  diffHead: string
+  diffBase: string
+  diffBaseRefs: list<DiffBaseRef>
+  diffBaseAutomatic: bool
+  diffBaseEmpty: bool
   diffAllCollapsed: bool
   diffFiles: list<DiffFile>
   diffItems: list<DiffItem>

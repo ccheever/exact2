@@ -34,6 +34,8 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
   const [action = '', sideName = '', modifier = ''] = op.split(':');
   const at = { path: value, side: (sideName === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: n };
   const file = (path: string) => diffFiles(client).find(entry => entry.path === path);
+  // The open draft's textarea took or let go of the focus: while it holds it, ⌘↩ is the draft's (composer-presentation.ts sendChords).
+  if (action === 'focus' || action === 'blur') { state.draftFocused = action === 'focus' && state.draft !== null; return ''; }
   if (action === 'next') { if (state.lazy && loadNextFiles(state.lazy).length) await loadDiffFiles(client, native); return ''; }
   if (action === 'retry') { if (state.lazy && retryFile(state.lazy, value)) await loadDiffFiles(client, native); return ''; }
   if (action === 'reveal') {
@@ -98,11 +100,12 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     if (!comment) return '';
     state.selection = { scope, path: at.path, range };
     state.draft = { scope, path: at.path, id, range, rangeLabel: comment.rangeLabel };
+    state.draftFocused = true; // the draft's textarea mounts with the focus (autofocus)
     return '';
   }
   if (action === 'cite') return citeSelection(client, native, op.slice('cite:'.length), value);
   if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself
-  if (action === 'cancel') { state.draft = null; state.selection = null; return ''; }
+  if (action === 'cancel') { state.draft = null; state.selection = null; state.draftFocused = false; return ''; }
   if (action === 'save') {
     const draft = state.draft, target = draft ? file(draft.path) : undefined;
     if (!draft || !target || !value.trim()) return '';
@@ -112,7 +115,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     const record = reviewCommentContextRecord(comment);
     await addReviewCommentChip(client, native, record);
     state.saved.push({ contextId: record.contextId, scope: draft.scope, path: draft.path, range: draft.range, rangeLabel: comment.rangeLabel, text: comment.text });
-    state.draft = null; state.selection = null;
+    state.draft = null; state.selection = null; state.draftFocused = false;
     return '';
   }
   if (action === 'delete') {

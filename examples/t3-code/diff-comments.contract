@@ -1,6 +1,7 @@
 // Inline line comments, measured against T3 Code 1e2ecbd975 DiffCommentAnnotation.tsx (MIT; see
 // LICENSE-T3): the draft (textarea "Add a comment…", "⌘/Ctrl Enter to send", Cancel, Comment;
-// Escape cancels, ⌘/Ctrl+Enter sends a non-empty comment) and the saved card (a primary left
+// Escape cancels, ⌘/Ctrl+Enter sends a non-empty comment; while the textarea holds the focus the
+// composer's Send declares no chord, diff-review.ts `focus`/`blur`) and the saved card (a primary left
 // border, MessageCircle, the text, "Delete comment" shown on hover or focus). The comment becomes
 // a review-comment chip in the composer (diff-review.ts).
 use DiffGlyph from "./diff-glyphs.contract"
@@ -12,6 +13,8 @@ component DiffDraftCard
     edit: action
     cancel: action
     save: action
+    focusIn: action
+    focusOut: action
   action keys(k: string, e: KeyboardEvent)
     if k == "Escape"
       preventDefault()
@@ -22,7 +25,7 @@ component DiffDraftCard
       save()
   view
     column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="diff-comment-draft"
-      textarea id="diff-comment-draft-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height="3.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+      textarea id="diff-comment-draft-text" value=text input=edit key=keys focus=focusIn blur=focusOut autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height="3.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
       row margin-top="0.375rem" align-items="center" gap="0.25rem"
         text "⌘/Ctrl Enter to send" flex=1 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717ab3, #818181b3)"
         DiffCommentButton(label="Cancel", primary=false, enabled=true, choose=cancel, testId="diff-comment-cancel")

@@ -12,6 +12,7 @@ import { attachOffered } from './composer-controls-attach';
 import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
+import { draftHoldsCommandEnter } from './diff';
 import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
 import { measuredLabels } from './r5-composer-measure';
 import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
@@ -225,7 +226,10 @@ export function composerSnapshot(client: T3Client, now = 0) {
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
   return atRootFontSize({ ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, client.modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
-    sendChords: sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), // composer-editor-intent.ts
+    // composer-editor-intent.ts. A focused Diff comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
+    // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
+    // any `key` handler, so the button declares none then.
+    sendChords: draftHoldsCommandEnter(client) ? '' : sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)),
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
