@@ -1,0 +1,51 @@
+# browser-surface-capture: compose the PR's labelled side-by-side images (not committed).
+import sys
+from PIL import Image, ImageDraw, ImageFont
+
+R = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs'
+REF = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/evidence/panel/r-browser-more.png'
+OUT = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/evidence-final'
+W, H, BAR, GAP = 1120, 735, 56, 16
+
+def font(size):
+    for path in ('/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc'):
+        try: return ImageFont.truetype(path, size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+def compose(name, panels):
+    out = Image.new('RGB', (len(panels) * W + (len(panels) - 1) * GAP, H + BAR), 'white')
+    draw = ImageDraw.Draw(out)
+    for index, (path, label) in enumerate(panels):
+        image = Image.open(path).convert('RGB').resize((W, H), Image.LANCZOS)
+        x = index * (W + GAP)
+        out.paste(image, (x, BAR))
+        draw.rectangle([x, 0, x + W - 1, BAR - 1], fill='#18181b')
+        draw.text((x + 16, 14), label, fill='white', font=font(26))
+    out.save(f'{OUT}/{name}', optimize=True)
+    print(name, out.size)
+
+d7, d8, before = f'{R}/drive7/shots', f'{R}/drive9/shots', f'{R}/drive7-before/shots'
+compose('h63bdd73b4-chrome-and-more.png', [
+    (f'{before}/02-more.png', 'Before (base 950e8e2e5): Annotate, Capture, Float disabled; "Part 3" row'),
+    (f'{d8}/02-more.png', 'After (63bdd73b4): the three buttons and the window row work'),
+    (REF, 'Reference (T3 Code 0.0.45, audit capture of the same menu)'),
+])
+compose('h63bdd73b4-capture.png', [
+    (f'{d8}/03-screenshot-toast.png', 'After: Capture → "Screenshot saved" (Copy path, Reveal, Copy image)'),
+    (f'{d8}/04-recording.png', 'After: Shift-click → recording (destructive glyph, dot)'),
+    (f'{d8}/05-recording-saved.png', 'After: Stop → "Recording saved" (Reveal, Copy path)'),
+])
+compose('h63bdd73b4-annotate.png', [
+    (f'{d8}/06-annotate-editor.png', 'After: Annotate, a click on #save, the editor with a comment'),
+    (f'{d8}/07-chip.png', 'After: Return → the chip at the caret, the crop on the shelf (new thread draft)'),
+])
+compose('h63bdd73b4-float.png', [
+    (f'{d7}/08-player.png', 'Drive 7 (8038df70e): Float leaves the panel open on the launcher'),
+    (f'{d8}/08-player.png', 'After (63bdd73b4): Float closes the panel, the player floats the page'),
+    (f'{d8}/09-player-pill.png', 'After: the handle hovered → the pill (restore, window, close)'),
+])
+compose('h63bdd73b4-command-return.png', [
+    (f'{d7}/10-sent.png', 'Drive 7 (8038df70e): ⌘↩ in the editor started the thread out of view'),
+    (f'{d8}/10-sent.png', 'After (63bdd73b4): ⌘↩ sends in the foreground; the thread opens'),
+])
