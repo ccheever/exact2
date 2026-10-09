@@ -1,0 +1,22 @@
+# browser-surface-automation: AppKit macos/tests/browser-automation after b6b3e417e (README recipe), 2026-10-09T04:51Z
+# testMuteSilences… now also covers: out of the window, behind a second tab, muted and hidden (failed before b6b3e417e:
+#   'muted and out of the window stays audible' false, the element paused, visibilityState hidden), shown again, paused by the page.
+passed  T3browserautomationTests.BrowserAutomationTests.testAClickOnAPageInNoWindowIsDOMEvents (0.464 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testAPageInNoWindowStillAnswersASnapshot (0.086 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testClickByLocatorAndByPointIsANativeClickInAWindow (1.462 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testClicksInQuickSuccessionEachLand (1.020 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testEvaluateReturnsSerializableValuesFromThePage (0.295 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testEveryAnswerGoesBackOnItsConnectionOnce (0.086 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testMuteSilencesTheDocumentsMediaAndTheAudibleStateFollowsPlayback (10.014 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testNavigateWaitsForItsReadiness (1.660 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testOpenCreatesATabAndWaitsForItsPage (0.086 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testOpenReusingATabNavigatesIt (0.128 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testPressSendsNativeKeysAndEditingCommands (0.251 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testScrollWaitForAndTheirFailures (0.891 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testSnapshotReportsThePageItsDiagnosticsAndAScreenshot (0.752 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testStatusReadsThePageAndFallsBackToTheSnapshot (0.127 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTheColourSchemeIsThePagesPreferredScheme (0.149 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTheHostsErrorAnswers (0.697 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTypeInsertsTextAndClearReplacesIt (0.211 s)
+	 Executed 17 tests, with 0 failures (0 unexpected) in 18.377 (18.379) seconds
+Executed 17 tests, with 0 failures
