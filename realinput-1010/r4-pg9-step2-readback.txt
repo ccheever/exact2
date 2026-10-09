@@ -1,0 +1,32 @@
+realinput-1010 row 4: PG-9 steps 1-2, lane copy "T3 Code (RI1010 d)" (com.exact.t3code.macos.ri1010d), bundle
+t3-code-snapshot-permission-helper/target/clients/b1c5badc07a0869b05c49b3e (built 2026-10-10 00:57:56, after the last code commit ba427ae29).
+Launched through LaunchServices (open -n --env ...), isolated HOME/T3_LOCAL_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, port 16966.
+(A shell launch of the copy read both grants as "Allowed": TCC charged the parent process, so the copy was relaunched as its own responsible process.)
+Window frames: CGWindowList (points, top-left origin). Front app: lsappinfo. Input: orca clicks in the T3 window; HID CGEvents for
+System Settings' title-bar drag, the helper clicks/hover/drag, Escape and Cmd-Q (orca cannot hover, and its drag did not move Exact's rail in row 2).
+
+Step 1  Settings > SnapShots > Enable snapshots > Screen Recording > Allow (02:09:48)
+  System Settings opens on Privacy > Screen & System Audio Recording; list gains "T3 Code (RI1010 d)" (off).
+  Helper "Set up Screen Recording" x 555 y 638 w 475 h 140; System Settings x 323 y 169 w 723 h 625
+  -> helper bottom 778, window bottom 794: 16 pt above the bottom edge, inside the content column.
+  Also shown: macOS "would like to access files in your Documents folder" for the copy -> answered Don't Allow.
+Step 2
+  title-bar drag of System Settings +100,+60 (HID):
+    t+0.0  helper x 598 y 664 (moving)   System Settings x 423 y 229
+    t+0.5  helper x 655 y 698            = old position +100,+60  -> follows within 0.5 s
+  activate Finder (NSRunningApplication, no reopen): front Finder, helper not on screen
+  activate System Settings: front System Settings, helper x 655 y 698 again
+  pointer over the helper: x at its top right (r4-pg9-step2-hover-x-and-hidden.png)
+  click the "T3 Code" row (twice): Finder window "apps" opens with "T3 Code (RI1010 d)" selected (AX: "1 of 1 selected"),
+    BUT the front app stays System Settings and the helper stays on screen at x 655 y 698 (expected: Finder front, helper hidden)
+  pointer away, click System Settings: helper on screen, x hidden
+  drag the row 57 pt onto the helper's own header (HID) and release: drag image slides back; front stays System Settings;
+    Finder windows unchanged; the list still has one "T3 Code (RI1010 d)" (off)
+  pointer over the row: open hand; off the helper: arrow (r4-pg9-step2-cursors.png)
+  click x: helper not on screen, front T3 Code (RI1010 d)
+  Allow again, click the helper once, Escape (HID): helper not on screen, front T3 Code (RI1010 d)
+  Allow again, then Cmd-Q to System Settings (HID, sent only after lsappinfo read System Settings as front):
+    System Settings quit, helper not on screen, front T3 Code (RI1010 d)
+Not done: steps 3-4 (drag into the list, Accessibility) are for the user in person. No grant was toggled.
+Unexplained: one Allow click (02:12:5x, reported by orca as not delivered while another session's window was on top) was followed
+  by a "Set up Accessibility" helper docking; it closed when the next click landed in the T3 window; System Settings stayed on Screen Recording.
