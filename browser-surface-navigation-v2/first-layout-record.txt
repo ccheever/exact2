@@ -1,0 +1,35 @@
+# browser-surface-navigation-v2: the first layout of agent-opened pages on 878e605b8 (run first1, 2026-10-09 08:34Z, agent mode)
+Asked after part 4's drive (#354) saw a new tab at a fixed default viewport load its first page at 640 x 480 (512 x 384 CSS px at 125%).
+Same lane as drive-record.txt. The fixture's pages now record their size when their first script runs (window.__first, and
+GET /first in the fixture log); the agent's probe returns it. Ops: open (shown, 1280 x 800 default); ⇧⌘J hides the panel;
+open /a with open:false (in no stage), resize it 1000 x 700 and iPad Mini; ⇧⌘J; show tab_2.
+
+08:34:42.250Z open       preview_open     {"url": "http://127.0.0.1:16701/"} -> {"tabId": "tab_1", "visible": true, "viewportSetting": {"_tag": "freeform", "width": 1280, "height": 800}, "viewport": {"width": 1280, "height": 800}}
+08:34:42.356Z open       preview_evaluate {"tabId": "tab_1"} -> {"dpr": 2, "first": {"width": 1280, "height": 800}, "width": 1280, "height": 800, "href": "http://127.0.0.1:16701/"}
+08:34:55.928Z suppressed preview_open     {"url": "http://127.0.0.1:16701/a", "open": false, "reuseExistingTab": false} -> {"tabId": "tab_2", "visible": false, "viewportSetting": {"_tag": "freeform", "width": 1280, "height": 800}, "viewport": null}
+08:34:56.035Z suppressed preview_evaluate {"tabId": "tab_2"} -> {"dpr": 2, "first": {"width": 1280, "height": 800}, "width": 1280, "height": 800, "href": "http://127.0.0.1:16701/a"}
+08:34:56.128Z suppressed preview_resize   {"tabId": "tab_2", "mode": "freeform", "width": 1000, "height": 700} -> {"setting": {"_tag": "freeform", "width": 1000, "height": 700}, "viewport": {"width": 1000, "height": 700}}
+08:34:56.218Z suppressed preview_evaluate {"tabId": "tab_2"} -> {"dpr": 2, "first": {"width": 1280, "height": 800}, "width": 1000, "height": 700, "href": "http://127.0.0.1:16701/a"}
+08:34:56.310Z suppressed preview_resize   {"tabId": "tab_2", "mode": "preset", "preset": "ipad-mini"} -> {"setting": {"_tag": "preset", "width": 768, "height": 1024, "presetId": "ipad-mini"}, "viewport": {"width": 768, "height": 1024}}
+08:34:56.399Z suppressed preview_evaluate {"tabId": "tab_2"} -> {"dpr": 2, "first": {"width": 1280, "height": 800}, "width": 768, "height": 1024, "href": "http://127.0.0.1:16701/a"}
+
+Fixture log:
+fixture on 16701
+2026-10-09T08:34:42.190Z GET /
+2026-10-09T08:34:42.201Z GET /first
+2026-10-09T08:34:42.203Z GET /favicon.png
+2026-10-09T08:34:55.961Z GET /a
+2026-10-09T08:34:55.964Z GET /first
+2026-10-09T08:34:55.971Z GET /favicon.png
+
+Result: both agent-opened pages laid out first at 1280 x 800 (the shown tab_1, and tab_2 opened with open:false in no stage).
+Why: the page is made by the data module's browserSync at the web view's initial 640 x 480 frame and starts loading at once;
+for an agent tab the host's open waits for the page (polling every 50 ms) and sets 1280 x 800 (T3BrowserViewport.hold) before
+a new WebContent process has the page parsed. That is a race the host wins here, not an ordering. A tab that arrives at a fixed
+size with no host wait (part 4's default viewport, or a tab another client opens at a fixed size) has no hold, so its first
+layout is 640 x 480 until the stage sizes it: the fix belongs where the page is made (browserSync could carry the fixed size).
+fixture pid 69437
+agent pid 69438
+t3 app exit 0
+server pid 69552
+agent exit 0
