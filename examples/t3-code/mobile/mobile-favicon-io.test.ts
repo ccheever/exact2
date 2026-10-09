@@ -99,3 +99,88 @@ test('completed and failed brackets refuse an escaped adapter and detach abort l
     expect(calls).toHaveLength(1);
   }
 });
+
+import { mobileFaviconCatalogIO } from './mobile-favicon-io';
+import { MobileFaviconCache, mobileFaviconResourceKey, mobileFaviconRevision } from './mobile-favicon-cache';
+import { mobileCacheCompareMetadata, type MobileCacheRecord } from './mobile-client-cache';
+
+function provenanceFixture() {
+  const rows = new Map<string, MobileCacheRecord>(), removed: (string | undefined)[] = [];
+  const identities = new Map([['env', '["env","https://home.invalid"]']]);
+  let clock = 0, revision = 0, alive = true;
+  const keyOf = (key: { kind: string; key: string }) => `${key.kind}:${key.key}`;
+  const base: MobileFaviconIO = {
+    scopeRevision: () => `${revision}`,
+    async list(after, limit) { return [...rows.values()].filter(row => row.kind === 'project-favicon').sort(mobileCacheCompareMetadata)
+      .filter(row => !after || mobileCacheCompareMetadata(row, after) > 0).slice(0, limit).map(({ payload: _payload, ...row }) => row); },
+    async read(key) { return rows.get(keyOf(key)) ?? null; },
+    async ticket() { return `${revision}`; },
+    async write(key, ticket, payload) { if (ticket !== `${revision}`) return false;
+      rows.set(keyOf(key), { ...key, schemaVersion: 1, payload, updatedAt: ++clock }); return true; },
+    async remove(key, payload) { removed.push(payload); if (payload === undefined || rows.get(keyOf(key))?.payload === payload) rows.delete(keyOf(key)); },
+    async clear() { revision++; rows.clear(); }, async load() { return dataUrl; },
+  };
+  const io = mobileFaviconCatalogIO(base, { identity: env => identities.get(env) ?? '', current: () => alive });
+  const target = { environmentId: 'env', cwd: '/work' }, key = { environmentId: 'env', kind: 'project-favicon' as const, key: mobileFaviconResourceKey(target) };
+  const raw = JSON.stringify({ ...target, faviconPath: null, revision: mobileFaviconRevision(target, '/icon.png'), dataUrl });
+  return { rows, identities, removed, base, io, target, key, raw, keyOf, stop: () => { alive = false; } };
+}
+
+test('catalog augmentation preserves schema1 and exact conditional cleanup for new and hydrated records', async () => {
+  const f = provenanceFixture();
+  await f.io.write(f.key, await f.io.ticket(f.key), f.raw);
+  const written = f.rows.get(f.keyOf(f.key))!;
+  expect(written.schemaVersion).toBe(1); expect(JSON.parse(written.payload)).toEqual({ ...JSON.parse(f.raw), catalogIdentity: f.identities.get('env') });
+  expect((await f.io.read(f.key))?.payload).toBe(written.payload);
+  await f.io.remove(f.key, f.raw); expect(f.removed[0]).toBe(written.payload); expect(f.rows.size).toBe(0);
+  await f.io.write(f.key, await f.io.ticket(f.key), f.raw);
+  await f.io.remove(f.key, written.payload); expect(f.removed[1]).toBe(written.payload); expect(f.rows.size).toBe(0);
+});
+
+test.each(['missing', 'replaced', 'forgotten', 'corrupt'])('cold hydration rejects %s provenance only for the affected favicon row', async kind => {
+  const f = provenanceFixture(), cache = new MobileFaviconCache();
+  const payload = kind === 'corrupt' ? '{broken' : kind === 'missing' ? f.raw
+    : JSON.stringify({ ...JSON.parse(f.raw), catalogIdentity: '["env","https://old.invalid"]' });
+  f.rows.set(f.keyOf(f.key), { ...f.key, schemaVersion: 1, payload, updatedAt: 1 });
+  const unrelated: MobileCacheRecord = { environmentId: 'env', kind: 'shell', key: 'snapshot', schemaVersion: 1, payload: '{"environmentId":"env"}', updatedAt: 2 };
+  f.rows.set(f.keyOf(unrelated), unrelated);
+  if (kind === 'forgotten') f.identities.delete('env');
+  expect(await cache.hydrate(f.io, () => true)).toBe(true);
+  expect(cache.peek(f.target, f.io)).toBeNull(); expect(f.rows.size).toBe(1);
+  expect(f.rows.get(f.keyOf(unrelated))).toBe(unrelated); expect(f.removed).toEqual([payload]);
+});
+
+test('global128-entry eviction deletes freshly augmented rows rather than leaking conditional mismatches', async () => {
+  const f = provenanceFixture(), cache = new MobileFaviconCache(); await cache.hydrate(f.io, () => true);
+  for (let index = 0; index < 129; index++) await cache.resolve(f.io, { ...f.target, cwd: `/work/${index}` }, `/icon-${index}.png`,
+    { current: () => true, signal: new AbortController().signal });
+  expect(f.rows.size).toBe(128); expect(f.removed).toHaveLength(1);
+  expect(JSON.parse(f.removed[0]!).catalogIdentity).toBe(f.identities.get('env'));
+  const restarted = new MobileFaviconCache(); expect(await restarted.hydrate(f.io, () => true)).toBe(true);
+  expect(restarted.peek({ ...f.target, cwd: '/work/128' }, f.io)).toBe(dataUrl);
+});
+
+test('matching disabled saved provenance may hydrate, but memory disappears as soon as catalog identity changes', async () => {
+  const f = provenanceFixture(), cache = new MobileFaviconCache();
+  await f.io.write(f.key, await f.io.ticket(f.key), f.raw);
+  await cache.hydrate(f.io, () => true); expect(cache.peek(f.target, f.io)).toBe(dataUrl);
+  f.identities.set('env', '["env","https://replacement.invalid"]');
+  expect(cache.peek(f.target, f.io)).toBeNull();
+  expect(await f.io.read(f.key)).toBeNull(); expect(f.rows.size).toBe(0);
+});
+
+test('a catalog replacement during disk read cannot return or remove a newer row', async () => {
+  const f = provenanceFixture(); await f.io.write(f.key, await f.io.ticket(f.key), f.raw);
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), read = f.base.read;
+  f.base.read = async key => { const value = await read(key); entered.resolve(); await release.promise; return value; };
+  const pending = f.io.read(f.key); await entered.promise;
+  f.identities.set('env', '["env","https://new.invalid"]'); await f.io.write(f.key, await f.io.ticket(f.key), f.raw);
+  release.resolve(); expect(await pending).toBeNull(); expect(f.rows.size).toBe(1); expect(f.removed).toHaveLength(0);
+});
+
+test('catalog decorator rejects invalid entry identity and refuses work after its answer ends', async () => {
+  const f = provenanceFixture();
+  await expect(f.io.write(f.key, '0', JSON.stringify({ ...JSON.parse(f.raw), environmentId: 'other' }))).rejects.toThrow('Invalid cached favicon');
+  f.stop(); await expect(f.io.list(null, 128)).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.rows.size).toBe(0);
+});

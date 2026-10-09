@@ -2,7 +2,9 @@
 import { expect, test } from 'bun:test';
 import { noteNow } from './shared/composer-controls';
 import { MobileDraftClient } from './mobile-draft-recovery';
-import { mobileNewTaskPrepare, mobileNewTaskAction } from './new-task';
+import { mobileNewTaskPrepare, mobileNewTaskAction, mobileNewTaskCachedPrepare, mobileNewTask } from './new-task';
+import { fleet as productionFleet } from './shared/settings-b-fleet';
+import { mobileCacheClear, mobileCacheClearKind } from './mobile-client-cache';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
@@ -96,4 +98,97 @@ test('worktree to local chooses actual current checkout rather than old feature 
  const expected={branch:'main',worktreePath:null};
  expect(draftContext(f.client)).toEqual({envMode:'local',branch:expected.branch??'',worktreePath:expected.worktreePath??''});
  expect(branch(f)).toBe('main');
+});
+
+async function cachedBranches() {
+ const f=await selected(),base=f.native.later,rows=new Map<string,Obj>(),calls:Obj[]=[];let epoch=0;
+ f.fleet.saved=[{environmentId:f.client.environmentId,origin:f.client.origin}];
+ const prior=productionFleet.saved;productionFleet.saved=f.fleet.saved;
+ f.native.later=async input=>{
+  const request=obj(input);calls.push(request);
+  if(request.op==='mobileClientCache'){
+   const key=JSON.stringify([request.environmentId,request.kind,request.key]);let value:Obj={};
+   if(request.action==='ticket')value={ticket:String(epoch)};
+   if(request.action==='write'){const stale=request.ticket!==String(epoch);if(!stale)rows.set(key,{environmentId:request.environmentId,kind:request.kind,key:request.key,payload:request.payload,schemaVersion:1,updatedAt:10});value={written:!stale,stale};}
+   if(request.action==='read')value={record:rows.get(key)??null};
+   if(request.action==='clear'||request.action==='clearKind'){epoch++;const removed=rows.size;rows.clear();value={removed};}
+   if(request.action==='remove'){const removed=rows.get(key)?.payload===request.expectedPayload?1:0;if(removed)rows.delete(key);value={removed};}
+   return {ok:true,generation:0,value};
+  }
+  if(request.method==='vcs.listRefs')return {ok:true,generation:f.client.generation,value:{refs:[{name:'main',current:true,isDefault:true,worktreePath:'/a'}],totalCount:1,nextCursor:null,isRepo:true,hasPrimaryRemote:true}};
+  return base(input);
+ };
+ return {...f,rows,cacheCalls:calls,restore:()=>{productionFleet.saved=prior;}};
+}
+test('actual new-task lexical list persists once then offline cache phase renders read-only rows',async()=>{
+ const f=await cachedBranches();try{
+  await mobileNewTaskPrepare('',f.native,f.client);
+  expect(f.cacheCalls.filter(row=>row.method==='vcs.listRefs')).toHaveLength(1);expect(f.rows.size).toBe(1);
+  f.client.connection='disconnected';f.client.shellLive=false;f.cacheCalls.length=0;
+  const before={context:draftContext(f.client),scopes:[...f.client.scopes],ready:f.client.ready};
+  const prepared=await mobileNewTaskCachedPrepare('',f.native,f.client,()=>true,f.fleet);
+  expect(prepared.loaded).toBe(true);
+  const view=mobileNewTask('',f.client,f.fleet);expect(view.branches.map(row=>[row.id,row.disabled])).toEqual([['main',true]]);
+  expect(f.cacheCalls.map(row=>[row.op,row.action])).toEqual([['mobileClientCache','read']]);
+  expect({context:draftContext(f.client),scopes:[...f.client.scopes],ready:f.client.ready}).toEqual(before);
+  expect((await mobileNewTaskAction('branch','main','',f.native,f.files,f.client,f.fleet)).message).toContain('cannot check out');
+ }finally{f.restore();}
+});
+test('cached new-task rows disappear synchronously after cache clear or catalog replacement',async()=>{
+ for(const transition of ['clear','catalog']){
+  const f=await cachedBranches();try{
+   await mobileNewTaskPrepare('',f.native,f.client);f.client.connection='disconnected';
+   await mobileNewTaskCachedPrepare('',f.native,f.client,()=>true,f.fleet);
+   expect(mobileNewTask('',f.client,f.fleet).branches).toHaveLength(1);
+   if(transition==='clear')await mobileCacheClear(f.native,{environmentId:f.client.environmentId});
+   else f.fleet.saved=[{environmentId:f.client.environmentId,origin:'https://replacement.test'}];
+   expect(mobileNewTask('',f.client,f.fleet).branches).toEqual([]);
+  }finally{f.restore();}
+ }
+});
+test('cache phase obeys route ownership and never substitutes a filtered offline list',async()=>{
+ const f=await cachedBranches();try{
+  await mobileNewTaskPrepare('',f.native,f.client);f.client.connection='disconnected';f.cacheCalls.length=0;
+  expect((await mobileNewTaskCachedPrepare('',f.native,f.client,()=>false,f.fleet)).loaded).toBe(false);
+  expect((await mobileNewTaskCachedPrepare('main',f.native,f.client,()=>true,f.fleet)).loaded).toBe(false);
+  expect(f.cacheCalls).toEqual([]);
+  expect(mobileNewTask('',f.client,f.fleet).branches).toEqual([]);
+  let current=true;const base=f.native.later;
+  f.native.later=async input=>{const result=await base(input);if(obj(input).action==='read')current=false;return result;};
+  expect((await mobileNewTaskCachedPrepare('',f.native,f.client,()=>current,f.fleet)).loaded).toBe(false);
+ }finally{f.restore();}
+});
+test('connected new-task cache phase displays rows before delayed real refresh finishes',async()=>{
+ const f=await cachedBranches();try{
+  await mobileNewTaskPrepare('',f.native,f.client);f.client.generation++;
+  expect((await mobileNewTaskCachedPrepare('',f.native,f.client,()=>true,f.fleet)).loaded).toBe(true);
+  const base=f.native.later,entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();
+  f.native.later=async input=>{if(obj(input).method==='vcs.listRefs'){entered.resolve();await release.promise;}return base(input);};
+  const live=mobileNewTaskPrepare('',f.native,f.client);await entered.promise;
+  expect(mobileNewTask('',f.client,f.fleet).branches.map(row=>[row.id,row.disabled])).toEqual([['main',true]]);
+  release.resolve();await live;
+  expect(mobileNewTask('',f.client,f.fleet).branches[0]?.disabled).toBe(false);
+ }finally{f.restore();}
+});
+test.each(['none','environment','all','kind'] as const)('cold actual-client cached rows survive status invalidation; explicit %s clear still evicts',async clear=>{
+ const f=await cachedBranches();try{
+  // Populate disk through the real subtype, leaving private shared repository
+  // state cold. A prior mobileNewTaskPrepare would mask refreshStatus here.
+  await f.client.restAccess(f.native).request('vcs.listRefs',{cwd:'/a',limit:100});
+  expect((await mobileNewTaskCachedPrepare('',f.native,f.client,()=>true,f.fleet)).loaded).toBe(true);
+  const base=f.native.later,entered=Promise.withResolvers<void>(),release=Promise.withResolvers<void>();
+  f.native.later=async input=>{if(obj(input).method==='vcs.listRefs'){entered.resolve();await release.promise;}return base(input);};
+  const live=mobileNewTaskPrepare('',f.native,f.client);await entered.promise;
+  expect(f.cacheCalls.some(row=>row.method==='vcs.refreshStatus')).toBe(true);
+  expect(f.cacheCalls.some(row=>row.action==='clear'&&row.kind==='vcs-refs')).toBe(true);
+  expect(f.rows.size).toBe(0);
+  expect(mobileNewTask('',f.client,f.fleet).branches.map(row=>[row.id,row.disabled])).toEqual([['main',true]]);
+  if(clear==='environment')await mobileCacheClear(f.native,{environmentId:f.client.environmentId});
+  if(clear==='all')await mobileCacheClear(f.native);
+  if(clear==='kind')await mobileCacheClearKind(f.native,'vcs-refs');
+  if(clear!=='none')expect(mobileNewTask('',f.client,f.fleet).branches).toEqual([]);
+  release.resolve();await live;
+  if(clear==='none')expect(mobileNewTask('',f.client,f.fleet).branches[0]?.disabled).toBe(false);
+  else{expect(mobileNewTask('',f.client,f.fleet).branches).toEqual([]);expect(f.rows.size).toBe(0);}
+ }finally{f.restore();}
 });

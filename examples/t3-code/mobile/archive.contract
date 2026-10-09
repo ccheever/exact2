@@ -1,3 +1,4 @@
+use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
 // @ref llp/1109.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 ArchivedThreadsScreen and thread-swipe-actions.
 // The root owns the native header, search/filter menus and destructive confirmation.
@@ -36,6 +37,7 @@ shape ArchiveItem
   final: bool
   canOperate: bool
   favicon: string
+  faviconTarget: ProjectFaviconTarget
   iconKind: string
   iconText: string
   iconColor: string
@@ -320,9 +322,6 @@ component ArchiveProjectIcon
   props
     item: ArchiveItem
     colors: ArchiveColors
-  state failedUrl = ""
-  action failed(message: string)
-    failedUrl = item.favicon
   view
     box width=18
       height=18
@@ -345,12 +344,5 @@ component ArchiveProjectIcon
             line-height="18px"
             font-weight=700
             color=item.iconColor
-      else when length(item.favicon) > 0 and failedUrl != item.favicon
-        image item.favicon width=18 height=18 object-fit="contain" error=failed
       else
-        t3-symbol symbol-name="folder"
-          point-size=18
-          symbol-weight="regular"
-          symbol-tint=colors.iconMuted
-          width=18
-          height=18
+        ProjectFavicon(mountId=`archive:${item.key}`, target=item.faviconTarget, title=item.title, size=18, tint=colors.iconMuted)

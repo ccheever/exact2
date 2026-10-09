@@ -12,7 +12,7 @@ const machineSymbols: Record<string, string> = {
 export function connectionView(snapshot: Awaited<ReturnType<typeof mobileSnapshot>>, scheme: string, palette = 't3-code') {
   const theme = mobileTheme(scheme, palette), colors = theme.colors;
   return {
-    nativeAvailable: snapshot.nativeAvailable, revision: snapshot.revision,
+    nativeAvailable: snapshot.nativeAvailable, revision: snapshot.revision, faviconRevision: snapshot.faviconRevision,
     ready: snapshot.ready, busy: snapshot.busy, error: snapshot.error,
     environmentId: snapshot.environmentId, threadId: snapshot.threadId, projectId: snapshot.projectId, generation: snapshot.generation, environmentLabel: snapshot.environmentLabel,
     status: snapshot.statusMessage, routing: snapshot.routing, projectCount: snapshot.projects.length, threadCount: snapshot.threads.length,

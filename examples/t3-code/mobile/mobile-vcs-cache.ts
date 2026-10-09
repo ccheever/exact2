@@ -4,6 +4,7 @@ import { obj, type Obj } from './shared/domain';
 import { letGo } from './shared/let-go';
 import type { Native } from './shared/protocol';
 import { mobileCacheClear, mobileCacheReadDecoded, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite } from './mobile-client-cache';
+import { decodeMobileCatalogPayload, encodeMobileCatalogPayload } from './mobile-client-cache-catalog';
 
 export interface MobileVcsRefsInput extends Obj { cwd: string; limit?: number }
 export interface MobileVcsRefsResult extends Obj {
@@ -13,6 +14,8 @@ export interface MobileVcsRefsRead {
   native: Native; environmentId: string; input: MobileVcsRefsInput;
   /** Captured environment/origin/generation/route/query ownership, checked after every await. */
   current: () => boolean;
+  /** Production callers bind rows to the saved catalog home, not learned routes. */
+  catalogIdentity?: string;
   /** Omit only when disconnected; denial/errors from an actual request never use cache. */
   liveRead?: () => Promise<unknown>;
 }
@@ -45,8 +48,13 @@ export function decodeMobileVcsRefs(value: unknown): MobileVcsRefsResult | null 
   }
   return { refs, isRepo: data.isRepo, hasPrimaryRemote: data.hasPrimaryRemote, nextCursor: data.nextCursor, totalCount: data.totalCount };
 }
-export function decodeMobileVcsRefsCache(payload: string, environmentId: string, cwd: string): MobileVcsRefsResult | null {
+export function decodeMobileVcsRefsCache(payload: string, environmentId: string, cwd: string, catalogIdentity?: string): MobileVcsRefsResult | null {
   try {
+    if (catalogIdentity !== undefined) {
+      const decoded = decodeMobileCatalogPayload(payload, catalogIdentity);
+      if (decoded === null) return null;
+      payload = decoded;
+    }
     const value = obj(JSON.parse(payload));
     return value.schemaVersion === 1 && value.environmentId === environmentId && value.cwd === cwd
       ? decodeMobileVcsRefs(value.refs) : null;
@@ -62,13 +70,25 @@ export class MobileVcsCache {
     if (!state) { state = { revision: 0, readable: true, clearing: 0 }; this.states.set(environmentId, state); }
     return state;
   }
+  revision(environmentId: string): string {
+    return `${this.state(environmentId).revision}:${mobileCacheReadRevision(environmentId, 'vcs-refs')}`;
+  }
+  /** A let-go mutation cannot call native again. The next owned consumer clears
+   * before reading. This marker alone does not survive a process restart. */
+  unreadable(environmentId: string): void {
+    const state = this.state(environmentId); state.revision++; state.readable = false;
+  }
+  async recover(native: Native, environmentId: string): Promise<boolean> {
+    const state = this.state(environmentId);
+    return state.readable && !state.clearing ? true : state.clearing ? false : this.invalidate(native, environmentId);
+  }
   /** Call after any settled ref/worktree mutation, including uncertain failure.
    * Source invalidation is environment-wide because repositories share refs. */
   async invalidate(native: Native, environmentId: string): Promise<boolean> {
     const state = this.state(environmentId), revision = ++state.revision;
     state.readable = false; state.clearing++;
     try {
-      await mobileCacheClear(native, { environmentId, kind: 'vcs-refs' });
+      await mobileCacheClear(native, { environmentId, kind: 'vcs-refs' }, { retainDisplay: true });
       if (state.revision === revision) state.readable = true;
       return true;
     } catch (error) { if (letGo(error)) throw error; return false; }
@@ -90,7 +110,7 @@ export class MobileVcsCache {
       if (!eligible || !state.readable || state.clearing) return null;
       try {
         const readable = () => owned() && state.readable && !state.clearing;
-        const refs = await mobileCacheReadDecoded(native, key, payload => decodeMobileVcsRefsCache(payload, environmentId, cwd), readable);
+        const refs = await mobileCacheReadDecoded(native, key, payload => decodeMobileVcsRefsCache(payload, environmentId, cwd, options.catalogIdentity), readable);
         if (!readable()) return null;
         return refs ? { source: 'cache', refs } : null;
       } catch (error) { if (letGo(error)) throw error; return null; }
@@ -100,7 +120,7 @@ export class MobileVcsCache {
     if (eligible && !state.readable && !state.clearing) {
       state.clearing++;
       try {
-        const clearing = mobileCacheClear(native, { environmentId, kind: 'vcs-refs' });
+        const clearing = mobileCacheClear(native, { environmentId, kind: 'vcs-refs' }, { retainDisplay: true });
         clearRevision = mobileCacheReadRevision(environmentId);
         await clearing;
         if (owned()) state.readable = true;
@@ -119,7 +139,8 @@ export class MobileVcsCache {
     const refs = decodeMobileVcsRefs(value);
     if (!refs) return null;
     if (ticket && state.readable && !state.clearing) {
-      const payload = JSON.stringify({ schemaVersion: 1, environmentId, cwd, refs });
+      const raw = JSON.stringify({ schemaVersion: 1, environmentId, cwd, refs });
+      const payload = options.catalogIdentity === undefined ? raw : encodeMobileCatalogPayload(options.catalogIdentity, raw);
       try { await mobileCacheWrite(native, key, ticket, payload); }
       catch (error) { if (letGo(error)) throw error; }
     }

@@ -236,7 +236,11 @@ test('Choose project reuses repository grouping, searches member paths and picks
     { id: 'b', title: 'repo', workspaceRoot: '/checkout/work', repositoryIdentity }];
   const grouped = mobileNewTaskChooser('checkout', 'repository', f.client, f.fleet);
   expect(grouped.projects).toHaveLength(1);
-  expect(grouped.projects[0]).toMatchObject({ id: '["env","a"]', title: 'acme/repo', subtitle: '2 workspaces' });
+  expect(grouped.projects[0]).toMatchObject({ id: '["env","a"]', title: 'acme/repo', subtitle: '2 workspaces',
+    favicon: '', faviconTarget: { environmentId: 'env', cwd: '/a', faviconPath: '', key: '["env","/a",null]' } });
+  expect(f.calls).toHaveLength(0);
+  f.client.shell.projects[0]!.projectIcon = { kind: 'emoji', emoji: '🌲' };
+  expect(mobileNewTaskChooser('', 'repository', f.client, f.fleet).projects[0]).toMatchObject({ id: '["env","a"]', iconKind: 'emoji', iconText: '🌲', faviconTarget: { key: '' } });
   expect(mobileNewTaskChooser('', 'separate', f.client, f.fleet).projects).toHaveLength(2);
   expect(mobileNewTaskChooser('absent', 'repository', f.client, f.fleet)).toMatchObject({ projects: [], emptyTitle: 'No matching projects' });
 });

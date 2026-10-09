@@ -132,3 +132,23 @@ describe('archive transport ownership', () => {
     expect(requests.filter(row => row.method === 'orchestration.dispatchCommand')).toHaveLength(1);
   });
 });
+
+
+test('archive emits targets from filtered archived project headers without signed URL requests', async () => {
+ const input=[source('one',[thread('one')]),source('two',[thread('two')])];
+ input[1]!.shell.projects[0]!.workspaceRoot='/archived-only';input[1]!.shell.projects[0]!.faviconPath='icon path.svg';
+ const rows=projectMobileArchive(input,now,'','two');
+ expect(rows[0]).toMatchObject({kind:'project',favicon:'',faviconTarget:{environmentId:'two',cwd:'/archived-only',faviconPath:'icon path.svg',key:'["two","/archived-only","icon path.svg"]'}});
+ expect(rows[1]!.faviconTarget.key).toBe('');
+ input[1]!.shell.projects[0]!.projectIcon={kind:'monogram',text:'A',color:'blue'};
+ expect(projectMobileArchive(input,now,'','two')[0]).toMatchObject({iconKind:'monogram',faviconTarget:{key:''}});
+ const oldProjects=snapshot.projects;
+ snapshot.projects=[{id:'p',title:'Project',workspaceRoot:'/archived-only'}] as typeof snapshot.projects;
+ try {
+  const data=await mobileArchive(now,'','two','newest',native);
+  expect(data.items[0]!.faviconTarget.cwd).toBe('/archived-only');
+  expect(requests.filter(r=>r.method==='orchestration.getArchivedShellSnapshot')).toHaveLength(2);
+  expect(requests.filter(r=>r.path==='/api/auth/session')).toHaveLength(2);
+  expect(requests.some(r=>r.method==='assets.createUrl')).toBe(false);
+ } finally {snapshot.projects=oldProjects;}
+});

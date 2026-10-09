@@ -7,6 +7,7 @@ import { obj, str, type Obj } from './shared/domain';
 import { letGoAware } from './shared/let-go';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
+import { mobileVcsRequest, mobileVcsRetireFocusedPages, MOBILE_VCS_INVALIDATING_METHODS } from './mobile-vcs-consumers';
 
 export type MobileSettingsSource = ReturnType<typeof environmentSources>[number];
 export type MobileSettingsEndpoint = { source: MobileSettingsSource; remote: Native; generation: number };
@@ -35,10 +36,17 @@ export function settingsEndpointCurrent(endpoint: MobileSettingsEndpoint): boole
 }
 export async function settingsCall(endpoint: MobileSettingsEndpoint, request: Obj): Promise<Obj> {
   if (!settingsEndpointCurrent(endpoint)) throw new ClientError('The connection changed. Reopen this settings page.', 'stale');
-  const reply = await bridgeReply(endpoint.remote, { ...request, generation: endpoint.generation });
-  if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain);
-  if (reply.generation !== endpoint.generation || !settingsEndpointCurrent(endpoint)) throw new ClientError('The connection changed. Reopen this settings page.', 'stale');
-  return obj(reply.value);
+  const send = async () => {
+    const reply = await bridgeReply(endpoint.remote, { ...request, generation: endpoint.generation });
+    if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain);
+    if (reply.generation !== endpoint.generation || !settingsEndpointCurrent(endpoint)) throw new ClientError('The connection changed. Reopen this settings page.', 'stale');
+    return obj(reply.value);
+  };
+  if (request.op !== 'request') return send();
+  const method = str(request.method), environmentId = endpoint.source.environmentId;
+  try { return await mobileVcsRequest({ owner: mobileClient, environmentId, saved: () => fleet.saved,
+    current: () => settingsEndpointCurrent(endpoint) }, endpoint.remote, method, obj(request.payload), send); }
+  finally { if (MOBILE_VCS_INVALIDATING_METHODS.has(method)) mobileVcsRetireFocusedPages(mobileClient, environmentId); }
 }
 export function settingsAdoptConfig(endpoint: MobileSettingsEndpoint, config: Obj): void {
   if (!settingsEndpointCurrent(endpoint)) return;

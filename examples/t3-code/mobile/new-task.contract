@@ -1,3 +1,4 @@
+use ProjectFavicon from "./project-favicon.contract"
 // Pinned NewTaskRouteScreen/NewTaskContextPickerScreens365aa87982; root owns route headers and search.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
@@ -42,7 +43,13 @@ component NewTaskProjects
             border-bottom-width=(project.last ? 0 : 1) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
             row align-items="center" gap=10.5
               column width=24.5 height=24.5 align-items="center" justify-content="center"
-                t3-symbol symbol-name="folder" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+                when project.iconKind == "emoji"
+                  text project.iconText font-size=16 line-height="20px" text-align="center"
+                else when project.iconKind == "monogram"
+                  column width=20 height=20 border-radius=5 background-color=project.iconSurface align-items="center" justify-content="center"
+                    text project.iconText font-family="Menlo" font-size=project.iconSize line-height="20px" font-weight=700 color=project.iconColor
+                else
+                  ProjectFavicon(mountId=`new-task:${project.id}`, target=project.faviconTarget, title=project.title, size=20, tint=colors.iconSubtle)
               column flex=1 min-width=0
                 text project.title font-size=16 line-height="20px" font-weight=700 color=colors.foreground
                 text project.subtitle font-size=12 line-height="15px" color=colors.muted line-clamp=1 text-overflow="ellipsis"

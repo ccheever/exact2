@@ -11,22 +11,22 @@ import { letGo, letGoAware } from './shared/let-go';
 import { liveEnvironments, type LiveEnvironment } from './shared/live-streams';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
-import { faviconFromAnswer } from './shared/r3-sidebar-glyph';
+import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
 import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
 
-export interface ArchiveSnapshot { environmentId: string; label: string; machine: string; shell: Shell; canOperate: boolean; favicons?: Record<string, string> }
+export interface ArchiveSnapshot { environmentId: string; label: string; machine: string; shell: Shell; canOperate: boolean }
 export interface ArchiveEnvironment { id: string; label: string }
 export interface ArchiveItem {
   key: string; kind: string; environmentId: string; projectId: string; threadId: string; title: string;
   subtitle: string; environmentLabel: string; machineSymbol: string; time: string;
   initial: boolean; first: boolean; last: boolean; final: boolean; canOperate: boolean;
-  favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
+  faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number;
 }
 export interface ArchiveView { items: ArchiveItem[]; environments: ArchiveEnvironment[]; error: string; loading: boolean; emptyTitle: string; emptyDetail: string }
 const machines: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const stamp = (thread: Obj) => { const ms = Date.parse(str(thread.archivedAt ?? thread.updatedAt)); return Number.isNaN(ms) ? 0 : ms; };
-const blank = (key: string): ArchiveItem => ({ key, kind: 'thread', environmentId: '', projectId: '', threadId: '', title: '', subtitle: '', environmentLabel: '', machineSymbol: '', time: '', initial: false, first: false, last: false, final: false, canOperate: false, favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0 });
+const blank = (key: string): ArchiveItem => ({ key, kind: 'thread', environmentId: '', projectId: '', threadId: '', title: '', subtitle: '', environmentLabel: '', machineSymbol: '', time: '', initial: false, first: false, last: false, final: false, canOperate: false, faviconTarget: mobileProjectFaviconTarget(''), favicon: '', iconKind: '', iconText: '', iconColor: '', iconSurface: '', iconSize: 0 });
 
 /** Exact source grouping: filter groups by environment, then project/path/environment or thread/branch query. */
 export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, queryInput = '', environmentId = '', sortOrder = 'newest'): ArchiveItem[] {
@@ -51,7 +51,7 @@ export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, 
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     items.push({ ...blank(`${key}:project`), kind: 'project', environmentId: source.environmentId, projectId: str(project.id),
       title: str(project.title), environmentLabel: source.label, machineSymbol: machines[source.machine] ?? machines.server!,
-      favicon: source.favicons?.[str(project.id)] ?? '', iconKind, iconText, iconColor, iconSurface: iconColor ? `${iconColor}26` : '',
+      faviconTarget: mobileProjectFaviconTarget(source.environmentId, project), iconKind, iconText, iconColor, iconSurface: iconColor ? `${iconColor}26` : '',
       iconSize: 18 * (Array.from(iconText.replace(/\p{M}/gu, '')).length === 1 ? .6 : .515625) });
     threads.forEach((thread, index) => items.push({ ...blank(`${source.environmentId}:${str(thread.id)}`),
       environmentId: source.environmentId, projectId: str(project.id), threadId: str(thread.id), title: str(thread.title),
@@ -116,14 +116,7 @@ export async function mobileArchive(now: number, query = '', selectedEnvironment
       const selected = archiveTransport(info.id, native), shell = await readArchive(selected.environment);
       let canOperate = false;
       try { canOperate = await sessionPermission(selected.native, selected.generation); } catch (error) { if (letGo(error)) throw error; }
-      const favicons: Record<string, string> = {};
-      await Promise.all(shell.projects.filter(project => !str(obj(project.projectIcon).kind) && str(project.workspaceRoot)).map(async project => {
-        try { const result = await selected.environment.request('assets.createUrl', { resource: { _tag: 'project-favicon', cwd: str(project.workspaceRoot), ...(str(project.faviconPath) ? { path: str(project.faviconPath) } : {}) } });
-          const origin = selected.environment.focused ? mobileClient.origin : fleet.entries.get(selected.environment.key)?.origin ?? '';
-          favicons[str(project.id)] = faviconFromAnswer(origin, result);
-        } catch (error) { if (letGo(error)) throw error; }
-      }));
-      const value: ArchiveSnapshot = { environmentId: info.id, label: info.label, machine: machineKind(selected.environment.config), shell, canOperate, favicons };
+      const value: ArchiveSnapshot = { environmentId: info.id, label: info.label, machine: machineKind(selected.environment.config), shell, canOperate };
       snapshots.set(info.id, value); return { value, failed: false };
     } catch (error) {
       if (letGo(error)) throw error;

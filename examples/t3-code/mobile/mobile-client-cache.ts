@@ -14,13 +14,20 @@ export type MobileCacheScope = { environmentId?: string; kind?: MobileCacheKind;
 const natural = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 const kind = (value: unknown): value is MobileCacheKind => MOBILE_CACHE_KINDS.includes(value as MobileCacheKind);
 let clearRevision = 0;
+let displayClearRevision = 0;
 let kindClearRevision = 0;
 const kindClears = new Map<MobileCacheKind, number>();
 const environmentClears = new Map<string, number>();
+const displayEnvironmentClears = new Map<string, number>();
 // An omitted kind observes a combined display, so every kind-wide clear must
 // invalidate it. Explicit kinds retain isolation from unrelated kind clears.
 export const mobileCacheReadRevision = (environmentId: string, cacheKind?: MobileCacheKind) =>
   `${clearRevision}:${environmentClears.get(environmentId) ?? 0}:${cacheKind ? kindClears.get(cacheKind) ?? 0 : kindClearRevision}`;
+/** Explicit clears evict rendered offline data. A settled VCS invalidation can
+ * instead retain already-rendered read-only rows while its next live read runs.
+ * It still invalidates every pending disk read, write and native ticket. */
+export const mobileCacheDisplayRevision = (environmentId: string, cacheKind?: MobileCacheKind) =>
+  `${displayClearRevision}:${displayEnvironmentClears.get(environmentId) ?? 0}:${cacheKind ? kindClears.get(cacheKind) ?? 0 : kindClearRevision}`;
 const invalid = () => new ClientError('The local cache returned an invalid reply.', 'Cache');
 
 /** SQLite BINARY compares UTF-8, which orders valid Unicode by scalar value.
@@ -84,8 +91,16 @@ export async function mobileCacheWrite(native: Native, key: MobileCacheKey, tick
 }
 /** Conditional removal cannot erase a newer replacement written after a corrupt
  * read. An authoritative deletion also invalidates pending in-memory reads. */
-export async function mobileCacheRemove(native: Native, key: MobileCacheKey, expectedPayload?: string): Promise<number> {
-  if (expectedPayload === undefined) environmentClears.set(key.environmentId, (environmentClears.get(key.environmentId) ?? 0) + 1);
+export async function mobileCacheRemove(native: Native, key: MobileCacheKey, expectedPayload?: string,
+  options: { retainFaviconScope?: boolean } = {}): Promise<number> {
+  if (options.retainFaviconScope && key.kind !== 'project-favicon') throw invalid();
+  // Favicon absence owns one resource through its cache key serial and the
+  // native remove's key-ticket invalidation. It must not retire sibling icons
+  // or its own retained missing URL by changing the whole environment scope.
+  if (expectedPayload === undefined && !options.retainFaviconScope) {
+    environmentClears.set(key.environmentId, (environmentClears.get(key.environmentId) ?? 0) + 1);
+    displayEnvironmentClears.set(key.environmentId, (displayEnvironmentClears.get(key.environmentId) ?? 0) + 1);
+  }
   const value = await request(native, { action: 'remove', ...key, ...(expectedPayload === undefined ? {} : { expectedPayload }) });
   if (!natural(value.removed) || value.removed > 1) throw invalid();
   return value.removed;
@@ -102,10 +117,14 @@ export async function mobileCacheReadDecoded<T>(native: Native, key: MobileCache
   catch (error) { if (letGo(error)) throw error; }
   return null;
 }
-export async function mobileCacheClear(native: Native, scope: MobileCacheScope = {}): Promise<number> {
+export async function mobileCacheClear(native: Native, scope: MobileCacheScope = {}, options: { retainDisplay?: boolean } = {}): Promise<number> {
   // Pending reads must lose ownership even if the clear fails or its reply is lost.
   if (scope.environmentId) environmentClears.set(scope.environmentId, (environmentClears.get(scope.environmentId) ?? 0) + 1);
   else { clearRevision++; environmentClears.clear(); }
+  if (!options.retainDisplay) {
+    if (scope.environmentId) displayEnvironmentClears.set(scope.environmentId, (displayEnvironmentClears.get(scope.environmentId) ?? 0) + 1);
+    else { displayClearRevision++; displayEnvironmentClears.clear(); }
+  }
   const value = await request(native, { action: 'clear', ...scope });
   if (!natural(value.removed)) throw invalid();
   return value.removed;

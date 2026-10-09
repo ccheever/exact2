@@ -6,7 +6,7 @@ import { obj, str, applyShell, initialShell, type Obj } from './shared/domain';
 import { fleet } from './shared/settings-b-fleet';
 import { groupLabel } from './shared/r6-polish-groups';
 import { projectIdentity, ICON_COLORS } from './shared/settings-b-icons';
-import { faviconFromAnswer } from './shared/r3-sidebar-glyph';
+import { mobileProjectFaviconTarget } from './mobile-project-favicon';
 import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { decodeMobileServerScope, type MobileServerScope } from './settings-server';
@@ -35,6 +35,7 @@ export function mobileProjectProjection(scope: MobileServerScope, sources: Mobil
   const name = groupLabel(members.map(member => member.project));
   return {title: 'Project overview', scopeJSON: JSON.stringify(scope), identity: mobileProjectIdentity(members), error, name,
     empty: members.length === 0, emptyMessage: 'This project has no checkout on the selected connected environments. Change the filter above.',
+    faviconTarget: mobileProjectFaviconTarget(members[0]?.environmentId ?? '', members[0]?.project),
     checkoutsLabel: members.length === 1 ? '1 checkout' : `${members.length} checkouts`,
     writable: members.length > 0 && members.every(member => writable.has(member.environmentId)), icon: mobileProjectGlyph(members[0]?.project, favicon),
     checkouts: members.map((member, index) => { const source = sources.find(source => source.environmentId === member.environmentId); return {
@@ -55,14 +56,8 @@ export async function mobileProjectOverview(scopeJSON: string, nativeInput?: Nat
   const scope = decodeMobileServerScope(scopeJSON);
   if (!nativeInput?.available) return mobileProjectProjection(scope, [], [], new Set(), '', 'Open T3 Code on your iPhone or iPad to manage projects.');
   try {
-    const native = settingsNative(nativeInput), {sources, endpoints, members, writable} = await prepare(scope, native, false), first = members[0];
-    let favicon = '';
-    if (first && !obj(first.project.projectIcon).kind && str(first.project.workspaceRoot)) {
-      const endpoint = endpoints.find(endpoint => endpoint.source.environmentId === first.environmentId)!;
-      try { favicon = faviconFromAnswer(endpoint.source.origin, await settingsCall(endpoint, {op: 'request', method: 'assets.createUrl', payload: {resource: {_tag: 'project-favicon', cwd: first.project.workspaceRoot, ...(first.project.faviconPath ? {path: first.project.faviconPath} : {})}}})); }
-      catch (error) { if (letGo(error)) throw error; /* Source shows folder fallback for failed favicons. */ }
-    }
-    return mobileProjectProjection(scope, sources, members, writable, favicon);
+    const native = settingsNative(nativeInput), {sources, members, writable} = await prepare(scope, native, false);
+    return mobileProjectProjection(scope, sources, members, writable);
   } catch (error) { if (letGo(error)) throw error; return mobileProjectProjection(scope, [], [], new Set(), '', error instanceof Error ? error.message : 'Could not load project overview.'); }
 }
 let saving = false;
