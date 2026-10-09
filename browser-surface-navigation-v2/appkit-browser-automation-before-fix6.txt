@@ -1,0 +1,53 @@
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAClickOnAPageInNoWindowIsDOMEvents]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAClickOnAPageInNoWindowIsDOMEvents]' passed (0.446 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAFixedViewportIsThePagesCSSViewportWhereNoStageHoldsIt]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAFixedViewportIsThePagesCSSViewportWhereNoStageHoldsIt]' passed (0.172 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testANewTabTakesTheAgentDefaultViewport]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testANewTabTakesTheAgentDefaultViewport]' passed (0.073 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAnOpenAnswersOnceTheDataModuleHasAdoptedTheTab]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation-v2/examples/t3-code/macos/tests/browser-automation/main.swift:553: error: -[T3browserautomationTests.BrowserAutomationTests testAnOpenAnswersOnceTheDataModuleHasAdoptedTheTab] : XCTAssertNil failed: "["result": ["available": true, "url": "http://127.0.0.1:55473/b", "tabId": "tab-6", "loading": true, "title": <null>, "viewportSetting": ["width": 1280, "_tag": "freeform", "height": 800], "visible": false], "connectionId": "connection-1", "requestId": "preview-1", "ok": true, "clientId": "preview-client"]" - no answer before the data module has adopted the tab
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAnOpenAnswersOnceTheDataModuleHasAdoptedTheTab]' failed (0.635 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAnOpenedTabAnswersTheDefaultSizeItsStageRenders]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAnOpenedTabAnswersTheDefaultSizeItsStageRenders]' passed (0.368 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAPageInNoWindowStillAnswersASnapshot]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAPageInNoWindowStillAnswersASnapshot]' passed (0.087 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAResizeNotRenderedInTimeGoesBackToThePreviousSize]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAResizeNotRenderedInTimeGoesBackToThePreviousSize]' passed (1.364 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAReusedTabAnswersItsFixedSizeOnceItsStageRenders]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testAReusedTabAnswersItsFixedSizeOnceItsStageRenders]' passed (0.403 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testATabOpenedWithoutPresentationStaysSuppressed]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testATabOpenedWithoutPresentationStaysSuppressed]' passed (0.046 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testClickByLocatorAndByPointIsANativeClickInAWindow]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testClickByLocatorAndByPointIsANativeClickInAWindow]' passed (1.488 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testClicksInQuickSuccessionEachLand]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testClicksInQuickSuccessionEachLand]' passed (1.029 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testEvaluateReturnsSerializableValuesFromThePage]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testEvaluateReturnsSerializableValuesFromThePage]' passed (0.298 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testEveryAnswerGoesBackOnItsConnectionOnce]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testEveryAnswerGoesBackOnItsConnectionOnce]' passed (0.086 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testMuteSilencesTheDocumentsMediaAndTheAudibleStateFollowsPlayback]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testMuteSilencesTheDocumentsMediaAndTheAudibleStateFollowsPlayback]' passed (10.131 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testNavigateWaitsForItsReadiness]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testNavigateWaitsForItsReadiness]' passed (1.652 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testOpenCreatesATabAndWaitsForItsPage]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testOpenCreatesATabAndWaitsForItsPage]' passed (0.090 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testOpenReusingATabNavigatesIt]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testOpenReusingATabNavigatesIt]' passed (0.128 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testPressSendsNativeKeysAndEditingCommands]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testPressSendsNativeKeysAndEditingCommands]' passed (0.258 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testScrollWaitForAndTheirFailures]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testScrollWaitForAndTheirFailures]' passed (0.902 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testSnapshotReportsThePageItsDiagnosticsAndAScreenshot]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testSnapshotReportsThePageItsDiagnosticsAndAScreenshot]' passed (0.761 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testStatusReadsThePageAndFallsBackToTheSnapshot]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testStatusReadsThePageAndFallsBackToTheSnapshot]' passed (0.128 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheColourSchemeIsThePagesPreferredScheme]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheColourSchemeIsThePagesPreferredScheme]' passed (0.151 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheHostMakesANewTabsPageAtTheDefaultBeforeItsFirstLoad]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheHostMakesANewTabsPageAtTheDefaultBeforeItsFirstLoad]' passed (0.094 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheHostsErrorAnswers]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheHostsErrorAnswers]' passed (0.697 seconds).
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTypeInsertsTextAndClearReplacesIt]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTypeInsertsTextAndClearReplacesIt]' passed (0.212 seconds).
+	 Executed 25 tests, with 1 failure (0 unexpected) in 21.698 (21.702) seconds
+Executed 25 tests, with 1 failures
