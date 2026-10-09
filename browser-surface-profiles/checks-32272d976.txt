@@ -1,0 +1,24 @@
+browser-surface-profiles checks at 32272d976d4fe9836f8a232ef0a712d40124f66f (2026-10-09), clean tree
+
+bun rc=0
+tsc rc=0
+contract rc=0
+caps rc=0
+build rc=0
+test rc=0
+clippy rc=0
+fmt rc=0
+boot rc=0
+t3-code-macos lib rc=0
+appkit rc=0
+
+Bun:  3935 pass 1 skip 0 fail 39323 expect() calls Ran 3936 tests across 270 files. [6.06s] 
+contract: examples/t3-code/app.contract: 5966 slots, 10 derives, 46 resources, 7200 actions, 90871 nodes, 37730 regions, 23770614 bytes
+caps: All budgets within cap. 6 categories inspected.
+cargo test: 3521 passed, 0 failed, 34 ignored
+t3-code-macos --lib: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.14s
+AppKit (browser, browser-profiles, browser-automation, menus):
+Executed 27 tests, with 0 failures
+Executed 16 tests, with 0 failures
+Executed 20 tests, with 0 failures
+	 Executed 45 tests, with 0 failures (0 unexpected) in 0.386 (0.389) seconds
