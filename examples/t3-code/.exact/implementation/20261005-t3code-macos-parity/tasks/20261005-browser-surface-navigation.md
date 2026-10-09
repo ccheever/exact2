@@ -2,13 +2,13 @@
 name: 20261005-browser-surface-navigation
 plan: 20261005-t3code-macos-parity
 implementation: verified
-verification: passed
-delivery: draft
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: feat(example)/t3-code-browser-surface-navigation
-pr_url: https://github.com/ccheever/exact2/pull/348
-verified_commit: f5d232b0f16b04c22bcd188907d7c50870666321
+branch: feat(example)/t3-code-browser-surface-navigation-v2
+pr_url: https://github.com/ccheever/exact2/pull/352
+verified_commit: 878e605b8922c088c15504ff4d2bce4d61d842ce
 ---
 
 # Browser surface part 2: navigation, history, zoom and the device toolbar
@@ -100,6 +100,8 @@ How part 2 is built (2026-10-09):
 
 ## Acceptance and reproduction
 
+#348's acceptance as recorded before the revert (history). The re-land's, on #352, is in "Re-land acceptance" below.
+
 Rows from the parent's table: "Empty, loading, failed, unreachable" (the Recently used, Local servers and Details
 parts), "More menu" (the device toolbar, appearance and zoom rows), "Device toolbar", "Keys", and "States" for these
 surfaces; lane rules and fixtures as the parent's. Tests to port (`bun:test`, original names; counts from the parent):
@@ -151,6 +153,55 @@ made (as `72d673a855` did) was removed; the list's UI, its limits, removal, the 
 a server, and the titles stay as the reference has them (Bun: `records a typed address, which waits unregistered as at
 1e2ecbd975`).
 
+## Re-land acceptance (#352, head 878e605b8)
+
+#348 was squash-merged as `46436acc3` a minute before Charlie's sweep asked to keep it open, reverted by #351 (`c603c22d6`), and
+re-landed as draft [#352](https://github.com/ccheever/exact2/pull/352) (`91b6f9a83`, the same tree as `46436acc3`). Charlie's
+checks ([comment](https://github.com/ccheever/exact2/pull/348#issuecomment-6076127296)) were run fresh on the re-land; the rows
+in "Acceptance and reproduction" above are #348's and stay as history. The live drive on `91b6f9a83` found two host defects;
+`878e605b8` fixes them (below), and every result here is on `878e605b8`. Later commits on #352 change only records.
+
+Lane (2026-10-09, 08:02-08:05Z, run3): agent mode at 1280×840, light; the app's embedded T3 server on 16700
+(`T3_LOCAL_HOME` a fresh copy of a home seeded by the runtime's `t3 project add`, the staged t3 v0.0.46-nightly.20261005.2667,
+isolated `HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_*`, telemetry off); the fixture on 16701 (pages print their CSS
+viewport, dpr and colour scheme); the server's ACP Registry instance "Lane browser agent" runs a lane-only fake ACP agent that
+calls the server's `preview_*` MCP tools for a prompt `bsn <scenario>` (part 5's approach; [agent](https://raw.githubusercontent.com/ccheever/exact2/611c426c4d4a2deb12ed7871f683d064ba62b64d/browser-surface-navigation-v2/fake-acp.mjs.txt),
+[drive](https://raw.githubusercontent.com/ccheever/exact2/994a89b924db45616d96d6247a7b638ab5d4514b/browser-surface-navigation-v2/drive.sh.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/46cce5075689b9776b1da2ff71f6cf9eeb8c38dc/browser-surface-navigation-v2/fixture.mjs.txt)). Every answer below is the MCP result the agent received
+([drive record](https://raw.githubusercontent.com/ccheever/exact2/4232b477694317b269e57197465e35cc68da37ad/browser-surface-navigation-v2/drive-record.txt): the tool results, the app's tree after each step, the server trace and host log;
+[results](https://raw.githubusercontent.com/ccheever/exact2/025602cb1973829adace9f655b24d394266757a4/browser-surface-navigation-v2/results-run3.jsonl.txt)).
+
+| Charlie's check | Result on `878e605b8` | Evidence |
+| --- | --- | --- |
+| 1. Live `preview_resize` through the server's MCP tools, and the 1280 × 800 default for agent-opened tabs | **pass (live).** `preview_open` made tab_1 at `freeform 1280 × 800`, answered viewport 1280 × 800, and the page measured 1280 × 800 at dpr 2; the device toolbar read 1280 × 800. `preview_resize` freeform 800 × 600, iPhone 12 Pro (390 × 844), iPhone 12 Pro landscape (844 × 390) and freeform 1024 × 768: each answer's setting and viewport, and the page's own measure, matched; the toolbar ended at 1024 × 768 | [image](https://raw.githubusercontent.com/ccheever/exact2/f3a64bb23ed553a009a3aed2bb3143de1ea1b61a/browser-surface-navigation-v2/c1-open-and-resize.png), drive record |
+| 2. An agent-requested resize while the panel is hidden | **pass (live), two cases.** (a) The person hid the panel with a real ⇧⌘J key event (`preview_status` visible false); `preview_resize` 900 × 650 answered 900 × 650 and the page measured it. The resize showed the panel again, as the clone's stand-in for the reference's floating preview (`shouldAutoShowPreviewForAutomationUse`, part 5), with the toolbar at 900 × 650. (b) With the panel hidden, the agent opened tab_2 with `open: false`: the page took 1280 × 800 in no stage (the host sizes it), then freeform 1000 × 700 and iPad Mini (768 × 1024), each answered and measured; `preview_status` visible false and the panel stayed hidden (tree). When the person showed the panel (⇧⌘J shows the thread's latest tab, tab_2), its toolbar read iPad Mini 768 × 1024; tab_1 kept 900 × 650 | [image (a)](https://raw.githubusercontent.com/ccheever/exact2/f9c8d2ebc5f23dd023afa25208626b7446c7da72/browser-surface-navigation-v2/c2a-hidden-panel.png), [image (b)](https://raw.githubusercontent.com/ccheever/exact2/aaa643de7fe638b0d4741038b78332a96ecc3f23/browser-surface-navigation-v2/c2b-suppressed.png), drive record |
+| 3. A rejected or timed-out resize restores the intended viewport | **pass (live).** Rejected: freeform 3840 × 3840, 120 × 600, and fill with a size were refused by the server's tool schema (-32602, the reference's messages); tab_1 stayed 900 × 650 (status, page, toolbar). Timed out: freeform 500 × 900 with `timeoutMs` 25. The broker answered "Preview automation resize timed out after 25ms." and dropped the host's connection, as the reference's broker does. The host had set 500 × 900 (`preview.resize` at 08:04:20.480Z), its own 25 ms render wait ended, and it went back to 900 × 650 (`preview.resize` at .542, host `PreviewAutomationTimeoutError`); it reconnected 60 ms later. Four seconds on, the setting, the page and the toolbar were 900 × 650. AppKit `testAResizeNotRenderedInTimeGoesBackToThePreviousSize` (resizes 800 then 1024). A `preview.resize` the server refuses after the host sends it cannot be produced through the tools (the schema refuses first; the manager fails only for a missing session); the host then answers an execution error and has changed nothing | [image](https://raw.githubusercontent.com/ccheever/exact2/721edef09356820debe8a69d4e500c6febd356d3/browser-surface-navigation-v2/c3-reject-timeout.png), drive record (server trace) |
+| 4. Rotate/Lock by real input after dismissing the updates toast | **not run.** The screen stayed locked (`lockstate`: locked true, on console) from before the agent-mode checks through 08:05-09:05Z, when this record was written; no real-input lock was taken. The steps are ready: a lane copy "T3 Code (Lane Navigation)" (own bundle id, server 16710, fixture 16711), dismiss the "Updates Available" toast with its ×, a Browser tab on the fixture, More › Show device toolbar, iPhone 12 Pro, then Rotate (844 × 390, still iPhone 12 Pro) and Lock ("Unlock viewport aspect ratio", pressed), read back from the accessibility tree. Bun covers both (`chooses a preset, types a size, rotates, locks the ratio and closes`, `keeps the locked ratio on a drag`) | blocker: screen locked |
+| Settings defaults; app-only cleanup | unchanged: the Settings default rows stay with part 4 (browser-surface-profiles), the app-only cleanup with #99 | — |
+
+Found by the drive on `91b6f9a83` and fixed in `878e605b8` (each AppKit case failed before its fix:
+[1](https://raw.githubusercontent.com/ccheever/exact2/fc45e5f06b82550d166df732cfb2425a8fd78d19/browser-surface-navigation-v2/appkit-browser-automation-before-fix.txt), [2](https://raw.githubusercontent.com/ccheever/exact2/6658d3468358c486f5ebf94c30fff35d250454a0/browser-surface-navigation-v2/appkit-browser-automation-before-fix2.txt),
+[3](https://raw.githubusercontent.com/ccheever/exact2/a1d55aef1fc56f820ed68e56fe0570d4eebba217/browser-surface-navigation-v2/appkit-browser-automation-before-fix3.txt); after: [browser-automation 23/23](https://raw.githubusercontent.com/ccheever/exact2/47d4517a283be6e1398d32bcfa9dd93502a59fe5/browser-surface-navigation-v2/appkit-browser-automation-after.txt),
+[browser 27/27](https://raw.githubusercontent.com/ccheever/exact2/3c968c0c7598da7b636e8f6e3a023222beaf9396/browser-surface-navigation-v2/appkit-browser-after.txt)):
+1. **`preview_open` answered the wrong viewport** for a new agent tab: 1578 × 1183 in three runs of four (the setting was
+   1280 × 800, and the page measured 1280 × 800 on the next call). The panel's stage mounts the page in a box still at its first
+   640 × 480 frame and applies `fit-scale` before the next layout sizes the box. A shown tab with a fixed size (the default, or a
+   reused tab's own) now waits, at most 2 s and within the request's deadline, until the page renders it. AppKit
+   `testAnOpenedTabAnswersTheDefaultSizeItsStageRenders`, `testAReusedTabAnswersItsFixedSizeOnceItsStageRenders`. The stage's
+   one-layout transient itself is in STATUS "Found, not in scope".
+2. **A tab opened with `open: false` was shown** by the agent's next operation on it: the module's `opened` note carried
+   `present` but not `suppress` (part 5). AppKit `testATabOpenedWithoutPresentationStaysSuppressed`; Bun `keeps a tab opened
+   with open: false out of view on the agent’s next operation`.
+
+First layout (asked after part 4's drive, #354, saw a new tab at a fixed default viewport lay its first page out at 640 × 480): on `878e605b8` both agent-opened pages laid out first at 1280 × 800, the shown tab_1 and tab_2 opened with `open: false` in no stage (the fixture's pages record their size when their first script runs; [record](https://raw.githubusercontent.com/ccheever/exact2/85ef8e55a2de43e3b3e0301167b102303a6ac306/browser-surface-navigation-v2/first-layout-record.txt)). It does not reproduce on this head, but it is a race the host wins, not an ordering: `browserSync` makes the page at the web view's initial 640 × 480 and starts its load, and the host's open, polling every 50 ms, sets 1280 × 800 before a new WebContent process has parsed the page. A tab that arrives at a fixed size with no host wait (part 4's default viewport, a tab another client opens at a fixed size) has no such hold; the fix belongs where the page is made (STATUS "Found, not in scope").
+
+Also corrected: the "Keys" row's ⇧⌘J evidence in #348's drive (ops 88-94) was a tap on the hidden 1 × 1 `shortcut-preview.toggle`
+button, which presses nothing in an agent drive (diag runs on `91b6f9a83`), so that drive never hid the panel. On `878e605b8` a real
+⇧⌘J key event (`type composer key Meta+Shift+j`) hid the panel, showed it again and hid it (run3 ops 16-19, 26-28, 35-37).
+
+Independent review (read-only, 2026-10-09) of the two fixes and then of the follow-up: no blocking findings. Its two should-fix
+items (the same race for a reused tab; no Bun test of the suppression's path) were done in `878e605b8`; its notes are recorded here
+(the stage's transient is the root cause; an uncommitted drag on a reused tab makes the open wait its 2 s).
+
 ## Progress
 
 2026-10-09: written at part 1's `prepare` (planned split). Planned; starts after part 1 merges.
@@ -171,6 +222,8 @@ module adopts it (`previewAutomationDefaultViewport`). A size not rendered in ti
 page's appearance; now one mechanism (`setColorScheme`), and the host's status reads the page's own, so the More menu's
 Appearance shows an agent's choice and part 5's overlay no longer reports System over it.
 
+2026-10-09 (re-land, #352): #348 had been squash-merged as `46436acc3` a minute before Charlie's sweep asked to keep it open; the user had it reverted (#351, `c603c22d6`) and re-landed as draft #352 (`91b6f9a83`, the same tree). Charlie's checks were run fresh ("Re-land acceptance"): a lane with a fake ACP agent calling the server's `preview_*` MCP tools (part 5's approach), agent mode. The first runs on `91b6f9a83` found two host defects (the open's answered viewport; `open: false` not kept), fixed in `878e605b8` with AppKit cases that failed before, after a read-only review (no blocking findings; its two should-fix items done). On `878e605b8`: checks 1-3 passed live, the eleven checks passed, and the first-layout question part 4 raised does not reproduce for agent tabs. Check 4 (Rotate/Lock by real input) was not run: the screen stayed locked.
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -183,6 +236,12 @@ Appearance shows an agent's choice and part 5's overlay no longer reports System
 | User decision applied (Recently used matches the reference; item 10 moved to part 4) | after the PR's `2cb4c271a` (base `0fe34a3b0`) | The project registration removed (`browser-navigation.ts`), its tests updated (an unregistered thread's visit waits and the list stays empty; a saved mapping lists and titles). Bun 3,664 pass / 1 skip / 0 fail (3,665 tests), strict tsc, contract build (5,882 slots), caps. No Swift, Rust or Contract change, so the cargo and AppKit checks were not run again; no new live session (coordinator) | Bun and checks above | real-input batch |
 | Part 5 merged and wired (`_resize`, the agent default, the rollback, one appearance mechanism) | `f5d232b0f` (base `5f0ae7dca`, #346, merged in as `777c3a4d5`) | All on the committed tree, unchanged by the run: Bun 3,770 pass / 1 skip / 0 fail (3,771 tests, 264 files); strict tsc; contract build (5,900 slots); caps; `cargo test -p t3-code-macos --lib` 13 passed; AppKit `macos/tests/browser` 27/27 and `macos/tests/browser-automation` 20/20 (three new viewport cases); `cargo build --all-targets --keep-going`; `cargo test --lib --bins --tests --no-fail-fast` (94 binaries ok: 3,521 passed, 0 failed, 34 ignored); clippy `-D warnings`; fmt; boot. No live agent run of the wired resize (no new live session) | check logs (`target/bsn/checks-wire346`) | real-input batch |
 | Part-1 test flake found | — | Two part-1 AppKit assertions read a page's title the moment its load ends; WebKit's title KVO can trail it (base `7ce613206`: 1 of 6 runs failed; the branch before the fix 2–4 of 9). Their waits now include the title: 10 of 10 clean | AppKit runs | none |
+| Re-land drive run1 (agent mode) | `91b6f9a83` | Check 1's open and resizes passed; `preview_open` answered 1578 × 1183 for the 1280 × 800 tab. Stopped at op 17: `toggle-right-panel` is not this layout's | [drive record](https://raw.githubusercontent.com/ccheever/exact2/4232b477694317b269e57197465e35cc68da37ad/browser-surface-navigation-v2/drive-record.txt) (earlier runs) | the open's answer: fixed in `878e605b8` |
+| Re-land drive run2, diag1, diag2 (agent mode) | `91b6f9a83` | All ops ran. The hidden 1 × 1 `shortcut-preview.toggle` tap presses nothing (the panel never hid; a real ⇧⌘J key event works); tab_2 opened with `open: false` was shown by the agent's next op; timeoutMs 1 ends at the host's readiness budget, before any resize. The open answered 1578 × 1183 twice more | drive record (earlier runs) | `suppress` in the note: fixed in `878e605b8`; the drive now uses ⇧⌘J keys and timeoutMs 25 |
+| Fixes and review | `878e605b8` | AppKit `browser-automation`: three new cases, each failed before its fix ([1](https://raw.githubusercontent.com/ccheever/exact2/fc45e5f06b82550d166df732cfb2425a8fd78d19/browser-surface-navigation-v2/appkit-browser-automation-before-fix.txt), [2](https://raw.githubusercontent.com/ccheever/exact2/6658d3468358c486f5ebf94c30fff35d250454a0/browser-surface-navigation-v2/appkit-browser-automation-before-fix2.txt), [3](https://raw.githubusercontent.com/ccheever/exact2/a1d55aef1fc56f820ed68e56fe0570d4eebba217/browser-surface-navigation-v2/appkit-browser-automation-before-fix3.txt)), 23/23 after; Bun suppression test. Read-only review twice: no blocking findings | [after](https://raw.githubusercontent.com/ccheever/exact2/47d4517a283be6e1398d32bcfa9dd93502a59fe5/browser-surface-navigation-v2/appkit-browser-automation-after.txt) | — |
+| Re-land drive run3 (agent mode) | `878e605b8` | Checks 1-3 passed live (all 67 ops, driver exit 0) | [drive record](https://raw.githubusercontent.com/ccheever/exact2/4232b477694317b269e57197465e35cc68da37ad/browser-surface-navigation-v2/drive-record.txt), images in "Re-land acceptance" | check 4: real input (screen locked) |
+| Checks | `878e605b8` (source digest `df69dbef…` over the 29 task-owned code files, unchanged by the run) | Passed through `run_checks.py`: AppKit `browser` 27/27 and `browser-automation` 23/23; Bun 3,771 pass, 1 skip, 0 fail (3,772 tests, 264 files); strict tsc; contract build (5,900 slots); `cargo test -p t3-code-macos --lib` 13 passed; caps; `cargo build --all-targets --keep-going`; `cargo test --lib --bins --tests --no-fail-fast` (94 binaries: 3,521 passed, 0 failed, 34 ignored); clippy `-D warnings`; fmt; boot | [checks](https://raw.githubusercontent.com/ccheever/exact2/8d2e82133d0148a3be52d8471452500b79f11671/browser-surface-navigation-v2/checks-878e605b8.txt) | — |
+| First layout (part 4's question) | `878e605b8` | Both agent-opened pages laid out first at 1280 × 800 (shown, and `open: false` in no stage) | [record](https://raw.githubusercontent.com/ccheever/exact2/85ef8e55a2de43e3b3e0301167b102303a6ac306/browser-surface-navigation-v2/first-layout-record.txt) | — (a race the host wins; recorded) |
 
 ### Independent review, round 1 (2026-10-09)
 
@@ -248,5 +307,7 @@ release the lock.
 
 ## Next action
 
-Review and merge the draft PR. Then the real-input batch (steps above). Parts 3 (capture) and 4 (profiles, which now
-holds item 10's Settings rows) start after this merges.
+#352 stays a draft (Charlie, 2026-10-09). Left: check 4, Rotate and Lock by real input after dismissing the updates toast, in the
+next unlocked real-input session (the "Re-land acceptance" row; then the rest of the real-input batch, steps above). Then the
+coordinator's conflict check and Charlie's review; no merge here. Part 4 (#354) holds item 10's Settings rows; the first-layout
+fix for a tab that arrives at a fixed size belongs where the page is made (STATUS "Found, not in scope").
