@@ -9,7 +9,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
-| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) and part 5 (the `previewAutomation` host, "Open links in", Mute) built, parts 2–4 planned |
+| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture), part 2 (history and local servers, zoom, appearance, the device toolbar, the preview keys) and part 5 (the `previewAutomation` host, "Open links in", Mute) built, parts 3–4 planned |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`: done on main, round 7 adopts it and removes nothing) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
@@ -125,7 +125,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream a
 - X2 `host/apple/build.mjs:1021-1045`: module dependencies link only as static libraries or framework slices from `modules/apple/*.xcframework` ("a dynamic library is not linked into the module").
 - X2 `host/apple/build.mjs:1229-1244`: the macOS bundle copies only exact's binaries and `assets/`. No `Contents/Frameworks` for third-party frameworks, and no helper apps.
 
-**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Parts 2–4 (navigation aids, zoom and the device toolbar; annotate, capture and picture in picture; profiles and cookie import) are planned records. Part 5 (2026-10-09) built the `previewAutomation` host (all 14 `preview_*` tools, by injected script and native input), "Open links in" and Mute; its rows are declared below.
+**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Part 2 (`20261005-browser-surface-navigation`) adds the empty state's Recently used and Local servers, the history store, target resolution, the unreachable page's Details, zoom (WebKit's `pageZoom`), the appearance pages are told to prefer (the web view's `appearance`), the device toolbar (a web view sized to the viewport and drawn scaled to fit) and the preview keys (a key monitor in the module), with its own rows below. Parts 3–4 (annotate, capture and picture in picture; profiles and cookie import) are planned records. Part 5 (2026-10-09) built the `previewAutomation` host (all 14 `preview_*` tools, by injected script and native input), "Open links in" and Mute; its rows are declared below.
 
 **Why it does not work.**
 1. Chromium (CEF) needs a dynamic framework plus GPU/renderer/plugin helper apps inside the bundle. The exact2 Apple build cannot embed either.
@@ -461,6 +461,39 @@ table, built here. Parts 2–5 add their own rows when they build them.
 - **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
   environment and the profile), apart from the app's other web views; agent runs keep it in memory.
 
+Part 2, `20261005-browser-surface-navigation` (`browser-history.ts`, `browser-targets.ts`, `browser-viewport.ts`,
+`browser-navigation.ts`, `browser-stage.contract`, `T3BrowserSession+Navigation.swift`, `T3BrowserView.swift`):
+- **Zoom.** WebKit's `pageZoom` on the reference's ladder (25% to 500%): the page's CSS pixels grow, its viewport
+  narrows and `devicePixelRatio` follows, as Chromium's `setZoomFactor` does; the web view keeps its zoom across
+  navigations and while the tab is hidden.
+- **Appearance.** The web view's `appearance`, which WebKit hands the page as `prefers-color-scheme` (the reference
+  sets it through CDP `Emulation.setEmulatedMedia`). Light and Dark force it; System clears it, so the page follows the
+  window, which follows the app's theme. A forced appearance is the view's own, so WebKit also draws the page's native
+  controls (scroll bars, form controls of a page that opts in with `color-scheme`) in it; Chromium's emulation changes
+  the media query alone.
+- **Fixed viewport.** A web view sized at the viewport times its zoom, in a box whose bounds scale it into the fitted
+  footprint (the reference's `transform: scale()`): presentation only, so the page keeps its CSS viewport and the
+  screen's device pixels. While a rail is dragged under a locked ratio, the live size skips the area cap's square-root
+  bound (Contract has no square root); the size asked for on release is the reference's (`resizeBrowserViewportFromRail`).
+- **The device toolbar's fields.** A typed width or height applies on Enter or when its field loses the focus, also when
+  the focus moves to the other field (the reference waits until the focus leaves the toolbar); with the ratio locked, a
+  typed side is bounded so the other stays within 240 to 3,840 and follows it (`resizeAtAspectRatio`), short of the area
+  cap's bound (a square root Contract has not): the size asked for is checked again, as the reference checks it.
+  The preset list is a popover list (no typeahead), the Appearance submenu opens by press (X66, #319). An arrow key on a
+  rail asks for its step at once (the reference accumulates keys for 150 ms before committing): neither a data source
+  nor Contract has a timer, so held keys commit step by step.
+- **The preview keys.** A key monitor in the module answers the `previewFocus` chords (⌘R, ⌘L, ⌘= or ⌘+, ⌘-, ⌘0 by
+  default; the server's keybindings decide) while the page or the tab's URL field has the focus, before the menus; with
+  the page focused ⌘R (or Control-R) always refreshes, as the desktop's `isPreviewRefreshShortcut`. The field counts only
+  while it really holds the focus (the window's first responder is inside the field the host tags `browser-url`), and a
+  chord is named by the layout's character, else by the key's ANSI code (a non-Latin input source). The reference's
+  renderer hears them only from the chrome (a Chromium guest's keys do not reach it), ⌘R aside; here the page's focus
+  counts too, as its `isPreviewFocused` intends. Other chords: WebKit hands a key equivalent the page leaves to the
+  app's menus (the reference's guest ignores menu shortcuts but the editing ones).
+- **Recent sites' icons.** The reference keeps captured favicons per project (`browserFaviconStore`); a Recently used or
+  Local servers row shows a live tab's captured icon of the same origin, else the public favicon service for a public
+  host, else the globe.
+
 **Part 5 (`20261005-browser-surface-automation`: the `previewAutomation` host, links, Mute).** `browser-automation*.ts`,
 `browser-links.ts`, `T3BrowserAutomation*.swift`, the vendored Playwright injected script (`assets/vendor/playwright`,
 1.60.0, Apache-2.0, `VENDOR.json`). The host serves all 14 `preview_*` tools; each row is X1 path B's, against the
@@ -489,9 +522,14 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
   or replace the script.
 - **Appearance.** `preview_set_appearance` sets the page view's appearance (`NSAppearance`), which WebKit reports as
   `prefers-color-scheme`; it also restyles the page's form controls and scroll bars (CDP emulates the media feature only).
-- **Viewport (part 2).** `preview_resize` with Fill works; a freeform or preset size answers an execution error until part
-  2's device toolbar renders a fixed viewport (the `T3BrowserViewport` hook), and a tab an agent opens keeps Fill (the
-  reference gives it 1280×800).
+  It is part 2's mechanism (`setColorScheme`), so the More menu's Appearance shows what an agent chose.
+- **Viewport (part 2).** `preview_resize` takes Fill, a freeform size and the device presets (a preset's size and
+  orientation resolved as the reference's `resolvePreviewViewport`), and a tab an agent opens on Fill takes the
+  reference's 1280×800. A page the panel shows is sized by part 2's stage; a page it does not show (another thread, the
+  panel hidden) is sized to the viewport at its zoom by the host (`T3BrowserViewport`), so the answer measures the size
+  asked for either way. A size not rendered in time goes back to the tab's previous one without the reference's check
+  that nothing else changed it meanwhile (the module does not see the store's latest setting), and neither resize waits
+  in the device toolbar's commit queue (`runBrowserViewportMutation`).
 - **Recording (part 3).** `preview_recording_start` answers an execution error (no capture) once the tab is ready, and
   `preview_recording_stop` answers that nothing records, as the reference does when no recording is active.
 - **Presentation (part 3).** The reference shows an agent's tab in the floating preview; until part 3 builds it, the tab

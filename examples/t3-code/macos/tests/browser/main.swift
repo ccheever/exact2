@@ -112,7 +112,8 @@ final class BrowserSessionTests: XCTestCase {
         XCTAssertTrue(sessions.navigate(id: "tab-states", url: "\(fixture.base)/slow", profile: "default", environment: "env-1"))
         XCTAssertEqual(kind(session), "Loading", "Loading from the moment the address is asked for")
         XCTAssertEqual(session.report["url"] as? String, "\(fixture.base)/slow")
-        spin(until: { self.kind(session) == "Success" })
+        // WebKit's title can land a run-loop turn after the load ends (the KVO is its own): wait for both.
+        spin(until: { self.kind(session) == "Success" && session.report["title"] as? String == "Slow page" })
         XCTAssertEqual(kind(session), "Success")
         XCTAssertEqual(session.report["title"] as? String, "Slow page")
         XCTAssertTrue(statuses > 0, "each change announces t3.status")
@@ -156,7 +157,7 @@ final class BrowserSessionTests: XCTestCase {
         spin(until: { self.fixture.seen.contains("/very-slow") }, timeout: 3)
         XCTAssertEqual(kind(session), "Loading")
         XCTAssertTrue(sessions.command(id: "tab-stop", name: "refresh"), "the reference's Stop button reloads (PreviewManager.refresh)")
-        spin(until: { self.kind(session) == "Success" })
+        spin(until: { self.kind(session) == "Success" && session.report["title"] as? String == "Finally" }) // the title's KVO can trail the load's end
         XCTAssertEqual(session.report["title"] as? String, "Finally")
         XCTAssertEqual(session.report["url"] as? String, "\(fixture.base)/very-slow", "the pending page, not about:blank")
         view.destroy()
@@ -430,6 +431,7 @@ NSApp.setActivationPolicy(.accessory)
 let suite = XCTestSuite(name: "browser")
 suite.addTest(XCTestSuite(forTestCaseClass: BrowserReferenceTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: BrowserSessionTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: BrowserNavigationTests.self)) // part 2 (navigation.swift)
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")
