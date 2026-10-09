@@ -19,11 +19,14 @@ import { resolveAdjacentThreadId } from './legacy-sidebar-model';
 import { threadCommandRows } from './thread-keys'; // thread-commands-and-keys: queue and host keys
 import { terminalRows, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus'; // terminal-drawer: ⌘J
+import { previewToggleRow } from './browser-navigation'; // browser-surface part 2: ⇧⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
   /** The open picker's Settings row (settings-model-picker.ts); '' for the composer's. */
-  modelTarget?: string };
+  modelTarget?: string;
+  /** browser-surface part 2: the preview's chords, which the module answers while the preview has the focus. */
+  previewFocus?: boolean };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -47,7 +50,7 @@ function when(ast: unknown, context: Record<string, boolean>, depth = 0): boolea
 }
 /** Each chord's winning command in this context ('' when an unknown condition makes it undecidable). */
 export function chordWinners(bindings: Obj[], context: DispatchContext): Map<string, string> {
-  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: context.terminalFocus === true, terminalOpen: context.terminalOpen === true, previewFocus: false, previewOpen: false, usagePageOpen: false,
+  const values: Record<string, boolean> = { true: true, false: false, isDesktop: true, isWeb: false, terminalFocus: context.terminalFocus === true, terminalOpen: context.terminalOpen === true, previewFocus: context.previewFocus === true, previewOpen: false, usagePageOpen: false,
     composerFocus: context.composerFocus, editableFocus: context.editableFocus, turnRunning: context.turnRunning, modelPickerOpen: context.modelPickerOpen, draftThreadRoute: context.draftThreadRoute };
   const winners = new Map<string, string>();
   const rules: Rule[] = bindings.map(binding => ({ command: str(binding.command), chord: ariaChord(obj(binding.shortcut)), whenAst: binding.whenAst }));
@@ -141,7 +144,7 @@ export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], b
 // order (the host files a button's first ⌘ chord as its menu key equivalent,
 // so order is kept). A feature adds a row function, here or in its own file,
 // and one entry below; no row reads another's locals.
-const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, terminalRows, turnRows, modelPickerRows, threadCommandRows];
+const MAIN_ROWS: DispatchRow[] = [paletteRows, appearanceRow, threadOrderRows, navigationRows, scratchRow, threadRows, panelRows, (add, client) => previewToggleRow(add, client), terminalRows, turnRows, modelPickerRows, threadCommandRows];
 /** The palette, usage, theme editor and new-thread commands. */
 function paletteRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // theme.select opens the palette on Change theme; usage.open and themeEditor.toggle run the palette's rows.
@@ -194,7 +197,9 @@ function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
 function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   const thread = client.threadId ? (client.shell?.threads ?? []).find(candidate => candidate.id === client.threadId) : undefined;
   if (thread) {
-    const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
+    // ChatView activeThreadSettled: only an explicit settle makes ⇧⌘S un-settle; an automatic one is settled explicitly
+    // (shell-sidebar-palette-keys SH-2: a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
+    const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
     // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
     if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {

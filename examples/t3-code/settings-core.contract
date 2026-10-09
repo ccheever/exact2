@@ -11,6 +11,7 @@ use HostEditorView from "./settings-a-hosts.contract"
 use HostCheckGroup from "./settings-a-hosts.contract"
 use Wordmark from "./icons.contract"
 use ProviderInstanceMark from "./icons.contract"
+use SidebarUpdatePill from "./sidebar-icons.contract"
 
 shape CoreOption
   id: string
@@ -322,6 +323,8 @@ component SettingsNav
     clear: action
     back: action
     toggle: action
+    // SidebarUpdatePill's hover: the window draws its tooltip, which reaches past the nav (app-settings.contract).
+    updateTip: action
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -371,10 +374,13 @@ component SettingsNav
                 button press=pick(item.route, "", "", item.id) hover=hover(item.id) aria-selected=(route == item.route or (item.route == "general" and route == "open-source-licenses")) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}`
                   CoreIcon(name=item.icon, size=16, color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarIcon))
                   text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarMuted) line-clamp=1
-      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" flex-shrink=0
-        button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings"
+      // SidebarUtilityMenu on a utility page: Back (flex-1), then SidebarUpdatePill (ml-auto).
+      row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" align-items="center" flex-shrink=0
+        button press=leave hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings"
           CoreIcon(name="arrow-left", size=16, color=pal.sidebarIcon)
           text "Back" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarMuted
+        box hover=updateTip("settings-update") margin-left="auto" flex-shrink=0 display="flex" testId="tip-settings-update"
+          SidebarUpdatePill(color=pal.sidebarIcon, testId="settings-check-updates")
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 tabindex=-1 testId="settings-search-shortcut"
 
 // WorkspacePageHeader + SettingsBreadcrumb; Restore device defaults on General only.

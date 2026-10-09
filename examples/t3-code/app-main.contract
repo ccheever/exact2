@@ -54,6 +54,7 @@ component ChatColumn
   props
     pageCover: bool
     viewport: Viewport
+    scheme: string
     data: Snapshot
     shell: ShellView
     settings: Settings
@@ -137,13 +138,13 @@ component ChatColumn
   derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hatch="t3-frame" data-frame="chat"
-      when viewport.prefersColorScheme == "dark"
+      when scheme == "dark"
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       when length(data.messages) == 0
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
-          when viewport.prefersColorScheme == "dark"
+          when scheme == "dark"
             EmptyThread(data=data, home=home, scheme="dark", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
           else
             EmptyThread(data=data, home=home, scheme="light", shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
@@ -152,7 +153,7 @@ component ChatColumn
         column flex=1 min-height=0 width="100%" position="relative"
           list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             each message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=viewport.prefersColorScheme)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme)
           when not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
           TimelineMinimap(items=data.minimap, current=data.minimapCurrent, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * rem)) / 2), windowHeight=viewport.height, local=chatLocal)
@@ -169,13 +170,13 @@ component ChatColumn
           row width="100%" align-items="flex-end" hatch="t3-frame" data-frame="shoulder"
             column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hatch="t3-frame" data-frame="dock"
               when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
-                when viewport.prefersColorScheme == "dark"
+                when scheme == "dark"
                   ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
                 else
                   ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             when editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
-          RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 2.5 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
+          RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 2.5 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
         column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hatch="t3-frame" data-frame="stack"
           column width="100%" max-width=data.look.chatMax position="relative"
@@ -185,16 +186,16 @@ component ChatColumn
               else
                 ApprovalComposer(placeholder=data.composer.placeholder)
             else
-              ComposerEditorDock(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp, openModels=openModels)
+              ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp, openModels=openModels)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, resting=resting, busy=commandPending, narrow=(conversationWidth < 620), keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               when branches.show and not resting
-                when viewport.prefersColorScheme == "dark"
+                when scheme == "dark"
                   ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
                 else
                   ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768))
             when data.requestMode == "question" and not resting
-              RequestActions(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme)
-      ComposerDrawerLayer(editor=editor, dark=(viewport.prefersColorScheme == "dark"), op=editorOp)
+              RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
+      ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)
       // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
       when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
@@ -202,16 +203,16 @@ component ChatColumn
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
         box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")
-      when viewport.prefersColorScheme == "dark"
+      when scheme == "dark"
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       else
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
       // no readable height (160pt) is left.
-      when details.inline and canvas.cardShown and viewport.prefersColorScheme == "dark"
+      when details.inline and canvas.cardShown and scheme == "dark"
         ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-      when details.inline and canvas.cardShown and viewport.prefersColorScheme != "dark"
+      when details.inline and canvas.cardShown and scheme != "dark"
         ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
@@ -221,6 +222,7 @@ component RightPanels
     narrowDiff: bool
     rightMaximized: bool
     viewport: Viewport
+    scheme: string
     sidebarWidth: number
     diffWidth: number
     shell: ShellView
@@ -246,10 +248,10 @@ component RightPanels
   view
     when data.diffOpen and not narrowDiff
       box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
-        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=viewport.prefersColorScheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
+        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     when rightPanel and not data.diffOpen and not narrowDiff
       box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
-        SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
+        SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.
 component PagesCover
@@ -262,6 +264,7 @@ component PagesCover
     modal: bool
     utilityPage: string
     viewport: Viewport
+    scheme: string
     usage: UsageView
     usageShortcuts: list<UsageKey>
     settings: Settings
@@ -314,22 +317,22 @@ component PagesCover
     when pageCover
       box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=modal testId="pages-cover"
         when utilityPage == "usage"
-          when viewport.prefersColorScheme == "dark"
+          when scheme == "dark"
             UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
           else
             UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="light", wide=(viewport.width >= 1280), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, toggleSidebar=toggleSidebar, op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=openPage(""), command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
         when utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
-            when viewport.prefersColorScheme == "dark"
+            when scheme == "dark"
               PrList(controlsLeft=data.controlsLeft, page=prList, scheme="dark", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct)
             else
               PrList(controlsLeft=data.controlsLeft, page=prList, scheme="light", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct)
             when prSelected != "" and prPanelOpen
-              PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=viewport.prefersColorScheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), local=chatLocal)
+              PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), local=chatLocal)
             button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel"
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         when utilityPage == ""
-          when viewport.prefersColorScheme == "dark"
+          when scheme == "dark"
             PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme="dark", sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
           else
             PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme="light", sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
@@ -338,9 +341,9 @@ component PagesCover
     when pageCover and utilityPage == "usage" and usageConfirmOpen
       ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
     when pageCover and utilityPage == "usage" and usage.prices.open
-      UsagePricesLayer(page=usage, scheme=viewport.prefersColorScheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
+      UsagePricesLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
     when pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
-      when viewport.prefersColorScheme == "dark"
+      when scheme == "dark"
         UsageModelLayer(page=usage, scheme="dark", viewportHeight=viewport.height, sm=(viewport.width >= 640), op=pagesOp)
       else
         UsageModelLayer(page=usage, scheme="light", viewportHeight=viewport.height, sm=(viewport.width >= 640), op=pagesOp)
@@ -353,6 +356,7 @@ component RightSheets
     modal: bool
     panelUi: action
     viewport: Viewport
+    scheme: string
     diffWidth: number
     shell: ShellView
     command: action
@@ -377,8 +381,8 @@ component RightSheets
     when data.diffOpen and narrowDiff and not modal
       box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("close", "") aria-label="Close changes"
       box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
-        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=false, resize=resizeDiff, finishResize=finishDiffResize, scheme=viewport.prefersColorScheme, sheet=true, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
+        DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=false, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=true, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     when rightPanel and not data.diffOpen and narrowDiff and not modal
       box position="absolute" top=0 bottom=0 left=0 right=0 background-color="#00000000" z-index=10 press=panelUi("toggle", "") aria-label="Close right panel"
       box position="absolute" top=0 bottom=0 right=0 width=min(viewport.width, diffWidth) z-index=11
-        SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=viewport.prefersColorScheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=min(viewport.width, diffWidth))
+        SurfacePanel(shell=shell, sheet=true, maximized=false, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=min(viewport.width, diffWidth))

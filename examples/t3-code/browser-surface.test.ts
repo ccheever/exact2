@@ -49,7 +49,7 @@ async function surfaceLocalIn(client: T3Client, state: PanelState, op: string, i
   surfaceStore(client).panels.set(panelKey(client), state);
   return surfaceLocal(client, module, op, id, '');
 }
-const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, failures: 0, ...overrides });
+const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, failures: 0, zoomFactor: 1, colorScheme: 'system', ...overrides });
 
 describe('openPreviewSession', () => {
   it('creates an idle tab without recording a recently visited URL', async () => {
@@ -244,6 +244,24 @@ describe('the chrome row and the native host', () => {
       { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: '', profile: 'default', environment: 'local' },
       { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: 'https://example.com/', profile: 'default', environment: 'local' },
       { id: previewRuntimeTabId({ environmentId: 'local', threadId: 'thread-2' }, 'epoch-1', 'tab-1'), url: '', profile: 'default', environment: 'local' },
+    ]);
+  });
+});
+
+describe('a page made at its fixed size (#352: its first layout is the tab’s viewport)', () => {
+  it('a live session at a fixed viewport carries its size and the zoom the module last reported; Fill carries none', () => {
+    const { client } = fakeClient(() => ({}));
+    const store = browserHost(client).store;
+    store.reconcileServerSessions(threadRef, { sessions: [
+      { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'http://127.0.0.1:16701/', title: '' }, viewport: { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } },
+      { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
+      { ...idle('tab-3'), viewport: { _tag: 'fill' } },
+    ], serverEpoch: 'epoch-1', revision: 1 });
+    client.presentation.browserTabs = { [previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1')]: { kind: 'Success', url: 'http://127.0.0.1:16701/', zoomFactor: 1.25 } };
+    expect(liveSessions(client)).toEqual([
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), url: 'http://127.0.0.1:16701/', profile: 'default', environment: 'local', width: 390, height: 844, zoom: 1.25 },
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2'), url: '', profile: 'default', environment: 'local', width: 1280, height: 800, zoom: 1 },
+      { id: previewRuntimeTabId(threadRef, 'epoch-1', 'tab-3'), url: '', profile: 'default', environment: 'local' },
     ]);
   });
 });

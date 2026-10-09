@@ -1,0 +1,110 @@
+// shell-sidebar-palette-keys: the keys of SH-1, SH-2, SH-3 and TH-8 as a person presses them, through the
+// app's own Contract handlers (sidebar-palette-keys.test.ts tests the data side and the numbering). Each test
+// relaunches the app. It needs a T3 home with two projects, "Verification fixture" (`verify-project`, its
+// thread "Timeline verification", `verify-timeline`) and "work", served by the embedded server; the agent's
+// clock starts at 2026-01-01. The task's audit lane is that home:
+//   EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh <lane> <port> --test examples/t3-code/sidebar-palette-keys.test.contract
+// The `clock +N real` steps let the embedded server start and answer, as a person waits for it.
+
+test "SH-1: ⌘N with the focus on a thread row opens the palette on New thread in…"
+  clock +20000 real
+  clock +3000 real
+  tap "thread-verify-timeline"
+  clock +2500 real
+  type "thread-verify-timeline" key "Meta+n"
+  clock +1500 real
+  expect state paletteOpen == true
+  expect state commandPending == false
+  expect tree has "palette-row-projects:new-thread-in:verify-project"
+
+test "SH-1: ⇧⌘N with the focus on a thread row opens a draft in its project"
+  clock +20000 real
+  clock +3000 real
+  tap "thread-verify-timeline"
+  clock +2500 real
+  expect tree has "thread-title"
+  type "thread-verify-timeline" key "Meta+Shift+n"
+  clock +2000 real
+  expect state paletteOpen == false
+  expect tree missing "thread-title"
+  // The header's project chip: its mark, then its name.
+  expect text "header-project" == "VFVerification fixture"
+
+test "SH-3: in the palette, ⌘5 with two projects is the field's and does nothing; ⌘2 opens a draft in the second"
+  clock +20000 real
+  clock +3000 real
+  tap "thread-verify-timeline"
+  clock +2500 real
+  type "thread-verify-timeline" key "Meta+n"
+  clock +1500 real
+  expect tree has "palette-row-projects:new-thread-in:verify-project"
+  type "palette-input" key "Meta+5"
+  clock +1500 real
+  expect state paletteOpen == true
+  expect tree has "palette-row-projects:new-thread-in:verify-project"
+  expect tree has "thread-title"
+  type "palette-input" key "Meta+2"
+  clock +2000 real
+  expect state paletteOpen == false
+  expect tree missing "thread-title"
+  expect text "header-project" == "WKwork"
+
+test "TH-8: the calendar's arrows move a day only from a day, not from a month button, also after reopening"
+  clock +20000 real
+  clock +3000 real
+  tap "thread-verify-timeline"
+  clock +2500 real
+  tap "thread-title"
+  clock +600 real
+  tap "title-menu-snooze"
+  clock +500 real
+  tap "title-menu-snooze:custom"
+  clock +1000 real
+  tap "snooze-date"
+  clock +800 real
+  expect text "snooze-calendar-title" == "January 2026"
+  // From a day: → on the 31st moves the focus to February 1st, and the card to February.
+  type "snooze-day-2026-01-31" key "ArrowRight"
+  clock +800 real
+  expect text "snooze-calendar-title" == "February 2026"
+  // From Previous Month: ← would take February 1st back to January 31st if the grid heard it.
+  type "snooze-calendar-previous" key "ArrowLeft"
+  clock +800 real
+  expect text "snooze-calendar-title" == "February 2026"
+  // Closed and reopened on the selected month (January), Previous has the focus: → would take the
+  // February 1st an earlier opening focused on to February 2nd.
+  type "snooze-day-2026-02-01" key "Escape"
+  clock +600 real
+  tap "snooze-date"
+  clock +800 real
+  expect text "snooze-calendar-title" == "January 2026"
+  type "snooze-calendar-previous" key "ArrowRight"
+  clock +800 real
+  expect text "snooze-calendar-title" == "January 2026"
+  // A day still moves: → on the 14th, then a pick of the 15th sets the date and closes the card.
+  type "snooze-day-2026-01-14" key "ArrowRight"
+  clock +600 real
+  tap "snooze-day-2026-01-15"
+  clock +800 real
+  expect text "snooze-date" == "Jan 15, 2026"
+  tap "snooze-cancel"
+  clock +500 real
+
+test "SH-2: ⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it back"
+  clock +20000 real
+  clock +3000 real
+  tap "thread-verify-timeline"
+  clock +1500 real
+  tap "toggle-thread-details"
+  clock +300 real
+  tap "toggle-thread-details"
+  clock +600 real
+  expect text "toggle-settled" == "Settled (0)"
+  type "t3-code" key "Meta+Shift+s"
+  clock +1200 real
+  expect text "sidebar-undo-notice" == "Settled 1 thread,⌘Z to undo"
+  expect text "toggle-settled" == "Settled (1)"
+  type "t3-code" key "Meta+z"
+  clock +2000 real
+  expect tree missing "sidebar-undo-notice"
+  expect text "toggle-settled" == "Settled (0)"
