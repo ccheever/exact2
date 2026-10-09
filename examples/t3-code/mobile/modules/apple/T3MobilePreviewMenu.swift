@@ -25,7 +25,11 @@ final class T3MobilePreviewMenu: ExactNativeInstance {
             if group.isEmpty { if let item = action(row) { children.append(item) } }
             else if !groups.contains(group) {
                 groups.append(group)
-                children.append(UIMenu(title: group, children: rows.filter { $0["group"] as? String == group }.compactMap(action)))
+                // BrowserTabMenu at the pin supplies icons on the submenu rows too.
+                let symbol = group.hasPrefix("Zoom (") ? "plus.magnifyingglass" :
+                    ["Appearance": "circle.lefthalf.filled", "Viewport": "rectangle.and.arrow.up.right.and.arrow.down.left", "Site data": "trash"][group]
+                children.append(UIMenu(title: group, image: symbol.flatMap { UIImage(systemName: $0) },
+                    children: rows.filter { $0["group"] as? String == group }.compactMap(action)))
             }
         }
         button.menu = UIMenu(children: children)
