@@ -84,10 +84,18 @@ fn upload(path: &str) -> Request {
     request
 }
 
+/// Every file body counts against the process's `MAX_READERS`, so the tests
+/// that send them take turns rather than refuse each other.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 const GRANTS: &str = "net.fetch https://example.test\nfs.read app:/tmp";
 
 #[test]
 fn a_body_from_an_app_file_reaches_the_transport_byte_for_byte() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     let bytes: Vec<u8> = (0..300_000u32).map(|i| (i * 7 + i / 255) as u8).collect();
     std::fs::write(files.0.join("tmp/photo.jpg"), &bytes).unwrap();
@@ -126,6 +134,7 @@ fn a_body_from_an_app_file_reaches_the_transport_byte_for_byte() {
 
 #[test]
 fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_body() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"photo").unwrap();
     std::fs::write(files.0.join("data/note"), b"note").unwrap();
@@ -173,6 +182,7 @@ fn a_body_from_a_file_is_refused_unsent_past_its_grant_scope_or_with_another_bod
 #[cfg(unix)]
 #[test]
 fn a_root_replaced_after_the_first_file_body_is_not_followed() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     let other = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
@@ -219,23 +229,36 @@ fn naming_the_roots_does_not_make_them() {
 }
 
 /// A root that is already a symbolic link when the first file body opens
-/// the roots is refused, not pinned, and nothing is sent (Grok, review).
+/// the roots is refused, not pinned; nothing is sent or made, and the
+/// refusal stands once the link is gone (Grok, Astra: review).
+#[cfg(unix)]
 #[test]
 fn a_root_that_is_a_symlink_at_the_first_file_body_is_refused() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     let other = Files::new();
     std::fs::write(other.0.join("tmp/photo.jpg"), b"another's").unwrap();
-    let (core, sent, woke) = recording(GRANTS);
-    core.set_app_roots(files.roots());
+    std::fs::remove_dir(files.0.join("data")).unwrap();
     std::fs::remove_dir(files.0.join("tmp")).unwrap();
     std::os::unix::fs::symlink(other.0.join("tmp"), files.0.join("tmp")).unwrap();
+    let (core, sent, woke) = recording(GRANTS);
+    core.set_app_roots(files.roots());
+    let refused = |outcomes: &[(u64, Outcome)]| {
+        matches!(&outcomes[0].1, Outcome::Failed { kind: FailureKind::Refused, message }
+            if message.contains("is a symbolic link"))
+    };
     core.run(job(1, upload("app:/tmp/photo.jpg")), None)
         .unwrap();
     let outcomes = collect(&core, &woke, 1);
-    assert!(
-        !matches!(&outcomes[0].1, Outcome::Response(_)),
-        "{outcomes:?}"
-    );
+    assert!(refused(&outcomes), "{outcomes:?}");
+    assert!(!files.0.join("data").exists(), "a refused open made a root");
+    std::fs::remove_file(files.0.join("tmp")).unwrap();
+    std::fs::create_dir(files.0.join("tmp")).unwrap();
+    std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
+    core.run(job(2, upload("app:/tmp/photo.jpg")), None)
+        .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(refused(&outcomes), "{outcomes:?}");
     assert!(
         sent.lock().unwrap().is_empty(),
         "the symlinked root was followed"
@@ -246,6 +269,7 @@ fn a_root_that_is_a_symlink_at_the_first_file_body_is_refused() {
 /// first file body, as a worker's request does (Astra, Grok: review).
 #[test]
 fn a_stream_whose_body_is_the_first_app_file_opens_the_roots() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/photo.jpg"), b"the app's").unwrap();
     let (core, sent, _woke) = recording(GRANTS);

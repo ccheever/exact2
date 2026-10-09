@@ -32,13 +32,15 @@ pub(super) type Roots<'a> = Option<&'a Result<AppDirectories, String>>;
 /// handles do not follow it. A root that is a symbolic link when first
 /// opened is refused for the same reason.
 pub(super) fn open(roots: &[PathBuf; 3]) -> Result<AppDirectories, String> {
+    // All three are looked at before any is made, so a refusal makes nothing.
+    let link = |root: &&PathBuf| std::fs::symlink_metadata(root).is_ok_and(|m| m.is_symlink());
+    if let Some(root) = roots.iter().find(link) {
+        return Err(format!(
+            "app storage: {} is a symbolic link",
+            root.display()
+        ));
+    }
     for root in roots {
-        if std::fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err(format!(
-                "app storage: {} is a symbolic link",
-                root.display()
-            ));
-        }
         std::fs::create_dir_all(root).map_err(|e| format!("app storage: {e}"))?;
     }
     AppDirectories::new(&roots[0], &roots[1], &roots[2]).map_err(|e| e.to_string())
