@@ -15,8 +15,9 @@
 //! once.
 //!
 //! The run is event-driven: the shared load's first fetch waits at a gate
-//! the test opens after boot has dispatched every answer, and the pump runs
-//! on the executor's wakes, not on sleeps.
+//! the test opens after boot has dispatched every answer, and after the
+//! first pump each pump waits for the executor's wake; a missing wake fails
+//! the drive. The pump counts it prints are informative, not asserted.
 
 #![cfg(all(exact_js_engine, target_os = "macos"))]
 
@@ -182,8 +183,14 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
         if left.is_empty() || begun.elapsed() > within {
             break left;
         }
-        // A wake, or a beat to look again: the pump decides, not the clock.
-        let _ = wakes.recv_timeout(Duration::from_millis(100));
+        // The next pump only on the executor's wake, as a presenter pumps:
+        // progress that needs a wake the executor never sends fails here.
+        if wakes
+            .recv_timeout(within.saturating_sub(begun.elapsed()))
+            .is_err()
+        {
+            break missing(&mut bridge);
+        }
     };
     let logs = agent(&mut bridge, r#"{"op":"logs"}"#);
     let said = logs

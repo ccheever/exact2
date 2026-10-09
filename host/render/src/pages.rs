@@ -48,6 +48,11 @@ pub fn pages<D: DataSource>(
             Answer::Now(value) => break value,
             Answer::Later(request) => request,
         };
+        // Every turn meets the deadline: a source re-asked without end gets
+        // its outcome at once, every time.
+        if Instant::now() >= until {
+            return Err(fail("it didn't answer before the deadline".into()));
+        }
         ticket += 1;
         let out = RequestOut {
             ticket,

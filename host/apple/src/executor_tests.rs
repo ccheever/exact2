@@ -637,6 +637,7 @@ fn settled(core: &Core) -> bool {
         && state.light == 0
         && state.agains == 0
         && state.waiting.is_empty()
+        && state.waiting_set.is_empty()
 }
 
 fn until_settled(core: &Core) {

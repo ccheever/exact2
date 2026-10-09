@@ -1365,6 +1365,8 @@
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
     return "";
   };
+  // Calls still tracked: a diagnostic for tests (LLP 1041 §8.4 Q5).
+  global.__exact_calls_open = function () { return String(calls.size); };
   global.__exact_settle = function (id, final) {
     checkpoint();
     currentCall = null;

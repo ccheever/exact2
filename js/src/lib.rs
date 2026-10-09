@@ -629,6 +629,18 @@ impl Module {
         self.parked.len() + self.streams.len()
     }
 
+    /// How many calls the prelude still tracks, parked or not: a diagnostic
+    /// (a call whose answer failed for good is unlinked from it, LLP 1041
+    /// §8.4 Q5). `None` when the module is not loaded.
+    pub fn calls_open(&mut self) -> Option<usize> {
+        let engine = self.engine.as_mut()?;
+        engine
+            .call("__exact_calls_open", ["", "", ""])
+            .ok()?
+            .parse()
+            .ok()
+    }
+
     /// Decode once, retaining metadata for async dispatch and the typed answer
     /// for settlement. Captured replies retain their JSON restoration path.
     fn decode_reply(

@@ -1197,6 +1197,7 @@ fn a_refused_re_ask_fails_its_answer_and_unlinks_its_call() {
     let token = waiting[0].request.continuation.unwrap();
     assert!(matches!(r.dispatch_work(token), Dispatch::Held));
     assert_eq!(r.data().in_flight(), 2);
+    assert_eq!(r.data().calls_open(), Some(2));
     r.refuse_request(waiting[0].ticket, "native executor retired", true);
     let (ticket, outcome) = r.take_request_refusal(true).unwrap();
     assert!(matches!(
@@ -1212,6 +1213,11 @@ fn a_refused_re_ask_fails_its_answer_and_unlinks_its_call() {
         1,
         "the refused call is no longer parked"
     );
+    assert_eq!(
+        r.data().calls_open(),
+        Some(1),
+        "and the prelude no longer tracks it: only the fetch's owner is left"
+    );
     assert_eq!(r.failed_resources().len(), 1);
     r.fulfill(fetch[0].ticket, response(200, "the story"))
         .unwrap();
@@ -1219,5 +1225,6 @@ fn a_refused_re_ask_fails_its_answer_and_unlinks_its_call() {
     assert_eq!(text_of(&r, id(&waiter)).as_deref(), Some(""));
     assert!(!r.has_pending());
     assert_eq!(r.data().in_flight(), 0);
+    assert_eq!(r.data().calls_open(), Some(0));
     assert!(r.take_requests().is_empty());
 }

@@ -21,10 +21,6 @@ const ORDERED_READS: usize = 128;
 /// 2026-10-09): their own window beside the 128 real tickets, so that
 /// answers waiting on shared work never take the room that work needs.
 const AGAINS: usize = 128;
-/// Re-asks kept pending while their window and the fence are both full:
-/// one ticket each, placed oldest first as room frees; past this many, one
-/// is refused.
-const WAITING_AGAINS: usize = 1024;
 /// What an `Again` marker retains until drained: its record, an empty body.
 const AGAIN_BYTES: usize = std::mem::size_of::<Completed>();
 const ORDERED_WAITING_BYTES: usize = 64 << 20;
@@ -90,20 +86,13 @@ enum Fenced {
     /// A request refused while the barrier was up: refused when its turn
     /// comes, after the held requests before it are admitted.
     Refused(u64, &'static str),
-    /// A re-ask (`Dispatch::Again`): settled in its place when the barrier
-    /// lifts, with no work.
-    Again(u64),
 }
 impl Fenced {
     fn ticket(&self) -> u64 {
         match self {
             Fenced::Held(r, ..) => r.ticket,
-            Fenced::Refused(ticket, _) | Fenced::Again(ticket) => *ticket,
+            Fenced::Refused(ticket, _) => *ticket,
         }
-    }
-    /// Held work, counted against the 128 held behind the fence.
-    fn held(&self) -> bool {
-        !matches!(self, Fenced::Refused(..))
     }
 }
 #[derive(Default)]
@@ -121,8 +110,14 @@ struct State {
     /// Of `light`, re-ask markers: their own window of 128, so that the
     /// 128 real tickets are `counts[0] - agains`.
     agains: usize,
-    /// Re-asks their window and the fence had no room for, oldest first.
+    /// Re-asks not yet in the ordered sequence, oldest first: their window
+    /// was full, or a refusal is retained (a re-ask never takes the fence's
+    /// room for real requests, nor settles before the refusal). One record
+    /// per ticket, eight bytes: bounded by the runner's current tickets, one
+    /// per target, and never refused for room.
     waiting: VecDeque<u64>,
+    /// The tickets in `waiting`, to keep one record each.
+    waiting_set: std::collections::HashSet<u64>,
     /// Admitted streams, also counted in `counts[1]`.
     streams: usize,
     bytes: [usize; 2],
@@ -327,7 +322,11 @@ impl Core {
             // that later work neither bypasses its settlement nor is refused
             // with it (one refusal must not poison the lane). One refused
             // now keeps its place, to settle after what is held before it.
-            let held = state.fenced.iter().filter(|f| f.held()).count();
+            let held = state
+                .fenced
+                .iter()
+                .filter(|f| matches!(f, Fenced::Held(..)))
+                .count();
             let place = match checked {
                 Err(why) => Err(why),
                 Ok((_, charge, _))
@@ -551,6 +550,7 @@ impl Core {
             state.ordered.retain(|ticket| held(*ticket));
             // A re-ask let go before it found room: dropped, never settled.
             state.waiting.retain(|ticket| held(*ticket));
+            state.waiting_set.retain(|ticket| held(*ticket));
             // A held request has not begun: one let go is dropped unsent,
             // its work destroyed by a worker.
             let (kept, gone): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut state.fenced)
@@ -592,19 +592,8 @@ impl Core {
             std::mem::take(&mut state.fenced)
         };
         let mut refused = Vec::new();
-        // Re-asks the window had no room for at the lift: they keep their
-        // turn ahead of the ones that never reached the fence.
-        let mut full = Vec::new();
         for place in fenced {
             match place {
-                Fenced::Again(ticket) => {
-                    let mut state = self.shared.state.lock().unwrap();
-                    if state.ordered_barrier {
-                        state.fenced.push_back(Fenced::Again(ticket));
-                    } else if !full.is_empty() || !settle_again(&mut state, ticket) {
-                        full.push(ticket);
-                    }
-                }
                 Fenced::Held(r, work, _) => {
                     let ticket = r.ticket;
                     // Behind a refusal made just now, it is held again.
@@ -625,10 +614,8 @@ impl Core {
                 }
             }
         }
+        // The re-asks that waited enter after the requests held before them.
         let mut state = self.shared.state.lock().unwrap();
-        for ticket in full.into_iter().rev() {
-            state.waiting.push_front(ticket);
-        }
         place_waiting(&mut state);
         if has_ready(&state) {
             wake(&mut state);
@@ -639,11 +626,13 @@ impl Core {
     /// Settle `ticket`, a re-ask (`Dispatch::Again`), in its place in the
     /// ordered sequence, with no work: complete at once, charged one place
     /// in the markers' own window of 128 and its record's bytes, never the
-    /// sixteen or the 128 real tickets (LLP 1041 §8.4, amended 2026-10-09). Behind the fence it is held as
-    /// requests are. With the window and the fence full it waits here, one
-    /// record per ticket, and is placed oldest first as room frees (a drain,
-    /// a forget, the fence lifting); the answer stays pending. Refused only
-    /// when the executor is retired or never started, or past 1024 waiting.
+    /// sixteen or the 128 real tickets (LLP 1041 §8.4, amended 2026-10-09).
+    /// With its window full, or a refusal retained, it waits here, one
+    /// record per ticket, and is placed oldest first when there is room and
+    /// no fence (a drain, a forget, the fence lifting, each of which wakes
+    /// the host when something is ready). The answer stays pending: room
+    /// never refuses a re-ask. Refused only when the executor is retired or
+    /// never started, as all work is.
     pub(super) fn again(&self, ticket: u64) -> Result<(), &'static str> {
         let mut state = self.shared.state.lock().unwrap();
         if self.disabled {
@@ -652,15 +641,10 @@ impl Core {
         if state.retired {
             return Err("native executor retired");
         }
-        let placed = state.waiting.contains(&ticket)
-            || state.ordered.contains(&ticket)
-            || state.fenced.iter().any(|f| f.ticket() == ticket);
-        if placed {
+        if state.waiting_set.contains(&ticket) || state.ordered.contains(&ticket) {
             return Ok(());
         }
-        if state.waiting.len() >= WAITING_AGAINS {
-            return Err("native executor re-ask backlog full");
-        }
+        state.waiting_set.insert(ticket);
         state.waiting.push_back(ticket);
         place_waiting(&mut state);
         if has_ready(&state) {
@@ -703,6 +687,7 @@ impl Core {
                 queue.clear();
             }
             state.waiting.clear();
+            state.waiting_set.clear();
         }
         self.shared.ready.notify_all();
         self.shared.abort.abort();
@@ -735,24 +720,21 @@ fn fenced_bytes(fenced: &VecDeque<Fenced>) -> usize {
         .iter()
         .map(|f| match f {
             Fenced::Held(.., charge) => *charge,
-            Fenced::Refused(..) | Fenced::Again(_) => 0,
+            Fenced::Refused(..) => 0,
         })
         .sum()
 }
 
-/// Place waiting re-asks, oldest first, while there is room: behind the
-/// fence while it is up (as many as the 128 held allow), else in the window.
+/// Place waiting re-asks, oldest first, in their window while it has room
+/// and no refusal is retained: behind a refusal they wait here, so that they
+/// neither settle before it nor take the fence's room for real requests.
 fn place_waiting(state: &mut State) {
     while let Some(&ticket) = state.waiting.front() {
-        if state.ordered_barrier {
-            if state.fenced.iter().filter(|f| f.held()).count() >= ORDERED_READS {
-                return;
-            }
-            state.fenced.push_back(Fenced::Again(ticket));
-        } else if !settle_again(state, ticket) {
+        if state.ordered_barrier || !settle_again(state, ticket) {
             return;
         }
         state.waiting.pop_front();
+        state.waiting_set.remove(&ticket);
     }
 }
 

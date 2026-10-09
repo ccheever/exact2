@@ -245,44 +245,45 @@ fn room_a_forget_frees_places_a_waiting_re_ask() {
 }
 
 /// Forgetting a re-ask in each state it can be in — complete in the window,
-/// held behind the fence, waiting for room — drops it unsettled and returns
-/// its ticket and bytes.
+/// waiting behind a refusal, waiting for room — drops it unsettled and
+/// returns its ticket and bytes.
 #[test]
 fn a_forgotten_re_ask_is_dropped_in_every_state() {
     let (core, fixture, woke) = fenced_core();
-    again(&core, 17); // behind the fence
-    for ticket in 100..228 {
-        core.run(job(ticket, Request::get("https://example.test/read")), None)
-            .unwrap();
-    }
-    again(&core, 300); // the fence's 128 are full: waiting
-    assert_eq!(state(&core).waiting.len(), 1);
+    again(&core, 17); // behind the refusal: waiting
+    assert_eq!(state(&core).waiting, [17]);
     fixture.release();
     assert_eq!(
         tickets(collect(&core, &woke, 16)),
         (0..16).collect::<Vec<_>>()
     );
-    core.forget(|ticket| ticket != 17 && ticket != 300 && ticket < 200);
+    core.forget(|ticket| ticket != 17);
     assert!(state(&core).waiting.is_empty());
-    assert!(!state(&core).fenced.iter().any(|f| f.ticket() == 17));
     assert!(core.resume_ordered().is_empty());
-    assert_eq!(
-        tickets(collect(&core, &woke, 100)),
-        (100..200).collect::<Vec<_>>()
+    assert!(
+        core.drain().is_empty(),
+        "the forgotten re-ask never settles"
     );
+    // Waiting for room, then forgotten.
+    for ticket in 100..229 {
+        again(&core, ticket);
+    }
+    assert_eq!(state(&core).waiting, [228]);
+    core.forget(|ticket| ticket != 228);
+    assert!(state(&core).waiting.is_empty());
     // Complete in the window, then forgotten.
-    again(&core, 400);
-    assert_eq!(state(&core).light, 1);
+    assert_eq!(state(&core).light, 128);
     core.forget(|_| false);
     assert!(settled(&core));
     assert!(core.drain().is_empty());
 }
 
-/// A re-ask made while a refusal is retained is held behind it and settles
-/// after it, with the effect issued after it; past the fence's 128 held it
-/// waits and still settles in its turn.
+/// Re-asks made while a refusal is retained wait (never in the fence) and
+/// enter the sequence when it lifts, after the requests held before them:
+/// none settles before the refusal, and the fence keeps its 128 for real
+/// requests.
 #[test]
-fn a_re_ask_behind_a_refusal_settles_after_it() {
+fn re_asks_behind_a_refusal_wait_and_enter_after_it() {
     let (core, fixture, woke) = fenced_core();
     again(&core, 17);
     core.run(job(18, write(18)), None).unwrap();
@@ -291,7 +292,8 @@ fn a_re_ask_behind_a_refusal_settles_after_it() {
             .unwrap();
     }
     again(&core, 300);
-    assert_eq!(state(&core).waiting, [300]);
+    assert_eq!(state(&core).waiting, [17, 300]);
+    assert_eq!(state(&core).fenced.len(), 127);
     fixture.release();
     assert_eq!(
         tickets(collect(&core, &woke, 16)),
@@ -303,10 +305,106 @@ fn a_re_ask_behind_a_refusal_settles_after_it() {
     );
     // The host settles ticket 16's refusal, then lifts the fence.
     assert!(core.resume_ordered().is_empty());
-    let expected: Vec<u64> = [17, 18].into_iter().chain(100..226).chain([300]).collect();
+    let expected: Vec<u64> = [18].into_iter().chain(100..226).chain([17, 300]).collect();
     assert_eq!(tickets(collect(&core, &woke, expected.len())), expected);
     let sent = fixture.state.lock().unwrap().2.clone();
     assert_eq!(sent[16], "https://example.test/write/18");
+    assert!(settled(&core));
+}
+
+/// A wave of re-asks while a refusal is retained, more than the fence's
+/// 128, then a real read: the read is held behind the refusal, not refused,
+/// and runs when it lifts (Grok, code review round 1: re-asks had filled
+/// the fence and the read was refused for good with read capacity free).
+#[test]
+fn re_asks_behind_a_refusal_leave_the_fence_to_real_requests() {
+    let (core, fixture, woke) = fenced_core();
+    for ticket in 100..300 {
+        again(&core, ticket);
+    }
+    core.run(job(17, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert!(
+        state(&core)
+            .fenced
+            .iter()
+            .all(|f| matches!(f, Fenced::Held(..))),
+        "the read is held, not refused in place"
+    );
+    fixture.release();
+    assert_eq!(
+        tickets(collect(&core, &woke, 16)),
+        (0..16).collect::<Vec<_>>()
+    );
+    assert!(core.resume_ordered().is_empty());
+    let expected: Vec<u64> = [17].into_iter().chain(100..300).collect();
+    assert_eq!(tickets(collect(&core, &woke, expected.len())), expected);
+    assert!(fixture
+        .state
+        .lock()
+        .unwrap()
+        .2
+        .ends_with(&["https://example.test/read".to_string()]));
+    assert!(settled(&core));
+}
+
+/// More re-asks than any cap the first build had (128 markers and 1024
+/// waiting records), then an effect: none is refused, the effect is admitted
+/// and runs, and everything settles in entry order (Astra and Grok, code
+/// review round 1: the 1,153rd had been refused for good, outside the fence).
+#[test]
+fn thousands_of_re_asks_and_a_following_effect_all_settle() {
+    let (core, fixture, woke) = setup();
+    for ticket in 0..2000 {
+        again(&core, ticket);
+    }
+    assert_eq!(state(&core).waiting.len(), 2000 - 128);
+    core.run(job(5000, write(5000)), None).unwrap();
+    let expected: Vec<u64> = (0..128).chain([5000]).chain(128..2000).collect();
+    assert_eq!(tickets(collect(&core, &woke, expected.len())), expected);
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/write/5000"]
+    );
+    assert!(settled(&core));
+}
+
+/// The fence lifted while the markers' window is full and a refusal held
+/// before re-asks A and C (Apple and Linux lift it when the runner lets the
+/// refusal go, drained or not): the refusal is returned, the held write
+/// after it is held again, and A and C keep their order and their single
+/// records (Astra, code review round 1: A had gone after C, and the
+/// waiting records could overfill).
+#[test]
+fn lifting_the_fence_with_the_window_full_keeps_re_asks_in_order() {
+    let (core, _fixture, woke) = setup();
+    for ticket in 0..128 {
+        again(&core, ticket);
+    }
+    let invalid = |n: u64| {
+        let mut request = write(n);
+        request.body = Vec::with_capacity(5 << 20);
+        request
+    };
+    assert!(core.run(job(500, invalid(500)), None).is_err());
+    again(&core, 600);
+    core.run(job(501, invalid(501)), None).unwrap();
+    again(&core, 602);
+    core.run(job(503, write(503)), None).unwrap();
+    assert_eq!(state(&core).waiting, [600, 602]);
+    // The runner let refusal 500 go: the host lifts the fence at once.
+    let refused = core.resume_ordered();
+    assert_eq!(refused.len(), 1);
+    assert_eq!(refused[0].0, 501);
+    assert_eq!(state(&core).waiting, [600, 602]);
+    assert_eq!(state(&core).waiting_set.len(), 2);
+    assert_eq!(
+        tickets(collect(&core, &woke, 128)),
+        (0..128).collect::<Vec<_>>()
+    );
+    // Refusal 501 settled; the fence lifts again.
+    assert!(core.resume_ordered().is_empty());
+    assert_eq!(tickets(collect(&core, &woke, 3)), [503, 600, 602]);
     assert!(settled(&core));
 }
 
