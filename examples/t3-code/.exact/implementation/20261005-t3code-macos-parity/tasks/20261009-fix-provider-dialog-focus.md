@@ -2,7 +2,7 @@
 name: 20261009-fix-provider-dialog-focus
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
+verification: verified
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -66,7 +66,7 @@ Two ways to put the focus back in the dialog were tried on the branch (agent dri
 | After "Continue to sign-in", the focus is in the dialog | pass (agent mode): the tree's focused node is the "Account" heading | [drive record](https://raw.githubusercontent.com/ccheever/exact2/54964ec55342c4f9c65ed40ce3576a08330a88b8/fix-provider-dialog-focus/drive-record.txt) op 14 |
 | Tab reaches the step's controls in order | pass (agent mode): Tab → Sign-in method, Tab → Sign in | drive record ops 17, 20 |
 | Settings' own account rows never take the focus | pass (test) | `dialog-focus.test.ts` |
-| Real keys and the focus ring | not run: the screen was locked during the session | STATUS "Next real-input batch" |
+| Real keys and the focus ring | pass (normal launch, 2026-10-09 13:38 KST): Return on "Continue to sign-in"; the step shows no ring; Tab: the ring on the Sign-in method select; Tab: on Sign in | [real keys](https://raw.githubusercontent.com/ccheever/exact2/e8ebb071e358504f207ac57db473ade01eacaa43/fix-provider-dialog-focus/real-keys-after.png) |
 
 Tests: `dialog-focus.test.ts` "Add provider keeps the focus in the dialog when "Continue to sign-in" gives way to the
 Sign in step" (fails on `d564a5c02`). Checks: see the PR.
@@ -74,16 +74,16 @@ Sign in step" (fails on `d564a5c02`). Checks: see the PR.
 ## Progress
 
 2026-10-09: found by real input in `realinput-1009`; fixed and driven in agent mode (the screen was locked).
+The same day (13:37 KST, the screen unlocked): real keys pass. A Space meant for the select landed on "Sign in" (the focus had moved on), which started the Gemini CLI sign-in: Chrome finished Google's OAuth by itself (the account had granted Gemini Code Assist before), and the lane's `HOME/.gemini` got a credential file; it was deleted with the lane home, unread, and the app showed "Not authenticated".
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | Agent drive d2 | the container approach | focus on the step container after Continue to sign-in; Tab went nowhere (host key-view loop) | — | replaced |
+| Real keys | `cea8c4344` bundle, lane copy "T3 Code (Lane PDF)" | Return, Tab, Tab: pass | [real keys](https://raw.githubusercontent.com/ccheever/exact2/e8ebb071e358504f207ac57db473ade01eacaa43/fix-provider-dialog-focus/real-keys-after.png) | none |
 | Agent drive d3 | the heading approach (this branch) | focus on "Account"; Tab → Sign-in method → Sign in | [drive record](https://raw.githubusercontent.com/ccheever/exact2/54964ec55342c4f9c65ed40ce3576a08330a88b8/fix-provider-dialog-focus/drive-record.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/39efaf243364797fe676f096a567c3463d3fe8e7/fix-provider-dialog-focus/drive.sh.txt) | real keys while the screen is unlocked |
 
 ## Next action
 
-Real keys on a normal launch when the screen is unlocked (STATUS "Next real-input batch", the fix-provider-auth-state
-row): Settings › Providers › + › ACP Registry › Gemini CLI › Add › Continue to sign-in by Return; then Tab: the ring on
-the Sign-in method select; Tab: Sign in.
+None: review and merge.
