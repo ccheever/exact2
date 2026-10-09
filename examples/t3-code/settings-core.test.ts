@@ -220,8 +220,10 @@ describe('writes through the command', () => {
     const core = await settingsCore(as(client), native, '', 'repo', 'p1', '', 'general', '', true);
     const row = core.sections.flatMap(section => section.rows).find(entry => entry.id === 'worktree-submodules')!;
     expect([row.label, row.inheritance, core.kind, core.scopeKey]).toEqual(['Skip', 'inherited', 'checkout', '|repo|p1']);
+    // A bare project id (Project settings' target) is its project on every environment: /projects/$projectKey
+    // redirects with the key and no machine (routes/projects.$projectKey.tsx; settings-diagnostics-and-scope PG-8).
     const legacy = await settingsCore(as(client), native, '', '', '', 'p3', 'storage', '', true);
-    expect([legacy.kind, legacy.projectLabel, legacy.showScope]).toEqual(['checkout', 'Single checkout two', true]);
+    expect([legacy.kind, legacy.projectLabel, legacy.showScope]).toEqual(['project', 'Single checkout two', true]);
   });
   test("the Project page's Model row is General's, in the project scope", async () => {
     // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: ProviderModelPicker + TraitsPicker.
