@@ -1,0 +1,39 @@
+// fix-settings-integrations-loop: counts the lane server's ws.rpc spans that start inside time windows.
+// Usage: bun rate.mjs <run dir>. Windows come from the run's screenshot mtimes (png-mtimes.txt):
+//   open:  20-integrations.png → 21-integrations-30s.png (the page held open, the "clock +30000 real" op)
+//   left:  30-left.png → 31-left-10s.png (Settings closed, the "clock +10000 real" op)
+// Also prints each op's answer time from agent.jsonl.ts (perl-stamped arrival of each JSON line).
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+const dir = process.argv[2];
+const mtimes = Object.fromEntries(readFileSync(join(dir, 'png-mtimes.txt'), 'utf8').trim().split('\n').map(line => { const [t, name] = line.split(' '); return [name, Number(t) * 1000]; }));
+const spans = [];
+for (const file of readdirSync(dir).filter(name => name.startsWith('server.trace.ndjson'))) {
+  for (const line of readFileSync(join(dir, file), 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let record; try { record = JSON.parse(line); } catch { continue; }
+    const name = record.name ?? record.spanName;
+    const start = record.startTimeUnixNano != null ? Number(BigInt(record.startTimeUnixNano) / 1000000n)
+      : record.startTimeMs ?? (typeof record.startTime === 'number' ? (record.startTime > 1e15 ? record.startTime / 1e6 : record.startTime) : Date.parse(record.startTime ?? record.timestamp ?? ''));
+    if (typeof name === 'string' && name.startsWith('ws.rpc.') && Number.isFinite(start)) spans.push({ name, start });
+  }
+}
+const iso = ms => new Date(ms).toISOString();
+function window(label, from, to) {
+  const inside = spans.filter(span => span.start >= from && span.start < to), seconds = (to - from) / 1000;
+  const counts = new Map(); for (const span of inside) counts.set(span.name, (counts.get(span.name) ?? 0) + 1);
+  console.log(`${label}: ${iso(from)} → ${iso(to)} (${seconds.toFixed(1)} s)`);
+  for (const [name, count] of [...counts].sort((a, b) => b[1] - a[1])) console.log(`  ${String(count).padStart(6)} ${(count / seconds).toFixed(2).padStart(8)}/s  ${name}`);
+  const reads = inside.filter(span => ['ws.rpc.server.getConfig', 'ws.rpc.server.getSettings', 'ws.rpc.device.list'].includes(span.name)).length;
+  console.log(`  getConfig + getSettings + device.list: ${reads} (${(reads / seconds).toFixed(2)}/s)`);
+}
+console.log(`ws.rpc spans in the trace: ${spans.length} (${spans.length ? `${iso(Math.min(...spans.map(s => s.start)))} … ${iso(Math.max(...spans.map(s => s.start)))}` : 'none'})`);
+window('Settings › Integrations open', mtimes['20-integrations.png'], mtimes['21-integrations-30s.png']);
+window('after leaving Settings', mtimes['30-left.png'], mtimes['31-left-10s.png']);
+try {
+  const ops = readFileSync(join(dir, 'ops.txt'), 'utf8').trim().split('\n');
+  const stamps = readFileSync(join(dir, 'agent.jsonl.ts'), 'utf8').trim().split('\n').map(line => Number(line.split(' ')[0]) * 1000);
+  console.log('op answer times (s since the previous op answered):');
+  stamps.forEach((stamp, index) => { if (index > 0) console.log(`  ${String(index + 1).padStart(2)} ${((stamp - stamps[index - 1]) / 1000).toFixed(1).padStart(6)}  ${ops[index] ?? '?'}`); });
+} catch (error) { console.log(`no op stamps: ${error.message}`); }
