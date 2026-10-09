@@ -443,7 +443,11 @@ extension Agent {
             if port.contains(mid) { continue }
             var o = sv.contentOffset
             if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
-            if mid.x < port.minX || mid.x >= port.maxX { o.x += frame.maxX > port.maxX ? frame.maxX - port.maxX : frame.minX - port.minX }
+            // Inline, only as far as it takes from the side its middle is on; a
+            // target wider than the port is centred, so its middle comes in.
+            if mid.x < port.minX || mid.x >= port.maxX {
+                o.x += frame.width > port.width ? mid.x - port.midX : mid.x < port.minX ? frame.minX - port.minX : frame.maxX - port.maxX
+            }
             o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
             o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
             if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }

@@ -87,6 +87,44 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertLessThan(try middle(session), 460, "above the keyboard: \(reply)")
     }
 
+    /// A target wider than its horizontal scroller, its middle off the left:
+    /// centring brings the middle in, where aligning its far edge (the
+    /// right, past the port) would push it further out.
+    func testRevealCentresATargetWiderThanItsScroller() throws {
+        let session = ExactApp.shared.makeSession(label: "reveal-wide")
+        let p = session.presenter
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        let window = UIWindow(frame: p.viewport.frame)
+        window.addSubview(p.viewport)
+        window.isHidden = false
+        defer { window.isHidden = true; session.destroy() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "style": ["overflow_x": "scroll"]],
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 5, "ids": [3]],
+            ["op": "children", "id": 2, "ids": [5]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 100.0],
+            ["op": "content", "id": 2, "w": 2000.0, "h": 100.0],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 2000.0, "h": 100.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 1500.0, "h": 100.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 1500.0, "h": 100.0],
+        ]))
+        let scroller = try XCTUnwrap(p.views[2]?.scroll)
+        scroller.contentOffset.x = 1000
+        let v = try XCTUnwrap(p.views[3])
+        let reply = Agent(session: session).reveal(["id": 3])
+        XCTAssertEqual(reply["scrolled"] as? Bool, true, "\(reply)")
+        let middle = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil).x
+        XCTAssertTrue((0..<400).contains(middle), "its middle is in view: \(middle), \(reply)")
+    }
+
     func testWithoutAKeyboardAnActionInsideTheViewportStaysPut() throws {
         let (session, window) = session("reveal-keyboard-none", widget: nil, scroller: true)
         defer { window.isHidden = true; session.destroy() }

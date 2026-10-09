@@ -511,6 +511,25 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
   const refreshed=lock([['x-logic','0.1.0',null,['exact-game','rand']],['exact-game','0.1.0',null,['glam','parley']],['glam','0.33.7','aa',['libm']],['libm','0.2.16','bb'],['parley','0.6.0','cc',['fontique','harfrust']],['fontique','0.5.0','dd'],['harfrust','0.12.0','ee'],['rand','0.9.1','hh']]);
   assert.deepEqual(lockChanges(captured,refreshed),['harfrust 0.5.2 → 0.12.0','added parley 0.6.0','added fontique 0.5.0']);
   assert.deepEqual(lockChanges(refreshed,captured),['harfrust 0.12.0 → 0.5.2','removed parley 0.6.0','removed fontique 0.5.0']);
+  // A git package that moved revision at the same version is a change too.
+  const git=(rev)=>`version = 4\n\n[[package]]\nname = "tool"\nversion = "1.0.0"\nsource = "git+https://example.com/tool#${rev}"\n`;
+  assert.deepEqual(lockChanges(git('aaa'),git('bbb')),['tool 1.0.0 (git+https://example.com/tool#aaa) → 1.0.0 (git+https://example.com/tool#bbb)']);
+});
+
+test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {
+  const {lockSeed,staleLock}=await import('./app/shells.mjs');
+  const block=(name,version,source)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "${source}"\n`:''}`;
+  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
+  const crates='registry+https://github.com/rust-lang/crates.io-index';
+  const sdk=lock(block('foo','0.12.1',crates),block('exact-game','0.1.0'));
+  const own=lock(block('foo','0.12.0',crates),block('rand','0.9.1',crates),block('tool','1.0.0','git+https://example.com/tool#aaa'),block('x-logic','0.1.0'));
+  // foo 0.12.0 → the SDK's 0.12.1 (one graph holds one version per series), not crates.io's newest.
+  assert.deepEqual(Bun.TOML.parse(lockSeed(sdk,own)).package.map(p=>`${p.name} ${p.version}`),['foo 0.12.1','exact-game 0.1.0','rand 0.9.1','tool 1.0.0','x-logic 0.1.0']);
+  assert.equal(lockSeed(sdk,sdk),sdk);
+  // Only a lock that needs updating is stale; a crate missing from the cache is not.
+  assert.ok(staleLock('error: cannot update the lock file /g/.shells/Cargo.lock because --locked was passed to prevent this'));
+  assert.ok(staleLock('error: the lock file /g/.shells/Cargo.lock needs to be updated but --locked was passed to prevent this'));
+  assert.ok(!staleLock('error: failed to download `rustix v1.1.5`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified'));
 });
 
 test('a captured lock exact2 moved past is named at a build, at generation and at update, and left alone', async () => {
@@ -520,6 +539,12 @@ test('a captured lock exact2 moved past is named at a build, at generation and a
   try {
     createGame(dir);
     prepareGame(dir,gameDefaults(dir).game,undefined,{updateLock:true});
+    // A current lock and a crate missing from Cargo's cache is not drift: the refusal says fetch.
+    const home=process.env.CARGO_HOME;
+    try {
+      process.env.CARGO_HOME=resolve(root,'empty-cargo-home');mkdirSync(process.env.CARGO_HOME);
+      assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/^game Cargo graph: /.test(error.message)&&/cargo fetch --manifest-path/.test(error.message));
+    } finally {if(home===undefined) delete process.env.CARGO_HOME;else process.env.CARGO_HOME=home;}
     const captured=Bun.TOML.parse(readFileSync(resolve(dir,'Cargo.lock'),'utf8')).package;
     // As if captured before exact2's move: exact-game's first registry dependency
     // (and its edge) absent, and another registry package an older version.
@@ -539,6 +564,10 @@ test('a captured lock exact2 moved past is named at a build, at generation and a
     const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{encoding:'utf8'});
     assert.equal(generated.status,0,generated.stderr);
     assert.ok(named(generated.stderr.replace(/^warning: /,'')),generated.stderr);
+    // A runner generated before the verb existed is told to update first.
+    const runner=resolve(dir,'exact.mjs');
+    writeFileSync(runner,readFileSync(runner,'utf8').replace(/^\s*lock: \[.*\n/m,''));
+    assert.ok(capturedLockDrift(dir).includes(`\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`));
     assert.match(createApp(dir,{update:true}),/exact2 moved since this game's Cargo.lock was captured/);
     assert.match(readFileSync(resolve(dir,'exact.mjs'),'utf8'),/lock: \['game\/app\/shells\.mjs', import\.meta\.dir, '--lock'\]/);
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),text);
