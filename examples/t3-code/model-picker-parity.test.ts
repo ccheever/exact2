@@ -35,6 +35,30 @@ function client(providers: Obj[] = [codexError, claude], settings: Obj = {}) {
   return c;
 }
 const pickerContext = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: true, draftThreadRoute: true, modalOpen: false, settingsOpen: false, diffOpen: false };
+const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+/** The lines from the first line of `file` that starts with `head` (after its indent) to the next line indented as deep or less. */
+async function block(file: string, head: string): Promise<string> {
+  const lines = (await source(file)).split('\n');
+  const start = lines.findIndex(line => line.trimStart().startsWith(head));
+  if (start < 0) throw new Error(`${file}: no ${head}`);
+  const indent = lines[start]!.length - lines[start]!.trimStart().length;
+  const end = lines.findIndex((line, index) => index > start && line.trim() !== '' && line.length - line.trimStart().length <= indent);
+  return lines.slice(start, end < 0 ? undefined : end).map(entry => entry.slice(indent)).join('\n');
+}
+/** The one line of `file` that carries `marker` (a testId or an id). */
+async function line(file: string, marker: string): Promise<string> {
+  const found = (await source(file)).split('\n').filter(entry => entry.includes(marker));
+  if (found.length !== 1) throw new Error(`${file}: ${found.length} lines carry ${marker}`);
+  return found[0]!;
+}
+/** A new thread's draft that can start several models (codex:model-a), and a Shift press for the native recorder. */
+async function draft() {
+  const context = await connected();
+  obj(obj(context.native.config.environment).capabilities).requiredWorktreeBootstrap = true;
+  await context.client.refresh(context.native, context.disk);
+  const shiftPress = () => { context.native.gesture = { modifiers: 'shift', source: 'pointer', ageMs: 12 }; };
+  return { ...context, shiftPress };
+}
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
@@ -105,6 +129,32 @@ describe('CO-3: a search highlights its first row a person can choose', () => {
     expect(modelCatalog(c, 'claudeAgent', 'opus').firstEnabled).toBe(0);
     expect(modelCatalog(c, 'claudeAgent', 'zzzz').firstEnabled).toBe(-1);
   });
+  // Read from the Contract source, as the stacking test below: the highlight and Return are the picker's view state.
+  test('autoHighlight: a search highlights `firstEnabled` until the arrows move the highlight', async () => {
+    const picker = await block('model-picker.contract', 'component ModelPicker');
+    expect(picker).toContain('derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))');
+    expect(picker).toContain('derive highlight = (count > 0 ? base : -1)');
+  });
+  test('Return in the search field chooses the highlighted row (Shift+Return adds it) or opens the legacy section; the field has no submit', async () => {
+    const input = await line('model-picker.contract', 'id="model-search"');
+    expect(input).toContain('key=searchKey');
+    expect(input).not.toContain('submit=');
+    const enter = await block('model-picker.contract', 'if name == "Enter"');
+    expect(enter.split('\n').map(entry => entry.trim())).toEqual(['if name == "Enter"', 'if targetLegacy', 'legacySession = legacySession == session ? -1 : session',
+      'else if targetId != ""', 'select(targetId, targetProvider, e.shiftKey)', 'preventDefault()']);
+    expect(await block('model-picker.contract', 'action searchKey')).toStartWith('action searchKey(name: string, e: KeyboardEvent)');
+  });
+  test('Return\'s target is any highlighted model row a person can choose, an open Legacy section\'s rows too', async () => {
+    const picker = await block('model-picker.contract', 'component ModelPicker');
+    const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
+    expect(picker).toContain(`derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and ${choosable}), (r) => r.id), "")`);
+    expect(picker).toContain(`derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and ${choosable}), (r) => r.providerId), "")`);
+    // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then, and they follow the header.
+    expect(picker).toContain('derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)');
+    const catalog = modelCatalog(client(), 'claudeAgent', '');
+    expect([catalog.count, catalog.legacyCount]).toEqual([5, 1]);
+    expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy', 3, ''], ['legacy-model', 4, 'claude-old']]);
+  });
 });
 
 describe('CO-7: Shift adds a model to a draft\'s several and keeps the picker open', () => {
@@ -128,6 +178,65 @@ describe('CO-7: Shift adds a model to a draft\'s several and keeps the picker op
     expect(snapshot(c).composer.fanout).toBe(false);
     expect(c.modelId).toBe('model-b');
     void native; void disk;
+  });
+  // A real Shift+click also fills the native press recorder (T3ComposerIntent), which hands each press out once.
+  // The review of PR #374 found the picker's n 1 skipping that read, so the press stayed for the next pick.
+  test('a real Shift+click (the native press and n 1) adds a model, and the next one removes the draft\'s original model', async () => {
+    const { client: c, native, command, shiftPress } = await draft();
+    shiftPress();
+    await command('model', 'model-b', 'codex', 1);
+    expect(snapshot(c).composer.fanoutKeys).toEqual(['codex:model-a', 'codex:model-b']);
+    expect(native.gesture).toEqual({}); // taken by this pick
+    shiftPress();
+    await command('model', 'model-a', 'codex', 1);
+    expect(snapshot(c).composer.fanout).toBe(false);
+    expect([c.providerId, c.modelId]).toEqual(['codex', 'model-b']);
+  });
+  test('a ⌘N jump right after a Shift+click switches to its model (the Shift press is not read again)', async () => {
+    const { client: c, command, shiftPress } = await draft();
+    shiftPress();
+    await command('model', 'model-b', 'codex', 1);
+    expect(snapshot(c).composer.fanout).toBe(true);
+    // modelPicker.jump.N is the dispatch's plain pick (n 0); a key press fills no pointer press.
+    await command('model', 'model-b', 'codex-work', 0);
+    expect(snapshot(c).composer.fanout).toBe(false);
+    expect([c.providerId, c.modelId]).toEqual(['codex-work', 'model-b']);
+  });
+  test('a press the picker could not see still adds (the native fallback)', async () => {
+    const { client: c, command, shiftPress } = await draft();
+    shiftPress();
+    await command('model', 'model-b', 'codex', 0);
+    expect(snapshot(c).composer.fanoutKeys).toEqual(['codex:model-a', 'codex:model-b']);
+  });
+  // Read from the Contract source: the row's press, and the root's pick that keeps the picker open.
+  test('a row\'s press passes its shiftKey; an additive composer pick sends n 1 and keeps the picker open on the search field', async () => {
+    const row = await block('model-picker.contract', 'component ModelRow');
+    expect(row).toContain('action pick(e: MouseEvent)\n    select(row.id, row.providerId, e.shiftKey)');
+    expect(await line('model-picker.contract', 'testId=`model-${row.id}`')).toContain('button press=pick ');
+    const select = await block('app.contract', 'action selectModel(');
+    expect(select).toStartWith('action selectModel(id: string, provider: string, additive: bool)');
+    expect(select).toContain('additive and modelTarget.id == "" ? 1 : 0)');
+    expect(select).toContain('modelsOpen = additive and modelTarget.id == "" and catalog.multiple');
+    expect(select).toContain('focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : ');
+    // The dispatch's ⌘N jump is never additive.
+    expect(await source('settings-shortcuts.contract')).toContain('press=selectModel(item.target, item.extra, false)');
+  });
+});
+
+describe('CO-11: the trigger is named by its model names; the Plan toggle reports pressed', () => {
+  test('the names: the model the trigger shows, or every chosen model of a draft\'s several', async () => {
+    const { client: c, command, shiftPress } = await draft();
+    expect(snapshot(c).modelLabel).toBe('Model A');
+    shiftPress();
+    await command('model', 'model-b', 'codex', 1);
+    expect(snapshot(c).composer.fanoutAria).toBe('Model A, Model B');
+  });
+  test('ModelTrigger\'s aria-label and PlanToggle\'s aria-pressed (composer-controls.contract wiring)', async () => {
+    const trigger = await line('composer-controls.contract', 'testId="model-picker"');
+    expect(trigger).toContain('aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel)');
+    expect(trigger).not.toContain('Choose provider and model');
+    const plan = await line('composer-controls.contract', 'testId="interaction-mode"');
+    expect(plan).toContain('aria-label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode") aria-pressed=active ');
   });
 });
 

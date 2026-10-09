@@ -117,8 +117,10 @@ component ModelPicker
   // until the arrows move the highlight; an unsearched list highlights nothing until then.
   derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))
   derive highlight = (count > 0 ? base : -1)
-  derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model" and r.reason == ""), (r) => r.id), "")
-  derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and r.kind == "model" and r.reason == ""), (r) => r.providerId), "")
+  // Return's model: any highlighted model row a person can choose, an open Legacy section's rows too (the reference's
+  // Enter parses the highlighted model key); the highlight reaches those rows only while the section is open (`count`).
+  derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == ""), (r) => r.id), "")
+  derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == ""), (r) => r.providerId), "")
   derive targetLegacy = length(filter(catalog.models, (r) => r.index == highlight and r.kind == "legacy")) > 0
   derive width = min(362, viewport.width - 10)
   // Content height (a6aebbe2e0): the rail (4 + 36 + 4 + 1 + 4 per provider 40, + 4) or the
