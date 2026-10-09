@@ -194,7 +194,9 @@ function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
 function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   const thread = client.threadId ? (client.shell?.threads ?? []).find(candidate => candidate.id === client.threadId) : undefined;
   if (thread) {
-    const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
+    // ChatView activeThreadSettled: only an explicit settle makes ⇧⌘S un-settle; an automatic one is settled explicitly
+    // (shell-sidebar-palette-keys SH-2: a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
+    const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
     // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
     if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {

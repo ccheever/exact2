@@ -11,6 +11,7 @@ import { sidebarCommand, sidebarLocal } from './sidebar-commands';
 import { sidebarSession, setRuntimeClock, openSnoozeDialog } from './sidebar-state';
 import { sidebarSnapshot } from './sidebar-view';
 import { newThreadInItems } from './palette';
+import { keyboardDispatch } from './keyboard-dispatch';
 import { calendarMove, dateLabel, snoozeCalendar } from './snooze-calendar';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
@@ -66,6 +67,18 @@ describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
     const row = fake([thread('a'), thread('b')]);
     await sidebarCommand(row.client, native, {} as Files, 'settle', 'a', '');
     expect(sidebarSnapshot(row.client, NOW, helpers).sidebar.undoText).toBe('Settled 1 thread,');
+  });
+  test('⇧⌘S un-settles only an explicit settle (ChatView activeThreadSettled)', () => {
+    const context = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
+    const binding = { command: 'thread.settle', shortcut: { key: 's', modKey: true, shiftKey: true }, whenAst: { type: 'not', node: { type: 'identifier', name: 'terminalFocus' } } };
+    const target = (extra: Obj) => {
+      const { client } = fake([thread('a', extra)], 'a');
+      (client.config as Obj).keybindings = [binding];
+      return keyboardDispatch(client, [], '', '', context).find(item => item.command === 'thread.settle')?.target;
+    };
+    expect(target({ settledOverride: 'settled', settledAt: new Date(NOW).toISOString() })).toBe('chat:unsettle');
+    expect(target({ settledOverride: null, settledAt: new Date(NOW).toISOString() })).toBe('chat:settle');
+    expect(target({ settledOverride: 'active', settledAt: new Date(NOW).toISOString() })).toBe('chat:settle');
   });
   test('under the agent\'s clock the notice is timed on the window\'s instant, which the chord\'s command carries', async () => {
     setRuntimeClock(() => 50_000); // the data runtime's clock is the driver's, not the epoch
