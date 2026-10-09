@@ -15,7 +15,7 @@ import { advancedBackgroundValue, baseProfile, profileOption } from './settings-
 import { seedDiffState } from './settings-appearance-look';
 import { themeEditorCommand } from './settings-appearance-editor';
 import { themeImportCommand } from './settings-appearance-import';
-import { aboutRows, updateCommand } from './settings-a-about';
+import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
 import { removeThemes, useCollectionDefaults } from './settings-a-collections';
 import type { DiffState } from './diff';
 import { notificationPermission, notificationPermissionMessage } from './shell-notify';
@@ -252,21 +252,30 @@ function serverState(context: ServerContext, key: string) {
   const note = !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
-/** SettingInheritance formatValue: human labels for the chain's values. */
+const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+const SUBMODULE_LABELS: Record<string, string> = { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' };
+const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Repository conventions', conventional_commits: 'Conventional Commits', custom: 'Custom instructions' };
+/**
+ * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
+ * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
+ * style reads "Custom": Background activity's `{ profile }` has no label of its own there (settings-rows-and-labels S1-9).
+ */
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
-    : key === 'defaultModelSelection' ? 'Automatic' : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
+    : key === 'defaultModelSelection' ? 'Automatic' : key === 'sourceControlWriterModelSelection' ? 'Text generation model'
+    : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
   if (typeof value === 'boolean') return value ? 'On' : 'Off';
   if (typeof value === 'number') return key === 'sidebarAutoSettleAfterDays' ? `${value} ${value === 1 ? 'day' : 'days'}` : String(value);
   if (typeof value === 'string') {
     if (key === 'defaultThreadEnvMode' && (value === 'local' || value === 'worktree')) return value === 'worktree' ? 'New worktree' : 'Current checkout';
-    if (key === 'worktreeSubmodules') return { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' }[value] ?? value;
+    const label = key === 'worktreeSubmodules' ? SUBMODULE_LABELS[value] : key === 'pullRequestMergeMethod' ? MERGE_METHOD_LABELS[value] : undefined;
+    if (label) return label;
     return value === '' ? 'Empty' : value;
   }
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
   const entry = obj(value);
   if (typeof entry.model === 'string') return entry.model;
-  if (typeof entry.profile === 'string') return { balanced: 'Balanced', performance: 'Performance', 'battery-saver': 'Battery saver', custom: 'Advanced' }[entry.profile] ?? entry.profile;
+  if (typeof entry.mode === 'string') return WRITING_STYLE_LABELS[entry.mode] ?? entry.mode;
   return 'Custom';
 }
 /** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
@@ -614,6 +623,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     return '';
   }
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
+  if (target.row === 'update-track') return updateTrackCommand(client, native, value);
   if (target.row === MOBILE_BETA_ROW) return mobileBetaCommand(client, native, target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.

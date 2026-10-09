@@ -78,6 +78,7 @@ component SettingsWindow
     settingsQuery: string
     sidebarWidth: number
     viewport: Viewport
+    scheme: string
     settingsMenu: string
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
     editSettingsQueryRoot: action
@@ -182,6 +183,7 @@ component SettingsWindow
   state modelAdding = ""
   state escapeFocus = ""
   state railHover = false
+  state updateTipHover = false // the Settings nav's SidebarUpdatePill (its tooltip is drawn below, past the nav)
   derive modelAddingShown = modelAdding != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAdding))) > 0
   // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
   // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
@@ -229,6 +231,8 @@ component SettingsWindow
     escapeFocus = focused ? field : (escapeFocus == field ? "" : escapeFocus)
   action hoverRail(id: string, over: bool)
     railHover = over
+  action hoverUpdateTip(id: string, over: bool)
+    updateTipHover = over
   action coreLegacy
     settingsLegacyOpen = not settingsLegacyOpen
   action coreRestoreOpen
@@ -267,7 +271,7 @@ component SettingsWindow
     when settingsOpen
       row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
-          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
+          SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar, updateTip=hoverUpdateTip)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
           SettingsTopBar(controlsLeft=data.controlsLeft, route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), navOpen=data.sidebarOpen, toggle=toggleSidebar, restore=coreRestoreOpen)
           scroll flex=1 min-height=0 width="100%" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" id="settings-content-scroll" scrollTop=settingsScrollTop scroll-behavior="smooth" testId="settings-content-scroll"
@@ -297,7 +301,7 @@ component SettingsWindow
               when settingsRoute == "connections"
                 ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
+                ProvidersPanel(page=providerPage, scheme=scheme, width=min(1024, viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, modelAdding=modelAdding)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                   each row in settingsCore.projectModel key=row.id
@@ -310,6 +314,9 @@ component SettingsWindow
           SidebarWindowRail(width=sidebarWidth, hovered=railHover, line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=hoverRail)
           row position="absolute" left=(sidebarWidth + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
             TipCard(label="Drag to resize sidebar", shown=railHover)
+          // SidebarUpdatePill's "Check for updates" (side top), centred on the pill 24pt in from the nav's edge.
+          row position="absolute" left=(sidebarWidth - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
+            TipCard(label="Check for updates", shown=updateTipHover)
     when settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     when settingsOpen and settingsRestoreOpen
@@ -337,9 +344,11 @@ component ProjectDialogs
     sbLetters: string
     sbEmoji: string
     viewport: Viewport
+    scheme: string
     sbSet: action
+    taskBase: action
   view
-    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose)
+    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, taskBase=taskBase)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     // The thread details card's Add project script (ProjectScriptsControl openAddDialog): a new action for `restSubject`, the thread's project.
@@ -347,9 +356,9 @@ component ProjectDialogs
       each blank in projectsSettings.blankActions key=blank.id
         ProjectActionEditor(item=blank, scope=restSubject, editing=false, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     when restEditor == "project-icon"
-      ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
+      ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(scheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
     when restEditor == "project-favicon"
-      ProjectFaviconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, vw=viewport.width, vh=viewport.height, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, raw=restRaw, set=sbSet, close=restClose)
+      ProjectFaviconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, vw=viewport.width, vh=viewport.height, dark=(scheme == "dark"), busy=commandPending, raw=restRaw, set=sbSet, close=restClose)
 
 // Settings dialogs: snapshot setup, Add environment, the provider wizards and removal confirms.
 component SettingsModals
@@ -370,6 +379,7 @@ component SettingsModals
     credential: string
     data: Snapshot
     viewport: Viewport
+    scheme: string
     sbSshHosts: SbSshHosts
     sbSshHost: string
     editOrigin: action
@@ -408,7 +418,7 @@ component SettingsModals
       AddEnvironmentDialog(origin=origin, credential=credential, pairFields=pairFields, connected=data.connected, available=data.available, viewportHeight=viewport.height, busy=commandPending, error=modalError, sshHosts=sbSshHosts, sshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, submit=connectionOp("environment-add", origin, credential), set=sbSet, ssh=connectionOp, closeDialog=closeConnection, routeTarget=routeTarget, routeLabel=routeLabel)
     when providerDialog == "add"
       each session in providerWizard.sessions key=session.key
-        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
+        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=scheme, busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
     when providerDialog == "chatgpt"
       each session in providerWizard.sessions key=session.key
         ChatGptAccountDialog(wizard=providerWizard, busy=commandPending, setupBusy=setupBusy, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""), op=providerOp, ui=providerUi)

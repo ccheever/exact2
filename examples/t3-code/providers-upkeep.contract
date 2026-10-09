@@ -319,7 +319,7 @@ component AcpManagement
     op("upkeep:acp-project", acp.instanceId, "", value, true)
   view
     column width="100%" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`acp-management-${acp.instanceId}`
-      PvRow(title="Native sessions", description="Resume agent-owned conversations as T3 threads.", status=acp.status, wide=wide, divided=false)
+      PvRow(title="Native sessions", description="Resume agent-owned conversations as T3 threads.", status=acp.status, policy="", wide=wide, divided=false)
         row gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
           when acp.canLogout
             button press=op("upkeep:acp-logout", acp.instanceId, "", "", true) class=PvOutline disabled=acp.logoutDisabled opacity=(acp.logoutDisabled ? 0.64 : 1) testId=`acp-logout-${acp.instanceId}`
