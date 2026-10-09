@@ -152,9 +152,9 @@ impl Travel {
     /// [`LED_FRAMES`] frames of travel and three quarters of the `viewport`
     /// past the view, and no more than [`LED_BATCH`] viewports of rows have
     /// come into the window. A pass each third step at 24,000 dp/s mounted
-    /// its rows a frame and a half before they showed, a row or two a
-    /// commit; one each sixth step under a lead mounts them seven frames
-    /// before, eight or nine a pass.
+    /// its rows a frame and a half before they showed, four a commit (easy);
+    /// one each sixth step under a lead mounts them six frames before, eight
+    /// or nine a commit, and at 12,000 dp/s one each fifteenth step, ten.
     pub(crate) fn waits_led(&self, viewport: f32) -> bool {
         if self.step <= 0.0 {
             return false;
