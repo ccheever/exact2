@@ -489,19 +489,13 @@ adds these rows:
   lists under `tccDenied` fail an open with EPERM as TCC does, so the Full Disk Access step can be shown. Full Disk Access
   is never requested from code: Allow opens System Settings › Privacy & Security › Full Disk Access in the packaged build
   and is only recorded in any other.
-- **The Full Disk Access check.** The wizard re-reads the grant (Safari's jar opening) whenever the page is drawn; the
-  reference also polls every 1.5 s, which a data-module page source cannot (it has no clock).
-- **The Browser defaults rows.** The default viewport's menu lists each preset with its size in one label ("iPhone SE
-  375 × 667"; the reference right-aligns the size and heads the presets "Standard"), and its width and height are plain
-  fields committed on Return or when left (no stepper arrows). A page the module makes (from the launcher, a link, an
-  agent or a relaunch) at a fixed viewport is made at the default zoom (the zoom `browserSync` carries for a page the
-  module has not reported yet), so its first layout is already at it: an iPhone 12 Pro tab at 125% lays its first page
+- **A new page's first layout at the default zoom (X1 path B, [#100](https://github.com/ccheever/exact2/issues/100)).**
+  A page the module makes (from the launcher, a link, an agent or a relaunch) at a fixed viewport is made at the default
+  zoom (the zoom `browserSync` carries for a page the module has not reported yet), so its first layout is already at it: an iPhone 12 Pro tab at 125% lays its first page
   out at 389 × 844 CSS px at devicePixelRatio 2.5, where the reference's guest lays it out at 488 × 1055 at 2 and takes
   the zoom after it loads (measured 2026-10-10). Its appearance, and a Fill page's zoom, follow right after it is made,
   through part 2's `browserSet`; the reference passes both with the tab's state at creation. Show device toolbar on a
   fill tab opens at the configured default viewport when it is fixed (part 2's `browserResponsiveViewportForToggle`).
-- **Where the row shows.** Browser profiles is part of Settings › Integrations, which the clone draws for a connected
-  environment; the reference draws its device-local rows without one.
 
 Part 2, `20261005-browser-surface-navigation` (`browser-history.ts`, `browser-targets.ts`, `browser-viewport.ts`,
 `browser-navigation.ts`, `browser-stage.contract`, `T3BrowserSession+Navigation.swift`, `T3BrowserView.swift`):

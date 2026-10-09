@@ -412,15 +412,18 @@ component IntegrationsPanel
           Card()
             each item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
               ScopedSettingRow(row=item, busy=busy, rest=rest, restInput=restInput)
-        column width="100%" gap="0.625rem" testId="integrations-browser"
-          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
-            SectionTitle(title="Browser")
-          Card()
-            // Part 4: the group's rows (BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show); "Open links in" is part 5's.
-            BrowserProfilesSetting(view=data.browserProfiles, local=local)
-            BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
-            BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
-            BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
+      // IntegrationsSettingsPanel: the Browser section's rows are device-local ("ignore the header selection"), so they show
+      // with no connected environment too. Part 4: BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show;
+      // "Open links in" is part 5's.
+      column width="100%" gap="0.625rem" testId="integrations-browser"
+        row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+          SectionTitle(title="Browser")
+        Card()
+          BrowserProfilesSetting(view=data.browserProfiles, local=local)
+          BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
+          BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
+          BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
+      when data.available
         column width="100%" gap="0.625rem" testId="integrations-devices"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Devices")

@@ -6,9 +6,26 @@
 use SelectOption from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsSwitch from "./settings-kit.contract"
+use SkPopup from "./settings-kit.contract"
+use SkField from "./settings-kit.contract"
+use SkInk from "./settings-kit.contract"
+use LucideChevronDown from "./settings-icons.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
 use LucideUndo2 from "./settings-icons.contract"
 use LucideRotateCcw from "./settings-icons.contract"
 use TipBubble from "./shell-tip.contract"
+
+// The viewport menu's rows (browser-defaults.ts ViewportOption): a preset's size is `detail`; the first preset carries the
+// "Standard" group heading.
+shape BdViewportOption
+  value: string
+  label: string
+  detail: string
+  heading: string
+  selected: bool
 
 shape BrowserDefaultsView
   viewportValue: string
@@ -18,7 +35,7 @@ shape BrowserDefaultsView
   viewportHeight: number
   rotateLabel: string
   viewportReset: bool
-  viewportOptions: list<SelectOption>
+  viewportOptions: list<BdViewportOption>
   zoomLabel: string
   zoomReset: bool
   zoomOptions: list<SelectOption>
@@ -68,7 +85,7 @@ component BrowserTabDefaultRows
   view
     column width="100%" testId="browser-defaults"
       BdRow(rowId="viewport", title="Default browser viewport", description="Tab size for you and agents. Fill fits the panel; other sizes show the device toolbar.", reset=view.viewportReset, resetLabel="default browser viewport", resetPress=pick("reset", "viewport"))
-        SettingsSelect(selectId="browser-default-viewport", label="Default browser viewport", valueLabel=view.viewportLabel, value=view.viewportValue, width=(176 * rem / 16), disabled=false, options=view.viewportOptions, choose=pick("viewport"))
+        BdViewportSelect(label=view.viewportLabel, width=(176 * rem / 16), options=view.viewportOptions, choose=pick("viewport"))
         when view.viewportSized
           BdViewportSize(view=view, pick=pick)
       BdRow(rowId="zoom", title="Default browser zoom", description="Page zoom applied to new browser tabs.", reset=view.zoomReset, resetLabel="default browser zoom", resetPress=pick("reset", "zoom"))
@@ -81,6 +98,52 @@ component BrowserTabDefaultRows
         SettingsSwitch(checked=view.keyPresses, label="Show key presses in recordings", disabled=false, switchId="browser-recording-key-presses", toggle=pick("key-presses", view.keyPresses ? "false" : "true"))
       BdRow(rowId="mouse-presses", title="Show mouse presses in recordings", description="Highlight mouse presses and held buttons in new recordings.", reset=false, resetLabel="", resetPress=pick("reset", "none"))
         SettingsSwitch(checked=view.mousePresses, label="Show mouse presses in recordings", disabled=false, switchId="browser-recording-mouse-presses", toggle=pick("mouse-presses", view.mousePresses ? "false" : "true"))
+
+// BrowserViewportSetting's Select (ui/select.tsx size="sm", SelectPopup align="end": 278 wide at 16px, as measured in the
+// reference): Fill panel, Responsive, then a "Standard" SelectGroupLabel over the presets, each preset's size
+// right-aligned in muted tabular figures. Its keyboard is SettingsSelect's (menu-keys.contract).
+component BdViewportSelect
+  props
+    label: string
+    width: number
+    options: list<BdViewportOption>
+    choose: action
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  view
+    box position="relative" width=width
+      button popovertarget="browser-default-viewport-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label="Default browser viewport" id="browser-default-viewport" testId="browser-default-viewport" class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width
+        text label font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
+        LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
+      KeyMenuOpen(menuId="browser-default-viewport-menu", armed=keyArmed, opened=keyOpened)
+      SkPopup(menuId="browser-default-viewport-menu", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=map(options, (option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label)), keyed=keyed)
+        each option in options key=option.value
+          when option.heading != ""
+            text option.heading padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="presentation" testId="browser-default-viewport-group"
+          BdViewportItem(option=option, choose=choose(option.value))
+
+component BdViewportItem
+  props
+    option: BdViewportOption
+    choose: action
+  state hovered = false
+  state lit = false
+  action hover(over: bool)
+    hovered = over
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`browser-default-viewport-option-${option.value}` press=choose popovertarget="browser-default-viewport-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-selected=option.selected testId=`browser-default-viewport-option-${option.value}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="1.25rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : hovered or lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+      text option.label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color="light-dark(#27272a, #f5f5f5)"
+      when option.detail != ""
+        text option.detail flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)"
 
 // The sized viewport's width × height (committed on Enter or when the field is left) and Rotate.
 component BdViewportSize

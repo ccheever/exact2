@@ -322,7 +322,8 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
   if (!wizard) return closedWizard();
   const step = wizard.step, profiles = targetProfiles(client), creatable = canCreateProfile(client);
   if (step.step === 'fullDiskAccess') {
-    // usePermissionStatus: the grant is read again whenever the page is drawn (the reference polls every 1.5 s).
+    // usePermissionStatus: the grant is read again whenever the page is drawn, which app.contract's fdaPolling asks for every
+    // 1.5 s and when the window takes the focus.
     const found = await importContext(client, native).catch(() => null);
     const granted = found ? await safariPermissionCheck(found.io, found.context)().catch(() => false) : false;
     if (!found?.io.letGoSeen()) wizard.fdaGranted = granted;
