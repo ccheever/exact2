@@ -4,7 +4,9 @@ import AppKit
 /// App-owned image lifecycle for ToolActivityIconView (T3 Code 1e2ecbd975,
 /// MIT, LICENSE-T3). Contract keeps the fallback glyph in this hook's host;
 /// Contract toggles its fallback through the hook button's documented click API.
-/// The hook draws only its own subview, including transparent logos.
+/// The hook draws only its own subview, including transparent logos. A muted
+/// image (`data-tool-icon-muted`) is drawn at the reference's `light:brightness-60`
+/// in the light appearance; Contract applies its `opacity-70` (timeline-work-rows TH-10).
 final class T3ToolActivityIcon {
     private var entries: [ObjectIdentifier: IconView] = [:]
 
@@ -16,7 +18,7 @@ final class T3ToolActivityIcon {
         view.autoresizingMask = [.width, .height]
         if view.superview !== host { host.addSubview(view) }
         view.changed = { [weak element] in element?.click() }
-        view.update(light: element.data[.toolIconLight] ?? "", dark: element.data[.toolIconDark] ?? "")
+        view.update(light: element.data[.toolIconLight] ?? "", dark: element.data[.toolIconDark] ?? "", muted: element.data[.toolIconMuted] == "1")
     }
 
     func remove(_ element: ExactElement) {
@@ -32,13 +34,17 @@ final class T3ToolActivityIcon {
     private final class IconView: NSView {
         private static let cache = NSCache<NSString, NSImage>()
         private var light = "", dark = "", source = ""
+        private var muted = false
         private var image: NSImage?
         private var task: URLSessionDataTask?
         var changed: (() -> Void)?
         private var reported = false
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); resolve() }
-        func update(light: String, dark: String) { self.light = light; self.dark = dark; resolve() }
+        override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true; resolve() }
+        func update(light: String, dark: String, muted: Bool) {
+            if muted != self.muted { self.muted = muted; needsDisplay = true }
+            self.light = light; self.dark = dark; resolve()
+        }
         func updateFallback() {
             let loaded = image != nil
             guard loaded != reported else { return }
@@ -82,7 +88,12 @@ final class T3ToolActivityIcon {
             guard let image, image.size.width > 0, image.size.height > 0 else { return }
             let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
             let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
-            image.draw(in: NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height))
+            let rect = NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+            image.draw(in: rect)
+            // CSS brightness(0.6) scales each colour channel by 0.6: 40% black over the image's own pixels.
+            guard muted, effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .darkAqua else { return }
+            NSColor.black.withAlphaComponent(0.4).setFill()
+            rect.fill(using: .sourceAtop)
         }
     }
 }

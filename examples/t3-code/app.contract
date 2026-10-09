@@ -220,7 +220,7 @@ component T3Code
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
       if workspaceRetryKey == workspaceDiscovery.key and now() < workspaceRetryAt
         workspaceRetryWake = workspaceDiscovery.wake
-    if data.running or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
+    if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
       liveNow = now()
   task liveClock mount
     every(1000, liveTick)

@@ -4,9 +4,10 @@
 // (turn folds, superseded attempts, live work, working and thinking rows).
 import { arr, obj, str, type Obj } from './domain';
 import {
-  displayFailed, entryIcon, formatDuration, groupAction, isToolLike, liveEntryLabel, projectedWorkEntry,
-  singleToolCallLabel, successKeepsLive, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, visibleInGroup, type WorkEntry,
+  displayFailed, formatDuration, groupAction, isToolLike, liveEntryLabel, projectedWorkEntry,
+  singleToolCallLabel, successKeepsLive, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, toolPresentation, visibleInGroup, type WorkEntry,
 } from './timeline-worklog';
+import { groupToolPresentation } from './timeline-work-rows';
 import { agentStarted } from './timeline-worktree';
 import { turnItemIsWorkspacePreparation } from './r11-upstream-retry';
 
@@ -24,7 +25,7 @@ export type Row =
   | { kind: 'live'; id: string; createdAt: string; entry: WorkEntry; entries: WorkEntry[]; groupId: string; expanded: boolean; active: boolean; label: string; continues?: boolean }
   | { kind: 'working'; id: string; createdAt: string }
   | { kind: 'thinking'; id: string; createdAt: string; continues?: boolean; groupId?: string; expanded?: boolean }
-  | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; failed: boolean; continues?: boolean }
+  | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; toolIcon: Obj | null; failed: boolean; continues?: boolean }
   | { kind: 'fold'; id: string; createdAt: string; runId: string; label: string; expanded: boolean }
   | { kind: 'attempt'; id: string; createdAt: string; runId: string; attemptId: string; expanded: boolean }
   | { kind: 'compaction'; id: string; createdAt: string; label: string; active: boolean }
@@ -235,9 +236,13 @@ export function deriveRows(input: RowInput): Row[] {
           const single = visible.length === 1 ? visible[0]! : null;
           const singleLabel = single !== null && isToolLike(single) && groupAction(single) !== 'edit';
           const latestTool = findLast(visible, isToolLike);
+          // WorkGroupToggleTimelineRow: a lone tool's T3 icon, else the tools' surface, else the summary glyph;
+          // the image is the primary tool source's icon, else the last entry's (timeline-work-rows TH-3).
+          const presented = groupToolPresentation(visible.map(item => item.item));
+          const summaryToolIcon = singleLabel ? toolPresentation(single, 'completed')?.icon : undefined;
           rows.push({ kind: 'group', id: `work-toggle:${entry.id}`, createdAt: entry.createdAt, runId: work.runId, groupId, count: visible.length, expanded,
             summary: singleLabel ? singleToolCallLabel(single, input.root) : single !== null && !isToolLike(single) ? single.label : summarizeToolGroup(visible).summary,
-            icon: singleLabel ? entryIcon(single) : summaryIcon(summaryKind(visible)), failed: !!latestTool && displayFailed(latestTool) });
+            icon: summaryToolIcon ?? presented.toolSurface ?? summaryIcon(summaryKind(visible)), toolIcon: presented.toolIcon ?? null, failed: !!latestTool && displayFailed(latestTool) });
           if (expanded) rows.push({ kind: 'details', id: `${groupId}:details`, createdAt: entry.createdAt, entries: visible });
         }
       }

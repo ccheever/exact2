@@ -19,7 +19,7 @@ import { jumpToTurn, minimapCurrent, minimapItems, nativeTurns, type MinimapRow 
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips } from './r4-timeline-chips';
-import { hasQuestionAnswer, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
+import { hasQuestionAnswer, notificationChildThreadId, notificationSubagent, plainOutput, questionAnswerPreview, questionHistory, questionTextPreview, runlessWorkStartedAt, type InspectorCode } from './timeline-inspect';
 import { gitChatLocal } from './r4-git-route';
 import { openFileSurface, surfaceLocal } from './r4-surfaces-panel';
 import { mediaLocal } from './media-views'; // media-actions: the media menu, a video's error and Retry
@@ -31,6 +31,8 @@ import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-ga
 import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
 import { stackLayerTarget } from './pages-pr-stack';
 import { openLinkFromUi } from './browser-links';
+import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows'; // timeline-work-rows: TH-1, TH-5
+import { keptThread } from './keep-alive';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -244,6 +246,9 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
   const severe = failed && (entry.itemType === 'error' || !isToolLike(entry));
   const plain = plainOutput(entry, root);
   const inspect = plain === undefined ? inspectorDetail(entry, root) : { input: '', result: '', ok: true };
+  // V2ItemInspector draws search results and file changes as their own parts, not as tool output (TH-5).
+  const extras = plain === undefined ? inspectorExtras(item, path => workspaceRelativePath(path, root)) : NO_INSPECTOR_EXTRAS;
+  const structured = item.type === 'file_search' || item.type === 'web_search';
   const reasoning = entry.itemType === 'reasoning';
   const usage = failedError && obj(item.failure).class === 'usage_limit';
   // An answered question leads with what was asked (even over a lone tool's label) and trails its answer.
@@ -252,11 +257,13 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
     : reasoning ? thoughtText(entry.detail ?? '') || (entry.status === 'inProgress' ? 'Thinking' : 'Thought') : question || (label ?? entryDisplayLabel(entry, root));
   // Reads and skills expand to plain text (output) instead of the inspector (body).
   return { id: entry.id, label: title, body: entry.questionAnswer ? '' : plain !== undefined && fetches ? plain ?? '' : inspect.input, icon: failedError || warning || severe ? 'circle-alert' : entryIcon(entry),
-    output: reasoning ? str(entry.detail) : fetches ? detail.text : plain ?? detail.text, outputState: detail.state, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
+    output: reasoning ? str(entry.detail) : fetches ? detail.text : structured ? '' : plain ?? detail.text, outputState: detail.state, ...extras, detailOpen: turnItemIsOpen(client, entry.id), ...toolActivityIconSources(client, item), result: inspect.result, failed, timestamp: entry.createdAt,
     tone: failedError ? usage ? 'provider-warning' : 'provider-error' : warning ? 'warning' : severe ? 'error' : failed ? 'failed' : '',
     ok: inspect.ok, reasoning, expandable: !failedError && (!!entry.questionAnswer || (plain !== undefined ? !!plain || entry.item.outputOmitted === true || !!detail.text : turnItemHasDetail(entry.item))),
     detail: failedError && !usage ? str(obj(item.failure).message) : '', status: entry.status === 'inProgress' ? 'Thinking' : 'Thought',
-    targetId: entry.itemType === 'thread_created' ? str(item.targetThreadId) : '', retryRunId: preparationFailureRunId(item), // lane r11-upstream (737993303d)
+    // A created thread's Open chat; a subagent notification the parent has no record of keeps Open subagent (TH-2).
+    targetId: entry.itemType === 'thread_created' ? str(item.targetThreadId) : notificationChildThreadId(item), targetLabel: entry.itemType === 'thread_created' ? 'Open chat' : 'Open subagent',
+    retryRunId: preparationFailureRunId(item), // lane r11-upstream (737993303d)
     answer: entry.questionAnswer && hasQuestionAnswer(entry.questionAnswer) ? questionAnswerPreview(entry.questionAnswer) : '' };
 }
 
@@ -272,12 +279,22 @@ export function transcriptRows(client: T3Client): Message[] {
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
     expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
-  const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), format: client.local.deviceSettings.timestampFormat,
+  const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));
 }
 
-interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; format: string; preparing: boolean; detailsOpen: boolean; threads: Obj[] }
+/**
+ * useV2ItemSupport reads an item's own thread: this thread, or an inherited row's source while its
+ * detail is live (a kept running thread); none, and the fork stays available (TH-1).
+ */
+function forkable(client: T3Client, row: Obj, item: Obj): boolean {
+  const source = str(row.sourceThreadId, client.threadId);
+  const projection = source === client.threadId ? client.projection : keptThread(client, source)?.projection;
+  return assistantCanFork(projection ?? {}, item);
+}
+
+interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; providers: Obj[]; format: string; preparing: boolean; detailsOpen: boolean; threads: Obj[] }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
 const entryCode = (entries: WorkEntry[]): InspectorCode[] => entries.flatMap(entry => {
@@ -297,15 +314,16 @@ function present(row: Row, context: PresentContext): Message {
       groupId: row.groupId ?? '', expanded: row.expanded === true };
     case 'live': return { ...base, kind: 'live', title: row.label, icon: entryIcon(row.entry), failed: displayFailed(row.entry), live: row.active,
       expanded: row.expanded, groupId: row.groupId, continues: row.continues === true, runId: row.entry.runId, activities: [{ ...keyedLabel(row, row.label), ...toolActivityIconSources(context.client, row.entry.item) }] };
+    // The group's image icon (TH-3): the primary tool source's, else the last entry's.
     case 'group': return { ...base, kind: 'group', title: row.summary, icon: row.icon, failed: row.failed, expanded: row.expanded, groupId: row.groupId,
-      runId: row.runId, continues: row.continues === true, activities: [keyedLabel(row, row.summary)] };
+      runId: row.runId, continues: row.continues === true, activities: [{ ...keyedLabel(row, row.summary), ...(row.toolIcon ? toolActivityIconSources(context.client, { toolIcon: row.toolIcon }) : {}) }] };
     case 'details': {
       const activities = row.entries.map(entry => activity(entry, root, context.client));
       return { ...base, kind: 'details', activities, continues: row.continues === true, code: entryCode(row.entries) };
     }
     case 'entry': {
       const single = row.entries.length === 1 ? row.entries[0]! : null;
-      const card = single?.itemType === 'notification' ? notificationSubagent(single.item, context.subagents, single.createdAt, shortTime(single.createdAt, context.format)) : null;
+      const card = single?.itemType === 'notification' ? notificationSubagent(single.item, context.subagents, single.createdAt, shortTime(single.createdAt, context.format), context.providers) : null;
       if (card) return { ...base, kind: 'subagent', title: card.label, activities: [card], runId: single!.runId };
       const activities = row.entries.map(entry => activity(entry, root, context.client, row.entries.length === 1 ? row.label : undefined));
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries) };
@@ -321,8 +339,8 @@ function present(row: Row, context: PresentContext): Message {
     }
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
-    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row) };
-    case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true,
+    case 'event': return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers }) };
+    case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
     case 'message': {
       const item = row.entry.item, copy = view.copies.get(row.id);
@@ -330,7 +348,7 @@ function present(row: Row, context: PresentContext): Message {
         copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
       if (row.entry.role === 'assistant') {
         const text = str(item.text);
-        return { ...common, kind: 'assistant', title: 'Assistant', body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads, row.id),
+        return { ...common, kind: 'assistant', title: 'Assistant', canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: messageChips(item, context.root, context.threads, row.id),
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
@@ -349,9 +367,14 @@ function present(row: Row, context: PresentContext): Message {
   }
 }
 
-const blankActivity = (activity: Activity): Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'>> & { timeTip: string } => ({
-  tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '', ...activity,
-  outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '' });
+type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
+  | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel'>> & { timeTip: string };
+const blankActivity = (activity: Activity): RowActivity => ({
+  tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
+  ...activity, outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
+  results: activity.results ?? NO_INSPECTOR_EXTRAS.results, changePath: activity.changePath ?? '', stats: activity.stats ?? false, additions: activity.additions ?? 0,
+  deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
+  initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '' });
 
 /**
  * Timeline rows as Contract draws them, every Message field present. T3 shows
@@ -370,7 +393,8 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0),
       files: message.kind === 'checkpoint' ? treeRows(files, tree.all, tree.overrides) : [],
       runId: message.runId ?? '', sourceThreadId: message.sourceThreadId ?? '',
-      canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.completed === true && message.streaming !== true && message.local !== true,
+      // AssistantForkButton: a completed answer of a run whose provider can fork (TH-1); never a row only this client shows.
+      canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.canFork === true && message.completed === true && message.streaming !== true && message.local !== true,
       completed: message.completed === true, createdAt: message.createdAt ?? '', timestamp: messageTime(message.createdAt, now, format),
       timeTip: timestampTooltip(message.createdAt, format), actionsTimeTip: '', ...codeCopy,
       activities: retryableActivities(client, (message.activities ?? []).map(activity => ({ ...blankActivity({ ...activity, timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),

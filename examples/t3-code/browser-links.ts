@@ -98,7 +98,8 @@ export async function openLink(client: T3Client, native: Native, url: string, op
 }
 
 /** `chatlocal:link-open`: a chat Markdown link ("link": its click's ⌘ or Ctrl, read from the module's last gesture),
- *  or a button that opens a URL ("button": check details, the published repository; no modifier). */
+ *  a button that opens a URL ("button": check details, the published repository; no modifier), or a web search
+ *  result in the work-log inspector ("external": the system browser). */
 export async function openLinkFromUi(client: T3Client, native: Native, kind: string, url: string): Promise<string> {
   if (!url) return '';
   let event = NO_MODIFIER;
@@ -108,10 +109,14 @@ export async function openLinkFromUi(client: T3Client, native: Native, kind: str
     event = { metaKey: held.includes('meta'), ctrlKey: held.includes('control') };
   }
   // A button on the pull request page ("button-page") has no thread to open beside: the system browser.
-  try { await openLink(client, native, url, { event, ...(kind === 'button-page' ? { threadRef: null } : {}) }); }
+  // A work-log web result ("external") is the reference's target=_blank link: always the system browser (setWindowOpenHandler).
+  try {
+    if (kind === 'external') await openInSystemBrowser(native, url);
+    else await openLink(client, native, url, { event, ...(kind === 'button-page' ? { threadRef: null } : {}) });
+  }
   catch (error) {
     if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: kind === 'link' ? 'Unable to open link' : 'Unable to open check details', description: error instanceof Error ? error.message : 'An error occurred.' });
+    pushToast(client, { kind: 'error', title: kind === 'link' || kind === 'external' ? 'Unable to open link' : 'Unable to open check details', description: error instanceof Error ? error.message : 'An error occurred.' });
   }
   return '';
 }

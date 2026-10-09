@@ -8,6 +8,7 @@
 import { toolCallLines } from './timeline-item-detail';
 import { arr, num, obj, str, type Json, type Obj } from './domain';
 import { summarizeT3ToolCalls, t3ActionPriority, t3ToolDefinition, t3ToolPresentation, t3ToolResultFailed, type T3ToolCall, type T3ToolPresentation } from './timeline-t3tools';
+import { extractToolActivityPresentation, notificationSource } from './timeline-work-rows';
 
 export const last = <T>(items: readonly T[]): T | undefined => items[items.length - 1];
 export function findLast<T>(items: readonly T[], test: (item: T) => boolean): T | undefined {
@@ -124,7 +125,8 @@ export function projectedWorkEntry(row: Obj): WorkEntry {
     case 'approval_request': return { ...common, label: title ?? 'Approval requested', detail: str(item.prompt, str(item.requestKind)), toolData: item };
     case 'user_input_request': return { ...common, label: title ?? (item.questionAnswer ? 'Answered questions' : 'Input requested'),
       ...(item.questionAnswer ? { questionAnswer: obj(item.questionAnswer) } : {}), toolData: item };
-    case 'notification': return { ...common, label: str(item.summary), tone: 'info' };
+    // The source is decoded here, once: its icon and the subagent card read the decoded kind (timeline-work-rows TH-2).
+    case 'notification': return { ...common, item: { ...item, source: notificationSource(item.source) }, label: str(item.summary), tone: 'info' };
     default: return { ...common, label: title ?? type.replace(/_/g, ' '), toolData: item };
   }
 }
@@ -421,6 +423,8 @@ export function entryIcon(entry: WorkEntry): string {
     return kind === 'subagent' || kind === 'delegated_task' ? 'bot' : kind === 'command' ? 'terminal' : kind === 'monitor' ? 'eye' : 'zap';
   }
   if (entry.itemType === 'user_input_request' || entry.itemType === 'approval_request') return 'message-circle';
+  const surface = extractToolActivityPresentation(entry.item).toolSurface;
+  if (surface) return surface;
   const presentation = toolPresentation(entry);
   if (presentation) return presentation.icon;
   const action = groupAction(entry);
@@ -491,7 +495,8 @@ export function inspectorDetail(entry: WorkEntry, root: string): { input: string
   const item = entry.item;
   switch (entry.itemType) {
     case 'command_execution': return { input: str(item.input), result: typeof item.exitCode === 'number' && item.exitCode !== 0 ? `exit ${item.exitCode}` : '', ok: item.exitCode === 0 };
-    case 'file_change': return { input: item.status === 'failed' && str(item.diffStr) ? str(item.diffStr) : [workspaceRelativePath(str(item.fileName), root), ...arr(item.changes).map(change => `${str(change.operation, str(obj(change.kind).type))} ${workspaceRelativePath(str(change.path), root)}`)].filter(Boolean).join('\n'), result: '', ok: true };
+    // The path, its counts and each change are the inspector's own parts (timeline-work-rows.ts inspectorExtras).
+    case 'file_change': return { input: item.status === 'failed' && str(item.diffStr).trim() ? str(item.diffStr) : '', result: '', ok: true };
     case 'web_search': return { input: Array.isArray(item.patterns) ? item.patterns.map(pattern => str(pattern)).filter(Boolean).join('\n') : '', result: '', ok: true };
     case 'file_search': return { input: str(item.pattern), result: '', ok: true };
     case 'dynamic_tool': {

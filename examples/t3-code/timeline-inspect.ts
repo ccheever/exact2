@@ -31,7 +31,10 @@ export function plainOutput(entry: WorkEntry, root: string): string | null | und
 }
 
 export interface InspectorCode { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }
-/** notificationChildThreadId: a subagent or delegated task's notification names its child thread. */
+/**
+ * notificationChildThreadId: a subagent or delegated task's notification names its child thread.
+ * The source is the decoded one (projectedWorkEntry, timeline-work-rows.ts `notificationSource`).
+ */
 export function notificationChildThreadId(item: Obj): string {
   const source = obj(item.source);
   return item.type === 'notification' && (source.kind === 'subagent' || source.kind === 'delegated_task') ? str(source.childThreadId) : '';
@@ -44,13 +47,14 @@ const OUTCOME_LABEL: Record<string, string> = { completed: 'Finished', failed: '
  * drawn as that subagent's card, with the status it reported then (no dot for
  * an update) and the time it arrived in place of the elapsed time.
  */
-export function notificationSubagent(item: Obj, subagents: Obj[], createdAt: string, time: string): Activity | null {
+export function notificationSubagent(item: Obj, subagents: Obj[], createdAt: string, time: string, providers: Obj[] = []): Activity | null {
   const childThreadId = notificationChildThreadId(item);
   const agent = childThreadId ? subagents.find(candidate => candidate.childThreadId === childThreadId) : undefined;
   if (!agent) return null;
   const outcome = str(item.outcome, 'unknown'), status = OUTCOME_STATUS[outcome] ?? '';
-  const card = subagent({ ...agent, status: status || str(agent.status) });
-  return { ...card, id: str(item.id, card.id), result: OUTCOME_LABEL[outcome] ?? 'Finished', output: time, failed: status === 'failed',
+  const card = subagent({ ...agent, status: status || str(agent.status) }, { agents: [], providers });
+  // The event's time stands where the elapsed time would: it never ticks.
+  return { ...card, id: str(item.id, card.id), result: OUTCOME_LABEL[outcome] ?? 'Finished', output: time, startedMs: 0, failed: status === 'failed',
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : status === 'cancelled' ? 'muted' : 'none',
     status: 'event', targetId: childThreadId, timestamp: createdAt };
 }

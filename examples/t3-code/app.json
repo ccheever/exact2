@@ -92,6 +92,7 @@
     "device-ax",
     "surface-launcher-keys",
     "tool-icon-light",
-    "tool-icon-dark"
+    "tool-icon-dark",
+    "tool-icon-muted"
   ]
 }
