@@ -580,10 +580,11 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
     [#283](https://github.com/ccheever/exact2/issues/283); Write and Preview report their own). With the focus on one
     of them, Escape leaves the page where the reference's markdown editor would cancel; the title, a reply and the
     draft hear Escape only from their field in the reference too.
-- **Toggle tooltips.** The Usage metric and period toggles and the narrow selects' options carry the reference's
-  `title` ("Cost (C)", "Past 24h (⇧⌘1)"): Exact's `title` is the platform's tooltip (`NSView.toolTip`, set from the
-  node's `title` in `PresenterMac`), as Electron shows the native one. TOOLTIP_EVIDENCE The tooltip itself shows only
-  under a real pointer in an active app.
+- **Toggle tooltips.** The Usage metric and period toggles and the narrow selects' options carry the reference's `title`
+  ("Cost (C)", "Past 24h (⇧⌘1)"): Exact's `title` is the platform's tooltip (`NSView.toolTip`, set from the node's
+  `title` in `PresenterMac`), as Electron shows the native one. An agent drive reads it in the node's props (`tree
+  usage-metric-cost`: `"title": "Cost (C)"`; `tree usage-period-1`: `"title": "Past 24h (⇧⌘1)"`), not in `tree --ax`,
+  whose description is `aria-description`'s. The tooltip itself shows only under a real pointer in an active app.
 
 ## Not exact2 asks (stay in the app module)
 

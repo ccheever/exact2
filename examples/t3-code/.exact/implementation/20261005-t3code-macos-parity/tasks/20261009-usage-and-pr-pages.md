@@ -20,7 +20,7 @@ verified_commit: null
 - Toggles and period options carry their shortcut tooltips.
 - The environment menu shows full names on an opaque background.
 - Pull Requests › Filters › Author has its search field.
-- Escape leaves the Pull Requests page.
+- Escape leaves the Pull Requests page for the page before it, unless a menu, a popover or a focused editor field holds it.
 
 Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
@@ -152,10 +152,10 @@ is dismissed). The reference is the Electron build on this lane (16360/16361), d
 | --- | --- | --- |
 | PG-2 | Pass: Past 24h Codex "85.4% of tokens · $0.83", Day table Oct 9 Codex $0.83, gpt-5.5 Input $1.28 (before: $0.82, $0.82, $1.27); the reference reads the same. `pages-usage.test.ts` compares `formatUsd` with ICU's `Intl.NumberFormat` over 16,000 values | [pg2 triple](https://raw.githubusercontent.com/ccheever/exact2/82126c6ce55240af5dba7a1480c313f27781910d/usage-and-pr-pages/pg2-rounding.png) |
 | PG-3 | Pass for opening: the pointer on the (i) for 600 ms shows "API estimate excludes 10.0% unpriced records." above it, one line, as the reference (before: nothing). Leaving: not shown live (the drive's "leave" step put the pointer on the popup itself, which keeps it open, as Base UI's does); real-input step 1 | [pg3 triple](https://raw.githubusercontent.com/ccheever/exact2/30fcfd12c0a0087095376fdd3cd946541c0c24a1/usage-and-pr-pages/pg3-hover-popover.png) |
-| PG-4 | Pass for the titles: the served keybindings give Cost (C), Tokens (T), Limits (L), Past 24h (⇧⌘1) … 90 days (⇧⌘4) (live state; before: none), the toggles and options carry them (`usage-pr-pages.test.ts`). The tooltip itself shows only under a real pointer in an active app: real-input step 2 | [pg4 text](https://raw.githubusercontent.com/ccheever/exact2/dd459d80885fe8a7b6309ddea7c55f0a7cb5f5d8/usage-and-pr-pages/pg4-toggle-tooltip.png), [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt) |
+| PG-4 | Pass for the titles: the served keybindings give Cost (C), Tokens (T), Limits (L), Past 24h (⇧⌘1) … 90 days (⇧⌘4) (live state; before: none), the toggles and options carry them (`usage-pr-pages.test.ts`). The tooltip itself shows only under a real pointer in an active app: real-input step 2. Review round 1: the rendered toggles carry them, `tree usage-metric-cost` reads `"title": "Cost (C)"` and `tree usage-period-1` `"title": "Past 24h (⇧⌘1)"` (before: none); `tree --ax` gives no description for a `title` (the first note said it did) | [pg4 text](https://raw.githubusercontent.com/ccheever/exact2/dd459d80885fe8a7b6309ddea7c55f0a7cb5f5d8/usage-and-pr-pages/pg4-toggle-tooltip.png), [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt), [round 1 text](https://raw.githubusercontent.com/ccheever/exact2/41bf67b8e8366a86d9036b1e3ebbe87f32460dda/usage-and-pr-pages/text-r1-before-after.txt) |
 | PG-5 | Pass: "Daehyeon's MacBook Pro  Ready" in full, the menu as wide as the reference's, on an opaque popup (before: "Daehyeon's MacBook…", the headline through it) | [pg5 triple](https://raw.githubusercontent.com/ccheever/exact2/3960497b82649ccf4e4ba23d395da9e3ffde3bfb/usage-and-pr-pages/pg5-environment-menu.png) |
-| PG-6 | Pass: the Author submenu starts with "Search authors", which has the focus (the live state's focus is the field's editor); typing "zz" reads "No authors found"; ↓ moves to Anyone; Escape closes the menus and the page stays (before: no field). Filtering with authors is unit-tested (the fixture has no pull requests on either side) | [pg6 triple](https://raw.githubusercontent.com/ccheever/exact2/8c7bb707f4beebe45e60d415240916999d526e48/usage-and-pr-pages/pg6-author-search.png), [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt) |
-| PG-7 | Pass: thread → Pull Requests → Escape → the thread (before: Escape does nothing); with the Filters menu open, the first Escape closes it and the page stays, as the reference | [pg7 triple](https://raw.githubusercontent.com/ccheever/exact2/d782c8d5c44d8e35b0a0e1196078a47bd9e3f3d9/usage-and-pr-pages/pg7-escape-back.png), [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt) |
+| PG-6 | Pass: a press on Author focuses "Search authors" (live: focus `pr-author-search`), typing "zz" reads "No authors found", ↓ moves to Anyone, Escape closes the menus and the page stays (before: no field). Review round 1: →, Enter or Space on Author focus its first row, Anyone, as the reference's Base UI submenu does (reference: `menuitemradio` "Anyone"; live: focus `pr-author-anyone`); Filters opened again by ↓ (not only by a press) starts with an empty search (live: value "" after "zz", as the reference). Filtering with authors is unit-tested (no pull requests in either fixture) | [pg6 triple](https://raw.githubusercontent.com/ccheever/exact2/8c7bb707f4beebe45e60d415240916999d526e48/usage-and-pr-pages/pg6-author-search.png), [round 1 triple](https://raw.githubusercontent.com/ccheever/exact2/10247bcaf459a53a83bc3a45a0a7604ddfcce574/usage-and-pr-pages/r1-pg6-author-focus.png), [round 1 text](https://raw.githubusercontent.com/ccheever/exact2/41bf67b8e8366a86d9036b1e3ebbe87f32460dda/usage-and-pr-pages/text-r1-before-after.txt) |
+| PG-7 | Pass: thread → Pull Requests → Escape → the thread (before: Escape does nothing); with the Filters menu open, the first Escape closes it and the page stays, as the reference. Review round 1: Escape goes back to the page before, as history.back(): Usage → ⌘K "Open pull requests" → Escape → Usage → Escape → the thread (live `utilityPage` "usage" then ""; reference `#/usage` then the thread; before: the page stays). The editors hold Escape only while their field has the focus and are not modal: not driven (no pull request in either fixture), unit-tested and declared in `EXACT2-GAPS.md` | [pg7 triple](https://raw.githubusercontent.com/ccheever/exact2/d782c8d5c44d8e35b0a0e1196078a47bd9e3f3d9/usage-and-pr-pages/pg7-escape-back.png), [round 1 triple](https://raw.githubusercontent.com/ccheever/exact2/85f181925cc50180d448f287a057d372c6129c40/usage-and-pr-pages/r1-pg7-escape-history.png), [round 1 text](https://raw.githubusercontent.com/ccheever/exact2/41bf67b8e8366a86d9036b1e3ebbe87f32460dda/usage-and-pr-pages/text-r1-before-after.txt) |
 
 ## Tests
 
@@ -167,6 +167,12 @@ is dismissed). The reference is the Electron build on this lane (16360/16361), d
   popups left; PG-6's `prVisibleAuthors` evaluated over a list (chosen first, login or name, trimmed, at most 10, none),
   the field's focus and keys, `presentList` sending all authors with names; PG-7's Back and the Escape owners'
   `aria-modal`.
+- Review round 1, in `usage-pr-pages.test.ts`: PG-6's reset on a ↓/↑ opening (`keyOpened`) and where each opening puts
+  the focus (a press: the field; a key: the first row); PG-7's `pageTrailNext` evaluated page by page (Usage → Pull
+  Requests → back → back, a longer trail, a thread between), every Back wired to `pageBack`, the list's and the
+  panel's `PrPageBack`, no editor `aria-modal`, each editor's focus report and its letting go (title, markdown editor
+  with Write/Preview and the ⌘↵ keyup, reply, draft), `PrPanel`'s hold and the surface's filter, `prdEscapeLive`
+  evaluated (the draft open or not, a reply before and after its thread's serial moves on).
 
 Checks: see the PR ("Checks").
 
@@ -193,6 +199,19 @@ build and then this branch with the same steps; live drive 1 showed the author s
 28pt field (fixed: the field is one line tall, centred by its row), and the one retry drive checked it, ↓ and the
 Escape sequence again. `EXACT2-GAPS.md`: X71 (local draft, not filed) and the section "Usage and Pull Requests pages".
 
+2026-10-10, review round 1 (independent review of PR #375, five should-fix rows): (1) the pull request editors were
+`aria-modal` while open, which silenced every other app shortcut and kept an Escape from outside them on the page: they
+now hold Escape only while their field has the focus, reported to `PrPanel`, and are not modal; the popovers stay modal
+for want of a popover event (X66, #319), and the markdown editor's Cancel and Save report no focus (X54, #283), both
+declared with their issue numbers. (2) Back went straight to the thread: it now goes back through the pages
+(`pageTrail`), for the Usage page too. (3) Filters opened by ↓ or ↑ kept the last author search: it is cleared on every
+opening. (4) Where the Author submenu puts the focus was checked on the reference: a key gives it to Anyone (Base UI's
+first row), a press to the search; the clone did not match on the keyboard path (it focused the search), now does, and
+the drive checked both. (5) The PG-4 note claimed `tree --ax` shows the title; the drive's `tree` props do, and the note
+says so. Reference re-shot over CDP; the base and this branch driven once each with `target/usage-and-pr-pages/drive2.sh`.
+Merged `origin/feat(example)/t3-code` twice (`ba0af7967`, then `2dc9b0043`; one conflict on the T3Window call in
+`app.contract`, both sides kept).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
@@ -200,10 +219,16 @@ Escape sequence again. `EXACT2-GAPS.md`: X71 (local draft, not filed) and the se
 | Before drive | evidence-base `950e8e2e5` | Complete (a first run stopped at a second toast's dismiss button, which only the update toast's stack had; update checks off, then complete) | [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt) |
 | After drive (the live drive) | this branch `a529aa727` (bundle) | Complete; every row as above but the search field's text sat at the top of its field | the links above |
 | Retry drive (the one retry) | this branch `08679e5e8` (bundle) | Complete: the field's text centred, focus in the field, ↓ to Anyone, Escape twice | [pg6 triple](https://raw.githubusercontent.com/ccheever/exact2/8c7bb707f4beebe45e60d415240916999d526e48/usage-and-pr-pages/pg6-author-search.png), [text](https://raw.githubusercontent.com/ccheever/exact2/9ae47afb399b9560068888f460aa20fe18d54a58/usage-and-pr-pages/text-before-after.txt) |
+| Review round 1, before | evidence-base `950e8e2e5` | Complete on the second run (the first stopped at `tap open-pull-requests`: the base stays on Pull Requests after Escape, where the sidebar shows Back; the base side skips that tap) | [round 1 text](https://raw.githubusercontent.com/ccheever/exact2/41bf67b8e8366a86d9036b1e3ebbe87f32460dda/usage-and-pr-pages/text-r1-before-after.txt) |
+| Review round 1, after (the live drive) | this branch `e74a541ad` (bundle) | Complete: titles in the props, Escape to Usage then the thread, → to Anyone, a press to the search, the search empty after a ↓ reopen | [pg7 round 1](https://raw.githubusercontent.com/ccheever/exact2/85f181925cc50180d448f287a057d372c6129c40/usage-and-pr-pages/r1-pg7-escape-history.png), [pg6 round 1](https://raw.githubusercontent.com/ccheever/exact2/10247bcaf459a53a83bc3a45a0a7604ddfcce574/usage-and-pr-pages/r1-pg6-author-focus.png), [text](https://raw.githubusercontent.com/ccheever/exact2/41bf67b8e8366a86d9036b1e3ebbe87f32460dda/usage-and-pr-pages/text-r1-before-after.txt) |
 
 ## Next action
 
 The coordinator reviews the draft PR [#375](https://github.com/ccheever/exact2/pull/375), runs real-input steps 1 and 2 in the next batch, and merges it. Seen on both
 builds, not this task's finding: the Usage page draws the Codex dot and chart series in their dark-scheme colour
 (#f5f5f5) in a light window in agent mode (PG-1's area, [app-color-scheme](closed/20261009-app-color-scheme.md)).
-`pages-usage*.contract` and `pages-prs.contract` are shared with other tasks; the second to merge keeps both sides.
+Also seen on the reference in review round 1, not this task's findings and not fixed: Escape in a Filters submenu
+closes only the submenu and gives the focus back to its row (the clone's closes the whole Filters menu, every
+submenu, since fix-keyboard-focus); the reference draws no check on the Author submenu's Anyone while no author is
+chosen (the clone ticks it). `pages-usage*.contract` and `pages-prs.contract` are shared with other tasks; the second
+to merge keeps both sides.
