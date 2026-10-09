@@ -95,19 +95,31 @@ The root cause of S1-1, S1-2, S1-3 and S2-1: an `aria-keyshortcuts` button hears
 `nodes().first`), so Settings' Back took every Escape unless `menuOpen` named the owner, and it named only some. The web's
 order differs (the page's Escape runs only when nothing prevented it), so each owner has to be known at the window.
 
-- `app-settings.contract` `SettingsWindow`: one `derive escapeOwned` (the old `menuOpen` terms, plus the Keybindings
-  search, a recording shortcut, the licence search, and an open "Add custom model" field) feeds Back's `menuOpen`. The
-  "Add custom model" field's open state moved from `ProviderModels` into the window (`modelAdding`, set through the
-  Providers page's `ui("model-adding", id)`; a route change or another provider clears it, as the reference's section
-  unmounts); its Cancel keeps its Escape shortcut, now the only one heard. The slug field and the Keybindings search have
-  `autofocus` (the reference's `autoFocus`); both searches `preventDefault()` their Escape.
+- `app-settings.contract` `SettingsWindow`: one `derive escapeOwned` (the old `menuOpen` terms, plus a recording
+  shortcut and the fields whose own `key` handler takes Escape) feeds Back's `menuOpen`. A field owns Escape only while
+  it has the focus, as the reference's onKeyDown hears it only from the focused input: `escapeFocus` is set by the
+  Keybindings search's, the licence search's and the "Add custom model" slug field's `focus` and cleared by their
+  `blur` (and by their own Escape, since a field the view removes may send no `blur`). A search left open with a query
+  and the focus elsewhere lets Escape leave Settings, as in the reference.
+- "Add custom model": the window holds the open field by its Models block's key (`modelAdding`, set through the
+  Providers page's `ui("model-adding", blockKey)`); `ProviderEditor` shows it while `modelAdding == block.key`. Every
+  successful custom model add or remove renews the block's key (`providers.ts` `modelRevisionsOf`), so a successful add
+  closes the field as `handleAdd`'s `setIsAdding(false)` does, a refused add keeps it open with its error, and removing
+  the added model does not bring it back. `modelAddingShown` (the key is on the page) guards the ownership, so a removed
+  instance or a successful add gives Escape back to Back. The slug field's `key` handler cancels on Escape
+  (`preventDefault()`, the reference's onKeyDown); Cancel declares no Escape shortcut. A route change or another
+  provider clears the field, and T3Window mounts `SettingsWindow` only while Settings is open, so all its view state
+  (the field, the searches, the legacy rows) starts over each time, as the reference's settings route remounts. The
+  slug field and both searches have `autofocus` (the reference's `autoFocus`); both searches `preventDefault()` their
+  Escape.
 - The When editor and the font list are `aria-modal` popovers (the host's frontmost-modal rule, `Shortcuts.swift`): no
   shortcut outside them hears a key while they show, so the host's light dismiss closes them on Escape (the theme colour
   picker's pattern). A Settings dialog (`restEditor`, `settingsCore.saOpen`: Add device host and the confirms, the
   archive confirm) makes `settings-dialog` inert, so the dialog's own Escape (Close, Cancel) is the only one heard.
-- The recorder's row is `aria-modal` while it records, so it takes every chord (Back's Escape, ⌘K, "/"), and
-  `ShortcutDispatch` gets no items while it records on the Keybindings route, so no ⌘ menu item can run either (the
-  reference's shortcut listeners skip `[data-keybinding-capture]`). Leaving the recorder (`blur`) stops recording and keeps
+- The recorder's row is `aria-modal` while it records, so no shortcut button outside it hears a key (Back's Escape,
+  ⌘K, "/"; `Shortcuts.swift` `shortcutAdmits`), and the recorder view's `performKeyEquivalent` takes a ⌘ chord before
+  the main menu does (AppKit gives key equivalents to the key window's views first), so the menu bar keeps its items
+  while recording, as the reference's does (the reference's shortcut listeners skip `[data-keybinding-capture]`). Leaving the recorder (`blur`) stops recording and keeps
   the draft (the reference input's `onBlur`); `captureKeybinding`'s `"blur"` keeps `keybindingKey`. The conflict warning
   now has the reference's tooltip sentence (`WarningTooltipIcon`), and the unknown-condition warning its own.
 - S2-5: the Settings nav takes the shared `sidebarWidth` (clamped as AppSidebarLayout's: 13rem or the brand, up to the
@@ -132,9 +144,30 @@ agent-mode drive, 135 ops), reference = T3 Code `1e2ecbd975` Electron over CDP. 
 Drive scripts: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/4e9c607297ced3a4f6df887f58d1f2262ab20d2a/settings-escape-and-nav/drive.sh.txt) (both builds, same steps;
 the before build needed three sessions because of its S2-1 bug), [ref-flow.mjs](https://raw.githubusercontent.com/ccheever/exact2/9c3b1d1cb507624a715682cf1a119779ddad03f1/settings-escape-and-nav/ref-flow.mjs.txt).
 
-Tests: `settings-escape.test.ts` (10 tests: every Escape owner in `escapeOwned`, the modal popovers and recorder, the
-inert page under a dialog, the window's "Add custom model" state, ShortcutDispatch off while recording, the warning
-tooltip, the shared width and the rail); `theme-color-picker.test.ts` still pins Back's line. Checks: see the PR.
+Tests: `settings-escape.test.ts` (11 tests: every Escape owner in `escapeOwned`, the fields' focus ownership, the modal
+popovers and recorder, the inert page under a dialog, the "Add custom model" block key and slug field, ShortcutDispatch
+kept while recording, the warning tooltip, the shared width and the rail); `providers.test.ts` drives the "Add custom
+model" block key over the providers page model; `theme-color-picker.test.ts` still pins Back's line. Checks: see the PR.
+
+### Review round (2026-10-10)
+
+An independent review of the draft PR found one blocking and four should-fix problems; each is fixed. Before = feature
+tip `950e8e2e5` (`t3-code-evidence-base`), after = this branch's bundle after the fixes (one live agent-mode drive),
+reference = T3 Code `1e2ecbd975` over CDP. Each image: before | after | reference.
+
+| Review finding | Result | Proof |
+| --- | --- | --- |
+| Blocking: after a successful Add the "Add custom model" field stayed open (window state, no remount) | fixed: the field is held by the Models block's key, renewed by every successful add or remove; Enter in the slug field adds `review-model` and the field closes (tree: `custom-model-slug` absent, `add-custom-model` present, "1 model"); Escape then leaves Settings; removing the model does not bring the field back ("0 models", field absent). `providers.test.ts` drives it over the page model and fails without the revision | [review-r1-add-closes.png](https://raw.githubusercontent.com/ccheever/exact2/fe0e23c5714ba03e69b4ec15bf2c67c7eb4bc930/settings-escape-and-nav/review-r1-add-closes.png), [review-r1-add-then-escape.png](https://raw.githubusercontent.com/ccheever/exact2/8affbde1db26ff61cb8b78ab30e046498b7245c7/settings-escape-and-nav/review-r1-add-then-escape.png), [review-r1-remove-stays-closed.png](https://raw.githubusercontent.com/ccheever/exact2/b2f1dadae7325599d206ec53b8e8fe76c5fc4b76/settings-escape-and-nav/review-r1-remove-stays-closed.png), [drive record](https://raw.githubusercontent.com/ccheever/exact2/9d680baab6d31e1e681692718ca95e744da2e84e/settings-escape-and-nav/review-drive-record.txt) |
+| A stale `modelAdding` outlived its field (Settings closed by Back, reopened from a provider link; a removed instance) | fixed: T3Window mounts `SettingsWindow` only while Settings is open, so the window's view state starts over on every opening whatever path opens it; a removed instance's key leaves the page, so the field no longer counts (`modelAddingShown`). Drive: field open, Escape with the focus elsewhere closes Settings, Settings › Providers reopens with the field closed | [review-r2-reopened.png](https://raw.githubusercontent.com/ccheever/exact2/3fbf43a845622f38e9f9bc4d97f3a98836a13a8d/settings-escape-and-nav/review-r2-reopened.png) |
+| `escapeOwned` counted an open field, not a focused one | fixed: `escapeFocus` from the fields' `focus`/`blur`; Cancel lost its Escape shortcut and the slug field's `key` handler cancels. Drive: the Keybindings search holding "diff" with the focus on a row's text, Escape closes Settings; "Add custom model" open with the focus on Add, Escape closes Settings (both as the reference); Escape in the focused slug field still cancels and Providers stays; the licence search (now `autofocus`, as the reference's) clears and closes on Escape | [review-r3-search-escape-elsewhere.png](https://raw.githubusercontent.com/ccheever/exact2/7e54d84a1614ad21021845978bdd1ee370703de2/settings-escape-and-nav/review-r3-search-escape-elsewhere.png), [review-r3-add-escape-elsewhere.png](https://raw.githubusercontent.com/ccheever/exact2/3b1f6ef1c8f2ee4e2595dcf1da1cd7519fba4cc1/settings-escape-and-nav/review-r3-add-escape-elsewhere.png), [review-s1-2-custom-model.png](https://raw.githubusercontent.com/ccheever/exact2/2ce6d9e2de09c78fc996684f5d815e57529dec12/settings-escape-and-nav/review-s1-2-custom-model.png), [review-r3-license-escape.png](https://raw.githubusercontent.com/ccheever/exact2/95ca2f09f37dbab074a1795b6d650fa8d9591630/settings-escape-and-nav/review-r3-license-escape.png) |
+| Emptying `ShortcutDispatch` while recording removed the app's ⌘ menu items | fixed: `ShortcutDispatch` keeps its items; the recording row's `aria-modal` and the recorder's `performKeyEquivalent` keep chords from the app's shortcuts. Drive (agent ⌘K): the field reads `mod+k`, the conflict warning shows, `palette-input` absent. Real ⌘K and the unchanged menu bar: real-input step 2 | [drive record](https://raw.githubusercontent.com/ccheever/exact2/9d680baab6d31e1e681692718ca95e744da2e84e/settings-escape-and-nav/review-drive-record.txt) |
+| `settings-escape.test.ts` checks source text only | added a behavioral test over the providers page model (`providers.test.ts`, "an open "Add custom model" field survives other writes and a refused add, and closes for good after a successful add"); the source tests follow the new mechanism (11 tests) | test output in the PR |
+
+Drive scripts: [review-drive.sh](https://raw.githubusercontent.com/ccheever/exact2/fd9d660167bbdb6eeb6ff5d439aa6063df092091/settings-escape-and-nav/review-drive.sh.txt) (both builds, same steps;
+the before build closed Settings on the keybinding search's Escape, its S1-1 bug, so its last scenarios ran in a second
+session), [review-ref-flow.mjs](https://raw.githubusercontent.com/ccheever/exact2/7fa62c259c77088d195827f4a41748ea391736de/settings-escape-and-nav/review-ref-flow.mjs.txt). In the reference, Tab from the
+Keybindings search lands on "Add keybinding", whose tooltip opens on focus and takes the first Escape; the drive leaves
+the search by a click on a row's text instead, on both sides.
 
 ## Real-input batch steps
 
@@ -146,13 +179,15 @@ T3_LOCAL_PORT=16902 EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs
    press Escape. Expect: the chips read ⌘N again and Keybindings stays. Press Escape again: Settings closes.
 2. **S1-4.** Settings › Keybindings › + › Command: Diff: Toggle › click "Unassigned", press ⌘K. Expect: the field reads
    `mod+k`, an amber triangle (hover: "Conflicts with Command Palette: Toggle. The most recent matching binding wins
-   when both conditions can apply."), Save enabled, no command palette. Click "Unassigned"/the field again, then click an
-   empty part of the page: recording stops and the field keeps its text. Do not press Save.
+   when both conditions can apply."), Save enabled, no command palette. While it records, the File and View menus keep
+   their items (a palette here would mean the main menu took ⌘K before the recorder). Click "Unassigned"/the field
+   again, then click an empty part of the page: recording stops and the field keeps its text. Do not press Save.
 3. **S2-5.** Settings › General. Hover the nav's right edge: the cursor is a resize arrow and "Drag to resize sidebar"
    shows. Drag the edge 120 pt right: the nav is about 376 pt wide. Back (or Escape): the thread sidebar has the same
    width. Settings again, double-click the edge: 256 pt.
 
 ## Next action
 
-Review the draft PR. The three real-input steps above (S1-3 real Escape, S1-4 real ⌘K, S2-5 real drag) go into the next
-real-input batch; every row passes in agent mode.
+Review the draft PR (the 2026-10-10 review's findings are fixed, above). The three real-input steps above (S1-3 real
+Escape, S1-4 real ⌘K with the menu bar unchanged, S2-5 real drag) go into the next real-input batch; every row passes in
+agent mode.

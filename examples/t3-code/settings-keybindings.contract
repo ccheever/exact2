@@ -108,6 +108,7 @@ component KeybindingsPanel
     search: action
     searchToggle: action
     searchKey: action
+    searchFocus: action // settings-escape-and-nav: the search field has the focus, so its Escape is its own
     add: action
     cancelAdd: action
     chooseCommand: action
@@ -130,7 +131,7 @@ component KeybindingsPanel
           when searchOpen
             row width="11rem" height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
               LucideSearch(size=12, color="light-dark(#71717b, #818181)")
-              input value=query input=search key=searchKey blur=searchToggle(false) autofocus=true placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
+              input value=query input=search key=searchKey focus=searchFocus blur=searchToggle(false) autofocus=true placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
           button press=add disabled=(busy or not data.writable) class=KbIcon aria-label="Add keybinding" id="add-keybinding" testId="add-keybinding" opacity=(busy or not data.writable ? 0.64 : 1)
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
           button press=openFile disabled=(busy or data.path == "") class=KbIcon aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1)

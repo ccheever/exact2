@@ -173,15 +173,21 @@ component SettingsWindow
   state settingsRestoreOpen = false
   state keybindingSearch = false
   state licenseSearchOpen = false
-  // settings-escape-and-nav: the provider whose "Add custom model" field is open (ProviderModelsSection isAdding),
-  // and whether the pointer is over the sidebar rail ("Drag to resize sidebar").
+  // settings-escape-and-nav: the "Models" block whose "Add custom model" field is open (ProviderModelsSection
+  // isAdding, by the block's key: a successful add gives the block a new one), the field whose onKeyDown would take
+  // Escape and that has the focus ("keybindings-filter", "license-search", "custom-model-slug"), and whether the
+  // pointer is over the sidebar rail ("Drag to resize sidebar"). T3Window mounts this view only while Settings is
+  // open, so all of it starts over each time, as the reference's settings route remounts.
   state modelAdding = ""
+  state escapeFocus = ""
   state railHover = false
+  derive modelAddingShown = modelAdding != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAdding))) > 0
   // settings-escape-and-nav: Escape belongs to the innermost thing that owns it (useEscapeToGoBack runs only for an
-  // Escape nothing prevented): a field's search or popup, an inline editor, a recording shortcut. While one owns it,
-  // Back gives up its Escape shortcut; with none, Escape leaves Settings. The When editor's and the font list's
-  // popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (settings-dialog below).
-  derive escapeOwned = settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingSearch or keybindingRecording)) or (settingsRoute == "open-source-licenses" and licenseSearchOpen) or (settingsRoute == "providers" and (providerPage.escapeOwned or modelAdding != ""))
+  // Escape nothing prevented): a popup or menu, an inline editor, a recording shortcut, or a field whose onKeyDown
+  // takes it, which hears it only while it has the focus. While one owns it, Back gives up its Escape shortcut; with
+  // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
+  // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
+  derive escapeOwned = settingsMenu != "" or modelsOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""
   action editSettingsQuery(value: string)
@@ -202,15 +208,24 @@ component SettingsWindow
       settingsLegacyOpen = true
     modelAdding = ""
     corePickRoot(route, target, scope, id)
-  // The Providers page's `ui`: "model-adding" opens (the instance id) or closes ("") an "Add custom model" field; a
-  // provider chosen in the list unmounts the open one, as the reference's section does. The rest is the root's.
+  // The Providers page's `ui`: "model-adding" opens (the block's key) or closes ("") an "Add custom model" field;
+  // "slug-focus" is its slug field taking ("true") or losing ("") the focus. A provider chosen in the list unmounts
+  // the open field, as the reference's section does. The rest is the root's.
   action providerUiWindow(what: string, value: string)
     if what == "model-adding"
       modelAdding = value
+      escapeFocusSet("custom-model-slug", false)
     else
-      if what == "select"
-        modelAdding = ""
-      providerUi(what, value)
+      if what == "slug-focus"
+        escapeFocusSet("custom-model-slug", value == "true")
+      else
+        if what == "select"
+          modelAdding = ""
+        providerUi(what, value)
+  // A field that takes Escape gains or loses the focus. A field that closes on its own Escape is gone before its
+  // blur could say so, so its Escape clears it here too.
+  action escapeFocusSet(field: string, focused: bool)
+    escapeFocus = focused ? field : (escapeFocus == field ? "" : escapeFocus)
   action hoverRail(id: string, over: bool)
     railHover = over
   action coreLegacy
@@ -227,20 +242,25 @@ component SettingsWindow
   action searchKeybindings(open: bool)
     if open or keybindingQuery == ""
       keybindingSearch = open
+    if not open
+      escapeFocusSet("keybindings-filter", false)
   action keybindingSearchKey(name: string)
     if name == "Escape"
       preventDefault()
       keybindingSearch = false
+      escapeFocusSet("keybindings-filter", false)
       editKeybindingQuery("")
   action openLicenseSearch
     licenseSearchOpen = true
   action closeLicenseSearch
     if licenseQuery == ""
       licenseSearchOpen = false
+    escapeFocusSet("license-search", false)
   action licenseSearchKey(name: string)
     if name == "Escape"
       preventDefault()
       licenseSearchOpen = false
+      escapeFocusSet("license-search", false)
       editLicenseQuery("")
   view
     when settingsOpen
@@ -262,7 +282,7 @@ component SettingsWindow
               when settingsRoute == "snap-shot"
                 SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
               when settingsRoute == "keybindings"
-                KeybindingsPanel(data=bindings, query=keybindingQuery, searchOpen=keybindingSearch, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchToggle=searchKeybindings, searchKey=keybindingSearchKey, add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, rest=rest, openFile=rest("keybinding-open", ""))
+                KeybindingsPanel(data=bindings, query=keybindingQuery, searchOpen=keybindingSearch, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchToggle=searchKeybindings, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, rest=rest, openFile=rest("keybinding-open", ""))
               when settingsRoute == "scheduled-tasks"
                 ScheduledPanel(data=scheduled, busy=commandPending, error=(restEditor == "" ? modalError : ""), open=restOpen, rest=rest)
               when settingsRoute == "storage"
@@ -270,7 +290,7 @@ component SettingsWindow
               when settingsRoute == "archived"
                 ArchivedPanel(data=archives, busy=commandPending, error=(restEditor == "" ? modalError : ""), menu=restMenu, raw=restRaw, open=restOpen, showMenu=restMenuOpen, close=restClose)
               when settingsRoute == "open-source-licenses"
-                NoticesPanel(data=licenses, query=licenseQuery, searchOpen=licenseSearchOpen, edit=editLicenseQuery, openSearch=openLicenseSearch, closeSearch=closeLicenseSearch, searchKey=licenseSearchKey, toggle=toggleLicense, retry=retryLicenses)
+                NoticesPanel(data=licenses, query=licenseQuery, searchOpen=licenseSearchOpen, edit=editLicenseQuery, openSearch=openLicenseSearch, closeSearch=closeLicenseSearch, searchKey=licenseSearchKey, focusSearch=escapeFocusSet("license-search", true), toggle=toggleLicense, retry=retryLicenses)
               when settingsRoute == "diagnostics"
                 DiagnosticsPanel(data=diagnostics, busy=commandPending, selectPeriod=selectDiagnosticPeriod, reload=refreshSettings, copy=copyDiagnostic, rest=rest, local=restLocal)
               when settingsRoute == "connections"
