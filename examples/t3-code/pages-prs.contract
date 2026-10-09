@@ -439,6 +439,7 @@ component PrFiltersMenu
   action open(name: string)
     sub = sub == name ? "" : name
     subPointer = true
+    subLeft = false
     if name == "author" and sub != "author"
       focus("pr-author-search")
   action openMenu
@@ -466,6 +467,7 @@ component PrFiltersMenu
       preventDefault()
       sub = name
       subPointer = false
+      subLeft = false
       subKeyed = subKeyed + 1
       focus("pr-filters-sub-keys")
   action subBack(k: string)
@@ -474,18 +476,27 @@ component PrFiltersMenu
       focus(`pr-filter-${sub}`)
       sub = ""
   // audit-wave-followups-3 FW-3: Escape while a submenu is open closes only the submenu, from its rows, its search
-  // field or the Filters rows (Base UI: a menu with an open child leaves Escape to the child, closeParentOnEsc false),
-  // and the focus goes back to the submenu's row. Prevented, it never reaches the popover's own Escape.
+  // field or the Filters rows (Base UI: a menu with an open child leaves Escape to the child, closeParentOnEsc false).
+  // Prevented, it never reaches the popover's own Escape. The focus goes back to the submenu's row, as the submenu's
+  // FloatingFocusManager returns it to its trigger, unless the pointer left that row after the submenu opened (into
+  // the submenu, say): the trigger's mouseleave stops the return, so the focus drops, no row is lit and ↓ moves
+  // nothing; a second Escape still closes Filters (Presenter.routeKey's popover Escape needs no focus). Checked on the
+  // reference over CDP: click Author, Escape in "Search authors" focuses the Author row and ↓ goes to Labels; click
+  // Author, then into the field (or State, then onto Closed), Escape leaves the focus on BODY and ↓ does nothing.
+  state subLeft = false
+  action rowLeft(name: string)
+    if sub == name
+      subLeft = true
+  action closeSub
+    if subLeft
+      blur()
+    else
+      focus(`pr-filter-${sub}`)
+    sub = ""
   action subEscape(k: string)
     if k == "Escape" and sub != ""
       preventDefault()
-      focus(`pr-filter-${sub}`)
-      sub = ""
-  // From "Search authors" the reference's focus does not come back to the Author row (the field unmounts first): no
-  // Filters row is lit. The Filters popup takes it, so the menu's keys (↓, a second Escape) still reach it.
-  action searchEscape
-    focus("pr-filters-keys")
-    sub = ""
+      closeSub()
   derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" ? 232 : 168)
   derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
   view
@@ -502,19 +513,19 @@ component PrFiltersMenu
             column margin-top=subTop margin-right="-0.1875rem" key=subBack
               PrMenuBox(scheme=scheme, width=subWidth, label=sub)
                 KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)
-                  PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, searchEscape=searchEscape, control=control)
+                  PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, searchEscape=closeSub, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
             KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px", modal=true)
-              PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), testId="pr-filter-state")
-              PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), testId="pr-filter-involvement")
+              PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), leave=rowLeft("state"), testId="pr-filter-state")
+              PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), leave=rowLeft("involvement"), testId="pr-filter-involvement")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-              PrSubTrigger(icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), keys=subKey("author"), testId="pr-filter-author")
-              PrSubTrigger(icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), keys=subKey("labels"), testId="pr-filter-labels")
-              PrSubTrigger(icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), keys=subKey("draft"), testId="pr-filter-draft")
-              PrSubTrigger(icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), keys=subKey("review"), testId="pr-filter-review")
-              PrSubTrigger(icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), keys=subKey("checks"), testId="pr-filter-checks")
+              PrSubTrigger(icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), keys=subKey("author"), leave=rowLeft("author"), testId="pr-filter-author")
+              PrSubTrigger(icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), keys=subKey("labels"), leave=rowLeft("labels"), testId="pr-filter-labels")
+              PrSubTrigger(icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), keys=subKey("draft"), leave=rowLeft("draft"), testId="pr-filter-draft")
+              PrSubTrigger(icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), keys=subKey("review"), leave=rowLeft("review"), testId="pr-filter-review")
+              PrSubTrigger(icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), keys=subKey("checks"), leave=rowLeft("checks"), testId="pr-filter-checks")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-              PrSubTrigger(icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), keys=subKey("project"), testId="pr-filter-project")
+              PrSubTrigger(icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), keys=subKey("project"), leave=rowLeft("project"), testId="pr-filter-project")
           box width=tail height=1 flex-shrink=0
 
 // MenuSubTrigger: glyph, name, the current value in muted text and a chevron.
@@ -526,11 +537,15 @@ component PrSubTrigger
     open: bool
     press: action
     keys: action
+    // FW-3: the pointer left the row (PrFiltersMenu `rowLeft`).
+    leave: action
     testId: string
   state over = false
   state lit = false
   action hover(value: bool)
     over = value
+    if not value
+      leave()
   action focused(on: bool)
     lit = on
   view
@@ -549,7 +564,7 @@ component PrFilterSub
     authors: list<PrAuthor>
     authorQuery: string
     searchAuthors: action
-    // FW-3: Escape in the field closes the submenu (PrFiltersMenu searchEscape).
+    // FW-3: Escape in the field closes the submenu (PrFiltersMenu `closeSub`).
     searchEscape: action
     control: action
   // The search field's keys are its own (the reference stops their propagation), but for ↓, which moves to the first

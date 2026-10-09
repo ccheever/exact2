@@ -108,8 +108,8 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('derive authors = prVisibleAuthors(page.authors, authorQuery)');
     // A press on Author focuses the search (the field's autoFocus); →, Enter or Space focus the first row, Anyone, as
     // Base UI's submenu opened from the keyboard does (checked on the reference: a menuitemradio "Anyone").
-    expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    if name == "author" and sub != "author"\n      focus("pr-author-search")');
-    expect(menu).toContain('      sub = name\n      subPointer = false\n      subKeyed = subKeyed + 1\n      focus("pr-filters-sub-keys")');
+    expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    subLeft = false\n    if name == "author" and sub != "author"\n      focus("pr-author-search")');
+    expect(menu).toContain('      sub = name\n      subPointer = false\n      subLeft = false\n      subKeyed = subKeyed + 1\n      focus("pr-filters-sub-keys")');
     // Opening Filters again, by a press, Enter, Space, ↓ or ↑, starts with no search, as the reference's popup remounts.
     expect(menu).toContain('action openMenu\n    sub = ""\n    authorQuery = ""');
     expect(menu).toContain('button popovertarget="pr-filters-menu" press=openMenu ');
