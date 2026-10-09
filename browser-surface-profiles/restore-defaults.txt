@@ -1,0 +1,43 @@
+# Restore defaults over the Browser defaults: frame rate 60, zoom 125%, iPhone 12 Pro (the review's scenario)
+# script: restore-probe.ts (below), run with Bun 1.4.2 on each checkout's examples/t3-code
+
+== before: 24d5ad2e7 (the PR head the review read)
+restoreLabels: [] (restoreCount 0: Restore disabled)
+after restoreDeviceDefaults: viewport iPhone 12 Pro, zoom 125%, appearance System, frame rate 30 fps
+viewport menu rows (first four):
+  {"value":"fill","label":"Fill panel","selected":false}
+  {"value":"responsive","label":"Responsive","selected":false}
+  {"value":"iphone-se","label":"iPhone SE  375 × 667","selected":false}
+  {"value":"iphone-xr","label":"iPhone XR  414 × 896","selected":false}
+
+== after: eb8daccda
+restoreLabels: ["Browser viewport","Browser zoom","Recording frame rate"] (restoreCount 3: Restore enabled)
+after restoreDeviceDefaults: viewport Fill panel, zoom 100%, appearance System, frame rate 30 fps
+viewport menu rows (first four):
+  {"value":"fill","label":"Fill panel","detail":"","heading":"","selected":true}
+  {"value":"responsive","label":"Responsive","detail":"","heading":"","selected":false}
+  {"value":"iphone-se","label":"iPhone SE","detail":"375 × 667","heading":"Standard","selected":false}
+  {"value":"iphone-xr","label":"iPhone XR","detail":"414 × 896","heading":"","selected":false}
+
+== reference (T3 Code 1e2ecbd975, Electron, the same three values set): the confirmation reads
+Restore default settings?
+This will reset: Browser viewport, Browser zoom, Recording frame rate.
+(and Confirm resets them: Fill panel, 100%, 30 fps; images p4-restore-defaults.png)
+
+---- restore-probe.ts
+// Restore defaults' labels for frame rate 60, zoom 125% and iPhone 12 Pro (the review's scenario), on a given checkout.
+const dir = process.argv[2];
+const core = await import(`${dir}/settings-core.ts`);
+const defaults = await import(`${dir}/browser-defaults.ts`);
+const local = { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: core.decodeClientPrefs({}), groupingMode: 'repository' };
+const owner = { local };
+defaults.applyBrowserDefault(owner, 'frame-rate', '60');
+defaults.applyBrowserDefault(owner, 'zoom', '1.25');
+defaults.applyBrowserDefault(owner, 'viewport', 'iphone-12-pro');
+const labels = core.restoreLabels(local, {}, false);
+console.log(`restoreLabels: ${JSON.stringify(labels)} (restoreCount ${labels.length}: Restore ${labels.length ? 'enabled' : 'disabled'})`);
+core.restoreDeviceDefaults(local);
+const view = defaults.browserDefaultsView(owner);
+console.log(`after restoreDeviceDefaults: viewport ${view.viewportLabel}, zoom ${view.zoomLabel}, appearance ${view.appearanceLabel}, frame rate ${view.frameRateLabel}`);
+const menu = view.viewportOptions.slice(0, 4).map(o => JSON.stringify(o)).join('\n  ');
+console.log(`viewport menu rows (first four):\n  ${menu}`);
