@@ -30,6 +30,9 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
       if (carry) heroLand(this, carry);
     } else if (op === 'select-thread') {
+      // A notification names its thread with its environment (shell-notify.ts): the focused one's opens here.
+      const qualified = parseFleetThreadId(id);
+      if (qualified && qualified.environmentId === this.environmentId) id = qualified.threadId;
       if (parseFleetThreadId(id)) { const focused = await focusFleetThread(this, native, id); this.adoptStatus(focused.value, focused.generation); } // settings-b: another environment
       else if (!(await sidebarSelecting(this, native, id, value))) await this.openSelected(native, id);
     } else if (op === 'history') await this.history(native);
