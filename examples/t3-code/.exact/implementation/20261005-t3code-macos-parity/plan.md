@@ -184,6 +184,75 @@ The [live desktop audit](reviews/20261007-desktop-clickthrough.md) compares Elec
 records, not implementations or acceptance of the existing tasks. Pure appearance/layout
 findings are grouped in one visual-parity task. Existing scope and sign-in holds remain.
 
+## Desktop audit, 2026-10-09
+
+The [desktop audit](reviews/20261009-desktop-audit.md) compares the Electron reference (`1e2ecbd975`, production build)
+with the clone (`c603c22d6`) in seven areas. It found 81 differences. They map to 15 new tasks (68 findings), 2 blocked
+tasks (3 findings), 1 new local framework draft (X69), and existing records (10 findings). Evidence stays local
+(`target/t3-audit/evidence`).
+
+Suggested order. Tasks in one wave touch different files and can run in parallel (at most 8 lanes). A later wave starts
+after the tasks it shares files with have merged.
+
+Wave 1:
+1. [settings-diagnostics-and-scope](tasks/closed/20261009-settings-diagnostics-and-scope.md): S2-2 (high, Diagnostics empty),
+   S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md).
+2. [timeline-work-rows](tasks/closed/20261009-timeline-work-rows.md): TH-1 to TH-6, TH-10.
+3. [diff-panel-parity](tasks/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
+4. [right-panel-launcher-and-files](tasks/closed/20261009-right-panel-launcher-and-files.md): PA-1, PA-2, PA-4, PA-5, PA-10.
+5. [composer-provider-state-and-details](tasks/closed/20261009-composer-provider-state-and-details.md): CO-5, CO-6, CO-8, CO-9,
+   CO-10, PA-9.
+6. [settings-appearance-and-skill-chip](tasks/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
+7. [settings-escape-and-nav](tasks/closed/20261009-settings-escape-and-nav.md): S1-1, S1-2, S2-1 (one root cause), S1-3, S1-4,
+   S2-5.
+8. [snapshot-permission-helper](tasks/closed/20261009-snapshot-permission-helper.md): PG-9.
+
+Wave 2:
+9. [app-color-scheme](tasks/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
+   (`app-window.contract`).
+10. [shell-sidebar-palette-keys](tasks/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
+11. [settings-rows-and-labels](tasks/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
+    S2-10, S2-9's row alignment. After 1 (`settings-core.ts`).
+12. [markdown-links-and-files-preview](tasks/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
+    (`r4-surfaces-files.contract`). TH-9 matches the live reference (the user's "match the pin" rule).
+13. [notifications-all-environments](tasks/closed/20261009-notifications-all-environments.md): PG-10. Independent; it needs a
+    two-server lane.
+
+Wave 3:
+14. [model-picker-parity](tasks/20261009-model-picker-parity.md): CO-1 to CO-4, CO-7, CO-11, S2-4. After 5, 10 and 11
+    (`r3-composer-controls-fanout.ts`, `keyboard-dispatch.ts`, `settings-scheduled.contract`,
+    `settings-source-control.contract`).
+15. [usage-and-pr-pages](tasks/20261009-usage-and-pr-pages.md): PG-2 to PG-7. After 9 (`pages-usage*.contract`).
+
+Real-input rows: SH-1, PA-12, S1-3, S1-4, S1-12, S2-5, PG-9 and PG-10's system notification. Run them in one batch while
+the screen is unlocked. PG-9's grant row needs the user present.
+
+Blocked:
+- [blocked-desktop-update-controls](tasks/20261009-blocked-desktop-update-controls.md): SH-6, S1-13. The user's X40 scope
+  decision applies, but the closed app-update-feed record's "equals the reference" claim does not hold. The coordinator
+  builds option (a) as a draft PR; the user decides by merging it (build) or closing it (keep out).
+- [blocked-theme-usage-highlight](tasks/20261009-blocked-theme-usage-highlight.md): S1-7. Waits for X69 on `main`.
+
+New issue: [X69](issues/20261009-x69-paint-role-node-query.md) (a read that lists the nodes a paint role reaches), a local
+draft. `issue-open` reproduces it and checks it against #321. Publication needs the user's approval.
+
+Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
+draft PR (option a of the blocked record).
+
+Progress (2026-10-10): merged #357, #356, #355, #359, #365, #362 and #361 (records in `tasks/closed/`); #360 waits for a
+reference-matching change to its comparison picker; wave 2b (settings-pages-subscribed-config, shell-sidebar-palette-keys,
+settings-rows-and-labels), markdown-links-and-files-preview, app-color-scheme and the update-controls draft are in flight.
+[audit-wave-followups](tasks/20261010-audit-wave-followups.md) holds four differences the fix agents found outside their tasks.
+
+Coordinator additions:
+- [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
+  (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.
+- [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
+  2 MiB test-thread limit (X67, main `issues/20261009-compiler-small-stack-depth.md`), which unblocks main adoption
+  round 7 and #99's clean candidate. After the wave that is in flight when it starts (it touches many `.contract` files).
+- Open Browser PRs: #352 waits for one real-input row (Rotate/Lock on `26f5c9066`; the 2026-10-09 evening try stopped when
+  the screen locked) and for Charlie's check; #349 and #354 merge the base after #352 lands, then re-drive.
+
 ## Implementation order
 
 Groups run in order; tickets inside a group may run in parallel (the user's execution
