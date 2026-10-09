@@ -1,0 +1,205 @@
+browser-surface-profiles live drive branch-4 (agent mode) at c7a0aa02f
+Fixture browser stores only (T3_BROWSER_IMPORT_HOME under the worktree's target/); lane ports 16780 (server), 16781 (probe page).
+The run stopped before the probe page was opened.
+
+  1 clock +15000 real  -> clock 15000 (real 15014 ms)
+  2 clock +6000 real  -> clock 21000 (real 6015 ms)
+  3 screenshot 00-start.png window  -> screenshot 00-start.png
+  4 tap connection-settings  -> tapped connection-settings at [24, 820]
+  5 clock +1500 real  -> clock 22500 (real 1518 ms)
+  6 tap settings-integrations  -> tapped settings-integrations at [128, 296]
+  7 clock +3000 real  -> clock 25500 (real 40210 ms)
+  8 screenshot 10-integrations.png window  -> screenshot 10-integrations.png
+  9 tree  -> tree (1142 nodes)
+ 10 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 11 clock +5000 real  -> clock 30500 (real 40651 ms)
+ 12 screenshot 11-add-menu.png window  -> screenshot 11-add-menu.png
+ 13 tree  -> tree (1150 nodes)
+ 14 tap browser-profiles-blank  -> tapped browser-profiles-blank at [1069.31, 379]
+ 15 clock +2000 real  -> clock 32500 (real 40666 ms)
+ 16 screenshot 12-blank.png window  -> screenshot 12-blank.png
+ 17 tree  -> tree (1174 nodes)
+ 18 type "Rename New profile" Work QA  -> typed into Rename New profile
+ 19 type "Rename New profile" key Enter  -> typed into Rename New profile key Enter
+ 20 clock +2000 real  -> clock 34500 (real 40636 ms)
+ 21 screenshot 13-renamed.png window  -> screenshot 13-renamed.png
+ 22 tree  -> tree (1174 nodes)
+ 23 tap "Work QA options"  -> tapped Work QA options at [1150.5, 449]
+ 24 clock +1000 real  -> clock 35500 (real 40635 ms)
+ 25 screenshot 14-row-menu.png window  -> screenshot 14-row-menu.png
+ 26 tree  -> tree (1174 nodes)
+ 27 tap "Remove profile and data"  -> tapped Remove profile and data at [1026.5, 540]
+ 28 clock +1500 real  -> clock 37000 (real 40640 ms)
+ 29 screenshot 15-remove-dialog.png window  -> screenshot 15-remove-dialog.png
+ 30 tap browser-profile-remove-confirm  -> tapped browser-profile-remove-confirm at [809.74, 480.5]
+ 31 clock +2000 real  -> clock 39000 (real 40627 ms)
+ 32 screenshot 16-removed.png window  -> screenshot 16-removed.png
+ 33 tree  -> tree (1144 nodes)
+ 34 logs  -> logs
+ 35 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 36 clock +5000 real  -> clock 44000 (real 40655 ms)
+ 37 tap browser-import-source-chrome  -> tapped browser-import-source-chrome at [1068.97, 444]
+ 38 clock +2000 real  -> clock 46000 (real 40644 ms)
+ 39 screenshot 20-chrome-configure.png window  -> screenshot 20-chrome-configure.png
+ 40 tree  -> tree (1191 nodes)
+ 41 tap browser-import-run  -> tapped browser-import-run at [837.13, 548.5]
+ 42 clock +4000 real  -> clock 50000 (real 40639 ms)
+ 43 screenshot 21-chrome-done.png window  -> screenshot 21-chrome-done.png
+ 44 tree  -> tree (1183 nodes)
+ 45 logs  -> logs
+ 46 tap browser-import-done  -> tapped browser-import-done at [640, 420]
+ 47 clock +1500 real  -> clock 51500 (real 40639 ms)
+ 48 screenshot 22-profiles-after-import.png window  -> screenshot 22-profiles-after-import.png
+ 49 tree  -> tree (1183 nodes)
+ 50 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 51 clock +5000 real  -> clock 56500 (real 40660 ms)
+ 52 tap browser-import-source-brave  -> tapped browser-import-source-brave at [1068.97, 472]
+ 53 clock +2000 real  -> clock 58500 (real 40652 ms)
+ 54 screenshot 23-brave-quit.png window  -> screenshot 23-brave-quit.png
+ 55 tree  -> tree (1182 nodes)
+ 56 clock +3000 real  -> clock 61500 (real 40652 ms)
+ 57 tap browser-import-quit  -> tapped browser-import-quit at [640, 420]
+ 58 clock +3000 real  -> clock 64500 (real 40673 ms)
+ 59 screenshot 24-brave-after-quit.png window  -> screenshot 24-brave-after-quit.png
+ 60 tree  -> tree (1182 nodes)
+ 61 tap browser-import-cancel  -> tapped browser-import-cancel at [739.73, 480.5]
+ 62 clock +1000 real  -> clock 65500 (real 40659 ms)
+ 63 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 64 clock +5000 real  -> clock 70500 (real 40657 ms)
+ 65 tap browser-import-source-safari  -> tapped browser-import-source-safari at [1068.97, 528]
+ 66 clock +2000 real  -> clock 72500 (real 40658 ms)
+ 67 screenshot 25-safari-fda.png window  -> screenshot 25-safari-fda.png
+ 68 tree  -> tree (1195 nodes)
+ 69 tap browser-import-fda-allow  -> tapped browser-import-fda-allow at [833.36, 427.5]
+ 70 clock +1500 real  -> clock 74000 (real 40639 ms)
+ 71 screenshot 26-safari-fda-allow.png window  -> screenshot 26-safari-fda-allow.png
+ 72 logs  -> logs
+ 73 tap browser-import-cancel  -> tapped browser-import-cancel at [744.76, 547.5]
+ 74 clock +1000 real  -> clock 75000 (real 40647 ms)
+ 75 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 76 clock +5000 real  -> clock 80000 (real 40659 ms)
+ 77 tap browser-import-source-arc  -> tapped browser-import-source-arc at [1068.97, 500]
+ 78 clock +2000 real  -> clock 82000 (real 40640 ms)
+ 79 tap browser-import-run  -> tapped browser-import-run at [837.13, 579.5]
+ 80 clock +4000 real  -> clock 86000 (real 40660 ms)
+ 81 screenshot 27-arc-blocked.png window  -> screenshot 27-arc-blocked.png
+ 82 tree  -> tree (1182 nodes)
+ 83 tap browser-import-close  -> tapped browser-import-close at [747.82, 470.5]
+ 84 clock +1000 real  -> clock 87000 (real 40653 ms)
+ 85 tap browser-profiles-add  -> tapped browser-profiles-add at [1118.33, 342]
+ 86 clock +5000 real  -> clock 92000 (real 40664 ms)
+ 87 tap browser-import-source-firefox  -> tapped browser-import-source-firefox at [1068.97, 556]
+ 88 clock +2000 real  -> clock 94000 (real 40665 ms)
+ 89 tap browser-import-tile-existing:default  -> tapped browser-import-tile-existing:default at [767.5, 441.5]
+ 90 clock +800 real  -> clock 94800 (real 20629 ms)
+ 91 screenshot 28-firefox-into-default.png window  -> screenshot 28-firefox-into-default.png
+ 92 tap browser-import-run  -> tapped browser-import-run at [837.13, 579.5]
+ 93 clock +4000 real  -> clock 98800 (real 40379 ms)
+ 94 screenshot 29-firefox-done.png window  -> screenshot 29-firefox-done.png
+ 95 tree  -> tree (1180 nodes)
+ 96 tap browser-import-done  -> tapped browser-import-done at [640, 420]
+ 97 clock +1000 real  -> clock 99800 (real 40355 ms)
+ 98 tap settings-content-scroll wheel 0 500  -> tapped settings-content-scroll at [768.5, 446]
+ 99 clock +1000 real  -> clock 100800 (real 40352 ms)
+100 tap browser-default-viewport  -> tapped browser-default-viewport at [768.5, 446]
+101 clock +1000 real  -> clock 101800 (real 40347 ms)
+102 screenshot 40-viewport-menu.png window  -> screenshot 40-viewport-menu.png
+103 tap browser-default-viewport-option-iphone-12-pro  -> not reached
+104 clock +1500 real  -> not reached
+105 tap browser-default-zoom  -> not reached
+106 clock +1000 real  -> not reached
+107 tap browser-default-zoom-option-1.25  -> not reached
+108 clock +1500 real  -> not reached
+109 tap browser-default-appearance  -> not reached
+110 clock +1000 real  -> not reached
+111 tap browser-default-appearance-option-dark  -> not reached
+112 clock +1500 real  -> not reached
+113 tap browser-recording-frame-rate  -> not reached
+114 clock +1000 real  -> not reached
+115 tap browser-recording-frame-rate-option-60  -> not reached
+116 clock +1500 real  -> not reached
+117 tap browser-recording-key-presses  -> not reached
+118 clock +1500 real  -> not reached
+119 tap browser-auto-show-floating-preview  -> not reached
+120 clock +1500 real  -> not reached
+121 screenshot 41-defaults-set.png window  -> not reached
+122 tree  -> not reached
+123 tap reset-browser-default-frame-rate  -> not reached
+124 clock +1000 real  -> not reached
+125 tap reset-browser-default-auto-show  -> not reached
+126 clock +1000 real  -> not reached
+127 screenshot 42-defaults-reset.png window  -> not reached
+128 tree  -> not reached
+129 tap settings-go-to-threads  -> not reached
+130 clock +3000 real  -> not reached
+131 tap toggle-right-panel  -> not reached
+132 clock +2000 real  -> not reached
+133 screenshot 30-launcher.png window  -> not reached
+134 tree  -> not reached
+135 tap surface-browser-profiles  -> not reached
+136 clock +1000 real  -> not reached
+137 screenshot 31-launcher-profiles.png window  -> not reached
+138 tree  -> not reached
+139 tap "Chrome"  -> not reached
+140 clock +3000 real  -> not reached
+141 screenshot 32-chrome-tab.png window  -> not reached
+142 tree  -> not reached
+143 type browser-url 127.0.0.1:16781/cookies  -> not reached
+144 type browser-url key Enter  -> not reached
+145 clock +4000 real  -> not reached
+146 screenshot 33-chrome-cookies.png window  -> not reached
+147 logs  -> not reached
+148 tap browser-more  -> not reached
+149 clock +1000 real  -> not reached
+150 screenshot 34-more-profile.png window  -> not reached
+151 tree  -> not reached
+152 tap browser-more-clear-cookies  -> not reached
+153 clock +2000 real  -> not reached
+154 tap browser-refresh  -> not reached
+155 clock +3000 real  -> not reached
+156 screenshot 35-cleared.png window  -> not reached
+157 logs  -> not reached
+158 tap panel-add-surface  -> not reached
+159 clock +1000 real  -> not reached
+160 tap add-surface-browser-profiles  -> not reached
+161 clock +1000 real  -> not reached
+162 screenshot 36-plus-profiles.png window  -> not reached
+163 tree  -> not reached
+164 tap browser-profile-incognito  -> not reached
+165 clock +3000 real  -> not reached
+166 type browser-url 127.0.0.1:16781/set  -> not reached
+167 type browser-url key Enter  -> not reached
+168 clock +3000 real  -> not reached
+169 tap browser-refresh  -> not reached
+170 clock +3000 real  -> not reached
+171 screenshot 37-incognito.png window  -> not reached
+172 tree  -> not reached
+173 tap panel-add-surface  -> not reached
+174 clock +1000 real  -> not reached
+175 tap add-surface-browser  -> not reached
+176 clock +3000 real  -> not reached
+177 type browser-url 127.0.0.1:16781/cookies  -> not reached
+178 type browser-url key Enter  -> not reached
+179 clock +4000 real  -> not reached
+180 screenshot 38-default-tab.png window  -> not reached
+181 tree  -> not reached
+182 logs  -> not reached
+183 state  -> not reached
+
+Module browser lines (t3.browser):
+  app: t3.browser: import sources chrome=ready(2) edge=notInstalled brave=browserRunning vivaldi=notInstalled opera=notInstalled arc=ready(1) helium=notInstalled safari=needsFullDiskAccess firefox=ready(1)
+  app: t3.browser: clear-cookies d6dcb5de-a195-4a95-bbc4-9f166f70f438 profile-7bbf3da0-8991-4485-82e4-718474e96153
+  app: t3.browser: clear-cache d6dcb5de-a195-4a95-bbc4-9f166f70f438 profile-7bbf3da0-8991-4485-82e4-718474e96153
+  app: t3.browser: import 3/3 cookies d6dcb5de-a195-4a95-bbc4-9f166f70f438 profile-bcc43d92-13f0-438d-9a74-92b92c87bd41
+  app: t3.browser: import sources chrome=ready(2) edge=notInstalled brave=ready(1) vivaldi=notInstalled opera=notInstalled arc=ready(1) helium=notInstalled safari=needsFullDiskAccess firefox=ready(1)
+  app: t3.browser: full-disk-access settings recorded (not opened outside the packaged build)
+
+End:
+  fixture pid 14676
+  brave stand-in pid 14677
+  agent pid 14684
+  t3 app exit 0
+  server pid 14835
+  brave stand-in quit after op 54
+  agent exit 1
+  agent: op 103/183 `tap browser-default-viewport-option-iphone-12-pro`: view 2139 is hidden or inert
