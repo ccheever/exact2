@@ -51,15 +51,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
             self.sync_moved_pictures();
             // Nor does what its rows do as they come into view (a draw-in
             // animation waits for its row to show, and the runner learns that
-            // a row shows from a report): under a lead a report that builds
-            // nothing says where the view is. Without it a row waited for the
-            // next pass, up to 21 steps at 6,000 dp/s, and crypto's rows came
-            // into view with their charts undrawn.
-            if lead.is_some() {
-                self.p.slice_collections(Some(0), velocity);
-                self.p.refine_deferred(true);
-                self.p.slice_collections(None, velocity);
-            }
+            // a row shows from a report): the runner is told where the view
+            // is. Without it a row waited for the next pass, up to 21 steps
+            // at 6,000 dp/s, and crypto's rows came into view with their
+            // charts undrawn.
+            self.p.show_collection();
             return false;
         }
         let started = std::time::Instant::now();

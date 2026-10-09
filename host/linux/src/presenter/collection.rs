@@ -798,6 +798,37 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
+    /// The scrolled list's rows that show where its port now is start what
+    /// waited for that ([`exact_runner::Runner::collection_shown`]), without
+    /// a report: for a pass that waits.
+    #[cfg(target_os = "android")]
+    pub(crate) fn show_collection(&mut self) {
+        let Some(view) = self.last_wheel else {
+            return;
+        };
+        let Some(snapshot) = self.host.collection(view) else {
+            return;
+        };
+        let Some(g) = geometry(self.host.kernel(), &snapshot, self.viewport.0 as f64) else {
+            return;
+        };
+        let main = self
+            .scroll
+            .get(&view)
+            .map_or(0., |off| main_of(g.axis, *off));
+        let offset = (main as f64 - g.origin).max(-g.origin);
+        match self.host.collection_shown(view, offset) {
+            Ok(true) => {
+                if let Some(error) = self.sync_commit() {
+                    self.host.log(error);
+                }
+                self.dirty = true;
+            }
+            Ok(false) => {}
+            Err(error) => self.host.log(error),
+        }
+    }
+
     /// Slice the next passes ([`State::limit`]) with the scrolled list's
     /// velocity, or build whole windows (`None`).
     #[cfg(target_os = "android")]
