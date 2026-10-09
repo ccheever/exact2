@@ -1,0 +1,63 @@
+#!/bin/zsh
+# Review round (2026-10-10): the scenarios the independent review raised, one drive per build, same steps.
+# Usage: drive2.sh <before|after> [extra ops…]
+S=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/settings-escape-and-nav
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+WHICH=$1; shift
+D=$S/r2-$WHICH; mkdir -p $D
+if [ $WHICH = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=settings-escape-and-nav-before
+else ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-escape-and-nav; LANE=settings-escape-and-nav; fi
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16900 \
+  "clock +20000 real" "clock +3000 real" \
+  "tap toast-secondary-1" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-providers" "clock +2500 real" \
+  "tap add-custom-model" "clock +500 real" \
+  "type custom-model-slug review-model" "clock +300 real" \
+  "screenshot $D/r1-add-open.png window" \
+  "type custom-model-slug key Enter" "clock +3000 real" \
+  "screenshot $D/r1-add-done.png window" "tree" \
+  "type t3-code key Escape" "clock +800 real" \
+  "screenshot $D/r1-add-escape.png window" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-providers" "clock +2500 real" \
+  "tap provider-model-remove-review-model" "clock +3000 real" \
+  "screenshot $D/r1-removed.png window" "tree" \
+  "tap add-custom-model" "clock +500 real" \
+  "type custom-model-slug draft" "clock +300 real" \
+  "type custom-model-slug key Tab" "clock +500 real" \
+  "screenshot $D/r3-add-blurred.png window" \
+  "type t3-code key Escape" "clock +800 real" \
+  "screenshot $D/r3-add-escape-elsewhere.png window" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-providers" "clock +2500 real" \
+  "screenshot $D/r2-reopened.png window" \
+  "tap add-custom-model" "clock +500 real" \
+  "type custom-model-slug key Escape" "clock +800 real" \
+  "screenshot $D/s1-2-custom-model.png window" \
+  "type t3-code key Escape" "clock +800 real" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-keybindings" "clock +1500 real" \
+  "tap open-keybindings-search" "type keybindings-filter diff" "clock +800 real" \
+  "type keybindings-filter key Escape" "clock +800 real" \
+  "screenshot $D/s1-1-keybinding-search.png window" \
+  "tap open-keybindings-search" "type keybindings-filter diff" "clock +800 real" \
+  'tap "Diff: Toggle" mouse' "clock +500 real" \
+  "screenshot $D/r3-search-blurred.png window" \
+  "type t3-code key Escape" "clock +800 real" \
+  "screenshot $D/r3-search-escape-elsewhere.png window" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-keybindings" "clock +1500 real" \
+  "tap add-keybinding" "clock +500 real" \
+  "tap new-keybinding-command" "clock +500 real" "tap new-keybinding-command-option-diff.toggle" "clock +500 real" \
+  'tap "Keybinding for Diff: Toggle"' "clock +800 real" \
+  "type keybinding-recorder key Meta+K" "clock +1200 real" \
+  "screenshot $D/s1-4-record-bound-chord.png window" "tree" \
+  "type t3-code key Escape" "clock +800 real" "type t3-code key Escape" "clock +800 real" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-general" "clock +1500 real" 'tap "View licenses"' "clock +2500 real" \
+  "tap open-license-search" "clock +500 real" "type license-search mit" "clock +800 real" \
+  "type license-search key Escape" "clock +800 real" \
+  "screenshot $D/r3-license-escape.png window" \
+  "$@" > $D/drive.jsonl 2> $D/drive.err
+echo "exit=$?"
