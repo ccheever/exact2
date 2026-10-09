@@ -90,6 +90,52 @@ export function mobileComposerContextObserveTarget(client:T3Client,guard:Compose
   if(restored) entry.context=clone(restored); else delete entry.context;
   entry.text=after;entry.revision++;return true;
 }
+type BatchRead = {ok:true;records:Obj[];context:MobileMessageContext|undefined} | {ok:false;error:string};
+/** Validate the entire payload before pruning. A refused batch never seeds undo history. */
+function batchContext(raw:unknown,bounded=false):{ok:true;context:MobileMessageContext|undefined}|{ok:false} {
+  if(raw===undefined) return {ok:true,context:undefined};
+  try {
+    const value=obj(raw);
+    if(!Array.isArray(value.records) || bounded && (value.records.length>200 || JSON.stringify(value.records).length>16_000_000)
+      || !mobileNewTaskContextProject('',raw).ok) return {ok:false};
+    return {ok:true,context:clone(raw) as MobileMessageContext};
+  } catch { return {ok:false}; }
+}
+function batchEntry(client:T3Client,guard:ComposerContextGuard):Entry|undefined {
+  const scope=scopeFor(client,guard.key), registry=store(client), entry=registry.entries.get(guard.slot);
+  return scope && slot(scope)===guard.slot && client.origin===guard.originAtCapture && client.generation===guard.generation
+    && registry.invalid===undefined && entry?.incarnation===guard.incarnation && entry.revision===guard.revision
+    && Number.isSafeInteger(entry.revision) && entry.revision<Number.MAX_SAFE_INTEGER
+    && entry.text===guard.text && (client.local.drafts[guard.key]??'')===guard.text && guard.text.length<=1_000_000 ? entry:undefined;
+}
+/** Preflight for an import, not permission to publish after an await. Recapture at publication. */
+export function mobileComposerContextPrepareBatch(client:T3Client,target:MobileComposerTarget,addedRecords:readonly Obj[]):BatchRead {
+  const added=batchContext({version:1,records:addedRecords},true);
+  if(!added.ok) return {ok:false,error:'This import contains unsupported or excessive context.'};
+  const guard=mobileComposerContextCaptureTarget(client,target), entry=guard && batchEntry(client,guard);
+  const current=entry && batchContext(entry.context);
+  return current?.ok ? {ok:true,records:added.context!.records,context:current.context}
+    :{ok:false,error:'This draft changed or contains unsupported context. Keep the original draft.'};
+}
+/** Metadata only: latest text must already be observed in this named entry. Never replay terminal text.
+ * The caller owns native CAS, attachment holds and one-snapshot persistence after this synchronous turn. */
+export function mobileComposerContextCommitBatch(client:T3Client,guard:ComposerContextGuard,addedRecords:readonly Obj[]):boolean {
+  const entry=batchEntry(client,guard); if(!entry) return false;
+  const current=batchContext(entry.context), added=batchContext({version:1,records:addedRecords},true);
+  if(!current.ok || !added.ok) return false;
+  const history=histories.get(entry)??mobileCreateContextHistory();
+  const records=new Map(history.snapshot().map(record=>[str(record.contextId),record]));
+  for(const record of [...(current.context?.records??[]),...added.context!.records]) records.set(str(record.contextId),record);
+  // Merge before the dependency pass: a new annotation can refer to an undo-held screenshot.
+  const next=mobileReferencedComposerContext(guard.text,{version:1,records:[...records.values()]});
+  const checked=batchContext(next,true); if(!checked.ok) return false;
+  // Retain late deleted imports for Undo, then refresh every live record so the bound evicts only undo payloads.
+  history(guard.text,{version:1,records:[...(current.context?.records??[]),...added.context!.records]});
+  history(guard.text,checked.context);
+  histories.set(entry,history);
+  if(checked.context) entry.context=checked.context; else delete entry.context;
+  entry.revision++;client.revision++;return true;
+}
 export function mobileComposerContextRead(client:T3Client,key=client.draftKey,text=client.local.drafts[key]??''):ComposerContextRead {
   const scope=scopeFor(client,key); if(!scope) return {ok:true,context:undefined,revision:0};
   const registry=store(client); if(registry.invalid!==undefined) return invalid();
