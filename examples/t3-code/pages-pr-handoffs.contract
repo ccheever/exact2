@@ -65,7 +65,7 @@ component PrdCheckoutMenu
           KeyMenu(menuId="pr-checkout-keys", items=(handoffs.pending != "" ? [] : concat([KmItem(id="pr-checkout-worktree", label="In a separate worktree"), KmItem(id="pr-checkout-local", label="In this repository")], map(actOn, (item) => KmItem(id=`pr-act-on-${item.key}`, label=item.label)))), keyed=keyed, gap="0px", modal=true)
             PrdHandoffItem(menuId="pr-checkout-menu", icon="git-branch", label="In a separate worktree", detail="Its own folder and thread. Nothing you have open moves.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:worktree`), testId="pr-checkout-worktree")
             PrdHandoffItem(menuId="pr-checkout-menu", icon="folder-git-2", label="In this repository", detail="Switches the branch you are working in, like `gh pr checkout`.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:local`), testId="pr-checkout-local")
-            PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act)
+            PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")
 
 // The More menu's hand-offs, after Refresh: Ask a question, Explain this PR, Fix findings.
 component PrdHandoffItems
