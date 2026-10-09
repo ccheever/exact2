@@ -1,0 +1,44 @@
+#!/bin/zsh
+# browser-surface-capture: drive 4: the pill hover fix (one hover box), restore, close, the separate window from the pill, and the ops drive 3 did not reach (agent mode, lane env; ports 16720 server, 16721 fixture). Not committed.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture
+L=$W/target/capture-lane/lane
+P=${1:-drive}; OUT=$W/target/capture-lane/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16720 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+FIXTURE_PORT=16721 $BUN $W/target/capture-lane/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd $W
+S=$OUT
+$BUN scripts/agent.mjs macos --json --size 1280x840 \
+  "clock +15000 real" "clock +6000 real" \
+  "tap toggle-right-panel" "clock +1500 real" "tap surface-browser" "clock +3000 real" \
+  "type browser-url 127.0.0.1:16721" "type browser-url key Enter" "clock +4000 real" \
+  "tap browser-float" "clock +2500 real" "clock +1000 real" tree \
+  "tap browser-mini-handle hover" "clock +1000 real" "clock +1000 real" "screenshot $S/01-floating-pill.png" tree logs \
+  "tap browser-mini-restore" "clock +2500 real" "screenshot $S/02-restored.png" tree state logs \
+  "type browser-url 127.0.0.1:16721/download" "type browser-url key Enter" "clock +3000 real" \
+  "tap browser-page clicks 1 at 100 140" "clock +2500 real" "tap browser-page clicks 1 at 100 210" "clock +2500 real" state logs \
+  "type browser-url 127.0.0.1:16749" "type browser-url key Enter" "clock +4000 real" "screenshot $S/03-failed.png" \
+  "tap browser-annotate hover" "clock +1200 real" "screenshot $S/04-annotate-disabled-tip.png" tree \
+  "type browser-url 127.0.0.1:16721" "type browser-url key Enter" "clock +3000 real" \
+  "tap panel-toggle-right" "clock +2500 real" "screenshot $S/05-panel-closed-floats.png" tree state \
+  "tap browser-mini-handle hover" "clock +1000 real" "tap browser-mini-window" "clock +2500 real" state \
+  "tap browser-mini-handle hover" "clock +1000 real" "tap browser-mini-window" "clock +2000 real" state \
+  "tap browser-mini-handle hover" "clock +1000 real" "tap browser-mini-close" "clock +1500 real" "clock +1000 real" "screenshot $S/06-float-closed.png" \
+  tree logs state > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $T3_LOCAL_RUNTIME_DIR/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+ls $T3_LOCAL_HOME/userdata/browser-artifacts > $OUT/artifacts.txt 2>&1
+echo DRIVE-DONE
