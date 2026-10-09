@@ -1,0 +1,22 @@
+head 109c5a78c
+bun-t3 exit 0 (6 s)
+tsc exit 0 (0 s)
+contract-build exit 0 (183 s)
+t3-macos-lib exit 0 (491 s)
+appkit-snapshot exit 0 (43 s)
+caps exit 0 (1 s)
+cargo-build exit 0 (54 s)
+cargo-test exit 0 (114 s)
+clippy exit 0 (17 s)
+fmt exit 0 (3 s)
+boot exit 0 (0 s)
+done
+
+cargo test (five checks): 3521 passed, 0 failed, 34 ignored
+cargo test -p t3-code-macos --lib: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.74s
+bun test examples/t3-code:  3649 pass  0 fail Ran 3650 tests across 261 files. [6.02s] 
+ 3649 pass
+ 1 skip
+ 0 fail
+contract build: examples/t3-code/app.contract: 5736 slots, 10 derives, 46 resources, 6967 actions, 89920 nodes, 37528 regions, 22480986 bytes
+caps: All budgets within cap. 6 categories inspected.
