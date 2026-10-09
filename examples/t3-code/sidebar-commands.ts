@@ -9,7 +9,8 @@ import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import { canSnooze, capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
 import { bulkMenuState, canArchive, nativeTemplate, threadMenuItems, threadMenuState, type MenuItem } from './sidebar-menu';
-import { wall, adoptCommandTime, closeDialog, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { wall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
+import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
 import { partition, projectScopes, renderedRows, searchRows } from './sidebar-view';
 import { snoozePresets } from './sidebar-presentation';
@@ -389,6 +390,7 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     if (thread && session.renameId !== id) { session.renameId = id; session.renameTitle = str(thread.title); }
   } else if (op === 'rename-key') { if (value === 'Escape' && session.renameId === id) { session.renameId = ''; session.renameTitle = ''; } }
   else if (op === 'dialog-close') closeDialog(session);
+  else if (op.startsWith('calendar-')) calendarLocal(session, op, id, value, localDate(new Date(wall(client)))); // TH-8: the date popover
   else if (op === 'dialog-field') {
     if (id === 'mode' && (value === 'date' || value === 'duration')) session.dialogMode = value;
     else if (id === 'date') session.dialogDate = value;

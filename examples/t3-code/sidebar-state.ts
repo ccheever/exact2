@@ -57,6 +57,8 @@ export interface SidebarSession {
   navigate: { kind: string; projectId: string };
   scopeOpen: boolean; scopeQuery: string;
   dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string;
+  /** shell-sidebar-palette-keys (TH-8): the date popover's month (`YYYY-MM`), its keyboard focus and a count of its moves (snooze-calendar.ts). */
+  calendarMonth: string; calendarFocus: string; calendarFocusSeq: number;
   /** lane r11-upstream (1826fb55cc): bumped when a row-action sweep is released, which ends the view's sweep. */
   sweepEpoch: number;
 }
@@ -66,7 +68,8 @@ export function sidebarSession(client: T3Client): SidebarSession {
   if (!session) {
     session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchIndex: 0, searchQuery: '', searchPending: false,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
-      undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', navigate: { kind: '', projectId: '' }, scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '', sweepEpoch: 0 };
+      undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', navigate: { kind: '', projectId: '' }, scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
+      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0 };
     sessions.set(client, session);
   }
   return session;
@@ -85,6 +88,7 @@ export function openSnoozeDialog(session: SidebarSession, threadIds: string[], t
   session.dialog = from ? { kind: 'snooze', threadIds, title, from } : { kind: 'snooze', threadIds, title };
   session.dialogMode = 'date'; session.dialogDate = localDate(initial); session.dialogTime = localTime(initial);
   session.dialogAmount = '2'; session.dialogUnit = 'hours'; session.dialogError = '';
+  session.calendarMonth = session.dialogDate.slice(0, 7); session.calendarFocus = '';
 }
 /** resolveCustomSnooze: local calendar input or elapsed time; null for a past or invalid wake. */
 export function resolveCustomSnooze(input: { mode: string; date: string; time: string; amount: string; unit: string }, now: number): { until: string | null; error: string } {
