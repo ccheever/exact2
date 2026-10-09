@@ -1,0 +1,63 @@
+# browser-surface-capture review round (2026-10-10): before | after | reference grids, one image per scenario (not committed).
+from PIL import Image, ImageDraw, ImageFont
+
+W0 = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane'
+BEFORE = f'{W0}/runs/drive7-before/shots/01-chrome.png'   # base 950e8e2e5 (t3-code-evidence-base, never edited)
+AFTER = f'{W0}/runs/drive10/shots'                         # drive 10, bundle at a63794adb
+REF = f'{W0}/review-1010/ref'                              # T3 Code 0.0.45 (1e2ecbd975), the same lane steps over CDP
+OUT = f'{W0}/review-1010/evidence'
+W, H, BAR, GAP, HEAD = 960, 630, 46, 12, 52
+
+def font(size):
+    for path in ('/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc'):
+        try: return ImageFont.truetype(path, size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+def cell(path, label, note=None):
+    image = Image.new('RGB', (W, H + BAR), '#f4f4f5')
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([0, 0, W - 1, BAR - 1], fill='#18181b')
+    draw.text((12, 11), label, fill='white', font=font(20))
+    if path:
+        image.paste(Image.open(path).convert('RGB').resize((W, H), Image.LANCZOS), (0, BAR))
+    else:
+        draw.text((24, BAR + H // 2 - 14), note or '', fill='#52525b', font=font(22))
+    return image
+
+def grid(name, title, rows):
+    columns = max(len(row) for row in rows)
+    out = Image.new('RGB', (columns * W + (columns - 1) * GAP, HEAD + len(rows) * (H + BAR) + (len(rows) - 1) * GAP), 'white')
+    ImageDraw.Draw(out).text((12, 12), title, fill='#18181b', font=font(26))
+    for r, row in enumerate(rows):
+        for c, spec in enumerate(row):
+            out.paste(cell(*spec), (c * (W + GAP), HEAD + r * (H + BAR + GAP)))
+    out.save(f'{OUT}/{name}', optimize=True)
+    print(name, out.size)
+
+import os
+os.makedirs(OUT, exist_ok=True)
+base = (BEFORE, 'Before (base 950e8e2e5): Annotate, Capture, Float disabled')
+gone = lambda what: (None, 'Before (base)', f'No {what} in the base (row 1)')
+grid('r1010-capture.png', 'Capture: screenshot, Shift-click recording, stop (before | after a63794adb | reference)', [
+    [base, (f'{AFTER}/03-screenshot-toast.png', 'After: "Screenshot saved" (Copy path, Reveal, Copy image)'), (f'{REF}/s03-screenshot-toast.png', 'Reference: "Screenshot saved", the same three')],
+    [gone('Capture'), (f'{AFTER}/04-recording.png', 'After: Shift-click records (destructive glyph, dot)'), (f'{REF}/s04-recording.png', 'Reference: Shift-click records')],
+    [gone('Capture'), (f'{AFTER}/05-recording-saved.png', 'After: Stop: "Recording saved" (Copy path, Reveal)'), (f'{REF}/s05-recording-saved.png', 'Reference: "Recording saved"')],
+])
+grid('r1010-annotate.png', 'Annotate: a click on #save and a comment, then Return (before | after | reference)', [
+    [base, (f'{AFTER}/06-annotate-editor.png', 'After: the element label and the editor'), (f'{REF}/s06-annotate-editor.png', 'Reference: the element label and the editor')],
+    [gone('Annotate'), (f'{AFTER}/07-chip.png', 'After: the chip at the caret, the crop on the shelf'), (f'{REF}/s07-chip.png', 'Reference: the chip at the caret')],
+])
+grid('r1010-float.png', 'Float preview over chat, then the handle hovered (before | after | reference)', [
+    [base, (f'{AFTER}/08-player.png', 'After: the panel closes, the player floats the page'), (f'{REF}/s08-player.png', 'Reference: the panel closes, the player floats')],
+    [gone('Float'), (f'{AFTER}/09-player-pill.png', 'After: the pill (right panel, window, close)'), (f'{REF}/s09-player-pill.png', 'Reference: the pill')],
+])
+grid('r1010-command-return.png', 'A second Annotate, Command-Return in the editor, no provider on either side (before | after | reference)', [
+    [base, (f'{AFTER}/10-sent.png', 'After: "Annotation attached to draft", both chips stay'), (f'{REF}/s10-sent.png', 'Reference: "Annotation attached to draft", both chips')],
+])
+grid('r1010-annotate-then-float.png', 'Annotate on, then Float preview: the pick ends (before | after | reference)', [
+    [base, (f'{AFTER}/11-float-annotating.png', 'After: the floating page has no overlay (pick cancelled)'), (f'{REF}/s11-float-annotating.png', 'Reference: no overlay in the floating page')],
+])
+grid('r1010-maximized-capture.png', 'Maximize panel, Capture: the saved PNG keeps the page\'s pixels (before | after | reference)', [
+    [base, (f'{AFTER}/12-maximized-capture.png', 'After: saved 2046 x 1496 (was at most 1280 wide)'), (f'{REF}/s12-maximized-capture.png', 'Reference: saved 2046 x 1496')],
+])
