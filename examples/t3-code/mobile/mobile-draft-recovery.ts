@@ -1,3 +1,4 @@
+import { mobileEditorDocumentsHydrate, mobileEditorPersistSnapshot, mobileEditorPersistDocument, mobileEditorSendCapture, mobileEditorSendFailed, mobileEditorSendConfirmed } from './composer-editor-persistence';
 import { mobileComposerContextsHydrate, mobileComposerContextsPersisted, mobileComposerContextForSend } from './composer-command-context';
 import { mobileObserveFaviconRpc } from './mobile-favicon-runtime';
 import { mobileIncomingShareImportsHydrate, mobileIncomingShareImportsPersisted } from './incoming-share-imports';
@@ -97,6 +98,7 @@ function hydrate(client: T3Client, saved: Obj) {
   mobilePendingTaskEditorsHydrate(client, saved);
   mobileIncomingShareImportsHydrate(client, saved);
   mobileComposerContextsHydrate(client, saved);
+  mobileEditorDocumentsHydrate(client, saved);
   mobileOutboxDraftHandoffsHydrate(client, saved);
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
@@ -255,7 +257,10 @@ export class MobileDraftClient extends T3Client {
     return super.command(op, id, value, n, handles.native, handles.storage);
   }
   protected override finishPending(pending: Pending, environmentId = this.environmentId): void {
-    if (!mobileNewTaskLaunchFinish(this, pending, environmentId)) super.finishPending(pending, environmentId);
+    if (!mobileNewTaskLaunchFinish(this, pending, environmentId)) {
+      const owned = mobileEditorSendConfirmed(this, pending, environmentId);
+      super.finishPending(owned.managed ? { ...pending, text: '' } : pending, environmentId);
+    }
   }
   override reconcilePending(): boolean {
     return mobileNewTaskLaunchCanReconcile(this) && super.reconcilePending();
@@ -286,6 +291,7 @@ export class MobileDraftClient extends T3Client {
       }
     }
     const composerContexts = mobileComposerContextsPersisted(this);
+    const editorSnapshot = mobileEditorPersistSnapshot(this);
     // Transform only serialized output; never swap live draft slots around an await.
     return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
@@ -305,6 +311,7 @@ export class MobileDraftClient extends T3Client {
           if (projected) { delete obj(obj(projected.mobilePendingTaskEditors).markers)[key]; output = projected; }
         }
       }
+      output = mobileEditorPersistDocument(editorSnapshot, output);
       await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(output)));
     } } });
   }
@@ -322,12 +329,14 @@ export class MobileDraftClient extends T3Client {
       const ordered = { ...body, ...(Array.isArray(body.attachments) ? { attachments } : {}), ...(context ? { context } : {}) };
       pending.payload = launch ? { ...pending.payload, initialMessage: ordered } : ordered;
     }
+    const editorCapture = mobileEditorSendCapture(this, pending, !!retry);
     const capture = mobileNewTaskLaunchPrepare(this, pending);
     try {
       return await super.write(native, storage, pending, () => {
         if (capture) mobileNewTaskLaunchBeforeRequest(this, pending, capture);
         beforeRequest?.();
       });
-    } finally { if (capture) mobileNewTaskLaunchEnd(this, capture); }
+    } catch (error) { mobileEditorSendFailed(this, editorCapture); throw error; }
+    finally { if (capture) mobileNewTaskLaunchEnd(this, capture); }
   }
 }

@@ -4,6 +4,7 @@ import type { T3Client } from './shared/client';
 import { arr,obj,str,type Obj } from './shared/domain';
 import { ClientError,reply,type Native,type Files } from './shared/protocol';
 import { letGo } from './shared/let-go';
+import { mobileEditorRetirementAllowed, mobileEditorRetirementReceipt, mobileEditorRetirementComplete, mobileEditorDocumentWritten } from './composer-editor-persistence';
 import { fleet } from './shared/settings-b-fleet';
 import { mobileDraftAttachmentsOrdered } from './draft-attachment-order';
 import { draftFiles } from './shared/composer-editor-files';
@@ -25,7 +26,7 @@ import { mobileComposerEditorAccept,mobileComposerEditorDecodeEvent,mobileCompos
   mobileComposerEditorControlled,mobileComposerEditorCommand,type ComposerEditorDocument,type ComposerEditorEffect } from './composer-editor-state';
 import { editorCopy,mobileEditorOwner,mobileEditorOwnerAdmit,mobileEditorOwnerRevision,mobileEditorOwnerChanged,mobileEditorCaptureIntent,
   mobileEditorIntentCurrent,mobileEditorClaimEffect as claimOwnerEffect,type EditorOwner,type EditorRouteInput,type EditorRootEffect,type EditorIntentCapture } from './composer-editor-owner';
-export { mobileEditorCaptureIntent,mobileEditorPublishCommitted } from './composer-editor-owner';
+export { mobileEditorCaptureIntent,mobileEditorPublishCommitted,mobileEditorCaptureDocumentIntent,mobileEditorCommitDocumentIntent } from './composer-editor-owner';
 export type { EditorRouteInput,EditorIntentCapture } from './composer-editor-owner';
 
 export interface EditorPresentation {
@@ -159,13 +160,18 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
   requireCurrent(client,runtime);const owner=runtime.owner,effect=owner.state.latestEffect;
   let saving:Promise<{revision:number;message:string}>|null=null,needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown;
   try {
+  // Durable terminal disposition is included in the same synchronous draft-save snapshot.
+  const pendingRetirement=owner.pending, retirement=pendingRetirement?.retirementKey, outcome=owner.state.commandEffect;
+  if(pendingRetirement&&retirement&&outcome&&outcome.event.commandId===pendingRetirement.id&&outcome.event.commandRevision===pendingRetirement.revision){
+    mobileEditorRetirementComplete(client,retirement,outcome.event.kind==='commandApplied'?'retired':'preserved');needsSave=true;
+  }
   if(effect && owner.state.stagedEventCount<effect.event.eventCount){
     if(effect.writeText){
       saving=mobileDraftChanged(client,owner.state.value,native,storage,owner.target.owner);
       if((client.local.drafts[owner.target.key]??'')!==owner.state.value)throw new ClientError('This editor cannot replace the current answer.','retained');
     }
     const claimed=mobileComposerEditorStageEffect(owner.state,effect.id);owner.state=claimed.state;staged=claimed.effect;
-    if(staged)owner.document.selection={...owner.state.selection};
+    if(staged){owner.document.selection={...owner.state.selection};mobileEditorDocumentWritten(client,owner.target,owner.document.value,owner.document.value,owner.state.selection)}
     if(staged && ['focus','blur','submit'].includes(staged.event.kind)){
       const rootEffect:EditorRootEffect={id:staged.id,kind:staged.event.kind as EditorRootEffect['kind'],payload:JSON.stringify({...mounted(owner),eventCount:staged.event.eventCount,documentRevision:owner.document.revision,value:owner.state.value,alternate:staged.event.alternate??false})};
       if(rootEffect.kind==='submit'){
@@ -226,16 +232,17 @@ async function invokeCommand(client:T3Client,runtime:Runtime,native:Native,stora
 /** Reserve all plain effects before native dispatch. No settings or context change
  * occurs merely because a caller requested a replacement. */
 export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIntentCapture,next:ComposerEditorDocument,
-  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null):Promise<EditorResult> {
+  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey=''):Promise<EditorResult> {
   const runtime=runtimes.get(client);if(!runtime || !mobileEditorIntentCurrent(client,capture))throw superseded();
   requireCurrent(client,runtime);const owner=runtime.owner;
+  if(retirementKey&&!mobileEditorRetirementAllowed(client,retirementKey))throw superseded();
   if(owner.route.readOnly || owner.route.voiceBusy || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
   const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,added));
   if(!prospective.ok)throw new ClientError(prospective.error,'retained');
   const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
   const reserved=mobileComposerEditorCommand(owner.state,id,revision,{...next,tokensJson:doc.tokensJson});
   if(!reserved.command)throw superseded();
-  owner.pending={id,revision,...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture)};
+  owner.pending={id,revision,...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
   owner.state=reserved.state;
   return invokeCommand(client,runtime,native,storage);
 }
@@ -300,4 +307,14 @@ export async function mobileEditorPrepareImmediate(client:T3Client,admission:str
 /** Public root-effect claim rechecks actual target/catalog in addition to the leaf receipt. */
 export function mobileEditorClaimEffect(client:T3Client,admission:string,id:string):EditorRootEffect|null {
   const runtime=runtimes.get(client);return runtime&&current(client,runtime)?claimOwnerEffect(client,admission,id):null;
+}
+
+/** New durable capability only; producer coverage currently refuses clear authority. */
+export async function mobileEditorRequestRetirement(client:T3Client,receiptKey:string,route:EditorRouteInput,native:Native,storage:Files):Promise<EditorResult> {
+  const runtime=actionRuntime(client,route),owner=runtime.owner,receipt=mobileEditorRetirementReceipt(client,receiptKey);
+  if(!receipt||receipt.environmentId!==owner.target.environmentId||receipt.threadId!==owner.target.threadId)throw superseded();
+  if(owner.pending?.retirementKey===receiptKey)return invokeCommand(client,runtime,native,storage);
+  if(!mobileEditorRetirementAllowed(client,receiptKey))throw superseded();
+  const capture=mobileEditorCaptureIntent(client,owner.target,'send-retirement');if(!capture)throw superseded();
+  return mobileEditorRequestIntent(client,capture,{value:'',selection:{start:0,end:0}},undefined,native,storage,null,receiptKey);
 }

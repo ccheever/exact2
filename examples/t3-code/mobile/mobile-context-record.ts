@@ -1,14 +1,15 @@
 // Supported source365aa87982 context payloads shared by draft ownership and capture.
 // @ref llp/1109.005-composer-and-transcript.decision.md#foreground-capture-facts
 import { obj, str, type Obj } from './shared/domain';
+import { mobileImportedContextRecordValid } from './composer-context-record-admission';
 
 const bounded = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;
 const nonempty = (value: unknown, max = Infinity) => bounded(value, max) && String(value).trim() === value && String(value).length > 0;
 const integer = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const id = (value: unknown) => nonempty(value, 128) && /^[a-z0-9_-]+$/i.test(String(value));
 
-/** Narrow source-schema subset supported by current app context producers.
- * Element/preview/future kinds need their own verified capture owner; no boolean bypass. */
+/** Canonical source records supported by producers and decoded clipboard imports.
+ * Payload validity grants no captured editor or attachment ownership. */
 export function mobileContextRecordValid(record: Obj): boolean {
   if (record.version !== 1 || !id(record.contextId) || !bounded(record.label, 200)) return false;
   switch (record.kind) {
@@ -28,6 +29,6 @@ export function mobileContextRecordValid(record: Obj): boolean {
           ['title', 'url', 'headBranch', 'baseBranch'].every(key => bounded(pr[key], 2048)) &&
           ['open', 'closed', 'merged'].includes(str(pr.state)) && typeof pr.isDraft === 'boolean');
     }
-    default: return false;
+    default: return mobileImportedContextRecordValid(record);
   }
 }

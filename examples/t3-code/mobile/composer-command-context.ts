@@ -67,6 +67,29 @@ export function mobileComposerContextCapture(client:T3Client,target:Pick<MobileC
   const entry=entryFor(client,scope,true)!;
   return {...scope,slot:slot(scope),originAtCapture:client.origin,generation:client.generation,incarnation:entry.incarnation,revision:entry.revision,text:entry.text};
 }
+/** Explicit named-document preflight for an unmounted producer. Never borrows the focused thread. */
+export function mobileComposerContextCaptureTarget(client:T3Client,target:MobileComposerTarget):ComposerContextGuard|null {
+  if(target.kind!=='ordinary' || target.origin!==client.origin || target.environmentId!==client.environmentId
+    || target.generation!==client.generation || !target.threadId || target.key!==`${target.environmentId}:${target.threadId}`) return null;
+  const scope=scopeFor(client,target.key); if(!scope || store(client).invalid!==undefined) return null;
+  const entry=entryFor(client,scope,true)!;
+  if(entry.text!==(client.local.drafts[target.key]??'') || !mobileNewTaskContextProject(entry.text,entry.context).ok) return null;
+  return {...scope,slot:slot(scope),originAtCapture:client.origin,generation:client.generation,
+    incarnation:entry.incarnation,revision:entry.revision,text:entry.text};
+}
+/** Pair with capture and an accepted named text write in one synchronous turn. No guessed reconciliation. */
+export function mobileComposerContextObserveTarget(client:T3Client,guard:ComposerContextGuard,after:string):boolean {
+  const scope=scopeFor(client,guard.key), registry=store(client), entry=registry.entries.get(guard.slot);
+  if(!scope || slot(scope)!==guard.slot || client.origin!==guard.originAtCapture || client.generation!==guard.generation
+    || registry.invalid!==undefined || !entry || entry.incarnation!==guard.incarnation || entry.revision!==guard.revision
+    || entry.text!==guard.text || (client.local.drafts[guard.key]??'')!==after || after.length>1_000_000) return false;
+  const decoded=mobileNewTaskContextProject(entry.text,entry.context); if(!decoded.ok) return false;
+  if(after===entry.text) return true;
+  const history=histories.get(entry)??mobileCreateContextHistory(), restored=history(after,decoded.context);
+  histories.set(entry,history);
+  if(restored) entry.context=clone(restored); else delete entry.context;
+  entry.text=after;entry.revision++;return true;
+}
 export function mobileComposerContextRead(client:T3Client,key=client.draftKey,text=client.local.drafts[key]??''):ComposerContextRead {
   const scope=scopeFor(client,key); if(!scope) return {ok:true,context:undefined,revision:0};
   const registry=store(client); if(registry.invalid!==undefined) return invalid();

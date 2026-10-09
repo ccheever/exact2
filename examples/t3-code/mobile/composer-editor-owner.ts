@@ -3,6 +3,9 @@
 import type { T3Client } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
 import type { Obj } from './shared/domain';
+import { mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { mobileEditorDocumentEnroll, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
 import { mobileComposerEditorAdmit, type ComposerEditorState, type ComposerEditorDocument } from './composer-editor-state';
 
 export interface EditorRouteInput {
@@ -10,12 +13,12 @@ export interface EditorRouteInput {
   readOnly:boolean; voiceBusy:boolean;
   focusIntent:{serial:string;attempt:number;operation:'none'|'focus'|'blur'};
 }
-export interface EditorDocumentLedger { key:string; incarnation:number; revision:number; value:string; selection:{start:number;end:number}|null }
+export interface EditorDocumentLedger { key:string; incarnation:string; revision:number; value:string; selection:{start:number;end:number}|null }
 export interface EditorIntentCapture {
-  id:string; producer:string; target:MobileComposerTarget; key:string; incarnation:number; revision:number;
+  id:string; producer:string; target:MobileComposerTarget; key:string; incarnation:string; revision:number;
   before:string; selection:{start:number;end:number}; admission:string; mountId:string; eventCount:number;
 }
-export interface EditorCommandEffect { id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture }
+export interface EditorCommandEffect { id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
 export interface EditorRootEffect { id:string; kind:'focus'|'blur'|'submit'; payload:string }
 export interface EditorOwner {
   admission:string; signature:string; target:MobileComposerTarget; route:EditorRouteInput;
@@ -34,7 +37,7 @@ const ordinary=(target:MobileComposerTarget)=>target.kind==='ordinary' && !!targ
 const keyOf=(target:MobileComposerTarget)=>JSON.stringify([target.origin,target.environmentId,target.key]);
 function document(client:T3Client,target:MobileComposerTarget,value:string):EditorDocumentLedger {
   const r=registry(client),key=keyOf(target);let entry=r.documents.get(key);
-  if(!entry){entry={key,incarnation:++r.serial,revision:0,value,selection:null};r.documents.set(key,entry)}
+  if(!entry){entry={key,incarnation:`volatile-${++r.serial}`,revision:0,value,selection:null};r.documents.set(key,entry)}
   return entry;
 }
 export function mobileEditorOwner(client:T3Client):EditorOwner|null{return registry(client).active}
@@ -47,7 +50,9 @@ export function mobileEditorOwnerAdmit(client:T3Client,target:MobileComposerTarg
     || !route.editorId || !route.routeVisit){if(r.active){r.active=null;r.revision++}return null}
   const signature=JSON.stringify([target.owner,route.routeVisit,route.editorId,catalog]);
   if(r.active?.signature===signature){r.active.route=editorCopy(route);return r.active}
+  const durable=mobileEditorDocumentEnroll(client,target);if(!durable){r.active=null;r.revision++;return null}
   const entry=document(client,target,client.local.drafts[target.key]??'');
+  Object.assign(entry,{incarnation:durable.incarnation,revision:durable.revision,value:durable.value,selection:durable.selection});
   if(entry.value!==(client.local.drafts[target.key]??'')){r.active=null;r.revision++;return null}
   const epoch=`editor-${++r.serial}`,identity={owner:target.owner,editorId:route.editorId,routeVisit:route.routeVisit,renderEpoch:epoch};
   const state=mobileComposerEditorAdmit(null,identity,{value:entry.value,selection:entry.selection??{start:entry.value.length,end:entry.value.length}});
@@ -61,6 +66,8 @@ export function mobileEditorOwnerWritten(client:T3Client,target:MobileComposerTa
   if(!ordinary(target) || target.origin!==client.origin || target.environmentId!==client.environmentId || target.generation!==client.generation
     || target.key!==client.draftKey || (client.local.drafts[target.key]??'')!==after)return false;
   const entry=document(client,target,before);if(entry.value!==before)return false;
+  const durableKey=mobileEditorDocumentKey({origin:mobileQueuedEditOrigin(client).trim().replace(/\/+$/,''),environmentId:target.environmentId,draftKey:target.key});
+  if(mobileEditorDocument(client,durableKey)&&!mobileEditorDocumentWritten(client,target,before,after))return false;
   if(before!==after){entry.value=after;entry.selection=null;entry.revision++;registry(client).revision++}
   return true;
 }
@@ -91,6 +98,7 @@ export function mobileEditorPublishCommitted(client:T3Client,capture:EditorInten
     || r.active?.target.owner===capture.target.owner && !!r.active.state.mountId
     || (client.local.drafts[capture.target.key]??'')!==next.value || next.value.length>1_000_000
     || !Number.isSafeInteger(next.selection.start)||!Number.isSafeInteger(next.selection.end)||next.selection.start<0||next.selection.end<next.selection.start||next.selection.end>next.value.length)return false;
+  if(!mobileEditorDocumentWritten(client,capture.target,capture.before,next.value,next.selection))return false;
   entry.value=next.value;entry.selection={...next.selection};entry.revision++;r.revision++;
   // Retire an unmounted admission so a future mount seeds from this named intent.
   if(r.active?.target.owner===capture.target.owner)r.active=null;
@@ -107,4 +115,21 @@ export function mobileEditorClaimEffect(client:T3Client,admission:string,id:stri
     }
   }
   return effect;
+}
+
+/** Named capture is independent of active route, but keeps the actual connection receipt. */
+export function mobileEditorCaptureDocumentIntent(client:T3Client,target:MobileComposerTarget,producer:string,selection?:{start:number;end:number}):EditorDocumentIntent|null {
+  return mobileEditorDocumentCapture(client,target,producer,selection);
+}
+/** No await between mounted-owner refusal and the exact named slot mutation. */
+export function mobileEditorCommitDocumentIntent(client:T3Client,capture:EditorDocumentIntent,next:ComposerEditorDocument):boolean {
+  const r=registry(client),active=r.active;
+  if(active?.document.incarnation===capture.incarnation && active.target.key===capture.target.key && active.target.origin===capture.target.origin && active.state.mountId)return false;
+  const context=mobileComposerContextCaptureTarget(client,capture.target);if(!context)return false;
+  if(!mobileEditorDocumentCommit(client,capture,next))return false;
+  if(!mobileComposerContextObserveTarget(client,context,next.value))return false;
+  const entry=r.documents.get(keyOf(capture.target));
+  if(entry)Object.assign(entry,{value:next.value,selection:{...next.selection},revision:capture.revision+1,incarnation:capture.incarnation});
+  if(active?.target.key===capture.target.key&&active.target.origin===capture.target.origin)r.active=null;
+  r.revision++;return true;
 }
