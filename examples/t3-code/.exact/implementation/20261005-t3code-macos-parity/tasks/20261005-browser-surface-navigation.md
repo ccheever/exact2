@@ -7,8 +7,8 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-navigation
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/348
+verified_commit: 4466f27ced9f089b5919bda4259198146922a500
 ---
 
 # Browser surface part 2: navigation, history, zoom and the device toolbar
