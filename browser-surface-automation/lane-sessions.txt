@@ -1,0 +1,41 @@
+# browser-surface-automation (part 5): the agent-mode live sessions on 2026-10-09 (both failed before the tool run)
+
+Lane: ports 16750 (the app's embedded server) and 16751 (a fixture page server: /form, /b, /media). The lane has its own
+HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3_LOCAL_HOME and T3CODE_TELEMETRY_ENABLED=false. Its server has one ACP
+Registry provider instance, "Lane browser agent", whose command is a lane-only fake ACP agent. For a prompt
+"e2e <url>", that agent calls the server's preview MCP tools in order (status, open, status, snapshot, click, type,
+press, wait_for, evaluate, scroll, set_appearance dark, evaluate, set_appearance system, resize fill, resize freeform,
+navigate, snapshot, recording_start, recording_stop, navigate /media, evaluate play). It writes each result to a
+JSONL file and replies with a summary that contains a Markdown link. App driven by scripts/agent.mjs macos
+(agent mode, 1280x840); the build is this branch at 7fa518900 (45b857d3c after it adds only a test).
+
+Session 1, 12:44-12:47 KST (03:44-03:47Z): failed at setup.
+  - The lane home had no default model selection, and the server answered "No valid cached ACP Registry index" for
+    the instance, so the turn never reached the fake agent.
+  - The settings screenshots were taken without `window` and came out blank.
+  - The drive stopped at op 28/42: `tap panel-tab-browser:tab_1 contextmenu` found no Browser tab, because no agent
+    had opened one.
+  - Fixes for the next session: seed caches/acp-registry/registry.json and defaultModelSelection in the lane home;
+    take screenshots with `window`.
+
+Session 2 (retry), 12:51-12:52 KST (03:51-03:52Z): failed before the turn.
+  - `type composer "e2e http://127.0.0.1:16751/form" key Enter` left the text in the composer; the message was not
+    sent (screenshot 03 shows the composer still holding it).
+  - The drive stopped at op 14/43 with the same `tap panel-tab-browser:tab_1 contextmenu` (no tab).
+  - Fix for the next session: `tap send-message` instead of Enter.
+  - What did run: the provider probe started the fake agent twice (initialize, session/new), and the app registered
+    its previewAutomation host with the server (lane-session-2-server-trace.txt):
+      subscribePreviewEvents and previewAutomation.connect at +1.49 s,
+      PreviewAutomationBroker.connect / acquireConnection at +1.49 s,
+      previewAutomation.focusHost at +1.55 s,
+      preview.list at +14.8 s,
+      closeConnection / disconnect at +50.6 s when the app quit.
+
+PIDs (recorded by the drive script and stopped by it): session 1 fixture 19226, agent driver 19227, lane server
+19375; session 2 fixture 36312, agent driver 36313, lane server 36448. The PID 5064 lane ("T3 Code (Lane Browser)",
+16650/16651) was not touched.
+
+Next session: the script is target/bsa-lane/drive.sh. It is the same drive with `tap send-message`, taking every
+screenshot with `window`: the e2e prompt, the agent-opened tab, the tool results, the tab menu's Mute, Settings ›
+Integrations "Open links in" set to T3 Code, a chat link opening in a Browser tab, and a ⌘-click going to the system
+browser (T3_REMOTE_OPEN_LOG records it).
