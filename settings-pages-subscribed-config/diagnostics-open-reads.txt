@@ -1,0 +1,115 @@
+# settings-pages-subscribed-config, review round: Settings › Diagnostics reads its resource timeline once per open
+
+The review found that Diagnostics sent server.getResourceTelemetryHistory twice when it opened (the reference: once).
+Lane trace of the previous after drive (head 262ea528e, lane settings-pages-subscribed-config, clone server 127.0.0.1:16202),
+times relative to the subscribe span's start (2026-10-09T16:41:11.874Z):
+
+  subscribeResourceTelemetry          start  +0.0 ms   (subscribeBeforeSnapshot +0.1 ms: the server sends the current sample at once)
+  server.getResourceTelemetryHistory  start  +9.8 ms, end +25.0 ms
+  server.getResourceTelemetryHistory  start +38.2 ms, end +40.4 ms   <- 13.2 ms after the first reply ended
+
+Cause: the stream's first sample arrives at once; draining it moves data.telemetry, Exact asks Diagnostics again and
+forgets the opening answer (LLP 1016 D5). The first read's reply had reached the transport but not that answer, so it
+was dropped (host/apple/src/executor_core.rs forget: a completed outcome is dropped undrained). T3Transport's shared
+read joins only a read still pending, so the next answer sent the read again.
+
+Fix (5d28da9bf): the page's three reads and the timeline land before the page opens the telemetry stream
+(diagnostics-view.ts diagnosticsPage, settings-a-telemetry.ts telemetryPage).
+
+## Live, after (head with the fix, bundle rebuilt): Diagnostics opened three times, then held 30 s
+
+Agent mode, 1280x840, lane settings-pages-subscribed-config (base port 16200); renamer.sh renamed the lane project every
+7 s throughout. count-diag.mjs counts the lane server's ws.rpc spans per window (screenshot write times).
+
+```
+open 1 (tap + 3 s): 2026-10-09T17:24:32.843Z → 2026-10-09T17:24:36.022Z (3.2 s, 0 renames)
+     1  ws.rpc.server.getResourceTelemetryHistory
+     1  ws.rpc.subscribeResourceTelemetry
+     1  ws.rpc.server.reportClientActivity
+        server.getResourceTelemetryHistory start +0.0 ms, end +3.0 ms
+        subscribeResourceTelemetry start +63.0 ms, end +3292.3 ms
+open 2 (tap + 3 s): 2026-10-09T17:24:38.320Z → 2026-10-09T17:24:41.493Z (3.2 s, 1 renames)
+     1  ws.rpc.server.getResourceTelemetryHistory
+     1  ws.rpc.subscribeResourceTelemetry
+     1  ws.rpc.server.reportClientActivity
+        server.getResourceTelemetryHistory start +0.0 ms, end +1.0 ms
+        subscribeResourceTelemetry start +51.6 ms, end +3307.6 ms
+open 3 (tap + 3 s): 2026-10-09T17:24:43.815Z → 2026-10-09T17:24:46.995Z (3.2 s, 1 renames)
+     1  ws.rpc.server.getResourceTelemetryHistory
+     1  ws.rpc.subscribeResourceTelemetry
+     1  ws.rpc.server.reportClientActivity
+        server.getResourceTelemetryHistory start +0.0 ms, end +1.0 ms
+        subscribeResourceTelemetry start +65.1 ms, end +33358.2 ms
+open 3, held 30 s: 2026-10-09T17:24:46.995Z → 2026-10-09T17:25:17.138Z (30.1 s, 4 renames)
+     1  ws.rpc.server.reportClientActivity
+
+TABLE [{"window":"open 1 (tap + 3 s)","history":1,"subscribe":1,"config":0,"settings":0,"wakes":0},{"window":"open 2 (tap + 3 s)","history":1,"subscribe":1,"config":0,"settings":0,"wakes":1},{"window":"open 3 (tap + 3 s)","history":1,"subscribe":1,"config":0,"settings":0,"wakes":1},{"window":"open 3, held 30 s","history":0,"subscribe":0,"config":0,"settings":0,"wakes":4}]
+```
+
+| Window | getResourceTelemetryHistory | subscribeResourceTelemetry | getConfig / getSettings |
+| --- | --- | --- | --- |
+| before this round, the one open (previous after drive) | 2 | 1 | 0 / 0 |
+| open 1, 2, 3 (tap + 3 s each) | 1, 1, 1 | 1, 1, 1 | 0 / 0 |
+| open 3 held 30 s (4 renames) | 0 | 0 | 0 / 0 |
+| reference (1e2ecbd975), one open | 1 | 1 | 0 / 0 |
+
+The lane server does not trace server.getProcessDiagnostics, getProcessResourceHistory or getTraceDiagnostics as ws.rpc
+spans (on either app), so the live counts cover getConfig, getSettings and getResourceTelemetryHistory only; the Bun
+tests below check all four Diagnostics reads per open and per wake.
+
+## Bun test without the fix (diagnostics-view.ts and settings-a-telemetry.ts at 262ea528e, tests at 5d28da9bf)
+
+settings-pages-reads.test.ts "Diagnostics: the stream's first sample, which lets the opening answer go, costs no second read":
+every call the opening answer makes after its subscribe has its reply dropped, as the runtime drops a reply that
+reached the transport after the answer was forgotten.
+
+```
+bun test v1.4.2 (744846f84)
+
+settings-pages-reads.test.ts:
+174 |     } };
+175 |     const from = server.calls.length;
+176 |     await answer('diagnosticsSettings', PAGES.Diagnostics!.args(clock, true), null, files, forgotten).catch(() => undefined);
+177 |     const again = await wake(PAGES.Diagnostics!);
+178 |     expect({ sent: server.requests(from).sort(), again: again.sent, sample: obj(again.view.telemetry).updated })
+179 |       .toEqual({ sent: [...PAGES.Diagnostics!.opens].sort(), again: [], sample: 'Updated' });
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -1,3 +1,8 @@
+  {
+-   "again": [],
++   "again": [
++     "server.getResourceTelemetryHistory",
++     "server.getProcessDiagnostics",
++     "server.getProcessResourceHistory",
++     "server.getTraceDiagnostics",
++   ],
+    "sample": "Updated",
+@@ -6,2 +11,3 @@
+      "server.getProcessResourceHistory",
++     "server.getResourceTelemetryHistory",
+      "server.getResourceTelemetryHistory",
+
+- Expected  - 1
++ Received  + 7
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-pages-subscribed-config/examples/t3-code/settings-pages-reads.test.ts:179:8)
+(fail) a change still reaches each page, without a read > Diagnostics: the stream's first sample, which lets the opening answer go, costs no second read [1.83ms]
+
+ 16 pass
+ 1 fail
+ 96 expect() calls
+Ran 17 tests across 2 files. [217.00ms]
+```
+
+## Bun test with the fix
+
+```
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 97 expect() calls
+Ran 17 tests across 2 files. [207.00ms]
+```
