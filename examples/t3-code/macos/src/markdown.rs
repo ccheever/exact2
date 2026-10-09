@@ -69,7 +69,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "welcome",
             "timelineAttachments",
         ],
-        &["renderMarkdown", "renderPullRequestMarkdown"],
+        &["renderMarkdown", "renderPullRequestMarkdown", "renderFileMarkdown"],
     )
     .expect("T3 presentation sources have distinct owners")
     .with_embedded_rust(|placed| Ok(exact_data::Placed::new(Markdown, placed.given_placement())))
@@ -81,8 +81,12 @@ impl DataSource for Markdown {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        // renderPullRequestMarkdown: the same parse for a pull request body and its comments (lane pages).
-        if source != "renderMarkdown" && source != "renderPullRequestMarkdown" {
+        // renderPullRequestMarkdown: the same parse for a pull request body and its comments (lane pages);
+        // renderFileMarkdown: a Markdown file in Files (markdown-links-and-files-preview, r4-surfaces-files.ts).
+        if source != "renderMarkdown"
+            && source != "renderPullRequestMarkdown"
+            && source != "renderFileMarkdown"
+        {
             return Err(DataError::Unavailable(format!(
                 "Unknown T3 source: {source}"
             )));
@@ -97,10 +101,16 @@ impl DataSource for Markdown {
             };
             let Some(id) = fields.first() else { continue };
             let kind = fields.get(1).and_then(Value::as_str).unwrap_or("");
-            if kind != "assistant" && kind != "plan" && kind != "user" {
+            if kind != "assistant" && kind != "plan" && kind != "user" && kind != "file" {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
+            // markdown-links-and-files-preview PA-3: an editable file's rendered Markdown
+            // (FileMarkdownPreview), whose task checkboxes write the file.
+            if kind == "file" {
+                documents.push(document_with_tasks(id.clone(), text, None, true));
+                continue;
+            }
             // UserMessageBody renders ChatMarkdown with `lineBreaks`: a single
             // newline is a line break, kept through the parse as U+2028.
             if kind == "user" {
@@ -132,21 +142,11 @@ impl DataSource for Markdown {
 include!("pierre_icons.rs");
 include!("r4_timeline_tables.rs");
 include!("r4_integrate_align.rs");
+include!("markdown_links.rs");
 
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
-
-fn is_file_link(href: &str) -> bool {
-    let lower = href.to_ascii_lowercase();
-    lower.starts_with("file://")
-        || !href.is_empty()
-            && !href.starts_with('#')
-            && !lower.contains("://")
-            && !["data:", "javascript:", "mailto:", "tel:"]
-                .iter()
-                .any(|scheme| lower.starts_with(scheme))
-}
 
 /// MarkdownFileLink's chip label: the file's name, then " · L3" for a line.
 fn file_chip(target: &str) -> (String, &'static str) {
@@ -233,6 +233,10 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         let (text, icon) = file_chip(target);
         fields[1] = Value::str(&text);
         ("file", icon)
+    } else if href == NO_HREF {
+        // markdown-links-and-files-preview TH-9: an anchor the URL transform emptied.
+        fields[5] = Value::str("");
+        ("link", "")
     } else if href.is_empty() {
         ("", "")
     } else if link_start {
@@ -553,6 +557,17 @@ fn closed_code_fences(text: &str) -> Vec<bool> {
 }
 
 fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> Value {
+    document_with_tasks(id, text, skill_values, false)
+}
+
+/// `toggle_tasks`: a task item keeps its marker's offset, so its checkbox can write the
+/// file; elsewhere (the transcript) GFM's checkbox is disabled and the offset is -1.
+fn document_with_tasks(
+    id: Value,
+    text: &str,
+    skill_values: Option<&Value>,
+    toggle_tasks: bool,
+) -> Value {
     let skills: Vec<(String, String)> = match skill_values {
         Some(Value::List(skills)) => skills
             .iter()
@@ -569,22 +584,16 @@ fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> 
         _ => Vec::new(),
     };
     let text = image_chip_links(text);
-    let mut doc = markdown_parse::parse(&text, &|href| {
-        let lower = href.to_ascii_lowercase();
-        if ["https://", "http://", "mailto:", "tel:"]
-            .iter()
-            .any(|scheme| lower.starts_with(scheme))
-        {
-            href.to_string()
-        } else if lower.starts_with("t3-context://") || lower.starts_with("t3-citation://") {
-            href.to_string()
-        } else if is_file_link(href) {
-            format!("{FILE_LINK}{href}")
-        } else {
-            String::new()
-        }
-    });
+    let mut doc = markdown_parse::parse(&text, &|href| link_href(href));
+    let mut tasks = task_items(&mut doc.blocks, &text);
+    if !toggle_tasks {
+        tasks.iter_mut().for_each(|task| task.1 = -1.0);
+    }
     for block in &mut doc.blocks {
+        // An image's emptied source loads nothing (media-views.ts markdownImageHref).
+        if matches!(block.kind, markdown_parse::Kind::Image) && block.href == NO_HREF {
+            block.href.clear();
+        }
         block.runs = skill_runs(&block.runs, &skills);
         for cell in &mut block.cells {
             *cell = skill_runs(cell, &skills);
@@ -649,6 +658,7 @@ fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> 
                     }
                     line_fields.push(Value::Bool(true));
                     no_table(&mut line_fields);
+                    line_fields.extend(task_fields(tasks[index]));
                     blocks.push(Value::record(line_fields));
                 }
                 continue;
@@ -687,6 +697,7 @@ fn document_with_skills(id: Value, text: &str, skill_values: Option<&Value>) -> 
             }
             code_index += 1;
         }
+        fields.extend(task_fields(tasks[index]));
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])
@@ -1192,7 +1203,7 @@ mod tests {
                 let Value::Record(fields) = block else {
                     panic!("block")
                 };
-                assert_eq!(fields.len(), 16);
+                assert_eq!(fields.len(), 18);
                 fields[1].as_str().unwrap_or("").to_string()
             })
             .collect();
@@ -1290,7 +1301,7 @@ mod terminal_fence_tests {
                 if fields[1].as_str() != Some("code") {
                     return None;
                 }
-                Some(fields.last() == Some(&Value::Bool(true)))
+                Some(fields[15] == Value::Bool(true))
             })
             .collect();
         assert_eq!(flags, vec![true, false]);

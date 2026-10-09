@@ -17,7 +17,7 @@ use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 use DiffGlyph from "./diff-glyphs.contract"
-use MarkdownBlocks from "./markdown.contract"
+use DiagramBlocks, ChatDocument from "./markdown.contract"
 use FilesMedia from "./media-actions.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 use KmItem from "./menu-keys.contract"
@@ -31,18 +31,22 @@ use kmEndKeyed from "./menu-keys.contract"
 component R4FilesBody
   props
     files: R4Files
+    // markdown-links-and-files-preview PA-3: app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
+    documents: list<ChatDocument>
     scheme: string
     sheet: bool
     local: action
   view
     when scheme == "dark"
-      R4FilesSurface(files=files, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
     else
-      R4FilesSurface(files=files, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
 
 component R4FilesSurface
   props
     files: R4Files
+    documents: list<ChatDocument>
+    scheme: string
     sheet: bool
     local: action
   action closeEditors
@@ -62,7 +66,7 @@ component R4FilesSurface
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
         when files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            R4FilePreview(files=files, local=local)
+            R4FilePreview(files=files, documents=documents, scheme=scheme, local=local)
         when files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
             R4Explorer(files=files, local=local)
@@ -225,7 +229,11 @@ component R4CrumbView
 component R4FilePreview
   props
     files: R4Files
+    documents: list<ChatDocument>
+    scheme: string
     local: action
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
   // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
   state draftText = ""
   action editDraft(text: string)
@@ -249,7 +257,9 @@ component R4FilePreview
     when files.preview == "markdown"
       scroll flex=1 min-height=0 width="100%" testId="file-markdown"
         column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
-          MarkdownBlocks(document=files.markdown, local=local, code=files.code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false)
+          // FileMarkdownPreview: ChatMarkdown with the file's own folder for its links and images (r4-surfaces-files.ts renderedMarkdown).
+          each document in filter(documents, (entry) => entry.id == `file:${files.path}`) key=document.id
+            DiagramBlocks(document=document, local=local, code=files.code, diagrams=files.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=files.codeCopied, copiedNonce=files.codeCopyNonce, env=files.md, urls=files.mdUrls, source="", cite=noCite)
     when files.preview == "table"
       scroll flex=1 min-height=0 width="100%" testId="file-table"
         column min-width="100%"

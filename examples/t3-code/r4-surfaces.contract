@@ -34,6 +34,7 @@ use R6DeviceLoading from "./r6-device.contract"
 use R6DeviceWorkspaceView from "./r6-device.contract"
 use R7DevPlatformGlyph from "./r7-device.contract" // lane r7-device: the device tab's platform mark
 use R4FilesBody from "./r4-surfaces-files.contract"
+use ChatDocument from "./markdown.contract"
 use prdTone from "./pages-pr-detail.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
@@ -298,11 +299,13 @@ component R4SurfaceBody
     command: action
     paletteShow: action
     urlFocus: action
+    // markdown-links-and-files-preview PA-3: the rendered Markdown file (app.contract filesMarkdown).
+    filesDocuments: list<ChatDocument>
   view
     when panel.kind == "terminal"
       TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     when panel.kind == "files" or panel.kind == "file"
-      R4FilesBody(files=panel.files, scheme=scheme, sheet=sheet, local=local)
+      R4FilesBody(files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local)
     when panel.kind == "pull-requests"
       R4PrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
     when panel.kind == "device"

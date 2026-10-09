@@ -64,7 +64,7 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         if run.bold && !run.code {
             text = format!("**{text}**");
         }
-        if !run.href.is_empty() && skill_source.is_none() {
+        if !run.href.is_empty() && run.href != NO_HREF && skill_source.is_none() {
             let href = run.href.strip_prefix(FILE_LINK).unwrap_or(&run.href);
             text = format!("[{text}]({href})");
         }
@@ -198,6 +198,8 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         Value::str(&markdown),
         Value::str(&csv),
         Value::Bool(false),
+        Value::str(""),
+        Value::Number(-1.0),
     ])
 }
 
@@ -210,6 +212,11 @@ fn no_table(fields: &mut Vec<Value>) {
         Value::str(""),
         Value::Bool(false),
     ]);
+}
+
+/// A block's GFM task (markdown_links.rs task_items): "open", "done" or "", and its marker's offset.
+fn task_fields((task, offset): (&'static str, f64)) -> [Value; 2] {
+    [Value::str(task), Value::Number(offset)]
 }
 
 /// `![name](t3-context://v1/image/…)`: the parser keeps inline images as bare
