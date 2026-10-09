@@ -283,9 +283,11 @@ pub(crate) fn session(m: &Model) -> Json {
     let known = live.or_else(|| m.known_session(key));
     // A session starting: the message is shown, the launch is its status.
     let starting = key.1 == crate::model::launch::LAUNCHING;
+    // Launched, and not yet in the home machine's look at where it runs.
+    let listing = m.just_launched(key);
     let (title, host) = tab_title(m, key).filter(|_| !starting).unwrap_or_else(|| {
         (
-            if starting {
+            if starting || listing {
                 "New session".into()
             } else {
                 known.map(|s| s.title.clone()).unwrap_or_default()
@@ -361,7 +363,7 @@ pub(crate) fn session(m: &Model) -> Json {
         "No messages yet."
     };
     let (can_send, note) = match live.map(Session::send_route) {
-        _ if starting => (false, String::new()),
+        _ if starting || listing => (false, String::new()),
         None if m.fresh => (false, format!("{host} is offline.")),
         None => (false, "Reconnecting…".to_string()),
         Some(SendRoute::None(why)) => (false, why.to_string()),
@@ -375,10 +377,12 @@ pub(crate) fn session(m: &Model) -> Json {
         "open": true,
         "title": title,
         "host": host,
-        "working": live.is_some_and(Session::working) || (starting && m.launcher.launching),
+        "working": live.is_some_and(Session::working)
+            || (starting && m.launcher.launching)
+            || listing,
         "blocked": live.is_some_and(Session::blocked),
-        "offline": live.is_none() && !starting,
-        "status": if starting && m.launcher.launching {
+        "offline": live.is_none() && !starting && !listing,
+        "status": if (starting && m.launcher.launching) || listing {
             "Starting session…".to_string()
         } else {
             live.filter(|s| s.working() || s.blocked()).map(Session::status_line).unwrap_or_default()

@@ -10,6 +10,10 @@ use super::*;
 /// it: the message shows at once, the session starting as its status.
 pub const LAUNCHING: &str = "launching";
 
+/// How long a launched session may take to be listed before the phone
+/// stops saying it is starting.
+const LISTED_WITHIN_MS: f64 = 120_000.0;
+
 /// Effort levels by provider, as the desktop offers them; "" is the
 /// provider's own default.
 fn efforts(provider: &str) -> &'static [&'static str] {
@@ -97,6 +101,8 @@ pub struct Launcher {
     pub error: String,
     /// The session to open once launched: (machine, session id).
     pub goto: Option<(String, String)>,
+    /// The session last launched and when, until the fleet lists it.
+    pub started: Option<(Key, f64)>,
 }
 
 impl Model {
@@ -419,6 +425,7 @@ impl Model {
                         p.key = to.clone();
                     }
                     self.conversations.remove(&from);
+                    self.launcher.started = Some((to.clone(), self.now));
                     self.launcher.goto = Some(to);
                     self.launcher.prompt.clear();
                     self.feel("success");
@@ -438,6 +445,17 @@ impl Model {
             Err(why) => self.launch_failed(why),
         }
         self.version += 1;
+    }
+
+    /// Whether `key` was just launched and the fleet doesn't list it yet:
+    /// the machine answers for it before the home machine's next look at
+    /// it does, which is not the machine being offline.
+    pub fn just_launched(&self, key: &Key) -> bool {
+        self.launcher
+            .started
+            .as_ref()
+            .is_some_and(|(k, at)| k == key && self.now - at < LISTED_WITHIN_MS)
+            && self.live_session(key).is_none()
     }
 
     fn launch_failed(&mut self, why: String) {

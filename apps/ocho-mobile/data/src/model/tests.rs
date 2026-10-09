@@ -1162,6 +1162,15 @@ fn a_new_session_launches_with_its_choices_and_opens() {
     );
     m.goto_done();
     assert!(m.launcher.goto.is_none());
+    // Opened before the fleet lists it: starting, never "offline".
+    m.open = Some(key.clone());
+    let view = crate::view::session(&m);
+    assert_eq!(view["offline"], false);
+    assert_eq!(view["status"], "Starting session…");
+    assert_eq!(view["note"], "");
+    assert_eq!(view["title"], "New session");
+    m.clock(m.now + 121_000.0);
+    assert!(!m.just_launched(&key), "not forever");
 }
 
 #[test]
