@@ -8,6 +8,30 @@ final class T3MobileVoiceEditor {
     private struct Selection { let owner: String; let text: String; let range: NSRange; let revision: Int }
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var pending: Selection?
+    private struct RichEntry { weak var endpoint: (any T3MobileComposerEndpoint)?; let owner: String }
+    private struct RichCapture { let identity: T3ComposerIdentity; let eventCount: Int }
+    private struct RichSelection { let capture: RichCapture; let text: String; let start: Int; let end: Int; let revision: Int }
+    private var rich: [ObjectIdentifier: RichEntry] = [:]
+    private var richPending: [String: RichSelection] = [:]
+
+    func register(_ endpoint: any T3MobileComposerEndpoint, owner: String) {
+        rich[ObjectIdentifier(endpoint)] = RichEntry(endpoint: endpoint, owner: owner)
+    }
+    func unregister(_ endpoint: any T3MobileComposerEndpoint) {
+        guard let entry = rich.removeValue(forKey: ObjectIdentifier(endpoint)) else { return }
+        if richPending[entry.owner]?.capture.identity == endpoint.composerIdentity { richPending.removeValue(forKey: entry.owner) }
+    }
+    func refresh(_ endpoint: any T3MobileComposerEndpoint, owner: String, selectionRevision: Int) {
+        guard let pending = richPending[owner], pending.revision == selectionRevision,
+              endpoint.composerIdentity == pending.capture.identity else { return }
+        // An ABA edit, caret move or new mount cannot consume an older voice selection.
+        guard endpoint.composerEventCount == pending.capture.eventCount else { richPending.removeValue(forKey: owner); return }
+        if endpoint.applyVoiceSelection(identity: pending.capture.identity, expectedText: pending.text,
+            start: pending.start, end: pending.end, revision: pending.revision) {
+            richPending.removeValue(forKey: owner)
+        }
+    }
+
 
     func configure(_ element: ExactElement, owner: String, selectionRevision: Int) {
         guard let view = element.platform as? UITextView else { return }
@@ -23,6 +47,17 @@ final class T3MobileVoiceEditor {
     func end(_ element: ExactElement) { entries.removeValue(forKey: ObjectIdentifier(element)) }
     func selection(owner: String, text: String, optional: Bool = false) throws -> [String: Any] {
         guard !owner.isEmpty else { throw VoiceFailure("superseded", "The draft editor is unavailable.") }
+        let endpoints = rich.values.filter { $0.owner == owner }.compactMap(\.endpoint)
+        if !endpoints.isEmpty {
+            let candidates = endpoints.filter { $0.composerMounted && $0.composerSnapshot?.value == text && $0.composerSnapshot?.composing == false }
+            guard let endpoint = candidates.first(where: { $0.composerSnapshot?.focused == true }) ?? (candidates.count == 1 ? candidates.first : nil),
+                  let snapshot = endpoint.composerSnapshot, let identity = endpoint.composerIdentity else {
+                throw VoiceFailure("superseded", "The rich draft editor changed before voice input could start.")
+            }
+            return ["start": snapshot.selection.start, "end": snapshot.selection.end,
+                    "editorId": identity.editorId, "mountId": identity.mountId, "renderEpoch": identity.renderEpoch,
+                    "routeVisit": identity.routeVisit, "eventCount": endpoint.composerEventCount]
+        }
         let mounted = entries.values.filter { $0.owner == owner && $0.view?.window != nil }
         if optional && mounted.isEmpty { let end = (text as NSString).length; return ["start": end, "end": end] }
         let candidates = mounted.filter { $0.view?.text == text }
@@ -33,11 +68,22 @@ final class T3MobileVoiceEditor {
         guard range.location <= count, range.length <= count - range.location else { throw VoiceFailure("voice", "The text selection is unavailable.") }
         return ["start": range.location, "end": range.location + range.length]
     }
+    @discardableResult
+    func stageCaptured(owner: String, identity: T3ComposerIdentity, eventCount: Int, text: String, start: Int, end: Int, revision: Int) -> Bool {
+        guard T3ComposerSelection(start: start, end: end).valid(text), revision > 0,
+              richPending[owner].map({ $0.revision <= revision }) ?? true,
+              rich.values.contains(where: { $0.owner == owner && $0.endpoint?.composerIdentity == identity && $0.endpoint?.composerEventCount == eventCount }) else { return false }
+        richPending[owner] = RichSelection(capture: RichCapture(identity: identity, eventCount: eventCount), text: text, start: start, end: end, revision: revision)
+        return true
+    }
     func stage(owner: String, text: String, start: Int, end: Int, revision: Int) {
+        // Legacy callers have no invocation capture receipt. Never resolve a rich
+        // editor through the latest owner slot; its runtime must use stageCaptured.
+        if rich.values.contains(where: { $0.owner == owner && $0.endpoint != nil }) { return }
         guard pending.map({ $0.revision <= revision }) ?? true else { return }
         let length = (text as NSString).length, lower = max(0, min(length, start)), upper = max(0, min(length, end))
         pending = Selection(owner: owner, text: text, range: NSRange(location: lower, length: max(0, upper - lower)), revision: revision)
     }
-    func destroy() { entries.removeAll(); pending = nil }
+    func destroy() { entries.removeAll(); pending = nil; rich.removeAll(); richPending.removeAll() }
 }
 #endif

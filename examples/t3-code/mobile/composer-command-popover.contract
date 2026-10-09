@@ -1,0 +1,82 @@
+// Pinned365aa87982 ComposerCommandPopover. Root owns admission, queries and picks.
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+use ComposerCommandIcon from "./composer-command-icons.contract"
+shape ComposerCommandRow
+  id: string
+  label: string
+  description: string
+  icon: string
+  image: string
+  iconSize: number
+  slashSkill: bool
+  skillName: string
+  last: bool
+shape ComposerCommandPopoverData
+  admission: string
+  visible: bool
+  title: string
+  empty: string
+  rows: list<ComposerCommandRow>
+shape ComposerCommandColors
+  foreground: string
+  muted: string
+  tertiary: string
+  icon: string
+  border: string
+  surface: string
+  fallback: string
+component ComposerCommandPopover
+  props
+    data: ComposerCommandPopoverData
+    colors: ComposerCommandColors
+    dark: bool
+    liquidGlass: bool
+    hairline: number
+    pick: action
+  view
+    when data.visible
+      column position="absolute" left=0 right=0 bottom="100%" margin-bottom=7 z-index=10 border-radius=16 overflow="hidden"
+        border-width=1 border-style="solid" border-color=colors.border background-color=(liquidGlass ? colors.surface : "transparent")
+        box-shadow=(dark ? "0px 14px 56px 0px rgba(0,0,0,0.22)" : "0px 14px 56px 0px rgba(0,0,0,0.08)") font-family="DM Sans"
+        t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+          material-appearance=(dark ? "dark" : "light") material-radius=16 material-style="clear" material-tint=colors.surface
+          material-surface=colors.fallback material-border="#00000000"
+        when data.title != ""
+          text data.title padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=3.5 font-size=11 line-height="14px" font-weight=700 letter-spacing="0.8px" color=colors.muted
+        when length(data.rows) > 0
+          scroll max-height=180 min-height=0 scrollbar-width="none" retainFocus=true
+            column
+              each item in data.rows key=`${data.admission}:${item.id}`
+                ComposerCommandRowView(item=item, admission=data.admission, colors=colors, hairline=hairline, pick=pick)
+        else
+          text data.empty padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 font-size=13 line-height="17px" color=colors.tertiary
+
+component ComposerCommandRowView
+  props
+    item: ComposerCommandRow
+    admission: string
+    colors: ComposerCommandColors
+    hairline: number
+    pick: action
+  state pressed = false
+  action commandPointerDown
+    pressed = true
+  action commandPointerUp
+    pressed = false
+  view
+    button press=pick(admission, item.id) pointerdown=commandPointerDown pointerup=commandPointerUp retainFocus=true
+      text-align="left" padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75
+      border-bottom-width=(item.last ? 0 : hairline) border-bottom-style="solid" border-bottom-color=colors.border opacity=(pressed ? 0.6 : 1)
+      row align-items="center" gap=8.75
+        when item.image != ""
+          image item.image width=16 height=16 object-fit="contain" flex-shrink=0 aria-hidden=true
+        else when item.icon != ""
+          ComposerCommandIcon(kind=item.icon, size=item.iconSize, tint=colors.icon)
+        when item.slashSkill
+          row gap=0 flex-shrink=0
+            text "skill:" font-size=16 line-height="23px" font-weight=500 line-clamp=1 color=colors.muted
+            text item.skillName font-size=16 line-height="23px" font-weight=500 line-clamp=1 color=colors.foreground
+        else
+          text item.label font-size=16 line-height="23px" font-weight=500 line-clamp=1 flex-shrink=0 color=colors.foreground
+        when item.description != ""
+          text item.description font-size=13 line-height="17px" line-clamp=1 min-width=0 flex=1 color=colors.muted

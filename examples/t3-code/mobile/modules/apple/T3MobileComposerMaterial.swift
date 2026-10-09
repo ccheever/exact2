@@ -9,15 +9,21 @@ struct T3ComposerMaterialConfiguration: Equatable {
     let radius: Double
     let surface: String
     let border: String
+    let style: String
+    let tint: String
 
     init(_ props: [String: String]) throws {
-        guard let appearance = props["material-appearance"], ["light", "dark"].contains(appearance),
+        let style = props["material-style"] ?? "regular"
+        let tint = props["material-tint"] ?? "#00000000"
+        guard ["regular", "clear"].contains(style), Self.channels(tint) != nil,
+              let appearance = props["material-appearance"], ["light", "dark"].contains(appearance),
               let radius = Double(props["material-radius"] ?? ""), radius.isFinite, radius >= 0,
               let surface = props["material-surface"], let border = props["material-border"],
               Self.channels(surface) != nil, Self.channels(border) != nil else {
             throw ExactNativeRefusal("Invalid composer material configuration")
         }
         dark = appearance == "dark"; self.radius = radius; self.surface = surface; self.border = border
+        self.style = style; self.tint = tint
     }
 
     static func channels(_ text: String) -> [Double]? {
@@ -103,11 +109,11 @@ private final class T3ComposerMaterialView: UIView {
 
     func configure(_ next: T3ComposerMaterialConfiguration) {
         guard mount.alive, next != configuration else { return }
-        let changedAppearance = configuration?.dark != next.dark
+        let changedEffect = configuration?.dark != next.dark || configuration?.style != next.style || configuration?.tint != next.tint
         configuration = next
         overrideUserInterfaceStyle = next.dark ? .dark : .light
         effectView.overrideUserInterfaceStyle = overrideUserInterfaceStyle
-        if changedAppearance {
+        if changedEffect {
             mount.invalidate()
             stopBlur()
         }
@@ -167,8 +173,8 @@ private final class T3ComposerMaterialView: UIView {
         if #available(iOS 26.0, *), nativeGlass {
             // Expo clears the stale effect before a layout-time installation or re-entry.
             effectView.effect = UIVisualEffect()
-            let effect = UIGlassEffect(style: .regular)
-            effect.tintColor = .clear
+            let effect = UIGlassEffect(style: configuration.style == "clear" ? .clear : .regular)
+            effect.tintColor = color(configuration.tint)
             effect.isInteractive = false
             effectView.effect = effect
         } else {

@@ -129,3 +129,13 @@ export function mobileAgentColors(scheme: string, palette = 't3-code') {
     iconMuted: token('icon-muted'), border: token('border'), working: token('adaptive-sky-600-400'),
     completed: token('adaptive-emerald-600-400'), failed: token('adaptive-rose-600-400') };
 }
+
+// ComposerCommandPopover uses GlassSurface's surface tint, not ComposerSurface's tint.
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+export function mobileCommandColors(scheme: string, palette = 't3-code') {
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`;
+  const tokens = themes[variant] ?? themes[scheme === 'dark' ? 'dark' : 'light'];
+  const token = (name: string) => tokens[`--color-${name}`];
+  return { foreground: token('foreground'), muted: token('foreground-muted'), tertiary: token('foreground-tertiary'),
+    icon: token('icon-subtle'), border: token('border'), surface: token('glass-surface'), fallback: token('glass-fallback') };
+}
