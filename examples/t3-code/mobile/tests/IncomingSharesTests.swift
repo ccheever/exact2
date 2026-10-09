@@ -62,6 +62,17 @@ struct IncomingSharesTests {
         check(try failed.entries().isEmpty, "failed write has no committed inbox item")
         check(try fm.contentsOfDirectory(atPath: failedRoot.path).isEmpty, "failed write rolls back byte copies")
 
+        let ambiguousSource = try file("ambiguous-publish.txt"), ambiguousRoot = base.appendingPathComponent("ambiguous")
+        let ambiguous = Inbox(directory: ambiguousRoot, cleanupRoots: [sourceRoot], write: { bytes, path in
+            try bytes.write(to: path, options: .atomic)
+            throw CocoaError(.fileWriteUnknown)
+        })
+        let ambiguousPayload = [payload(ambiguousSource)]
+        do { _ = try ambiguous.ingest(ambiguousPayload) { _ in preconditionFailure("ACK after ambiguous write") }; preconditionFailure("expected ambiguous write") }
+        catch { checks += 1 }
+        check(fm.fileExists(atPath: ambiguousSource.path), "ambiguous publication preserves original handoff")
+        let ambiguousEntry = try Inbox(directory: ambiguousRoot, cleanupRoots: [sourceRoot]).ingest(ambiguousPayload) { _ in }!
+        check(try Data(contentsOf: Inbox(directory: ambiguousRoot).attachmentURL(shareID: ambiguousEntry.id, attachmentID: ambiguousEntry.attachments[0].id)) == Data("actual bytes\n".utf8), "visible failed publication retains bytes until durable replay")
         let ackSource = try file("ack-failure.txt"), ackPayload = [payload(ackSource)]
         do { _ = try inbox.ingest(ackPayload) { _ in throw CocoaError(.fileWriteUnknown) }; preconditionFailure("expected ACK failure") }
         catch { checks += 1 }

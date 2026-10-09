@@ -1,3 +1,4 @@
+import { mobileIncomingShareImportsHydrate, mobileIncomingShareImportsPersisted } from './incoming-share-imports';
 import { mobileNewTaskRestoredContext, mobileNewTaskRestoredProject } from './new-task-restored-context';
 import { mobileOutboxRecoveryDraftApplyChoices } from './mobile-outbox-recovery-draft';
 import { mobileNewTaskContextCommand } from './mobile-new-task-context-command';
@@ -86,6 +87,7 @@ function hydrate(client: T3Client, saved: Obj) {
   if (!client.preferencesLoaded || hydrated.has(client.local) || saved.version !== 1) return;
   hydrated.add(client.local);
   mobilePendingTaskEditorsHydrate(client, saved);
+  mobileIncomingShareImportsHydrate(client, saved);
   mobileOutboxDraftHandoffsHydrate(client, saved);
   for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
     const raw = arr(value), shared = raw.filter(image => validImage(image) && image.mimeType === 'image/png').slice(0, 100);
@@ -258,6 +260,7 @@ export class MobileDraftClient extends T3Client {
     return super.persist({ fs: { ...storage.fs, atomicWriteFile: async (path, bytes) => {
       const document = obj(JSON.parse(new TextDecoder().decode(bytes)));
       document.mobileNewTaskDrafts = mobileNewTaskDraftPersisted(this) as unknown as Obj;
+      Object.assign(document, { mobileIncomingShareImports: mobileIncomingShareImportsPersisted(this) });
       document.mobileAttachmentOrder = mobileDraftAttachmentOrdersPersisted(this);
       document.mobileOutboxTransferCompletions = mobileOutboxTransferCompletionsPersisted(this);
       Object.assign(document, { mobileOutboxDraftHandoffs: mobileOutboxDraftHandoffsPersisted(this) });

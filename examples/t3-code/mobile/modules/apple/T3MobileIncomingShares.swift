@@ -3,6 +3,7 @@
 // GAP 006: Share Extension packaging is unavailable; there is no system ingress yet.
 import Foundation
 import CryptoKit
+import Darwin
 
 /// Synchronous operations run on the containing module's serial queue. No paths or bytes
 /// cross the producer boundary; a later draft adoption must copy these owned references.
@@ -22,6 +23,7 @@ final class T3MobileIncomingShares {
     }
     struct Entry: Codable {
         let schemaVersion: Int
+        let instanceId: String
         let id: String
         let createdAt: String
         let text: String
@@ -38,7 +40,7 @@ final class T3MobileIncomingShares {
     private static let fileLimit = 50 * 1024 * 1024
 
     init(directory: URL, cleanupRoots: [URL] = [], write: @escaping (Data, URL) throws -> Void = {
-        try $0.write(to: $1, options: .atomic)
+        try T3MobileIncomingShares.durableWrite($0, to: $1)
     }) {
         self.directory = directory
         self.cleanupRoots = cleanupRoots
@@ -66,11 +68,11 @@ final class T3MobileIncomingShares {
         guard Self.validID(id) else { throw fail("The incoming share identity is invalid.") }
         return directory.appendingPathComponent(id, isDirectory: true)
     }
-    private func read(_ id: String) throws -> Entry? {
+    func read(_ id: String) throws -> Entry? {
         let root = try folder(id), path = root.appendingPathComponent("entry.json")
         guard manager.fileExists(atPath: path.path) else { return nil }
         let entry = try JSONDecoder().decode(Entry.self, from: Data(contentsOf: path))
-        guard entry.schemaVersion == 1, entry.id == id,
+        guard entry.schemaVersion == 1, UUID(uuidString: entry.instanceId) != nil, entry.id == id,
               ISO8601DateFormatter().date(from: entry.createdAt) != nil, entry.attachments.count <= 100,
               !entry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !entry.attachments.isEmpty else {
             throw fail("The saved incoming share is invalid.")
@@ -116,6 +118,7 @@ final class T3MobileIncomingShares {
         if let existing = try read(id) {
             // Do not acknowledge a persisted entry whose referenced bytes went missing.
             for attachment in existing.attachments { _ = try attachmentURL(shareID: id, attachmentID: attachment.id) }
+            try syncEntry(existing)
             cleanup(payloads)
             try acknowledge(id)
             return existing
@@ -126,7 +129,7 @@ final class T3MobileIncomingShares {
         try manager.createDirectory(at: root, withIntermediateDirectories: true)
         var attachments: [Attachment] = [], warnings: [String] = [], texts: [String] = []
         var seenText = Set<String>(), limitWarned = false, committed = false
-        defer { if !committed { try? manager.removeItem(at: root) } }
+        defer { if !committed && !manager.fileExists(atPath: root.appendingPathComponent("entry.json").path) { try? manager.removeItem(at: root) } }
         for payload in payloads {
             if ["text", "url"].contains(payload.shareType) {
                 let text = payload.value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -169,7 +172,7 @@ final class T3MobileIncomingShares {
                 warnings.append("Could not read '\(name)'.")
             }
         }
-        let entry = Entry(schemaVersion: 1, id: id, createdAt: ISO8601DateFormatter().string(from: createdAt),
+        let entry = Entry(schemaVersion: 1, instanceId: UUID().uuidString.lowercased(), id: id, createdAt: ISO8601DateFormatter().string(from: createdAt),
                           text: texts.joined(separator: "\n\n"), attachments: attachments, warnings: warnings)
         guard !entry.text.isEmpty || !attachments.isEmpty else {
             cleanup(payloads)
@@ -178,9 +181,47 @@ final class T3MobileIncomingShares {
         }
         try write(JSONEncoder().encode(entry), root.appendingPathComponent("entry.json"))
         committed = true
+        try syncEntry(entry)
         cleanup(payloads)
         try acknowledge(id)
         return entry
+    }
+    /// Native-only binding prevents an old consume retry deleting a later equal share.
+    func reservation(_ id: String) throws -> String? {
+        let path = try folder(id).appendingPathComponent("reservation")
+        guard manager.fileExists(atPath: path.path) else { return nil }
+        let token = try String(contentsOf: path, encoding: .utf8)
+        guard UUID(uuidString: token) != nil else { throw fail("The incoming share reservation is invalid.") }
+        return token
+    }
+    func bind(_ id: String, adoptionID: String) throws {
+        guard UUID(uuidString: adoptionID) != nil, try read(id) != nil else { throw fail("The incoming share is unavailable.") }
+        try Self.durableWrite(Data(adoptionID.utf8), to: folder(id).appendingPathComponent("reservation"))
+    }
+    func unbind(_ id: String, adoptionID: String) throws {
+        guard try reservation(id) == adoptionID else { return }
+        let root = try folder(id)
+        try manager.removeItem(at: root.appendingPathComponent("reservation")); try Self.sync(root)
+    }
+    func remove(_ id: String, adoptionID: String) throws {
+        guard try reservation(id) == adoptionID else { return }
+        try manager.removeItem(at: folder(id)); try Self.sync(directory)
+    }
+    private func syncEntry(_ entry: Entry) throws {
+        for attachment in entry.attachments { try Self.sync(attachmentURL(shareID: entry.id, attachmentID: attachment.id)) }
+        let root = try folder(entry.id)
+        try Self.sync(root.appendingPathComponent("entry.json")); try Self.sync(root); try Self.sync(directory)
+        try Self.sync(directory.deletingLastPathComponent())
+    }
+    static func sync(_ url: URL) throws {
+        let fd = Darwin.open(url.path, O_RDONLY)
+        guard fd >= 0 else { throw CocoaError(.fileReadUnknown) }
+        defer { Darwin.close(fd) }
+        guard fsync(fd) == 0 else { throw CocoaError(.fileWriteUnknown) }
+    }
+    static func durableWrite(_ data: Data, to destination: URL) throws {
+        try data.write(to: destination, options: .atomic)
+        try sync(destination); try sync(destination.deletingLastPathComponent())
     }
     private func cleanup(_ payloads: [Payload]) {
         for payload in payloads where Self.kinds.contains(payload.shareType) {
