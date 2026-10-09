@@ -903,12 +903,34 @@ extension Agent {
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
+        // A native module's own text view (an app's composer, LLP 1024) types
+        // through its insertText, as a field does; its delegate hears the edit.
+        if v.field == nil, let t = Agent.nativeTextInput(in: v) {
+            t.becomeFirstResponder()
+            if let r = t.textRange(from: t.beginningOfDocument, to: t.endOfDocument) { t.replace(r, withText: "") }
+            t.insertText(req["text"] as? String ?? "")
+            let value = (t as? UITextView)?.text ?? (t as? UITextField)?.text ?? ""
+            return ["typed": Int(v.id), "value": value, "delivery": "native"]
+        }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
         let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)
         return ["typed": Int(v.id), "value": Agent.shownValue(f.text ?? "", of: v)]
+    }
+
+    /// The first editable UITextView or UITextField a native module draws
+    /// inside `view`, breadth first.
+    static func nativeTextInput(in view: UIView) -> (UIView & UITextInput)? {
+        var queue: [UIView] = [view]
+        while !queue.isEmpty {
+            let next = queue.removeFirst()
+            if let t = next as? UITextView, t.isEditable { return t }
+            if let t = next as? UITextField, t.isEnabled { return t }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
     }
 
     /// A hardware keyboard's caret keys in a field, which UIKit performs and

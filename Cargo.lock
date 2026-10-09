@@ -3535,6 +3535,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocho-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
