@@ -1,0 +1,20 @@
+Reference T3 Code 1e2ecbd975 (Electron, A/ref-app.sh lane browser-surface-profiles, backend 16750, CDP 16751), 2026-10-10.
+Settings › Integrations › Browser: Default browser viewport = iPhone 12 Pro, Default browser zoom = 125%; right panel; ArrowDown x3; Enter on 'Open browser in a profile'; Escape; Browser B; typed 127.0.0.1:16782/ + Enter.
+After Enter on the chevron the aria snapshot shows: menu "Open browser in a profile": Default, Incognito; the launcher stays (Files lit).
+
+fixture-first.log:
+  fixture on 16782
+  2026-10-09T18:36:45.566Z GET /
+  2026-10-09T18:36:51.876Z GET /
+  2026-10-09T18:36:51.884Z GET /first?w=1280&h=840&d=2&p=%2F
+  2026-10-09T18:36:51.895Z GET /
+  2026-10-09T18:36:51.953Z GET /first?w=488&h=1055&d=2&p=%2F
+  2026-10-09T18:36:51.965Z GET /resize?w=488&h=1055&d=2
+  2026-10-09T18:36:51.966Z GET /favicon.ico
+  2026-10-09T18:36:51.973Z GET /resize?w=390&h=844&d=2.5
+  2026-10-09T18:36:56.881Z GET /resize?w=1024&h=672&d=1.25
+  2026-10-09T18:36:56.985Z GET /resize?w=390&h=844&d=2.5
+  2026-10-09T18:37:11.537Z GET /resize?w=1024&h=672&d=1.25
+  2026-10-09T18:37:20.415Z GET /resize?w=390&h=844&d=2.5
+
+The 18:36:56 and 18:37:11 resizes to 1024 x 672 at dpr 1.25 are the CDP screenshot's emulation, each followed by 390 x 844 at 2.5.
