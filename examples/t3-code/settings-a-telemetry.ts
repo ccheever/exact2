@@ -2,7 +2,7 @@
 // Reference ResourceTelemetryDiagnostics.tsx (+ .logic.ts), resourceTelemetryState.ts
 // and DiagnosticsSettings.tsx's process signals. The snapshot is the
 // `subscribeResourceTelemetry` stream (one subscription while the page is open);
-// the timeline is `server.getResourceTelemetryHistory` (stale after 5 s); signals
+// the timeline is `server.getResourceTelemetryHistory` (once per visit, window and Refresh); signals
 // go through `server.signalProcess`, SIGKILL only after a confirmation.
 import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
