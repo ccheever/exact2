@@ -32,6 +32,7 @@ use DeviceHostsRow from "./settings-a-hosts.contract"
 use SimulatorSupportRow from "./device-support.contract"
 use SimulatorSupportSettingsRow from "./device-support.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
+use SettingsPickerTrigger from "./model-picker.contract" // model-picker-parity S2-4
 
 shape InheritLayer
   key: string
@@ -61,6 +62,10 @@ shape ScopedRow
   // The control's accessible name and the reset's "Reset <resetLabel> to default", as the reference names them; "" uses the title.
   control: string
   resetLabel: string
+  // model-picker-parity S2-4: a model row's picker trigger mark.
+  driver: string
+  badge: string
+  accent: string
 shape DiscoveryRow
   kind: string
   label: string
@@ -160,8 +165,11 @@ component Inheritance
 component ScopedSettingRow
   inject
     rem: number
+    pickModel: action
   props
     row: ScopedRow
+    // The page's `<environmentId>:<projectId>`, which the writer model's picker writes to.
+    scope: string
     busy: bool
     rest: action
     restInput: action
@@ -192,8 +200,9 @@ component ScopedSettingRow
             when row.kind == "text"
               ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
             when row.kind == "model"
-              when row.checked and length(row.options) > 0
-                SettingsSelect(selectId="scoped-writer-model", label="Source control writer model", valueLabel=row.valueLabel, value="", width=200, disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", "key=sourceControlWriterModelSelection&value="))
+              // ProviderModelPicker (model-picker-parity S2-4): the window's picker under this trigger, while a provider can write.
+              when row.checked and row.status == ""
+                SettingsPickerTrigger(rowId="source-control-writer-model", label=row.valueLabel, name="Source control writer model", driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel("source-control-writer-model", scope))
               SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
       when row.kind == "textarea"
         ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
@@ -350,7 +359,7 @@ component SourceControlPanel
             SectionTitle(title="Repositories")
           Card()
             each item in data.repositories key=`${data.scope}:${item.key}:${item.value}:${item.checked}`
-              ScopedSettingRow(row=item, busy=busy, rest=rest, restInput=restInput)
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
         when length(data.vcs) > 0
           column width="100%" gap="0.625rem" testId="source-control-vcs"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between"
@@ -383,7 +392,7 @@ component SourceControlPanel
             SectionTitle(title="Text generation")
           Card()
             each item in data.text key=`${data.scope}:${item.key}:${item.value}:${item.checked}:${item.child}`
-              ScopedSettingRow(row=item, busy=busy, rest=rest, restInput=restInput)
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
 
 component IntegrationsPanel
   props
@@ -405,7 +414,7 @@ component IntegrationsPanel
             SectionTitle(title="Browser")
           Card()
             each item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
-              ScopedSettingRow(row=item, busy=busy, rest=rest, restInput=restInput)
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
         column width="100%" gap="0.625rem" testId="integrations-browser"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Browser")

@@ -250,6 +250,9 @@ component T3Window
     deviceSetting: action
     selectProvider: action
     selectModel: action
+    // model-picker-parity S2-4: the Settings pickers outside General (Scheduled Tasks' Model, Source Control's writer model).
+    pickModel: action
+    taskModelPick: string
     paletteRun: action
     restSubject: string
     sbPicker: SbPicker
@@ -319,6 +322,8 @@ component T3Window
     hoverTip
     hoverShown
     linkOpen
+    pickModel
+    taskModelPick
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)

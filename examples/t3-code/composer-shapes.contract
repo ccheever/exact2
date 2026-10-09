@@ -283,6 +283,9 @@ shape PickerRow
   checked: bool
   // settings-model-picker: getModelDisabledReason; a disabled row cannot be chosen or favorited.
   reason: string
+  // model-picker-parity CO-1: modelPicker.jump.N's shortcut ("⌘1") and chord ("Meta+1") on the first nine choosable rows.
+  jump: string
+  jumpKey: string
 shape PickerRail
   id: string
   index: number
@@ -291,6 +294,8 @@ shape PickerRail
   ready: bool
   // provider-sign-in-and-install: an instance that needs setup is selectable though not ready.
   selectable: bool
+  // model-picker-parity CO-2: the tooltip, and the accessible name of a button that is not ready or locked out.
+  label: string
   selected: bool
   providerBadge: string
   providerBadgeColor: string
@@ -318,6 +323,10 @@ shape PickerCatalog
   chatgptSharing: bool
   // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
   legacyDefault: bool
+  // model-picker-parity CO-3: the first row a search highlights (autoHighlight), -1 when none can be chosen.
+  firstEnabled: number
+  // model-picker-parity CO-7: Shift adds a model to a new thread's draft and keeps the picker open (onToggleModel).
+  multiple: bool
 // settings-model-picker: the row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
 shape PickerTarget
   id: string
