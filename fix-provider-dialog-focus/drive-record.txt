@@ -1,0 +1,15 @@
+fix-provider-dialog-focus: agent-mode drive d3 on the branch's bundle, 2026-10-09 (screen locked: agent captures are blank; the proof is the tree's focused node)
+Lane: embedded server 127.0.0.1:16650, a seeded lane home (projects work, site), isolated CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*; no account.
+Ops: clock +15000 real; tap connection-settings; tap Providers; tap add-provider; tap acp-add-gemini; tap create-provider (Continue to sign-in); type acp-sign-in key Tab x2 (a Tab to the window's focus).
+
+op 1: target=connection-settings, delivery=platform
+op 3: target=Providers, delivery=platform
+op 5: target=add-provider, delivery=platform
+op 7: target=acp-add-gemini, delivery=platform
+op 10: tree, focused = []
+op 11: target=create-provider, delivery=platform
+op 14: tree, focused = [('Text', None, None, 'Account')]
+op 15: target=acp-sign-in, key=Tab, delivery=platform
+op 17: tree, focused = [('Pressable', 'wizard-provider-auth-method-acpRegistry_gemini_cli', 'Sign-in method', None)]
+op 18: target=acp-sign-in, key=Tab, delivery=platform
+op 20: tree, focused = [('Pressable', 'wizard-provider-sign-in-acpRegistry_gemini_cli', None, None)]
