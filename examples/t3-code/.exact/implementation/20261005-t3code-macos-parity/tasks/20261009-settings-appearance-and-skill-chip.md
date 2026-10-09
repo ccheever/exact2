@@ -109,6 +109,14 @@ T3 Code's stock look is no theme definition in the reference (`getThemeDefinitio
   compact padding, flipped below when there is no room above and kept 5 pt inside the window; a dialog named "Skill
   <label>". `app-window.contract` draws it above every page (Base UI portals it) and closes it on a primary press outside
   it; `app.contract` declares the resource (`macos/src/markdown.rs` lists `composerChip` as TypeScript-owned).
+- Review round: the composer stays mounted under Settings and the pages, where T3 Code's route change unmounts it, so
+  ⌘, alone left the native press open and the popover (drawn last) over Settings. `app.contract` `chipCovered` (the
+  composer's chip while Settings or a page covers the chat): T3Window hides it at once and the `chipCover` task closes the
+  native press, so it does not come back on return. The palette and dialogs do not close it: the reference keeps the
+  popover open above the palette, in the composer and in the Settings sample, and still open after the palette's Escape
+  ([shots and aria](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt)), as the clone already did.
+- The details read the selected provider through `composer-editor.ts` `selectedProvider`, the one lookup the `$` menu
+  and the chip labels read.
 
 ## Acceptance results
 
@@ -127,16 +135,19 @@ evidence-base build (feature-branch tip code). After: this branch's bundle, the 
 | S1-12, View instructions for a skill with a path | Pass (unit): the description and path come from the selected provider's skill of that name; the button closes the popover and opens the file. Not verified live: no provider in either lane lists a skill (the reference lane neither) | `composer-chip-popover.test.ts`; real-input batch step 4 |
 | S1-12, the chip is named "Skill <label>" | Pass (XCTest): the text view lists a button "Skill Frontend Design. Show details" whose press opens the details. Not verified live: the agent's scoped `tree --ax` drops an accessibility element whose parent is not an Exact view (`AgentAccessibility.swift` `axOwner`), so it lists only the text area | [xctest](https://raw.githubusercontent.com/ccheever/exact2/171c770b72b615d558d63071b31d8637a57030f4/settings-appearance-and-skill-chip/xctest-chip-press.txt); real-input batch step 3 |
 | S1-12, XCTest for the press report | Pass: four tests in `macos/tests/composer/chippress.swift` (real mouse events through `NSApplication.sendEvent`) | [xctest](https://raw.githubusercontent.com/ccheever/exact2/171c770b72b615d558d63071b31d8637a57030f4/settings-appearance-and-skill-chip/xctest-chip-press.txt) |
-| S1-12, a real click on the native chip | Open (needs real input) | Real-input batch steps 1-2 |
+| S1-12, ⌘, with a composer chip's details open (review) | Pass (agent): Settings shows no popover and the press is closed (`chip.open` false), as the reference's route change; back in the chat it stays closed (before: the popover over Settings) | [cover-settings](https://raw.githubusercontent.com/ccheever/exact2/b016ed567e62ebf65495a1c6f009927d01229d1e/settings-appearance-and-skill-chip/cover-settings.png), [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt), [steps](https://raw.githubusercontent.com/ccheever/exact2/b2dbdd170b22a4a38ba1361cc394c96c12f10e60/settings-appearance-and-skill-chip/cover-drive.sh.txt) |
+| S1-12, ⌘K with the details open (review) | Pass (agent), unchanged: the popover stays above the palette and open after its Escape, in the composer and the Settings sample, as the reference | [cover-palette](https://raw.githubusercontent.com/ccheever/exact2/8e28f998458cbd24d0e3e91980fb7c6a59c13551/settings-appearance-and-skill-chip/cover-palette.png), [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) |
+| S1-12, a real click on the native chip | Open (needs real input) | Real-input batch steps 1-2, 5 |
 
 ## Tests
 
 - `settings-appearance-advanced.test.ts` (new, 6 tests): Duplicate T3 Chat opens Advanced with the reference's 20 values;
   every built-in opens Advanced, T3 Code's look simple; managed saves and Edit; a palette added to a guided theme; the flag
   through preferences, file and import; Open VSX publishers are namespaces.
-- `composer-chip-popover.test.ts` (new, 7 tests): the popover's content for the composer and the sample, a closed or
-  non-skill press, the resource against the provider's workspace skills and another thread's press, the close and View
-  instructions ops, and the Contract's placement, name and outside-press close.
+- `composer-chip-popover.test.ts` (new, 9 tests): the popover's content for the composer and the sample, a closed or
+  non-skill press, the resource against the provider's workspace skills and another thread's press, the details following
+  the `$` menu's provider (`selectedProvider`), the close and View instructions ops, the Contract's placement, name and
+  outside-press close, and the close under Settings or a page (not under the palette).
 - `macos/tests/composer/chippress.swift` (new, 4 XCTests, registered in `main.swift`): a real click opens, toggles and
   closes; the frame follows a moved ancestor; Escape, an edit, the app's close and the editor leaving close; the newest
   press wins across the composer and the sample, with the provider's label; the accessibility button and its press.
@@ -167,6 +178,9 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16922 T3_LOCAL_RUNTIME_DIR=$A/runti
 4. **View instructions.** Only with a provider that lists skills (the `$` menu shows rows): insert one from the `$` menu,
    click its chip: the popover shows its description and "View instructions"; click it: the skill's file opens in the
    right panel and the popover closes. The lane's providers list none, so this step needs a ready provider.
+5. **Covered by Settings or the palette.** Click the composer's "Frontend Design" chip, press ⌘,: Settings shows no
+   popover. Press Back: the chat shows no popover; click the chip once: it opens (it was closed, not hidden). Press ⌘K: the
+   popover stays above the palette (as T3 Code's); press Escape: the palette closes and the popover is still open.
 
 ## Found, not in this task
 
@@ -175,6 +189,8 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16922 T3_LOCAL_RUNTIME_DIR=$A/runti
   theme has). Visible in [s1-5-edit](https://raw.githubusercontent.com/ccheever/exact2/fcfa176e6a6ac82cfb39a4bb1210a78d7c27aa0a/settings-appearance-and-skill-chip/s1-5-edit.png).
 - `decodeCustomThemes` drops a theme's `collection` when the preferences load, so an Open VSX collection card splits
   into single cards after a relaunch.
+- The palette's Escape over Settings leaves Settings too in the clone (agent drive, [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) steps 46-49, before and
+  after this change); the reference closes only the palette and stays in Settings. Not checked with real keys.
 
 ## Attempts and evidence
 
@@ -185,11 +201,17 @@ T3_LOCAL_HOME=$L/clone-t3-home T3_LOCAL_PORT=16922 T3_LOCAL_RUNTIME_DIR=$A/runti
 | Before drive 3 | evidence-base | Complete | [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
 | After drive 1 (the live drive) | this branch | Complete; every row passed, but the copy's Raised and Subtle surfaces read T3 Code's values (the clone's 19-role palette) | — |
 | After drive 2 (the one retry) | this branch, the full built-in role sets and an opaque popover | Complete, every agent row passes | [live record](https://raw.githubusercontent.com/ccheever/exact2/a384eb014b6c1413618e66392c851fe81699c2e0/settings-appearance-and-skill-chip/live-record.txt) |
+| Review: before drive | `5ddda47d4` (rebuilt: a Swift comment had changed after the first bundle) | The popover over Settings after ⌘, (the review's finding, confirmed) and above the palette | [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) |
+| Review: reference | Electron `1e2ecbd975` over CDP | Settings (a route change) unmounts it; the palette leaves it open above and after Escape, so the palette part of the review's suggestion is not applied | [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) |
+| Review: after drive | this head, a first build with the palette in the rule was stopped once the reference showed otherwise | Complete, both rows pass | [record](https://raw.githubusercontent.com/ccheever/exact2/02039b16526dd23fb43a427f7b87f3ae1e722938/settings-appearance-and-skill-chip/cover-record.txt) |
 
 ## Progress
 
 2026-10-10: implemented S1-5, S1-6 and S1-12, unit- and AppKit-tested, built the bundle, drove the base and the branch
 with the same steps, shot the reference, and opened draft PR [#364](https://github.com/ccheever/exact2/pull/364).
+
+2026-10-10, review round: the composer chip's details close under Settings or a page (live before/after/reference), the
+palette keeps them as the reference does, and the details read the `$` menu's provider through one helper.
 
 ## Next action
 
