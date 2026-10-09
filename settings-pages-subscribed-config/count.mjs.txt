@@ -1,0 +1,46 @@
+// settings-pages-subscribed-config: counts the lane server's ws.rpc spans that start inside each page's open window.
+// Usage: bun count.mjs <run dir> <trace dir>. Windows: <page>.png → <page>-30s.png write times (png-mtimes.txt). Not committed.
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+const [dir, traceDir] = process.argv.slice(2);
+const mtimes = Object.fromEntries(readFileSync(join(dir, 'png-mtimes.txt'), 'utf8').trim().split('\n').map(line => { const [t, name] = line.split(' '); return [name, Number(t) * 1000]; }));
+const spans = [];
+for (const file of readdirSync(traceDir).filter(name => name.startsWith('server.trace.ndjson'))) {
+  for (const line of readFileSync(join(traceDir, file), 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let record; try { record = JSON.parse(line); } catch { continue; }
+    const name = record.name ?? record.spanName;
+    const start = record.startTimeUnixNano != null ? Number(BigInt(record.startTimeUnixNano) / 1000000n)
+      : record.startTimeMs ?? (typeof record.startTime === 'number' ? (record.startTime > 1e15 ? record.startTime / 1e6 : record.startTime) : Date.parse(record.startTime ?? record.timestamp ?? ''));
+    if (typeof name === 'string' && name.startsWith('ws.rpc.') && Number.isFinite(start)) spans.push({ name, start });
+  }
+}
+let renames = [];
+try { renames = readFileSync(join(dir, 'renames.log'), 'utf8').trim().split('\n').filter(Boolean).map(line => Date.parse(line.split(' ')[0] + 'Z')); } catch {}
+const iso = ms => new Date(ms).toISOString();
+const pages = Object.keys(mtimes).filter(name => !name.endsWith('-30s.png') && mtimes[name.replace(/\.png$/, '-30s.png')]).sort((a, b) => mtimes[a] - mtimes[b]);
+const rows = [];
+for (const shot of pages) {
+  const from = mtimes[shot], to = mtimes[shot.replace(/\.png$/, '-30s.png')], seconds = (to - from) / 1000;
+  const inside = spans.filter(span => span.start >= from && span.start < to);
+  const counts = new Map(); for (const span of inside) counts.set(span.name, (counts.get(span.name) ?? 0) + 1);
+  const wakes = renames.filter(at => at >= from - 1000 && at < to).length;
+  console.log(`${shot.replace(/\.png$/, '')}: ${iso(from)} → ${iso(to)} (${seconds.toFixed(1)} s, ${wakes} renames)`);
+  for (const [name, count] of [...counts].sort((a, b) => b[1] - a[1])) console.log(`  ${String(count).padStart(6)}  ${name}`);
+  const config = counts.get('ws.rpc.server.getConfig') ?? 0, settings = counts.get('ws.rpc.server.getSettings') ?? 0;
+  rows.push({ page: shot.replace(/\.png$/, '').replace(/^\d+-/, ''), seconds: seconds.toFixed(1), wakes, config, settings, all: inside.length,
+    other: [...counts].filter(([name]) => !['ws.rpc.server.getConfig', 'ws.rpc.server.getSettings', 'ws.rpc.server.reportClientActivity', 'ws.rpc.projects.mutate', 'ws.rpc.orchestration.dispatchCommand'].includes(name)).map(([name, count]) => `${name.replace('ws.rpc.', '')} ${count}`).join(', ') });
+}
+console.log('\nTABLE ' + JSON.stringify(rows));
+// The open: the 5 s before the page's first screenshot (its tap, then "clock +3000 real"), after the previous screenshot.
+try {
+  const shots = Object.keys(mtimes).sort((a, b) => mtimes[a] - mtimes[b]);
+  const open = [];
+  for (const shot of pages) {
+    const previous = shots[shots.indexOf(shot) - 1];
+    const to = mtimes[shot], from = Math.max(previous ? mtimes[previous] : 0, to - 5000);
+    const counts = new Map(); for (const span of spans.filter(span => span.start >= from && span.start < to)) counts.set(span.name, (counts.get(span.name) ?? 0) + 1);
+    open.push({ page: shot.replace(/\.png$/, '').replace(/^\d+-/, ''), seconds: ((to - from) / 1000).toFixed(1), reads: [...counts].filter(([name]) => name !== 'ws.rpc.server.reportClientActivity').map(([name, count]) => `${name.replace('ws.rpc.', '')} ${count}`).join(', ') });
+  }
+  console.log('OPEN ' + JSON.stringify(open));
+} catch (error) { console.log(`no open windows: ${error.message}`); }
