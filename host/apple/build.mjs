@@ -1441,7 +1441,6 @@ function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
-    // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
