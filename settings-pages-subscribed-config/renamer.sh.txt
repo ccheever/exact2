@@ -1,0 +1,13 @@
+#!/bin/zsh
+# settings-pages-subscribed-config: wakes for the live drive. Renames the lane project every 7 s (a shell stream event,
+# so `data` drains and data.revision moves) until the stop file exists or the time limit passes. Not committed.
+# Usage: renamer.sh <t3 home> <lane> <seconds> <stop file> <log>
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit; L=$A/lanes/$2
+T3=$A/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64/t3
+END=$(( $(date +%s) + $3 )); N=0
+while [ $(date +%s) -lt $END ] && [ ! -f $4 ]; do
+  N=$((N+1)); TITLE=$([ $((N % 2)) -eq 1 ] && echo "work ·" || echo "work")
+  env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $T3 project rename $L/projects/work "$TITLE" --base-dir $1 > /dev/null 2>&1
+  echo "$(date -u +%FT%T) rename $N $TITLE exit $?" >> $5
+  sleep 7
+done
