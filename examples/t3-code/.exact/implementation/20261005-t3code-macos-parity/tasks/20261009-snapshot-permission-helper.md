@@ -70,18 +70,30 @@ screen is unlocked.
 | PG-9 placement XCTest | Pass: the reference test numbers ((367,100,723,719) → (599,663,475,140); (-800,200,…) → (-568,763,…); the content-column bounds on both displays) and the docked AppKit frame | [tests](https://raw.githubusercontent.com/ccheever/exact2/b75ed9979ddfc7aaa2d4b4d4a4513f45fd2e745d/snapshot-permission-helper/pg9-tests.txt) |
 | Live agent drive (no regression) | Pass: Settings › SnapShots › Set up snapshots is unchanged before and after. Agent mode never prompts, opens Settings or docks a helper, and the agent build holds both grants on this Mac | [pair](https://raw.githubusercontent.com/ccheever/exact2/48ee01d5a855a10e4c6d35a43f1477fe796d6d31/snapshot-permission-helper/pg9-setup-unchanged.png) |
 
+### Review round (2026-10-10, code head `ba427ae29`)
+
+An independent review found two should-fix problems. Both are fixed, in one round.
+
+| Problem | Fix | Proof |
+| --- | --- | --- |
+| After a drag, AppKit sends the row no mouseUp, so `pressed`/`dragging` stayed set: a refused or elsewhere drop left the closed hand over the row and no arrow outside it. Also unverified: `hovering` stayed true when the panel was ordered out under the pointer (Finder reveal) | `T3PermissionHelperAppRow` implements `draggingSession(_:endedAt:operation:)`. It calls `dragEnded(at:)`, which releases the press and sets the open hand over the row or the arrow outside it, like the reference's `#app:active` ending. `T3PermissionPanel.orderOut`/`orderFrontRegardless` call `T3PermissionHelperView.syncHover()`, which reads the hover from the pointer (it is never on while the panel is hidden). AppKit test: 5 new checks (hidden under the pointer drops ×; back under it shows ×; back elsewhere hides it; a press grabs; a drag end releases the press and reveals nothing) | [tests](https://raw.githubusercontent.com/ccheever/exact2/4e7c35637bb4edae7091c9089a0d8a209b483c4d/snapshot-permission-helper/pg9-review-tests.txt) |
+| No automated test covered, outside agent mode, which helper setup and `snapshotRequestPermissions` choose | `T3SnapShot` now reaches the grant probes, prompts, Settings opener and focused window through `T3SnapshotPermissionSystem`, and the helper through `showHelper` (defaults: the real system and `T3PermissionHelper`). The new `macos/tests/snapshot/permission-requests.swift` (16 checks, fake grants, no TCC) checks the reference `requestPermissions`/`setup` and their tests: Screen Recording before Accessibility; the Accessibility pane only with app text on and Screen Recording granted; nothing with the grants present; each Allow docks its own helper, which polls its own grant. A copy without `include &&` fails the test | [tests](https://raw.githubusercontent.com/ccheever/exact2/4e7c35637bb4edae7091c9089a0d8a209b483c4d/snapshot-permission-helper/pg9-review-tests.txt) |
+| Live agent drive (no regression) | The bundle boots and Settings › SnapShots renders. The "Enable snapshots" tap landed on the lane's "Nightly needs the beta mobile app" toast, which covers the switch, so the setup dialog was not reopened (the retry was spent). Agent mode's setup guard did not change, and the AppKit test still covers it | [checks](https://raw.githubusercontent.com/ccheever/exact2/abbaa767cc04c2fd1dbe603b3ca8c302124c6182/snapshot-permission-helper/checks-review.txt) |
+
 ### Built
 
 - `modules/apple/T3PermissionHelper.swift`: `T3PermissionHelper` (reference `MacPermissionHelper`). The panel is `T3PermissionPanel`, a borderless, transparent, floating, non-activating `NSPanel`. The card is the reference page: header, the T3 Code row as an `NSDraggingSource` with the bundle's file URL (copy or link only), and × shown on hover or keyboard focus. Also here: `T3SettingsWindow` (the JXA poll's window choice, `settingsHelperBounds`), `T3SettingsWindowWatcher` (0.5 s while Settings is frontmost, 1 s otherwise, changes only) and `appBundle` (`macAppBundlePath`).
-- `T3SnapShot.swift`: Allow Screen Recording and Allow Accessibility show the helper. The new `snapshotRequestPermissions` op (reference `requestPermissions`) does nothing in agent mode.
+  The row releases its press when a drag ends (`dragEnded(at:)`), and the panel reads its hover from the pointer when it is ordered out or in (`syncHover`).
+- `T3SnapShot.swift`: Allow Screen Recording and Allow Accessibility show the helper. The new `snapshotRequestPermissions` op (reference `requestPermissions`) does nothing in agent mode. Grants, prompts, the Settings opener and the helper are reached through the `permissions` (`T3SnapshotPermissionSystem`) and `showHelper` seams.
 - `client-ops-snapshot.ts`: Continue requests permissions after the test capture (`enableForSetup`). Include app text on, while SnapShots is on, requests Accessibility first (`saveIncludeAccessibility`).
 - Not declared differences (no framework limit): the panel does not activate T3 Code; the helper also shows in development bundles, which are real app bundles with their own privacy identity (the reference's development executable is generic Electron).
 
 ## Tests
 
-- AppKit `macos/tests/snapshot/permission-helper.swift`: 48 checks. `feedback.swift` adds 1: isolated `snapshotRequestPermissions` never prompts. `T3_PERMISSION_HELPER_EVIDENCE=<dir>` renders the panel.
+- AppKit `macos/tests/snapshot/permission-helper.swift`: 53 checks (48, plus 5 from the review round: hover after ordering out or in, and the drag end). `permission-requests.swift`: 16 checks, which helper setup and `snapshotRequestPermissions` dock outside agent mode, with fake grants. `feedback.swift` adds 1: isolated `snapshotRequestPermissions` never prompts. `T3_PERMISSION_HELPER_EVIDENCE=<dir>` renders the panel.
 - Bun `snapshot-settings.test.ts`: Continue's order is test capture, then request permissions, then configure; a refused test does not request; Include app text requests only when turned on with SnapShots on.
 - Final head `109c5a78c`, all exit 0: `bun test examples/t3-code` (3,649 pass, 1 skip), strict tsc, contract build (5,736 slots), `cargo test -p t3-code-macos --lib` (13), AppKit snapshot, caps, and the five checks (cargo test 3,521 passed, 0 failed, 34 ignored) ([checks](https://raw.githubusercontent.com/ccheever/exact2/5e301c22cb61782f644c374cdd7544a19a8d7227/snapshot-permission-helper/checks.txt)). `app.contract` is unchanged at 1,230 lines.
+- Review round, code head `ba427ae29` (only Swift and the AppKit tests changed), all exit 0: AppKit snapshot, `cargo test -p t3-code-macos --lib` (13), caps, the bundle build, and the five checks (cargo test 3,521 passed, 0 failed, 34 ignored). The Bun tests, tsc and contract build were not re-run, because none of the files they read changed ([checks](https://raw.githubusercontent.com/ccheever/exact2/abbaa767cc04c2fd1dbe603b3ca8c302124c6182/snapshot-permission-helper/checks-review.txt)).
 
 ## Real-input batch steps
 
@@ -113,7 +125,10 @@ Take each capture with `screencapture -x <png>` (whole screen) and compose befor
 2. **Follows, hides, reveals, closes.** Drag the System Settings window by its title bar: the panel follows within
    0.5 s. Click Finder in the Dock: the panel hides; click System Settings: it shows again. Move the pointer over the
    panel: × shows at its top right. Click the "T3 Code" row: Finder opens with "T3 Code (Exact).app" selected (the
-   panel hides while Finder is front). Back in System Settings, click × : the panel closes and T3 Code comes to the
+   panel hides while Finder is front). Move the pointer away from where the panel was, click System Settings: the panel
+   is back with × hidden. Drag the "T3 Code" row about 40 pt and release it on the panel's own header (a refused
+   drop: the drag image slides back, nothing is added or revealed). Move the pointer over the row: the open hand
+   (not the closed hand). Move it off the panel: the arrow. Click × : the panel closes and T3 Code comes to the
    front. Allow again, click the panel once, press Escape: it closes. Allow again and quit System Settings (⌘Q): the
    panel closes and T3 Code comes to the front.
 3. **Drag into the list, grant detected (`pg9-helper-closes.png`, attended).** Allow again; drag the "T3 Code" row
@@ -129,4 +144,4 @@ Take each capture with `screencapture -x <png>` (whole screen) and compose befor
 
 ## Next action
 
-Coordinator: review draft PR [#359](https://github.com/ccheever/exact2/pull/359), then run the real-input batch steps above with the user present. They close the docked-helper and grant rows with `pg9-helper-docked.png` and `pg9-helper-closes.png`.
+Coordinator: review draft PR [#359](https://github.com/ccheever/exact2/pull/359) (the review round's two should-fix problems are fixed at `ba427ae29`), then run the real-input batch steps above with the user present. Step 2 now also checks the hover after a Finder reveal and the cursor after a refused drag. They close the docked-helper and grant rows with `pg9-helper-docked.png` and `pg9-helper-closes.png`.
