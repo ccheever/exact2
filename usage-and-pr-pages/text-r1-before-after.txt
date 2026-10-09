@@ -1,0 +1,31 @@
+usage-and-pr-pages, review round 1: text before/after (agent drives drive2.sh, 1280x840, agent mode)
+Before: evidence-base 950e8e2e5 (lane usage-and-pr-pages-before). After: this branch e74a541ad bundle (lane usage-and-pr-pages).
+Reference: T3 Code 1e2ecbd975 (Electron) on the lane over CDP (ref-cdp.mjs), same steps.
+
+== before
+PG-4 tree usage-metric-cost: props.title = null
+PG-4 tree usage-period-1: props.title = null
+PG-7 after Escape on Pull Requests (opened from Usage by the palette): utilityPage="pull-requests" focus=(none)
+PG-7 after the second Escape: utilityPage="pull-requests" focus=(none)
+PG-6 after → on Author (keyboard): utilityPage="pull-requests" focus=pr-author-anyone
+PG-6 after a press on Author: utilityPage="pull-requests" focus=node 1213
+PG-7 after Escape on Pull Requests opened from the thread: utilityPage="pull-requests" focus=node 1182
+
+== after
+PG-4 tree usage-metric-cost: props.title = "Cost (C)"
+PG-4 tree usage-period-1: props.title = "Past 24h (⇧⌘1)"
+PG-7 after Escape on Pull Requests (opened from Usage by the palette): utilityPage="usage" focus=(none)
+PG-7 after the second Escape: utilityPage="" focus=(none)
+PG-6 after → on Author (keyboard): utilityPage="pull-requests" focus=pr-author-anyone
+PG-6 after a press on Author: utilityPage="pull-requests" focus=pr-author-search
+PG-6 after "zz", Escape, ↓ on Filters, a press on Author: utilityPage="pull-requests" focus=pr-author-search
+PG-7 after Escape on Pull Requests opened from the thread: utilityPage="" focus=(none)
+"Search authors" value in the tree after →, after the press and after the ↓ reopen: "", "", "" (the "zz" between them is in the screenshot)
+
+== reference (CDP, document.activeElement and location.hash)
+Usage, ⌘K "pull requests", Enter: #/pull-requests?involvement=all&state=open; Escape: #/usage; Escape: #/<env>/verify-timeline (the thread)
+↓ on Filters, ↓ ↓ to Author, →: DIV role=menuitemradio "Anyone" (Enter on a submenu row: its first row too)
+A press on Author: INPUT placeholder "Search authors"
+"zz" typed, Escape, Escape, ↓ on Filters, a press on Author: INPUT placeholder "Search authors" value ""
+
+PG-7 editors (title, description or remark with Write/Preview, reply, code comment draft): not driven. Neither fixture has a pull request (no GitHub remote in the lane), so no editor can open on either side; covered by usage-pr-pages.test.ts (the holds, prdEscapeLive) and the contract build (the analyzer).
