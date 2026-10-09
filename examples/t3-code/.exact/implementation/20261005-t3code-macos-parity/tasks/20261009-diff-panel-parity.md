@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-panel-parity
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/360
 verified_commit: null
 ---
 
@@ -138,6 +138,8 @@ exit 0; `contract build examples/t3-code/app.contract` exit 0 (5,752 slots, 46 r
 --all-targets --keep-going -- -D warnings` 0, `cargo fmt --all -- --check` 0, `bun scripts/caps.mjs` 0,
 `bun scripts/boot.mjs` 0. No Rust or Swift changed, so `cargo test -p t3-code-macos --lib` and the AppKit binaries were
 not run. Bundle: `bun host/apple/build.mjs t3-code-macos --bundle` once; one live agent drive (no retry).
+The same checks ran again on `55573e65b` (same code; a continuation after a usage-limit stop kept no logs), all
+exit 0 with the same counts.
 
 ## Real-input batch steps
 
