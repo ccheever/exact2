@@ -1,0 +1,129 @@
+# browser-surface-automation: the part-5 Bun test files (bun test --timeout 60000, 2026-10-09T04:17Z, branch at ac610d7f2)
+## examples/t3-code/browser-links.test.ts (27 tests, 0 failures)
+pass  resolveLinkTarget › keeps the system browser unless the user asked for in-app
+pass  resolveLinkTarget › opens in-app when asked and the runtime can
+pass  resolveLinkTarget › falls back to the system browser where there is no in-app browser
+pass  resolveLinkTarget › treats a modifier click as the way out of the in-app default
+pass  resolveLinkTarget › leaves non-web schemes to the shell
+pass  resolveBrowserLinkTargetPreference › reads the saved system preference (the client's settings are loaded before any answer)
+pass  resolveBrowserLinkTargetPreference › reads the saved app preference (the client's settings are loaded before any answer)
+pass  openTerminalLinkInPreview › does not open either browser when reading target fails
+pass  openTerminalLinkInPreview › does not open either browser when reading defaults fails
+pass  openTerminalLinkInPreview › opens in the system browser while that is the configured target
+pass  openTerminalLinkInPreview › opens public URLs in-app too, not only local servers
+pass  openTerminalLinkInPreview › waits for hydrated viewport and profile defaults before opening
+pass  openTerminalLinkInPreview › preserves the complete preview failure cause before falling back
+pass  openTerminalLinkInPreview › does not report or fall back when opening the preview is interrupted
+pass  openTerminalLinkInPreview › opens in the system browser when Ctrl or Command is held
+pass  tabMuteMenuItem › stays disabled until the desktop tab exists
+pass  tabMuteMenuItem › stays disabled when no runtime tab id can be resolved
+pass  tabMuteMenuItem › offers mute and unmute once the tab is addressable
+pass  openLink (useOpenLink) › opens a Browser tab beside the thread when the setting says T3 Code
+pass  openLink (useOpenLink) › falls back to the system browser when the in-app open fails
+pass  openLink (useOpenLink) › keeps the system browser for the default setting, a modifier, a non-web link and a link with no thread
+pass  links from the UI (chatlocal:link-open) › a chat link reads the click’s ⌘ or Ctrl from the module; a check’s button has none
+pass  links from the UI (chatlocal:link-open) › a link the system browser could not open says so
+pass  terminal links in the app › opens an http(s) link in a Browser tab when the setting says T3 Code, ⌘-click the system browser
+pass  terminal links in the app › a terminal link whose in-app open fails goes to the system browser
+pass  the tab menu’s Mute row and the audible indicator › a Browser tab’s menu has Mute until it is muted, disabled until its page exists
+pass  the "Open links in" setting › writes the client setting and refuses anything else
+
+## examples/t3-code/browser-automation.test.ts (58 tests, 0 failures)
+pass  resolveHostWaitBudgetMs › reserves the full response margin once the request budget allows it
+pass  resolveHostWaitBudgetMs › keeps most of a short request budget instead of collapsing it
+pass  resolveHostWaitBudgetMs › returns a non-negative budget for invalid input
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 1ms broker timeout
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 10ms broker timeout
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 100ms broker timeout
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 250ms broker timeout
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 1000ms broker timeout
+pass  waitForHostReadiness › stops unavailable-overlay polling before a 15000ms broker timeout
+pass  waitForHostReadiness › includes session setup in the deadline instead of starting a fresh wait budget
+pass  waitForHostReadiness › skips readiness probes when setup has already exhausted the deadline
+pass  waitForHostReadiness › returns as soon as the overlay is ready and clears its timeout
+pass  waitForHostReadiness › keeps a probe result of false that wins the deadline race
+pass  waitForHostReadiness › keeps a probe result of true that wins the deadline race
+pass  waitForHostReadiness › bounds a stalled status probe and ignores a late ready result
+pass  waitForHostReadiness › preserves probe failures and clears the pending timeout
+pass  preview automation open readiness › opens the inline preview by default
+pass  preview automation open readiness › supports explicit opt-out and the legacy show alias
+pass  preview automation open readiness › does not wait for a desktop overlay when opening an empty tab
+pass  preview automation open readiness › waits when an empty tab is immediately given a URL
+pass  preview automation open readiness › waits for existing tabs that already have rendered content
+pass  preview automation open readiness › gives newly-created automation tabs a stable desktop viewport
+pass  preview automation open readiness › preserves reused and already-fixed browser viewports
+pass  shouldOpenPreviewMiniPlayer with the floating-preview preference › honours the preference when the agent said nothing either way
+pass  shouldOpenPreviewMiniPlayer with the floating-preview preference › lets an explicit request outrank the preference in both directions
+pass  shouldOpenPreviewMiniPlayer with the floating-preview preference › distinguishes an explicit background request from a disabled preference
+pass  auto-show for existing automation tabs › records floating-preview intent whenever an agent uses the tab
+pass  auto-show for existing automation tabs › leaves explicit opens and background-only tabs alone
+pass  auto-show for existing automation tabs › honours the auto-show preference for reused tabs
+pass  preview automation target selection › refreshes authoritative sessions whenever the caller relies on the active tab
+pass  preview automation target selection › refreshes an explicit tab only when it is absent locally
+pass  preview automation target selection › does not report the active tab under an unknown requested tab id
+pass  preview automation target selection › reuses the provider session's pinned tab instead of the mutable UI tab
+pass  agentBrowserCursorOpacity › keeps active movement fully visible
+pass  agentBrowserCursorOpacity › settles to a visible idle state
+pass  agentBrowserCursorOpacity › dims further while the human controls the page
+pass  previewAutomationRequestConsumer › acknowledges a replacement stream before consuming requests from it
+pass  previewAutomationRequestConsumer › drops late requests from an older stream generation
+pass  previewAutomationRequestConsumer › consumes every request emitted before React can render
+pass  previewAutomationRequestConsumer › uses the latest request handler without rebuilding the stream consumer
+pass  previewAutomationRequestConsumer › consumes a request that arrived immediately before the consumer mounted
+pass  previewAutomationRequestConsumer › preserves tagged automation errors and their structured diagnostics
+pass  previewAutomationRequestConsumer › correlates unexpected failures without exposing cause details
+pass  planRequest (the request handler up to the page) › targets the thread’s current tab by its runtime id, shown unless the agent said otherwise
+pass  planRequest (the request handler up to the page) › answers a tab it cannot find with the reference’s TabNotFound error
+pass  planRequest (the request handler up to the page) › status falls back to the snapshot and names no tab under an unknown id
+pass  planRequest (the request handler up to the page) › open creates a tab when there is none to reuse, or reuses and navigates the pinned one
+pass  planRequest (the request handler up to the page) › navigate resolves an environment port at the environment’s host and refuses a bad URL
+pass  planRequest (the request handler up to the page) › press carries the native chord, its text, and the macOS editing commands
+pass  planRequest (the request handler up to the page) › reads stream events defensively
+pass  the host on the client › subscribes the request stream once per connection with every operation
+pass  the host on the client › lists the thread’s sessions before planning a request that relies on its current tab
+pass  the host on the client › sends a plan once, with the request’s host wait budget (the module’s deadline starts at its receipt)
+pass  the host on the client › adopts a tab the module opened: into the thread’s store, shown as the agent asked
+pass  the host on the client › applies preview events to the threads it keeps state for
+pass  the host on the client › reports focus and live tabs once per change
+pass  a background environment’s host (PreviewAutomationHosts mounts one per environment) › serves a request that came on a fleet transport, on that transport, under that environment
+pass  "Open and tabs": an agent-opened tab after a relaunch › comes back from the server’s list, with a page for its session
+
+## examples/t3-code/terminal-integrations.test.ts (16 tests, 0 failures)
+pass  terminal context reference ports › formatTerminalContextLabel and reference
+pass  terminal context reference ports › normalizeTerminalContextText and isTerminalContextExpired
+pass  terminal context reference ports › legacy ordinal placeholders migrate in order and extra placeholders disappear
+pass  terminal context reference ports › external records validate and normalize without a client text cap
+pass  terminal context reference ports › captured selection inserts at native caret, survives storage reload and is sent as a record
+pass  terminal context reference ports › native Add to chat uses the injected snapshot clock without ambient Date access
+pass  terminal context reference ports › expired-only sends refuse; mixed sends omit missing chips with guidance
+pass  terminal selection menu ports › popup and context menus omit Add to chat without target and disable empty selection actions
+pass  terminal selection menu ports › superseded selection popup cannot clear the newer context menu
+pass  Run in terminal › only a complete single-line shell command without controls can run
+pass  Run in terminal › fences must close with matching character and sufficient width
+pass  terminal links › original browser preference and modifier bypass remain distinct
+pass  project script integration › script runs through open/write, remembers secondary choice and updates primary label
+pass  project script integration › autoOpenPreview runs the script, then opens its preview URL in a Browser tab (browser-surface part 5)
+pass  project script integration › a script preview that fails to open says so
+pass  project script integration › open failures never write and write failures surface original server message
+
+## examples/t3-code/browser-automation-keys.test.ts (19 tests, 0 failures)
+pass  preview keyboard packets › includes the Chromium virtual key code and Enter text
+pass  preview keyboard packets › dispatches printable keys as text key-down events
+pass  preview keyboard packets › suppresses text and uses raw key-down for shortcuts
+pass  preview keyboard packets › maps common macOS editing shortcuts without changing other platforms
+pass  preview keyboard packets › resolves shifted printable keys to their browser values
+pass  preview keyboard packets › keeps shifted key values while suppressing text for modified chords
+pass  preview keyboard packets › converts Enter into native down, char, and up packets
+pass  preview keyboard packets › converts z into native down, char, and up packets
+pass  preview keyboard packets › suppresses text for shortcuts and retains macOS editing commands
+pass  preview keyboard packets › maps ArrowLeft to Electron's Left accelerator
+pass  preview keyboard packets › maps ArrowRight to Electron's Right accelerator
+pass  preview keyboard packets › maps ArrowUp to Electron's Up accelerator
+pass  preview keyboard packets › maps ArrowDown to Electron's Down accelerator
+pass  preview keyboard packets › matches native uppercase key signals without inventing shortcut modifiers
+pass  preview keyboard packets › matches native signals for Unicode text and literal spaces
+pass  preview keyboard packets › preserves text and editing commands for isolated child renderer targets
+pass  the module's key (pressPlan) › names the key as T3TerminalKeys reads it
+pass  the module's key (pressPlan) › edits in the page for macOS editing shortcuts, with the clipboard put in by the module
+pass  the module's key (pressPlan) › falls back to DOM events with the key's default edit
+
