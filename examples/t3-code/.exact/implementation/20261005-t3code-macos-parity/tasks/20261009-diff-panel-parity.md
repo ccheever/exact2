@@ -184,6 +184,11 @@ exit 0; `contract build examples/t3-code/app.contract` exit 0 (5,780 slots, 46 r
 not run. Bundle: `bun host/apple/build.mjs t3-code-macos --bundle` before the drive and once more for the one retry
 (the first drive found the long base's overlap); two live agent drives in all. The first round's checks on `35d40ee97`
 were all exit 0 as well (3,655 Bun tests).
+The feature branch moved while those ran (#355, #359, #365; `EXACT2-GAPS.md` and `r4-surfaces-files.contract` touched
+by both sides, no conflict), so it was merged again (`a07d41b1f`) and the checks a merge can change ran again there:
+`bun test examples/t3-code --timeout 60000` 0 (3,714 pass, 1 skip, 0 fail, 265 files), strict `tsc` 0, `contract build`
+0 (5,784 slots, 90,324 nodes; `app.contract` 1,234 lines), `git add -A && bun scripts/caps.mjs` 0. This PR changes no
+Rust or Swift, so the cargo checks and boot stand from `1c41d6434`.
 
 ## Real-input batch steps
 
