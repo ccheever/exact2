@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-rows-and-labels
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/367
 verified_commit: null
 ---
 
@@ -185,7 +185,9 @@ None. Every row was verified in agent mode: hovers, presses, typing and the tree
 ## Progress
 
 2026-10-10: built every finding row. Shot the reference's tooltips, base branch labels and Icon menu on this lane. Drove
-the base build and then this branch once each, with the same steps. Every row passes. Draft PR opened.
+the base build and then this branch once each, with the same steps. Every row passes. Draft PR
+[#367](https://github.com/ccheever/exact2/pull/367). Merged `6cb2828ba` (settings-escape-and-nav and two more) before
+the final checks.
 
 ## Attempts and evidence
 
