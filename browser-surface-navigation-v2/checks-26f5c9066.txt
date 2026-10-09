@@ -1,0 +1,19 @@
+# browser-surface-navigation-v2: checks on 26f5c90661e84f867a6b57747f0a23ebd0c1117b (verify skill's run_checks.py; no shell)
+status passed; source_unchanged True; source digest (sha256, the 30 task-owned code files of #352 vs c603c22d6) 7760fb76f10d7e64a5de82b24b2173c3edc83a534293ee1b51d4db9cf6d74eb9
+recipe sha256 29225e7b66f67ea0fe26a3d13304c98f105fbdd5c88e845288aa4586356cea70; started 2026-10-09T09:40:59.152638+00:00; finished 2026-10-09T09:55:26.364188+00:00
+
+passed  exit 0  09:40:59-09:42:33Z  AppKit browser and browser-automation  argv: zsh target/bsn2/appkit.sh browser browser-automation
+passed  exit 0  09:42:33-09:42:39Z  bun test examples/t3-code  argv: ~/.bun-1.4.2/bin/bun test examples/t3-code --timeout 60000
+passed  exit 0  09:42:39-09:42:39Z  strict tsc app.ts  argv: ~/.bun-1.4.2/bin/bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
+passed  exit 0  09:42:39-09:45:45Z  contract build app.contract  argv: cargo run -q -p contract -- build examples/t3-code/app.contract -o target/bsn2/t3-code.plan
+passed  exit 0  09:45:45-09:54:24Z  cargo test -p t3-code-macos --lib  argv: env EXACT_APP_DIR=~/orca/workspaces/exact2/t3-code-browser-surface-navigation-v2/examples/t3-code cargo test -p t3-code-macos --lib
+passed  exit 0  09:54:24-09:54:24Z  caps  argv: ~/.bun-1.4.2/bin/bun scripts/caps.mjs
+passed  exit 0  09:54:24-09:54:25Z  cargo build --all-targets --keep-going  argv: cargo build --all-targets --keep-going
+passed  exit 0  09:54:25-09:55:22Z  cargo test --lib --bins --tests --no-fail-fast  argv: cargo test --lib --bins --tests --no-fail-fast
+passed  exit 0  09:55:22-09:55:23Z  cargo clippy --all-targets --keep-going -D warnings  argv: cargo clippy --all-targets --keep-going -- -D warnings
+passed  exit 0  09:55:23-09:55:26Z  cargo fmt --all --check  argv: cargo fmt --all -- --check
+passed  exit 0  09:55:26-09:55:26Z  boot  argv: ~/.bun-1.4.2/bin/bun scripts/boot.mjs
+
+Counts: AppKit browser 29/29, browser-automation 25/25; Bun 3,773 pass, 1 skip, 0 fail (3,774 tests, 264 files);
+contract build 5,900 slots; cargo test -p t3-code-macos --lib 13 passed; caps all budgets within cap;
+cargo test --lib --bins --tests --no-fail-fast: 94 test binaries, 3,521 passed, 0 failed, 34 ignored; clippy -D warnings, fmt --check, boot pass.
