@@ -1,0 +1,84 @@
+settings-diagnostics-and-scope: examples/t3-code/settings-diagnostics-scope.test.ts on the base sources and on the fix
+Base = feat(example)/t3-code c67ab5f7b with only this test file added (its TS sources checked out from c67ab5f7b); fix = this branch.
+
+=== base (3 fail) ===
+bun test v1.4.2 (744846f84)
+
+examples/t3-code/settings-diagnostics-scope.test.ts:
+141 |     const { server, files } = await launched();
+142 |     const opened = await run(server, files, { turns: 8, sampleEachTurn: false });
+143 |     // Opening: one ask, then one more for the stream's first sample; each read once; then idle. The `data` answer
+144 |     // that drained the first sample kept data.revision, so no other data.revision reader was asked.
+145 |     expect({ asks: opened.asks, idle: opened.idle, sent: server.sent.sort(), revisions: opened.revisions, telemetry: opened.telemetry > 0 })
+146 |       .toEqual({ asks: 2, idle: true, sent: [...READS].sort(), revisions: [opened.start], telemetry: true });
+             ^
+error: expect(received).toEqual(expected)
+
+@@ -4,3 +4,3 @@
+    "revisions": [
+-     5,
++     6,
+    ],
+@@ -12,3 +12,3 @@
+    ],
+-   "telemetry": true,
++   "telemetry": false,
+  }
+
+- Expected  - 2
++ Received  + 2
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-diagnostics-and-scope/examples/t3-code/settings-diagnostics-scope.test.ts:146:8)
+(fail) Settings › Diagnostics asks again only when the reference does > a telemetry sample asks only Diagnostics again: data.revision stays, data.telemetry moves, and the page reads nothing [22.59ms]
+158 |   test('a read the next answer joins lands although every answer is replaced before its reply', async () => {
+159 |     // A sample every turn and a reply two turns after the read was sent: every answer is let go before its reply.
+160 |     const { server, files } = await launched(2);
+161 |     const result = await run(server, files, { turns: 12, sampleEachTurn: true });
+162 |     expect(result.letGo).toBeGreaterThanOrEqual(2);
+163 |     expect(result.page).toMatchObject({ available: true });
+                              ^
+error: expect(received).toMatchObject(expected)
+
+Matcher error: received value must be a non-null object
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-diagnostics-and-scope/examples/t3-code/settings-diagnostics-scope.test.ts:163:25)
+(fail) Settings › Diagnostics asks again only when the reference does > a read the next answer joins lands although every answer is replaced before its reply [37.50ms]
+174 |     // routes/projects.$projectKey.tsx redirects to /settings/projects?project=<key> with machine undefined.
+175 |     const { server, files } = await launched();
+176 |     const core = (args: unknown[]) => answer('settingsCore', args, null, files, server).then(obj);
+177 |     const scope = (value: Obj) => [value.kind, value.projectLabel, value.connective, value.environmentLabel, value.scopeKey];
+178 |     const fromLink = await core(['', '', '', 'p1', 'projects', '', true]);
+179 |     expect(scope(fromLink)).toEqual(['project', 'Example', 'across', 'All environments', '|env1:/repo|']);
+                                  ^
+error: expect(received).toEqual(expected)
+
+  [
+-   "project",
++   "checkout",
+    "Example",
+-   "across",
+-   "All environments",
+-   "|env1:/repo|",
++   "on",
++   "This environment",
++   "|env1:/repo|p1",
+  ]
+
+- Expected  - 4
++ Received  + 4
+
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-diagnostics-and-scope/examples/t3-code/settings-diagnostics-scope.test.ts:179:29)
+(fail) Project settings opens on every environment (PG-8) > a bare project id is the project's group with no machine or checkout, as /projects/$projectKey redirects [29.24ms]
+
+ 0 pass
+ 3 fail
+ 4 expect() calls
+Ran 3 tests across 1 file. [175.00ms]
+
+=== fix (3 pass) ===
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 14 expect() calls
+Ran 3 tests across 1 file. [180.00ms]
