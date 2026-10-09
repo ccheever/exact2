@@ -1,0 +1,268 @@
+browser-surface-capture: drives 7 and 8 (agent mode, 1280x840, the screen locked; window images by `screenshot <png> window`).
+Lane: T3_LOCAL_PORT=16720 (a fresh copy of the seeded home per run), fixture 127.0.0.1:16721, isolated CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*, lane PATH.
+Before = the never-edited base worktree t3-code-evidence-base at 950e8e2e5 (its own build); drive 7 = 8038df70e (the #352 merge); drive 8 = 81ceb373c (the two drive 7 fixes), the final code head.
+Script: drive7.sh (the same ops for drives 7 and 8; the before run stops after the More menu).
+The send reached the lane Claude CLI, which is not signed in (isolated CLAUDE_CONFIG_DIR): "Not logged in", no provider turn ran.
+
+===== drive7-before: 17 result lines; pids/exits:
+fixture pid 60242
+agent pid 60244
+t3 app exit 0
+server pid 60433
+agent exit 0
+  0 {"clock": 15000, "inflight": 1, "epoch": 14, "real": 15014}
+  1 {"inflight": 1, "clock": 21000, "epoch": 18, "real": 6015}
+  2 tree clock=21000 epoch=18 {"right-panel": false, "browser-url": false, "browser-mini-player": false, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+  3 state epoch=18 composerText="" capture.sendSerial=None
+  4 {"tapped": 724, "at": [1253, 26], "delivery": "platform", "target": "toggle-right-panel", "epoch": 19, "clock": 21000}
+  5 {"clock": 22500, "epoch": 20, "inflight": 1, "real": 1513}
+  6 {"delivery": "platform", "tapped": 998, "at": [1010.5, 334], "target": "surface-browser", "epoch": 21, "clock": 22500}
+  7 {"epoch": 23, "clock": 25500, "inflight": 1, "real": 3013}
+  8 {"typed": 1213, "value": "127.0.0.1:16721", "target": "browser-url", "delivery": "platform", "epoch": 25, "clock": 25500}
+  9 {"value": "", "typed": 1213, "key": "Enter", "target": "browser-url", "delivery": "platform", "epoch": 26, "clock": 25500}
+ 10 {"clock": 29500, "inflight": 1, "epoch": 28, "real": 4012}
+ 11 tree clock=29500 epoch=28 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 12 {"clock": 29500, "window": true, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7-before/shots/01-chrome.png", "scale": 2, "w": 1280, "epoch": 28, "h": 840}
+ 13 {"delivery": "platform", "tapped": 1246, "at": [1260, 71.5], "target": "browser-more", "epoch": 30, "clock": 29500}
+ 14 {"epoch": 30, "clock": 30300, "real": 810}
+ 15 tree clock=30300 epoch=30 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 16 {"h": 840, "w": 1280, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7-before/shots/02-more.png", "scale": 2, "window": true, "clock": 30300, "epoch": 30}
+artifacts:
+ls: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/lane/t3-home-drive7-before/userdata/browser-artifacts: No such file or directory
+
+
+===== drive7: 83 result lines; pids/exits:
+fixture pid 96887
+agent pid 96889
+t3 app exit 0
+server pid 97184
+agent exit 0
+  0 {"epoch": 14, "clock": 15000, "inflight": 1, "real": 15018}
+  1 {"clock": 21000, "inflight": 1, "epoch": 18, "real": 6017}
+  2 tree clock=21000 epoch=18 {"right-panel": false, "browser-url": false, "browser-mini-player": false, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+  3 state epoch=18 composerText="" capture.sendSerial=0
+  4 {"tapped": 726, "delivery": "platform", "at": [1253, 26], "target": "toggle-right-panel", "epoch": 19, "clock": 21000}
+  5 {"clock": 22500, "inflight": 1, "epoch": 20, "real": 1514}
+  6 {"tapped": 1000, "at": [1010.5, 334], "delivery": "platform", "target": "surface-browser", "epoch": 21, "clock": 22500}
+  7 {"epoch": 25, "inflight": 1, "clock": 25500, "real": 3014}
+  8 {"typed": 1211, "value": "127.0.0.1:16721", "target": "browser-url", "delivery": "platform", "epoch": 27, "clock": 25500}
+  9 {"key": "Enter", "typed": 1211, "value": "", "target": "browser-url", "delivery": "platform", "epoch": 28, "clock": 25500}
+ 10 {"clock": 29500, "inflight": 1, "epoch": 29, "real": 4013}
+ 11 tree clock=29500 epoch=29 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 12 {"h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/01-chrome.png", "w": 1280, "window": true, "scale": 2, "epoch": 29, "clock": 29500}
+ 13 {"at": [1260, 71.5], "delivery": "platform", "tapped": 1242, "target": "browser-more", "epoch": 31, "clock": 29500}
+ 14 {"epoch": 31, "clock": 30300, "real": 811}
+ 15 tree clock=30300 epoch=31 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 16 {"h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/02-more.png", "w": 1280, "window": true, "scale": 2, "epoch": 31, "clock": 30300}
+ 17 {"at": [1260, 71.5], "delivery": "platform", "tapped": 1242, "target": "browser-more", "epoch": 32, "clock": 30300}
+ 18 {"clock": 30900, "epoch": 32, "real": 614}
+ 19 {"key": "Meta+=", "delivery": "native-module", "typed": 1369, "target": "browser-page", "epoch": 33, "clock": 30900}
+ 20 {"epoch": 34, "clock": 32100, "real": 1219}
+ 21 tree clock=32100 epoch=34 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["110%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 22 {"key": "Meta+0", "delivery": "native-module", "typed": 1369, "target": "browser-page", "epoch": 34, "clock": 32100}
+ 23 {"epoch": 35, "clock": 33300, "real": 1213}
+ 24 {"delivery": "platform", "tapped": 1242, "at": [1260, 71.5], "target": "browser-more", "epoch": 37, "clock": 33300}
+ 25 {"epoch": 37, "clock": 34100, "real": 819}
+ 26 {"delivery": "platform", "tapped": 1260, "at": [1140, 158.5], "target": "browser-more-device-toolbar", "epoch": 38, "clock": 34100}
+ 27 {"clock": 36100, "epoch": 39, "real": 2010}
+ 28 tree clock=36100 epoch=39 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": true, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 29 {"tapped": 1470, "delivery": "platform", "at": [1262, 107.5], "target": "browser-viewport-close", "epoch": 40, "clock": 36100}
+ 30 {"clock": 38100, "epoch": 41, "real": 2012}
+ 31 tree clock=38100 epoch=41 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 32 {"tapped": 1228, "at": [1204, 71.5], "delivery": "platform", "target": "browser-capture", "epoch": 41, "clock": 38100}
+ 33 {"clock": 41100, "epoch": 42, "real": 3011}
+ 34 logs (host t3.browser lines so far):
+      t3.browser: open ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: navigate http://127.0.0.1:16721/
+      t3.browser: screenshot browser-screenshot-127-0-0-1-mv1ae8t3.png
+ 35 {"h": 840, "scale": 2, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/03-screenshot-toast.png", "w": 1280, "window": true, "clock": 41100, "epoch": 42
+ 36 {"delivery": "platform", "tapped": 1228, "at": [1204, 71.5], "target": "browser-capture", "epoch": 42, "clock": 41100}
+ 37 {"clock": 43600, "inflight": 1, "epoch": 44, "real": 2617}
+ 38 tree clock=43600 epoch=44 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": true, "\"Recording saved\"": false, "transcript chips": []}
+ 39 {"scale": 2, "h": 840, "w": 1280, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/04-recording.png", "window": true, "clock": 43600, "epoch": 44}
+ 40 {"at": [1204, 71.5], "tapped": 1228, "delivery": "platform", "target": "browser-capture", "epoch": 44, "clock": 43600}
+ 41 {"epoch": 45, "clock": 47600, "real": 4010}
+ 42 tree clock=47600 epoch=45 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": true, "transcript chips": []}
+ 43 logs (host t3.browser lines so far):
+      t3.browser: record arm ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: record arm keys=false mouse=false
+      t3.browser: record capture 30fps 1078x1496
+      t3.browser: record begin video/mp4;codecs=avc1 1078x1496 2500000bps 30fps
+      t3.browser: record begin ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: record disarm
+      t3.browser: record disarm ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: record finish frames=70 bytes=49764
+      t3.browser: record release frames=0 dropped=0
+      t3.browser: record saved browser-recording-mv1aeew3.mp4
+ 44 {"scale": 2, "h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/05-recording-saved.png", "window": true, "w": 1280, "clock": 47600, "epoch": 45}
+ 45 {"delivery": "platform", "tapped": 1221, "at": [1176, 71.5], "target": "browser-annotate", "epoch": 45, "clock": 47600}
+ 46 {"clock": 49600, "epoch": 48, "real": 2009}
+ 47 {"at": [120, 220], "tapped": 1369, "delivery": "platform", "target": "browser-page", "epoch": 48, "clock": 49600}
+ 48 {"clock": 51100, "epoch": 48, "real": 1515}
+ 49 {"delivery": "native-module", "typed": 1369, "target": "browser-page", "epoch": 48, "clock": 51100}
+ 50 {"epoch": 48, "clock": 51900, "real": 810}
+ 51 {"epoch": 48, "clock": 51900, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/06-annotate-editor.png", "w": 1280, "scale": 2, "h": 840, "window": true}
+ 52 {"typed": 1369, "key": "Enter", "delivery": "native-module", "target": "browser-page", "epoch": 48, "clock": 51900}
+ 53 {"epoch": 53, "clock": 55900, "real": 4010}
+ 54 tree clock=55900 epoch=53 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 55 state epoch=53 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 56 logs (host t3.browser lines so far):
+      t3.browser: annotate start
+      t3.browser: annotate start ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+      t3.browser: annotate applied 1 chip+image
+ 57 {"screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/07-chip.png", "scale": 2, "epoch": 53, "clock": 55900, "w": 1280, "h": 840, "window": true}
+ 58 {"at": [1232, 71.5], "tapped": 1235, "delivery": "platform", "target": "browser-float", "epoch": 54, "clock": 55900}
+ 59 {"clock": 58400, "epoch": 57, "real": 2509}
+ 60 tree clock=58400 epoch=57 {"right-panel": true, "browser-url": false, "browser-mini-player": true, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 61 {"w": 1280, "h": 840, "scale": 2, "window": true, "clock": 58400, "epoch": 57, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/08-player.png"}
+ 62 {"tapped": 1592, "at": [714, 509], "hover": true, "target": "browser-mini-handle", "delivery": "platform", "epoch": 58, "clock": 58400}
+ 63 {"epoch": 58, "clock": 59400, "real": 1009}
+ 64 state epoch=58 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 65 {"clock": 60400, "epoch": 58, "real": 1007}
+ 66 state epoch=58 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 67 {"w": 1280, "h": 840, "scale": 2, "window": true, "clock": 60400, "epoch": 58, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/09-player-pill.png"}
+ 68 {"at": [653, 519], "tapped": 1595, "delivery": "platform", "target": "browser-mini-restore", "epoch": 58, "clock": 60400}
+ 69 {"clock": 62900, "epoch": 61, "real": 2511}
+ 70 tree clock=62900 epoch=61 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 71 {"delivery": "platform", "tapped": 1880, "at": [1176, 71.5], "target": "browser-annotate", "epoch": 61, "clock": 62900}
+ 72 {"clock": 64900, "epoch": 63, "real": 2010}
+ 73 {"delivery": "platform", "tapped": 1965, "at": [120, 220], "target": "browser-page", "epoch": 63, "clock": 64900}
+ 74 {"clock": 66400, "epoch": 63, "real": 1510}
+ 75 {"delivery": "native-module", "typed": 1965, "target": "browser-page", "epoch": 63, "clock": 66400}
+ 76 {"clock": 67200, "epoch": 63, "real": 809}
+ 77 {"key": "Meta+Enter", "typed": 1965, "delivery": "native-module", "target": "browser-page", "epoch": 63, "clock": 67200}
+ 78 {"clock": 73200, "epoch": 76, "real": 6011}
+ 79 tree clock=73200 epoch=76 {"right-panel": true, "browser-url": false, "browser-mini-player": false, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 80 logs (host t3.browser lines so far):
+      t3.browser: annotate start
+      t3.browser: annotate start ["8664b25b-428c-4d67-a962-04ef7df4ed7a","526d817a-0c09-425e-a48b-fa23df419a9b","e651afaa-920e-4d49-9038-f43d3ba43b5a","tab_1"]
+      t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+      t3.browser: annotate applied 2 chip+image send
+ 81 state epoch=76 composerText="" capture.sendSerial=0
+ 82 {"clock": 73200, "scale": 2, "w": 1280, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive7/shots/10-sent.png", "window": true, "h": 840, "epoch": 76}
+artifacts:
+total 232
+drwxr-xr-x@  4 daehyeonmun  staff    128 Oct 10 03:16 .
+drwxr-xr-x@ 13 daehyeonmun  staff    416 Oct 10 03:17 ..
+-rw-r--r--@  1 daehyeonmun  staff  49764 Oct 10 03:16 browser-recording-mv1aeew3.mp4
+-rw-r--r--@  1 daehyeonmun  staff  64901 Oct 10 03:16 browser-screenshot-127-0-0-1-mv1ae8t3.png
+
+
+===== drive8: 83 result lines; pids/exits:
+fixture pid 85440
+agent pid 85443
+t3 app exit 0
+server pid 85682
+agent exit 0
+  0 {"inflight": 1, "epoch": 14, "clock": 15000, "real": 15015}
+  1 {"epoch": 18, "inflight": 1, "clock": 21000, "real": 6015}
+  2 tree clock=21000 epoch=18 {"right-panel": false, "browser-url": false, "browser-mini-player": false, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+  3 state epoch=18 composerText="" capture.sendSerial=0
+  4 {"tapped": 726, "at": [1253, 26], "delivery": "platform", "target": "toggle-right-panel", "epoch": 19, "clock": 21000}
+  5 {"epoch": 20, "inflight": 1, "clock": 22500, "real": 1513}
+  6 {"delivery": "platform", "tapped": 1000, "at": [1010.5, 334], "target": "surface-browser", "epoch": 21, "clock": 22500}
+  7 {"epoch": 25, "inflight": 1, "clock": 25500, "real": 3011}
+  8 {"typed": 1211, "value": "127.0.0.1:16721", "target": "browser-url", "delivery": "platform", "epoch": 27, "clock": 25500}
+  9 {"key": "Enter", "typed": 1211, "value": "", "target": "browser-url", "delivery": "platform", "epoch": 28, "clock": 25500}
+ 10 {"epoch": 29, "inflight": 1, "clock": 29500, "real": 4012}
+ 11 tree clock=29500 epoch=29 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 12 {"window": true, "scale": 2, "h": 840, "w": 1280, "epoch": 29, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/01-chrome.png", "clock": 29500}
+ 13 {"at": [1260, 71.5], "tapped": 1242, "delivery": "platform", "target": "browser-more", "epoch": 31, "clock": 29500}
+ 14 {"epoch": 31, "clock": 30300, "real": 811}
+ 15 tree clock=30300 epoch=31 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 16 {"scale": 2, "clock": 30300, "w": 1280, "epoch": 31, "h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/02-more.png", "window": true}
+ 17 {"delivery": "platform", "at": [1260, 71.5], "tapped": 1242, "target": "browser-more", "epoch": 32, "clock": 30300}
+ 18 {"epoch": 32, "clock": 30900, "real": 610}
+ 19 {"delivery": "native-module", "key": "Meta+=", "typed": 1376, "target": "browser-page", "epoch": 33, "clock": 30900}
+ 20 {"clock": 32100, "epoch": 34, "real": 1210}
+ 21 tree clock=32100 epoch=34 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["110%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 22 {"key": "Meta+0", "typed": 1376, "delivery": "native-module", "target": "browser-page", "epoch": 34, "clock": 32100}
+ 23 {"clock": 33300, "epoch": 35, "real": 1210}
+ 24 {"tapped": 1242, "delivery": "platform", "at": [1260, 71.5], "target": "browser-more", "epoch": 37, "clock": 33300}
+ 25 {"epoch": 37, "clock": 34100, "real": 809}
+ 26 {"tapped": 1260, "delivery": "platform", "at": [1140, 158.5], "target": "browser-more-device-toolbar", "epoch": 38, "clock": 34100}
+ 27 {"clock": 36100, "epoch": 39, "real": 2009}
+ 28 tree clock=36100 epoch=39 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": true, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 29 {"delivery": "platform", "tapped": 1477, "at": [1262, 107.5], "target": "browser-viewport-close", "epoch": 40, "clock": 36100}
+ 30 {"epoch": 41, "clock": 38100, "real": 2009}
+ 31 tree clock=38100 epoch=41 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 32 {"delivery": "platform", "tapped": 1228, "at": [1204, 71.5], "target": "browser-capture", "epoch": 41, "clock": 38100}
+ 33 {"clock": 41100, "epoch": 42, "real": 3009}
+ 34 logs (host t3.browser lines so far):
+      t3.browser: open ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: navigate http://127.0.0.1:16721/
+      t3.browser: screenshot browser-screenshot-127-0-0-1-mv1bd5gv.png
+ 35 {"epoch": 42, "clock": 41100, "scale": 2, "window": true, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/03-screenshot-toast.png", "h": 840, "w": 1280
+ 36 {"at": [1204, 71.5], "tapped": 1228, "delivery": "platform", "target": "browser-capture", "epoch": 42, "clock": 41100}
+ 37 {"epoch": 44, "clock": 43600, "real": 2592}
+ 38 tree clock=43600 epoch=44 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": true, "\"Recording saved\"": false, "transcript chips": []}
+ 39 {"h": 840, "scale": 2, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/04-recording.png", "window": true, "clock": 43600, "w": 1280, "epoch": 44}
+ 40 {"delivery": "platform", "at": [1204, 71.5], "tapped": 1228, "target": "browser-capture", "epoch": 44, "clock": 43600}
+ 41 {"epoch": 45, "clock": 47600, "real": 4010}
+ 42 tree clock=47600 epoch=45 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": true, "transcript chips": []}
+ 43 logs (host t3.browser lines so far):
+      t3.browser: record arm ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: record arm keys=false mouse=false
+      t3.browser: record capture 30fps 1078x1496
+      t3.browser: record begin video/mp4;codecs=avc1 1078x1496 2500000bps 30fps
+      t3.browser: record begin ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: record disarm
+      t3.browser: record disarm ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: record finish frames=72 bytes=50180
+      t3.browser: record release frames=0 dropped=0
+      t3.browser: record saved browser-recording-mv1bdbih.mp4
+ 44 {"scale": 2, "w": 1280, "clock": 47600, "epoch": 45, "h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/05-recording-saved.png", "window": true}
+ 45 {"delivery": "platform", "at": [1176, 71.5], "tapped": 1221, "target": "browser-annotate", "epoch": 45, "clock": 47600}
+ 46 {"clock": 49600, "epoch": 48, "real": 2010}
+ 47 {"tapped": 1376, "at": [120, 220], "delivery": "platform", "target": "browser-page", "epoch": 48, "clock": 49600}
+ 48 {"epoch": 48, "clock": 51100, "real": 1515}
+ 49 {"delivery": "native-module", "typed": 1376, "target": "browser-page", "epoch": 48, "clock": 51100}
+ 50 {"clock": 51900, "epoch": 48, "real": 809}
+ 51 {"window": true, "epoch": 48, "clock": 51900, "h": 840, "w": 1280, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/06-annotate-editor.png", "scale": 2}
+ 52 {"typed": 1376, "delivery": "native-module", "key": "Enter", "target": "browser-page", "epoch": 48, "clock": 51900}
+ 53 {"clock": 55900, "epoch": 53, "real": 4016}
+ 54 tree clock=55900 epoch=53 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 55 state epoch=53 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 56 logs (host t3.browser lines so far):
+      t3.browser: annotate start
+      t3.browser: annotate start ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+      t3.browser: annotate applied 1 chip+image
+ 57 {"epoch": 53, "clock": 55900, "scale": 2, "window": true, "h": 840, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/07-chip.png", "w": 1280}
+ 58 {"delivery": "platform", "at": [1232, 71.5], "tapped": 1235, "target": "browser-float", "epoch": 54, "clock": 55900}
+ 59 {"clock": 58400, "epoch": 58, "real": 2515}
+ 60 tree clock=58400 epoch=58 {"right-panel": false, "browser-url": false, "browser-mini-player": true, "device-toolbar": false, "zoom": [], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 61 {"window": true, "epoch": 58, "clock": 58400, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/08-player.png", "w": 1280, "h": 840, "scale": 2}
+ 62 {"hover": true, "tapped": 1613, "at": [1254, 509], "target": "browser-mini-handle", "delivery": "platform", "epoch": 59, "clock": 58400}
+ 63 {"clock": 59400, "epoch": 59, "real": 1015}
+ 64 state epoch=59 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 65 {"clock": 60400, "epoch": 59, "real": 1017}
+ 66 state epoch=59 composerText="[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) " capture.sendSerial=0
+ 67 {"h": 840, "scale": 2, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/09-player-pill.png", "clock": 60400, "window": true, "w": 1280, "epoch": 59}
+ 68 {"delivery": "platform", "at": [1193, 519], "tapped": 1616, "target": "browser-mini-restore", "epoch": 59, "clock": 60400}
+ 69 {"clock": 62900, "epoch": 64, "real": 2517}
+ 70 tree clock=62900 epoch=64 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": []}
+ 71 {"delivery": "platform", "at": [1176, 71.5], "tapped": 1919, "target": "browser-annotate", "epoch": 64, "clock": 62900}
+ 72 {"epoch": 66, "clock": 64900, "real": 2015}
+ 73 {"tapped": 2004, "at": [120, 220], "delivery": "platform", "target": "browser-page", "epoch": 66, "clock": 64900}
+ 74 {"clock": 66400, "epoch": 66, "real": 1514}
+ 75 {"delivery": "native-module", "typed": 2004, "target": "browser-page", "epoch": 66, "clock": 66400}
+ 76 {"epoch": 66, "clock": 67200, "real": 816}
+ 77 {"typed": 2004, "key": "Meta+Enter", "delivery": "native-module", "target": "browser-page", "epoch": 66, "clock": 67200}
+ 78 {"clock": 73200, "epoch": 82, "real": 6017}
+ 79 tree clock=73200 epoch=82 {"right-panel": true, "browser-url": true, "browser-mini-player": false, "device-toolbar": false, "zoom": ["100%"], "capture-dot": false, "\"Recording saved\"": false, "transcript chips": ["Tighten the button spacing", "Send this one too"]}
+ 80 logs (host t3.browser lines so far):
+      t3.browser: annotate start
+      t3.browser: annotate start ["8664b25b-428c-4d67-a962-04ef7df4ed7a","cc97752b-9f1c-4501-b77d-ccfe7d3d7345","d72dbade-6d4f-41b7-b63a-045c2bdd1e42","tab_1"]
+      t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+      t3.browser: annotate applied 2 chip+image send
+ 81 state epoch=82 composerText="" capture.sendSerial=1
+ 82 {"scale": 2, "h": 840, "clock": 73200, "screenshot": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/capture-lane/runs/drive8/shots/10-sent.png", "epoch": 82, "window": true, "w": 1280}
+artifacts:
+total 232
+drwxr-xr-x@  4 daehyeonmun  staff    128 Oct 10 03:43 .
+drwxr-xr-x@ 13 daehyeonmun  staff    416 Oct 10 03:44 ..
+-rw-r--r--@  1 daehyeonmun  staff  50180 Oct 10 03:43 browser-recording-mv1bdbih.mp4
+-rw-r--r--@  1 daehyeonmun  staff  64901 Oct 10 03:43 browser-screenshot-127-0-0-1-mv1bd5gv.png
+
