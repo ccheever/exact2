@@ -17,6 +17,10 @@ import { shellState, toastViews, copiedActions, copiedToasts } from './shell';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import type { Obj } from './domain';
+import { opened } from './composer-controls-fixture';
+import { snapshot } from './presentation';
+import { DEFAULT_SEND_RULES } from './composer-editor-intent';
+import { activeRef } from './terminal-drawer-view';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const threadKey = 'local:thread-1';
@@ -138,6 +142,20 @@ describe('Annotate\'s result (handlePickElement → addPreviewAnnotation)', () =
     await applyCaptureResults(cancelled, quiet.native, [{ runtimeId, threadKey }]);
     expect(quiet.ops()).toEqual(['browserAnnotate:take', 'browserAnnotate:applied']);
     expect(cancelled.draft).toBe('');
+  });
+});
+
+describe('⌘↩ in Annotate\'s editor (PickPreload: the page has the key)', () => {
+  it('while Annotate is on in the thread\'s Browser tab, the send button leaves Meta+Enter to the page', async () => {
+    const { client } = await opened();
+    client.config.keybindings = DEFAULT_SEND_RULES;
+    expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
+    const ref = activeRef(client)!, tab = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
+    (client.presentation as Obj).browserTabs = { [tab]: { kind: 'Success', pick: { active: true, serial: 1, ready: true } } };
+    expect(snapshot(client).composer.sendChords).toBe('Meta+Alt+Enter');
+    // Another thread's overlay, or one that has closed, leaves the shortcut alone.
+    (client.presentation as Obj).browserTabs = { [previewRuntimeTabId({ ...ref, threadId: 'other' }, 'epoch-1', 'tab-1')]: { pick: { active: true } }, [tab]: { pick: { active: false } } };
+    expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
   });
 });
 

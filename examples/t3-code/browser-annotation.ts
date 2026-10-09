@@ -195,3 +195,23 @@ export function adoptPreviewAnnotations(next: object, previous: Obj): void {
   }
   Object.assign(next, { previewAnnotations: records });
 }
+
+/** Whether Annotate is on in a Browser tab of the thread (`presentation.browserTabs[runtimeId].pick.active`; the runtime id
+ *  names its environment and thread, browser-state.ts `previewRuntimeTabId`). */
+export function annotatingInThread(client: T3Client, environmentId: string, threadId: string): boolean {
+  for (const [runtimeId, tab] of Object.entries(obj(obj(client.presentation).browserTabs))) {
+    if (obj(obj(tab).pick).active !== true) continue;
+    try {
+      const parts: unknown = JSON.parse(runtimeId);
+      if (Array.isArray(parts) && parts[0] === environmentId && parts[1] === threadId) return true;
+    } catch { /* not a runtime id */ }
+  }
+  return false;
+}
+/** PickPreload's editor sends on ⌘/Ctrl+Return in the page: Electron's guest page has the keys. Here the window's
+ *  shortcuts come before the page, and the send button declares Meta+Enter, so ⌘Return in the overlay sent the composer
+ *  without the annotation and left the overlay open (drive 5). While Annotate is on, the send button leaves Meta+Enter
+ *  out and the key reaches the page (composer-presentation.ts). */
+export function sendChordsWhileAnnotating(chords: string, annotating: boolean): string {
+  return annotating ? chords.split(' ').filter(chord => chord !== '' && chord !== 'Meta+Enter').join(' ') : chords;
+}

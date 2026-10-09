@@ -12,7 +12,8 @@ import { attachOffered } from './composer-controls-attach';
 import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
-import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
+import { activeRef, terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
+import { annotatingInThread, sendChordsWhileAnnotating } from './browser-annotation'; // browser-surface-capture: ⌘↩ in Annotate
 import { measuredLabels } from './r5-composer-measure';
 import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
 import { clampInterfaceFontSize } from './appearance-fonts';
@@ -46,6 +47,12 @@ type ComposerSource = {
  * newer queued run never hides an older executing one (deriveThreadActivityRun).
  * "disconnected" while the thread has no such run and no provider thread.
  */
+/** Annotate is on in a Browser tab of the open thread (browser-annotation.ts). */
+function annotatingOpenThread(client: T3Client): boolean {
+  const ref = activeRef(client);
+  return !!ref && annotatingInThread(client, ref.environmentId, ref.threadId);
+}
+
 export function threadPhase(projection: Obj): string {
   const runs = arr(projection.runs), thread = obj(projection.thread);
   const latest = (list: Obj[]) => list.reduce<Obj | undefined>((best, run) => !best || Number(run.ordinal) > Number(best.ordinal) ? run : best, undefined);
@@ -225,7 +232,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
   return atRootFontSize({ ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, client.modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
-    sendChords: sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), // composer-editor-intent.ts
+    sendChords: sendChordsWhileAnnotating(sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), annotatingOpenThread(client)), // composer-editor-intent.ts; Annotate's ⌘↩ (browser-annotation.ts)
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
