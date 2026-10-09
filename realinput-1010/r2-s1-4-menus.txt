@@ -1,0 +1,40 @@
+realinput-1010 row 2 S1-4: File and View menus read through AX (no menu opened)
+== before recording
+menu bar: Apple | T3 Code (RI1010 b) | File | Edit | View | Window | Help
+[File] 1 items
+  Close Window  [key W mods 0]
+[View] 8 items
+  Reload  [key R mods 0]
+  Force Reload  [key R mods 1]
+  ---
+  Actual Size  [key 0 mods 0]
+  Zoom In  [key = mods 0]
+  Zoom Out  [key - mods 0]
+  ---
+  Enter Full Screen  [key F mods 24]
+== while recording (Press shortcut)
+menu bar: Apple | T3 Code (RI1010 b) | File | Edit | View | Window | Help
+[File] 1 items
+  Close Window  [key W mods 0]
+[View] 8 items
+  Reload  [key R mods 0]
+  Force Reload  [key R mods 1]
+  ---
+  Actual Size  [key 0 mods 0]
+  Zoom In  [key = mods 0]
+  Zoom Out  [key - mods 0]
+  ---
+  Enter Full Screen  [key F mods 24]
+== after real Cmd-K (field reads mod+k)
+menu bar: Apple | T3 Code (RI1010 b) | File | Edit | View | Window | Help
+[File] 1 items
+  Close Window  [key W mods 0]
+[View] 8 items
+  Reload  [key R mods 0]
+  Force Reload  [key R mods 1]
+  ---
+  Actual Size  [key 0 mods 0]
+  Zoom In  [key = mods 0]
+  Zoom Out  [key - mods 0]
+  ---
+  Enter Full Screen  [key F mods 24]
