@@ -15,6 +15,7 @@ import { deviceScope } from './settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from './device-support'; // 5318d054a5: Simulator support row
 import { letGo } from './let-go';
 import { linkTargetPreference } from './browser-links';
+import { deviceStateOf, watchDevice } from './r4-surfaces-device'; // useDeviceState
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
@@ -258,10 +259,11 @@ export async function integrationsPage(client: T3Client, native: Native | null |
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
   try {
-    const access = client.restAccess(native);
-    const config = await access.request('server.getConfig');
+    // useScopedSettings and useDeviceState (IntegrationsSettings.tsx): the connection's server config (server.getConfig
+    // at connect, then subscribeServerConfig) and its subscribeDeviceState stream, never a read per answer. A read here
+    // re-asked this page: device.list's inspection publishes to the device stream, whose event bumps data.revision.
+    const config = client.config, settings = obj(config.settings);
     if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) return { ...empty, error: 'Update the selected environment to configure project overrides.' };
-    const settings = await access.request('server.getSettings');
     const rows = integrationRows(settings, projectId, environmentLabel(client), client.writable);
     // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
     // the selected targets, and Agent device access open once any connected environment runs the hub.
@@ -272,13 +274,10 @@ export async function integrationsPage(client: T3Client, native: Native | null |
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
       disabled: !client.writable || devices.connectedCount === 0 || (!devices.project && !devices.anyHubEnabled) };
-    // DeviceToolVersions over the read-only device.list inspection.
-    let hubStatus = 'Version unknown', agentStatus = 'Version unknown', deviceState: Obj | null = null;
-    try {
-      const state = await access.request('device.list', { inspectOnly: true });
-      const tools = obj(arr(state.hosts).find(host => host.kind === 'local')?.tools);
-      hubStatus = toolVersion(tools.hub); agentStatus = toolVersion(tools.agent); deviceState = state;
-    } catch { /* the reference shows "Version unknown" without a device state */ }
+    // DeviceToolVersions over the stream's state; "Check versions" (rest:device-tools) is the one inspection.
+    await watchDevice(client, native);
+    const deviceState = deviceStateOf(client), tools = obj(arr(deviceState?.hosts).find(host => host.kind === 'local')?.tools);
+    const hubStatus = deviceState ? toolVersion(tools.hub) : 'Version unknown', agentStatus = deviceState ? toolVersion(tools.agent) : 'Version unknown';
     return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
       hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: deviceHostsView(client, settings, deviceState, projectId !== '', true),
       simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
