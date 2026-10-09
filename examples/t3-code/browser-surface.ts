@@ -219,16 +219,18 @@ export function buildReportInput(threadId: string, tabId: string, tab: NativeTab
 type Live = { id: string; url: string; profile: string; environment: string; width?: number; height?: number; zoom?: number };
 /** ElectronBrowserHost: a web view for every live session of every thread, at its last URL; the rest close. A tab at a
  *  fixed viewport also carries its size and zoom, so the module makes its page at that size before its first load
- *  (the reference's webview is laid out at it before its guest loads; part 2). */
+ *  (the reference's webview is laid out at it before its guest loads; part 2). A page the module has not reported yet is
+ *  made at the default zoom (part 4, `browserDefaultTabState`), so its first layout is already at it. */
+const defaultZoom = (client: T3Client): number => { try { return resolveBrowserOpenDefaults(client).zoomFactor; } catch { return 1; } };
 export function liveSessions(client: T3Client): Live[] {
-  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client);
+  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client), zoom = defaultZoom(client);
   for (const [key, state] of host.store.active()) {
     const ref = parseScopedThreadKey(key);
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
       const id = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), viewport = snapshot.viewport;
       live.push({ id, url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url, profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId,
-        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? 1 } : {}) });
+        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? zoom } : {}) });
     }
   }
   return live;

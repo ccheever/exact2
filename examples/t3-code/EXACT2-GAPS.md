@@ -494,9 +494,11 @@ adds these rows:
 - **The Browser defaults rows.** The default viewport's menu lists each preset with its size in one label ("iPhone SE
   375 × 667"; the reference right-aligns the size and heads the presets "Standard"), and its width and height are plain
   fields committed on Return or when left (no stepper arrows). A page the module makes (from the launcher, a link, an
-  agent or a relaunch) gets the default zoom and appearance right after it is made, through part 2's `browserSet`,
-  where the reference passes them at creation. Show device toolbar on a fill tab opens at the configured default
-  viewport when it is fixed (part 2's `browserResponsiveViewportForToggle`).
+  agent or a relaunch) at a fixed viewport is made at the default zoom (the zoom `browserSync` carries for a page the
+  module has not reported yet), so its first layout is already at it; its appearance, and a Fill page's zoom, follow
+  right after it is made, through part 2's `browserSet`, where the reference passes both at creation. Show device
+  toolbar on a fill tab opens at the configured default viewport when it is fixed (part 2's
+  `browserResponsiveViewportForToggle`).
 - **Where the row shows.** Browser profiles is part of Settings › Integrations, which the clone draws for a connected
   environment; the reference draws its device-local rows without one.
 

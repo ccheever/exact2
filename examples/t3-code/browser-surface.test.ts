@@ -12,7 +12,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   DEFAULT_BROWSER_PROFILE_ID, addBrowserSurface, browserHost, browserLocal, browserTabFavicon, browserTabTitle, browserView,
   buildReportInput, closePreviewSession, installBrowserCleanup, listPreviewSessions, liveSessions, openBrowserIn, openPreviewSession, projectDesktopState,
-  reconcileBrowserSurfaces, type NativeTab, type Rpc,
+  reconcileBrowserSurfaces, syncNativeSessions, type NativeTab, type Rpc,
 } from './browser-surface';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from './browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from './browser-profiles';
@@ -272,6 +272,33 @@ describe('a page made at its fixed size (#352: its first layout is the tab’s v
     ]);
   });
 
+  it('part 4: a page the module has not reported yet is made at the default zoom, so its first layout is at it; unread settings make it at 100%', async () => {
+    const iphone = { _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 } as const;
+    const { client, native } = fakeClient(() => ({}), { local: { clientSettings: {}, deviceSettings: {}, composerControls: false, browserDefaultViewport: iphone, browserDefaultZoomFactor: 1.25, browserDefaultAppearance: 'dark' }, preferencesLoaded: true });
+    const store = browserHost(client).store;
+    store.reconcileServerSessions(threadRef, { sessions: [
+      { ...idle('tab-1'), navStatus: { _tag: 'Loading', url: 'http://127.0.0.1:16751/', title: '' }, viewport: iphone },
+      { ...idle('tab-2'), viewport: { _tag: 'freeform', width: 1280, height: 800 } },
+    ], serverEpoch: 'epoch-1', revision: 1 });
+    const tab1 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'), tab2 = previewRuntimeTabId(threadRef, 'epoch-1', 'tab-2');
+    await syncNativeSessions(client, module);
+    // browserSync makes each page at its CSS size × the default zoom, then browserSet gives it the default appearance.
+    expect(native.map(call => call.payload)).toEqual([
+      { op: 'browserSync', tabs: [
+        { id: tab1, url: 'http://127.0.0.1:16751/', profile: 'default', environment: 'local', width: 390, height: 844, zoom: 1.25 },
+        { id: tab2, url: '', profile: 'default', environment: 'local', width: 1280, height: 800, zoom: 1.25 },
+      ], adopted: [] },
+      { op: 'browserSet', tab: tab1, zoom: 1.25, colorScheme: 'dark' },
+      { op: 'browserSet', tab: tab2, zoom: 1.25, colorScheme: 'dark' },
+    ]);
+    // A zoom the module reported (a person's ⌘+ in the tab) is the tab's own.
+    client.presentation.browserTabs = { [tab1]: { kind: 'Success', url: 'http://127.0.0.1:16751/', zoomFactor: 1.5 } };
+    expect(liveSessions(client).map(entry => entry.zoom)).toEqual([1.5, 1.25]);
+    // Before the settings were read, nothing is made at a guessed default.
+    (client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = false;
+    client.presentation.browserTabs = {};
+    expect(liveSessions(client).map(entry => entry.zoom)).toEqual([1, 1]);
+  });
 });
 
 describe('answers that are let go (review round 1)', () => {
