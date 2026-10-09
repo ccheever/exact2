@@ -481,6 +481,11 @@ component PrFiltersMenu
       preventDefault()
       focus(`pr-filter-${sub}`)
       sub = ""
+  // From "Search authors" the reference's focus does not come back to the Author row (the field unmounts first): no
+  // Filters row is lit. The Filters popup takes it, so the menu's keys (↓, a second Escape) still reach it.
+  action searchEscape
+    focus("pr-filters-keys")
+    sub = ""
   derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" ? 232 : 168)
   derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
   view
@@ -497,7 +502,7 @@ component PrFiltersMenu
             column margin-top=subTop margin-right="-0.1875rem" key=subBack
               PrMenuBox(scheme=scheme, width=subWidth, label=sub)
                 KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)
-                  PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, control=control)
+                  PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, searchEscape=searchEscape, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
             KeyMenu(menuId="pr-filters-keys", items=[KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")], keyed=keyed, gap="0px", modal=true)
               PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), testId="pr-filter-state")
@@ -544,11 +549,17 @@ component PrFilterSub
     authors: list<PrAuthor>
     authorQuery: string
     searchAuthors: action
+    // FW-3: Escape in the field closes the submenu (PrFiltersMenu searchEscape).
+    searchEscape: action
     control: action
   // The search field's keys are its own (the reference stops their propagation), but for ↓, which moves to the first
-  // row, and Escape, which closes the submenu (PrFiltersMenu subEscape): no menu typeahead or ← takes a letter or the caret's arrow.
+  // row, and Escape, which closes the submenu: no menu typeahead or ← takes a letter or the caret's arrow.
   action searchKey(k: string)
-    if k != "ArrowDown" and k != "Escape"
+    if k == "Escape"
+      preventDefault()
+      stopPropagation()
+      searchEscape()
+    else if k != "ArrowDown"
       stopPropagation()
   view
     column width="100%"

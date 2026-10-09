@@ -273,8 +273,10 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      focus(`pr-filter-${sub}`)\n      sub = ""');
     // On the row that holds the submenu and the Filters rows, so an Escape from either (or the search field) reaches it.
     expect(menu).toContain('row align-items="flex-start" key=subEscape');
-    // The author search lets Escape through to it.
-    expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k != "ArrowDown" and k != "Escape"\n      stopPropagation()');
+    // From the author search it closes the submenu too, and no Filters row is lit (the reference's focus does not come
+    // back to the row from the field); the popup keeps the menu's keys.
+    expect(menu).toContain('action searchEscape\n    focus("pr-filters-keys")\n    sub = ""');
+    expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
   });
   test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
     const sub = await component('pages-prs.contract', 'PrFilterSub');
