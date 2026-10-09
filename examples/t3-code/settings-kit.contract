@@ -10,6 +10,7 @@ use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
+use hoverTipAtFrame from "./hover-layer.contract" // PolicyTip
 
 shape SelectOption
   value: string
@@ -194,31 +195,30 @@ component SettingsNotice
           LucideInfo(size=14, color="#fe9a00")
       text message font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)" flex=1 min-width=0
 
-// ui/tooltip.tsx TooltipPopup side="top" over an icon-micro ghost-muted trigger
-// (settingsLayout PolicyTooltip, the diagnostics stat details): shown while the
-// pointer rests on the trigger or it holds keyboard focus. The popup is 320pt
-// wide (max-w-80), centred over the 20pt trigger, 4pt above it; textWidth stands
-// in for text-balance's narrower line box.
-component InfoTip
+// settingsLayout PolicyTooltip: the icon-micro ghost-muted "Background policy details" button whose TooltipPopup
+// (side="top", delay 200) says how a setting meets the shared Background activity policy: General's Background
+// activity, Providers' Health check interval and Source Control's Git fetch interval (settings-rows-and-labels S1-16,
+// S2-7). The window's hover layer draws the popup (hover-layer.contract, kind "policy"), as the reference portals every
+// TooltipPopup, so the card or scroll around the row never cuts it. Hover or keyboard focus shows it; the slot is the
+// page's info icon. Agent mode hovers it with `tap <tipId> hover`; the popup's test id is `<tipId>-tooltip`.
+component PolicyTip
+  inject
+    rem: number
+    hoverTipAt: action
   props
-    label: string
     tip: string
     tipId: string
-    textWidth: number
-    surface: string
-    border: string
-    ink: string
   slot
   state hovered = false
   state focused = false
+  action show(on: bool)
+    hoverTipAt(hoverTipAtFrame(tipId, "policy", tip, [], "top", "center", frame(tipId), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${tipId}-tooltip`), "trigger", on)
   action hover(over: bool)
     hovered = over
+    show(over)
   action focusTip(on: bool)
     focused = on
+    show(on)
   view
-    box position="relative" width="1.25rem" height="1.25rem" flex-shrink=0
-      button hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=label aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
-        children
-      when hovered or focused
-        column position="absolute" left="-9.375rem" bottom="1.5rem" width="20rem" z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=border background-color=surface box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=`${tipId}-tooltip`
-          text tip font-size="0.75rem" line-height="1.03125rem" color=ink max-width=textWidth
+    button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
+      children

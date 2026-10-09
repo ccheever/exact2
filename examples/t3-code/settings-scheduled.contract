@@ -64,10 +64,13 @@ shape TaskRef
   label: string
   search: string
   badge: string
+  remote: bool
+// `selected`: the editor's base when `refs` (the first page) does not list it, as the picker's selectedRefQuery finds it.
 shape TaskBranches
   projectId: string
   error: string
   refs: list<TaskRef>
+  selected: list<TaskRef>
 shape TaskModelMark
   value: string
   name: string
@@ -231,6 +234,11 @@ component TaskMessage
       when description != ""
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
 
+// resolveBranchTriggerLabel for a future worktree (WorktreeBaseBranchPicker): "origin/" only while Start from origin is on
+// and the ref is a local branch the project lists; a ref it does not list (the Verification fixture's "No refs found.")
+// or a remote one reads as it is (settings-rows-and-labels S2-6).
+fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)
+
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening).
 component ScheduledEditor
@@ -241,6 +249,7 @@ component ScheduledEditor
     error: string
     close: action
     rest: action
+    lookupBase: action
   state title = draft.title
   state prompt = draft.prompt
   state enabled = draft.enabled
@@ -262,6 +271,10 @@ component ScheduledEditor
   state modelKey = draft.modelKey
   state refQuery = ""
   derive refSearch = refQuery
+  // The base is a local branch of the chosen project's refs (WorktreeBaseBranchPicker's selectedRef, isRemote false): from
+  // the loaded page, else from the lookup by name (`selected`), which the page makes for the draft's project and after a
+  // switch (chooseProject).
+  derive baseLocal = length(filter(data.branches, (group) => group.projectId == projectId and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0
   action setText(field: string, value: string)
     if field == "refs"
       refQuery = value
@@ -275,9 +288,13 @@ component ScheduledEditor
       timeOfDay = value
     if field == "path"
       path = value
+  // The picker is keyed by project, so another project asks for the base again (selectedRefQuery): when its first page
+  // does not list the base, the root's page resource looks it up by name (scheduled-view.ts `taskBase`).
+  action chooseProject(value: string)
+    projectId = value
+    if baseRef != "" and length(filter(data.branches, (group) => group.projectId == value and group.error == "" and length(filter(group.refs, (ref) => ref.value == baseRef)) == 0)) > 0
+      lookupBase(`key=${encodeURIComponent(draft.key)}&project=${encodeURIComponent(value)}&ref=${encodeURIComponent(baseRef)}`)
   action choose(field: string, value: string)
-    if field == "project"
-      projectId = value
     if field == "workspace"
       workspaceMode = value
     if field == "branch"
@@ -347,7 +364,7 @@ component ScheduledEditor
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
-                SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), value=projectId, width=257, disabled=busy, options=data.projects, choose=choose("project"))
+                SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), value=projectId, width=257, disabled=busy, options=data.projects, choose=chooseProject)
               column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
                 SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
@@ -356,7 +373,7 @@ component ScheduledEditor
                 text "Base branch" class=TkLabel
                 button popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
                   LucideGitBranch(size=14, color="light-dark(#71717b, #818181)")
-                  text (baseRef == "" ? "Select ref" : (startFromOrigin ? `From origin/${baseRef}` : `From ${baseRef}`)) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
                 // their current/worktree/remote/default tag, and the Start from origin row.

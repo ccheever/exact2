@@ -12,7 +12,7 @@ use SettingsGhost from "./settings-core.contract"
 use ProviderInstanceMark from "./icons.contract"
 use CcIcon from "./composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
-use InfoTip from "./settings-kit.contract"
+use PolicyTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
 use MobileBetaControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
@@ -208,7 +208,7 @@ component CoreRowView
             else
               text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
             when row.info != "" and not startsWith(row.info, "preview")
-              InfoTip(label="Background policy details", tip=row.info, tipId=`setting-info-${row.id}`, textWidth=264, surface=pal.popover, border=pal.popoverBorder, ink=pal.text)
+              PolicyTip(tip=row.info, tipId=`setting-info-${row.id}`)
                 CoreIcon(name="info", size=14, color=pal.muted)
             when row.inheritance != ""
               box position="relative"

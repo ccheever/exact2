@@ -91,23 +91,60 @@ export function nativeFiles(native: Native): Files {
     },
   } };
 }
-export function parsePairing(input: string, credential: string): { origin: string; credential: string } {
+/**
+ * The address and code a pairing names. A host with a space, which URL refuses ("invalid international domain name"),
+ * is one the reference's Chromium renderer escapes instead (`not a url` is `https://not%20a%20url/`) and then fails to
+ * reach: such a target carries that origin and `unreachable`, and the caller reports the reference's transport failure
+ * (environmentFetchFailure) once its own checks (a pairing code) pass. Chromium still reads such a link's `token` and
+ * `host` (escapedUrl). Any other address URL refuses is "Backend URL is invalid." (RemoteBackendUrlInvalidError).
+ */
+export function parsePairing(input: string, credential: string): { origin: string; credential: string; unreachable?: true } {
   if (/^(https?|wss?):\/\//i.test(credential.trim())) return parsePairing(credential.trim(), '');
   const trimmed = input.trim();
   if (!trimmed) throw new ClientError('Enter the T3 server address or pairing link.');
-  const url = new URL(/^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-  if (!['https:', 'http:', 'wss:', 'ws:'].includes(url.protocol)) {
+  const address = /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL | undefined;
+  try { url = new URL(address); } catch { /* escapedUrl below */ }
+  if (url && !['https:', 'http:', 'wss:', 'ws:'].includes(url.protocol)) {
     throw new ClientError('Use an HTTP or HTTPS server address.');
   }
-  const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
-  const token = fragment.get('token') || url.searchParams.get('token') || credential.trim();
-  const host = url.searchParams.get('host');
-  const base = host ? new URL(/^[a-z]+:\/\//i.test(host) ? host : `https://${host}`) : url;
+  const link = url ? { origin: url.origin, query: url.searchParams, fragment: new URLSearchParams(url.hash.replace(/^#/, '')) } : escapedUrl(address);
+  if (!link) throw new ClientError('Backend URL is invalid.');
+  const token = link.fragment.get('token') || link.query.get('token') || credential.trim();
+  const host = link.query.get('host');
+  if (!url && !host) return unreachable(link.origin, token);
+  const hostAddress = host ? (/^[a-z]+:\/\//i.test(host) ? host : `https://${host}`) : '';
+  let base: URL;
+  try { base = host ? new URL(hostAddress) : url!; } catch {
+    const escaped = escapedUrl(hostAddress);
+    if (!escaped) throw new ClientError('Backend URL is invalid.');
+    return unreachable(escaped.origin, token);
+  }
   if (!['https:', 'http:', 'wss:', 'ws:'].includes(base.protocol) || base.username || base.password) {
     throw new ClientError('The server address is invalid.');
   }
   base.protocol = base.protocol === 'ws:' ? 'http:' : base.protocol === 'wss:' ? 'https:' : base.protocol;
   return { origin: base.origin, credential: token };
+}
+const unreachable = (origin: string, credential: string) => ({ origin: origin.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:'), credential, unreachable: true as const });
+/**
+ * Chromium's reading of an http(s) or ws(s) address whose host has spaces, which URL refuses: the host escaped as %20
+ * (`https://not%20a%20url`), and the query and fragment as written. Null for any other address.
+ */
+export function escapedUrl(address: string): { origin: string; query: URLSearchParams; fragment: URLSearchParams } | null {
+  const match = /^(https?|wss?):\/\/([^/?#@]*)(?:[/?#]|$)/i.exec(address);
+  const authority = match ? match[2]!.toLowerCase().replace(/ /g, '%20') : '';
+  if (!match || !authority.includes('%20') || !/^[a-z0-9.%_~-]+(:\d{1,5})?$/.test(authority)) return null;
+  const hash = address.indexOf('#');
+  const head = hash < 0 ? address : address.slice(0, hash);
+  const mark = head.indexOf('?');
+  return { origin: `${match[1]!.toLowerCase()}://${authority}`, query: new URLSearchParams(mark < 0 ? '' : head.slice(mark + 1)),
+    fragment: new URLSearchParams(hash < 0 ? '' : address.slice(hash + 1)) };
+}
+/** failRemoteRequest's message for a request that never reached the host (packages/client-runtime/src/rpc/http.ts). */
+export function environmentFetchFailure(origin: string): string {
+  const url = `${origin}/.well-known/t3/environment`;
+  return `Failed to fetch remote environment endpoint ${url} (HttpClientError: Transport error (GET ${url})).`;
 }
 export function activeRun(projection: Obj): Obj | undefined {
   return arr(projection.runs).slice().reverse().find(run => ['preparing', 'starting', 'running', 'waiting'].includes(str(run.status)));

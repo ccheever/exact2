@@ -7,7 +7,7 @@
 // (lane r9-connect). Several stay connected at once: the focused one is T3Client's
 // connection, the rest are background transports (settings-b-fleet.ts / T3Fleet.swift).
 import { obj, str, arr, type Obj } from './domain';
-import { ClientError, bridgeReply, parsePairing, type Native } from './protocol';
+import { ClientError, bridgeReply, environmentFetchFailure, parsePairing, type Native } from './protocol';
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
 import { isPrimaryEnvironment, primary, primaryEntry, primaryPhase, sessionScopes, withoutPrimaryDuplicates } from './local-primary';
 import { applyLocalSetting, thisMachine } from './this-machine';
@@ -325,6 +325,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       if (!welcome && !host && !/^(https?|wss?):\/\//i.test(code)) throw new ClientError('Enter a backend host.');
       const target = welcome ? resolveRemotePairingTarget({ pairingUrl: code }) : parsePairing(host || code, code);
       if (!target.credential && connected) throw new ClientError('Enter a pairing code.');
+      // A host with a space reaches no server: the reference's request fails at the transport (parsePairing).
+      if ('unreachable' in target && target.unreachable) throw new ClientError(environmentFetchFailure(target.origin), 'Network');
       if (connected) {
         // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
         // U6: pairing this machine's own server saves nothing (the reference's register is a no-op for the primary's id).
@@ -365,6 +367,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       if (!host && !/^(https?|wss?):\/\//i.test(code)) throw new ClientError('Enter a backend host.');
       const target = parsePairing(host || code, code);
       if (!target.credential) throw new ClientError('Enter a pairing code.');
+      if (target.unreachable) throw new ClientError(environmentFetchFailure(target.origin), 'Network');
       const label = str(savedEntry(await savedList(native), environmentId)?.label, 'This environment');
       const reply = await call(native, { op: 'pairEnvironment', ...withStandardScope(target), expectedEnvironmentId: environmentId });
       await placeRoute(native, environmentId, str(obj(reply.value).origin, target.origin));

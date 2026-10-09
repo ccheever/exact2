@@ -161,9 +161,6 @@ component ProvidersPanel
     modelAdding: string
   state healthDraft = ""
   state healthEdited = false
-  state policyOpen = false
-  action togglePolicy
-    policyOpen = not policyOpen
   action editHealth(value: string)
     healthDraft = value
     healthEdited = true
@@ -187,7 +184,7 @@ component ProvidersPanel
               PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
           when not page.writable
             PvGroup()
-              PvRow(title="Limited permissions", description=page.message, status="", wide=(width - 34 >= 512), divided=false)
+              PvRow(title="Limited permissions", description=page.message, status="", policy="", wide=(width - 34 >= 512), divided=false)
           PvGroup()
             row width="100%" flex-direction=(wide ? "row" : "column") height=(wide ? cardHeight : "auto") testId="providers-card"
               scroll flex-shrink=0 width=(wide ? "17rem" : "100%") height=(wide ? "100%" : "auto") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e899, #ffffff0a)" border-top-width=0 border-left-width=0 border-right-width=(wide ? 1 : 0) border-bottom-width=(wide ? 0 : 1) background-color="light-dark(#f5f5f51a, #ffffff00)" testId="provider-list"
@@ -234,22 +231,20 @@ component ProvidersPanel
                 text "Add hub" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           PvGroup()
             when page.macos
-              PvRow(title="Cursor account usage", description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access.", status="", wide=(width - 34 >= 512), divided=false)
+              PvRow(title="Cursor account usage", description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access.", status="", policy="", wide=(width - 34 >= 512), divided=false)
                 button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.writable) testId="cursor-account-usage" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
                   box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             when length(page.hubs) == 0
-              PvRow(title="No hubs configured.", description="", status="", wide=(width - 34 >= 512), divided=page.macos)
+              PvRow(title="No hubs configured.", description="", status="", policy="", wide=(width - 34 >= 512), divided=page.macos)
             each hub in page.hubs key=hub.id
-              PvRow(title=hub.label, description=hub.description, status="", wide=(width - 34 >= 512), divided=(page.macos or not hub.first))
+              PvRow(title=hub.label, description=hub.description, status="", policy="", wide=(width - 34 >= 512), divided=(page.macos or not hub.first))
                 when page.writable
                   button press=ui("hub-remove", hub.id) class=PvGhost height="1.5rem" disabled=busy testId=`remove-usage-hub-${hub.id}`
                     text "Remove" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         column width="100%" gap="0.625rem"
           PvSectionTitle(title="Advanced")
           PvGroup()
-            PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status=(policyOpen ? "This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings." : ""), wide=(width - 34 >= 512), divided=false)
-              button press=togglePolicy class=PvMicro aria-label="Background policy details" aria-expanded=policyOpen testId="provider-health-policy"
-                PvIcon(name="info", size=14, color="light-dark(#71717b, #818181)")
+            PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status="", policy="This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings.", wide=(width - 34 >= 512), divided=false)
               when page.healthCustom
                 button press=op("provider-health", "", "", "reset", true) class=PvMicro aria-label="Reset provider health check interval to default" disabled=(busy or not page.writable) testId="reset-provider-health"
                   PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
@@ -315,7 +310,7 @@ component ProviderEditor
               each account in editor.setup.account key=account.key
                 ProviderAccountRow(account=account, scheme=scheme, wide=rowWide, divided=false, busy=setupBusy, op=op, askSignOut=ui("setup-logout", editor.id), idPrefix="")
             when editor.setup.cursorNote != ""
-              PvRow(title="Cursor account", description=editor.setup.cursorNote, status="", wide=rowWide, divided=false)
+              PvRow(title="Cursor account", description=editor.setup.cursorNote, status="", policy="", wide=rowWide, divided=false)
             each field in editor.envFields key=field.rowKey
               ProviderSecretField(field=field, instance=editor.id, wide=rowWide, divided=(editor.setup.kind != ""), writable=writable, op=op)
       each runtime in editor.codexRuntime key=runtime.key
@@ -326,7 +321,7 @@ component ProviderEditor
           PvSectionTitle(title="Runtime")
           PvGroup()
             when not editor.known
-              PvRow(title="Driver", description=`This instance uses ${editor.driver}, which is not available in this build. Its configuration is preserved.`, status="", wide=rowWide, divided=false)
+              PvRow(title="Driver", description=`This instance uses ${editor.driver}, which is not available in this build. Its configuration is preserved.`, status="", policy="", wide=rowWide, divided=false)
             each field in editor.fields key=field.rowKey
               ProviderConfigField(field=field, instance=editor.id, first=field.first, wide=rowWide, writable=writable, op=op)
       column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
@@ -412,7 +407,7 @@ component ProviderConfigField
     edited = true
   derive value = edited ? draft : field.value
   view
-    PvRow(title=field.label, description=field.description, status="", wide=wide, divided=(not first))
+    PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=(not first))
       when field.control == "select"
         row gap="0.25rem" flex-wrap="wrap" justify-content="flex-end" role="radiogroup" aria-label=field.label
           each option in field.options key=option.value
@@ -437,7 +432,7 @@ component ProviderSecretField
     edited = true
   derive value = edited ? draft : field.value
   view
-    PvRow(title=field.label, description=field.description, status="", wide=wide, divided=divided)
+    PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=divided)
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
         input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}`
         when field.clearable

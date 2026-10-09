@@ -18,7 +18,7 @@
 
 shape HoverTip
   key: string
-  // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger), "scopes" (AccessScopeSummary's
+  // "tip" (TooltipPopup: words, takes no pointer, closes with its trigger; "policy" is one after a 200 ms delay), "scopes" (AccessScopeSummary's
   // card), "freshness" (PullRequestBaseFreshnessWarning's card, drawn by T3Window from the open PR).
   kind: string
   text: string
@@ -39,8 +39,9 @@ shape HoverTip
 fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))
 
 // Base UI's open delay before a hover popover shows: AccessScopeSummary's delay={250}, the Usage segment's default 300;
-// the freshness card's delay={0}; a tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)
+// the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
+// tip); a tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : 0))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -69,7 +70,7 @@ component HoverLayer
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)
   derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip"
+  derive card = tip.kind != "tip" and tip.kind != "policy"
   view
     when place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"

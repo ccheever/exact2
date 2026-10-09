@@ -15,6 +15,7 @@ import { deviceScope } from './settings-integrations-scope';
 import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from './device-support'; // 5318d054a5: Simulator support row
 import { letGo } from './let-go';
 import { linkTargetPreference } from './browser-links';
+import { formatSettingValue as formatValue } from './settings-core'; // SettingInheritance formatValue, one for every page
 import { deviceStateOf, watchDevice } from './r4-surfaces-device'; // useDeviceState
 
 type Choice = { value: string; label: string; selected: boolean };
@@ -22,7 +23,9 @@ type Layer = { key: string; label: string; value: string; effective: boolean; se
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
   disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
   /** ScopedSwitch's mixed state (D15): the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
-  mixed: boolean };
+  mixed: boolean;
+  /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
+  control: string; resetLabel: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
@@ -36,23 +39,6 @@ const WRITING_MODES: Record<string, { label: string; description: string }> = {
   custom: { label: 'Custom instructions', description: 'Use your instructions for change descriptions and change requests in every project.' },
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-
-/** SettingInheritance formatValue. */
-export function formatValue(key: string, value: unknown): string {
-  if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sourceControlWriterModelSelection' ? 'Off' : 'Unset';
-  if (typeof value === 'boolean') return value ? 'On' : 'Off';
-  if (typeof value === 'number') return String(value);
-  if (typeof value === 'string') {
-    if (key === 'pullRequestMergeMethod' && MERGE_LABELS[value]) return MERGE_LABELS[value];
-    if (key === 'branchNamingMode' && BRANCH_MODES[value]) return BRANCH_MODES[value];
-    return value === '' ? 'Empty' : value;
-  }
-  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
-  const object = obj(value);
-  if (typeof object.model === 'string') return object.model;
-  if (typeof object.mode === 'string') return WRITING_MODES[object.mode]?.label ?? object.mode;
-  return 'Custom';
-}
 
 /** settingInheritanceLayers + the SettingsRow summary for one environment/project target. */
 export function inheritance(settings: Obj, projectId: string, key: string, environmentLabel: string) {
@@ -75,7 +61,7 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, ...info, ...partial };
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', ...info, ...partial };
 }
 
 /** Source-control route rows: Repositories and Text generation. */
@@ -88,10 +74,10 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const style = obj(value.sourceControlWritingStyle);
   const merge = value.pullRequestMergeMethod === null || value.pullRequestMergeMethod === undefined ? 'last' : str(value.pullRequestMergeMethod);
   const repositories = [
-    row(settings, projectId, environmentLabel, 'defaultAutoPull', { kind: 'switch', title: 'Automatically pull', first: true, checked: value.defaultAutoPull === true, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'defaultAutoPull', { kind: 'switch', title: 'Automatically pull', control: 'Default automatic pull', resetLabel: 'default automatic pull', first: true, checked: value.defaultAutoPull === true, disabled: !writable,
       description: project ? "Keeps this project's default branch current when the checkout has no local changes or commits." : 'Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.',
       reset: resetFor('defaultAutoPull', value.defaultAutoPull === true) }),
-    row(settings, projectId, environmentLabel, 'pullRequestMergeMethod', { kind: 'select', title: 'Default merge method', value: merge, valueLabel: merge === 'last' ? 'Last selected' : MERGE_LABELS[merge] || merge, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'pullRequestMergeMethod', { kind: 'select', title: 'Default merge method', control: 'Default pull request merge method', resetLabel: 'default merge method', value: merge, valueLabel: merge === 'last' ? 'Last selected' : MERGE_LABELS[merge] || merge, disabled: !writable,
       description: project ? 'Pull requests in this project start with this method.' : 'Pull requests start with this method. Last selected reuses whatever you chose most recently on this device.',
       options: [['last', 'Last selected'], ['merge', 'Merge'], ['squash', 'Squash and merge'], ['rebase', 'Rebase and merge']].map(([v, l]) => ({ value: v, label: l, selected: v === merge })),
       reset: resetFor('pullRequestMergeMethod', merge !== 'last') }),
@@ -101,18 +87,18 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const writer = obj(value.sourceControlWriterModelSelection);
   const models = providers.filter(provider => providerAvailable(provider)).flatMap(provider => arr(provider.models).filter(model => model.isUnavailable !== true && model.isLegacy !== true).map(model => ({ value: `${provider.instanceId}:${model.slug}`, label: str(model.name, str(model.slug)), selected: provider.instanceId === writer.instanceId && model.slug === writer.model })));
   const text = [
-    row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'select', title: 'Worktree branch naming', resetLabel: 'branch naming', first: true, value: mode, valueLabel: BRANCH_MODES[mode] || mode, disabled: !writable,
       description: 'Choose how new worktree branches are named from your first message.', options: Object.entries(BRANCH_MODES).map(([v, l]) => ({ value: v, label: l, selected: v === mode })), reset: resetFor('branchNamingMode', mode !== 'static') }),
-    ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
+    ...(mode === 'static' ? [row(settings, projectId, environmentLabel, 'branchNamePrefix', { kind: 'text', title: 'Branch prefix', resetLabel: 'branch prefix', value: str(value.branchNamePrefix), placeholder: 'No prefix', disabled: !writable,
       description: 'For example, t3code or t3code/ produces t3code/add-search. Leave empty for no prefix.', reset: resetFor('branchNamePrefix', str(value.branchNamePrefix) !== 't3code') })] : []),
     ...(mode === 'semantic' ? [row(settings, projectId, environmentLabel, 'branchNamingMode', { kind: 'note', title: '', description: 'The model chooses a prefix that describes the work, such as feat/add-search, fix/login-timeout, or refactor/auth.' })] : []),
-    ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
+    ...(mode === 'custom' ? [row(settings, projectId, environmentLabel, 'branchNameInstructions', { kind: 'textarea', title: 'Branch naming instructions', resetLabel: 'branch naming instructions', value: str(value.branchNameInstructions), placeholder: 'Use julius/ followed by the issue ID and a short description.', disabled: !writable,
       description: 'Appended to the naming prompt. The model returns the complete branch name; no prefix or suffix is added.', reset: resetFor('branchNameInstructions', str(value.branchNameInstructions) !== '') })] : []),
-    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { kind: 'select', title: 'Source control writing style', value: writing, valueLabel: WRITING_MODES[writing]?.label || writing, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { kind: 'select', title: 'Source control writing style', resetLabel: 'source control writing style', value: writing, valueLabel: WRITING_MODES[writing]?.label || writing, disabled: !writable,
       description: WRITING_MODES[writing]?.description || '', options: Object.entries(WRITING_MODES).map(([v, l]) => ({ value: v, label: l.label, selected: v === writing })),
       child: writing === 'custom' ? str(style.customInstructions) : '', placeholder: 'Keep titles concise. Use short bullet points in descriptions.',
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
-    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
+    row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
     row(settings, projectId, environmentLabel, 'sourceControlWriterModelSelection', { kind: 'model', title: 'Source control writer model', checked: writerOn, disabled: !writable,
       description: "Model for source control text and branch or bookmark names. Off uses the environment's text generation model.",
@@ -127,7 +113,7 @@ export function integrationRows(settings: Obj, projectId: string, environmentLab
   const value = effective(settings, projectId), project = Boolean(projectId);
   const overridden = (key: string) => project && Object.prototype.hasOwnProperty.call(obj(obj(settings.projectSettingsOverrides)[projectId]), key);
   return {
-    browser: [row(settings, projectId, environmentLabel, 'enableAgentBrowserAccess', { kind: 'switch', title: 'Agent browser access', first: true, checked: value.enableAgentBrowserAccess !== false, disabled: !writable,
+    browser: [row(settings, projectId, environmentLabel, 'enableAgentBrowserAccess', { kind: 'switch', title: 'Agent browser access', resetLabel: 'default browser access', first: true, checked: value.enableAgentBrowserAccess !== false, disabled: !writable,
       description: project ? 'Allow agents in this project to use the shared browser. Applies when the agent session next starts.' : 'Allow agents to use the shared browser. Projects can override it.',
       reset: project ? (overridden('enableAgentBrowserAccess') ? 'key=enableAgentBrowserAccess&value=__inherit__' : '') : value.enableAgentBrowserAccess === false ? 'key=enableAgentBrowserAccess&value=__default__' : '' })],
     deviceHub: row(settings, projectId, environmentLabel, 'enableDeviceSupport', { kind: 'switch', title: 'Device hub', first: true, checked: settings.enableDeviceSupport === true, disabled: project || !writable,
@@ -290,5 +276,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '' };
 }

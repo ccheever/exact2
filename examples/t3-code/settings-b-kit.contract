@@ -80,6 +80,8 @@ component CnMenuItem
     itemId: string
     destructive: bool
     disabled: bool
+    // MenuRadioItem: role menuitemradio, checked while highlighted (the Icon submenu's kinds).
+    radio: bool
     highlighted: bool
     note: string
     icon: string
@@ -92,10 +94,11 @@ component CnMenuItem
   action focused(on: bool)
     lit = on
   view
-    button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(radio ? "menuitemradio" : "menuitem") aria-checked=(radio and highlighted) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       when icon != ""
         CnMachineIcon(kind=icon, size=16, color="light-dark(#27272a, #f5f5f5)")
-      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      // A button centres its text (its UA text-align); the reference's menu rows start at the left (X57).
+      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
       when note != ""
         text note font-size="0.75rem" line-height="1rem" flex-shrink=0 color="light-dark(#71717b, #818181)"
       when submenu != ""
@@ -174,4 +177,4 @@ component CnSelect
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
       CnMenu(menuId=`${selectId}-menu`, label=label, width=144, endAlign=144, offsetX=0, offsetY=0, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         each option in options key=option.value
-          CnMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, destructive=false, disabled=false, highlighted=option.selected, note="", icon="", submenu="", choose=choose(option.value))
+          CnMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, destructive=false, disabled=false, radio=false, highlighted=option.selected, note="", icon="", submenu="", choose=choose(option.value))

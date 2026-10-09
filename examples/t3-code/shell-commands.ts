@@ -170,7 +170,8 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
   if (op === 'rest:task' && form.action === 'save') {
     if (/^Scheduled task is incomplete|^Enter a task name and prompt/.test(message)) { title = 'Scheduled task is incomplete'; description = 'Add a title, prompt, project, and model.'; }
     else if (/interval of at least one minute/.test(message)) { title = 'Invalid interval'; description = 'Enter an interval of at least one minute.'; }
-    else if (/existing checkout path/.test(message)) { title = 'Checkout path is required'; description = 'Enter the path of the checkout to run in.'; }
+    // The editor's own check (scheduled-view.ts taskInput: "Checkout path is required: …") or the module's validation.
+    else if (/^Checkout path is required|existing checkout path/.test(message)) { title = 'Checkout path is required'; description = 'Enter the path of the checkout to run in.'; }
     else { title = 'Could not save scheduled task'; description = message.replace(/^Could not save scheduled task: /, ''); }
   } else if (op === 'rest:task' || op === 'task-toggle' || op === 'task-delete' || op === 'task-run') title = 'Could not update scheduled task';
   else if (op === 'task-save') title = 'Could not save scheduled task';
