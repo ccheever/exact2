@@ -33,6 +33,8 @@ export type PaletteView = {
   enterOp: string; enterArg: string; enterArg2: string; accessory: string; accessoryKey: string; accessoryEnabled: boolean; accessoryOp: string; accessoryArg: string;
   accessoryArg2: string; footerAction: string; contextLabel: string; contextTitle: string; contextDescription: string; contextIcon: string; toggles: boolean;
   matchCase: boolean; wholeWord: boolean; regex: boolean; summary: string; panel: string; inputPaddingRight: number; loading: boolean; listHeight: number;
+  /** The chords that resolve to thread.jump.N here: the command palette's field takes each (threadJumpChords). */
+  jumpKeys: string[];
 };
 
 export const RECENT_THREAD_LIMIT = 12;
@@ -45,7 +47,7 @@ export const closedView: PaletteView = {
   open: false, mode: 'command', page: '', parent: '', back: false, addon: 'search', placeholder: '', label: 'Command palette', testId: 'command-palette', rows: [], count: 0,
   autoHighlight: true, empty: '', enterLabel: '', escapeLabel: 'Close', backHint: false, popOnEmpty: false, enterOp: '', enterArg: '', enterArg2: '', accessory: '', accessoryKey: '',
   accessoryEnabled: false, accessoryOp: '', accessoryArg: '', accessoryArg2: '', footerAction: '', contextLabel: '', contextTitle: '', contextDescription: '', contextIcon: '',
-  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0,
+  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0, jumpKeys: [],
 };
 
 /** One searchable entry before grouping: the reference CommandPaletteItem. */
@@ -249,6 +251,15 @@ export function newThreadInItems(client: T3Client): Item[] {
   if (root) items.push({ terms: ['No project', 'no project', 'without project', 'none'],
     row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project' }) });
   return enumerateJumps(client, items);
+}
+/**
+ * CommandPalette.tsx handleKeyDown: a chord that resolves to a thread.jump.N command is the field's, whether or
+ * not a displayed row carries it (⌘5 with two projects, ⌘1 on the root page): it is prevented and stopped, and
+ * it runs the row that has it, if one does. These are those chords, in the palette's context.
+ */
+export function threadJumpChords(client: T3Client): string[] {
+  const winners = chordWinners(arr(client.config.keybindings), PALETTE_CONTEXT);
+  return [...winners].filter(([, command]) => /^thread\.jump\.[1-9]$/.test(command)).map(([chord]) => chord);
 }
 /** enumerateCommandPaletteItems: the Nth row (N ≤ 9) takes thread.jump.N's label and chord. */
 export function enumerateJumps(client: T3Client, items: Item[]): Item[] {

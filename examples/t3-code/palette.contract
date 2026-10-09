@@ -99,6 +99,7 @@ shape PaletteView
   inputPaddingRight: number
   loading: bool
   listHeight: number
+  jumpKeys: list<string>
 shape PaletteResult
   revision: number
   ok: bool
@@ -400,15 +401,22 @@ component CommandPaletteBody
   derive fadeTop = view.panel != "fill" and scroll > 0
   derive fadeBottom = view.panel != "fill" and view.listHeight > listRoom + scroll + 1
   derive listMask = fadeTop and fadeBottom ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%, #000000 ${100 - fadePct}%, #00000000 100%)` : (fadeTop ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%)` : (fadeBottom ? `linear-gradient(to bottom, #000000 ${100 - fadePct}%, #00000000 100%)` : "none"))
-  // shell-sidebar-palette-keys (SH-3): a row's thread.jump.N chord (⌘1–⌘9 on a project pick) runs it from the field
-  // (CommandPalette.tsx handleKeyDown); every other key is the root's (the arrows, Backspace).
+  // shell-sidebar-palette-keys (SH-3): CommandPalette.tsx handleKeyDown takes every thread.jump.N chord in the field
+  // (view.jumpKeys), prevented and stopped, and runs the displayed row that has it (⌘1–⌘9 on a project pick), if one
+  // does: ⌘5 with two projects, or ⌘1 on the root page, does nothing. Every other key is the root's (the arrows, Backspace).
   action inputKey(k: string, e: KeyboardEvent)
-    match first(filter(view.rows, (r) => r.jump != "" and r.jump == `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${k}`))
+    let chord = `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${k}`
+    match first(filter(view.rows, (r) => r.jump != "" and r.jump == chord))
       case some(r)
         preventDefault()
+        stopPropagation()
         run(r.op, r.arg, r.arg2)
       case none
-        onKey(k)
+        if length(filter(view.jumpKeys, (c) => c == chord)) > 0
+          preventDefault()
+          stopPropagation()
+        else
+          onKey(k)
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-backdrop"
     // Escape: the host binds key shortcuts on buttons only.

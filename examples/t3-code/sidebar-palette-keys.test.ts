@@ -1,7 +1,9 @@
 // shell-sidebar-palette-keys: ⌘N on a focused row (SH-1), ⇧⌘S's undo notice (SH-2), the palette's
 // project picks by ⌘1–⌘9 (SH-3), the no-projects header (SH-4), the palette path's start (SH-5) and
-// Custom snooze's calendar (TH-8). The Contract wiring is read from the sources, as dialog-focus.test.ts
-// reads it; the behavior is proven by the macOS drive in the task record.
+// Custom snooze's calendar (TH-8). This file tests the data side (the undo step, the numbering, the field's
+// chords, the header's facts, the month). The keys as a person presses them, through the Contract handlers, are
+// sidebar-palette-keys.test.contract, which the agent runs against the app (`agent.mjs macos --test`); the few
+// source reads below only pin the wiring between the two, as dialog-focus.test.ts does.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import type { Obj } from './domain';
@@ -10,7 +12,8 @@ import { chatCommand } from './chat-commands';
 import { sidebarCommand, sidebarLocal } from './sidebar-commands';
 import { sidebarSession, setRuntimeClock, openSnoozeDialog } from './sidebar-state';
 import { sidebarSnapshot } from './sidebar-view';
-import { newThreadInItems } from './palette';
+import { newThreadInItems, threadJumpChords } from './palette';
+import { paletteView } from './palette-view';
 import { keyboardDispatch } from './keyboard-dispatch';
 import { calendarMove, dateLabel, snoozeCalendar } from './snooze-calendar';
 
@@ -113,15 +116,43 @@ describe('SH-3: the New thread in… picks by ⌘1–⌘9', () => {
     const rows = newThreadInItems(client(2, [jump(1), picker, jump(2, 'j')])).map(item => item.row);
     expect(rows.map(row => [row.shortcut, row.jump])).toEqual([['⌘1', 'Meta+1'], ['⌘J', 'Meta+j']]);
   });
-  test('the palette field runs the row whose chord was typed, before the root\'s keys', async () => {
+  test('the field takes every thread.jump.N chord (CommandPalette.tsx handleKeyDown), whether or not a row has it', () => {
+    const picker = { command: 'modelPicker.jump.1', shortcut: { key: '1', modKey: true }, whenAst: { type: 'and', left: { type: 'identifier', name: 'modelPickerOpen' }, right: desktop } };
+    const newThread = { command: 'chat.new', shortcut: { key: 'n', modKey: true }, whenAst: null };
+    expect(threadJumpChords(client(2, [...Array.from({ length: 9 }, (_, index) => jump(index + 1)), picker, newThread])).sort()).toEqual(
+      ['Meta+1', 'Meta+2', 'Meta+3', 'Meta+4', 'Meta+5', 'Meta+6', 'Meta+7', 'Meta+8', 'Meta+9']);
+    // A jump rebound to J is J; a rule that does not hold on the desktop build (isWeb) takes no chord.
+    const web = { ...jump(3), whenAst: { type: 'identifier', name: 'isWeb' } };
+    expect(threadJumpChords(client(2, [jump(1), jump(2, 'j'), web])).sort()).toEqual(['Meta+1', 'Meta+j']);
+  });
+  test('the command palette\'s pages carry the chords: ⌘5 with two projects is the field\'s, with no row to run', async () => {
+    const bindings = Array.from({ length: 9 }, (_, index) => jump(index + 1));
+    const view = async (page: string, mode = 'command') => paletteView(client(2, bindings), null, [true, mode, page, '', '', false, NOW, 'light']);
+    const picks = await view('new-thread-in');
+    expect(picks.jumpKeys).toContain('Meta+5');
+    expect(picks.rows.filter(row => row.jump !== '').map(row => row.jump)).toEqual(['Meta+1', 'Meta+2']);
+    expect(picks.rows.some(row => row.jump === 'Meta+5')).toBe(false);
+    // The root page numbers no row, and still takes ⌘1 (CommandPalette's own field).
+    const root = await view('');
+    expect(root.jumpKeys).toContain('Meta+1');
+    expect(root.rows.some(row => row.jump !== '')).toBe(false);
+    // Closed, it takes nothing.
+    expect((await paletteView(client(2, bindings), null, [false, 'command', '', '', '', false, NOW, 'light'])).jumpKeys).toEqual([]);
+  });
+  test('the palette field\'s key handler is inputKey (sidebar-palette-keys.test.contract presses ⌘5 and ⌘2 through it)', async () => {
     const palette = await source('palette.contract');
     expect(palette).toContain('input id="palette-input" testId="palette-input" value=query input=edit key=inputKey submit=run(tOp, tArg, tArg2)');
-    expect(palette).toContain('match first(filter(view.rows, (r) => r.jump != "" and r.jump == `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${k}`))');
-    expect(palette).toMatch(/case some\(r\)\n\s+preventDefault\(\)\n\s+run\(r\.op, r\.arg, r\.arg2\)\n\s+case none\n\s+onKey\(k\)/);
+    expect(palette).toContain('if length(filter(view.jumpKeys, (c) => c == chord)) > 0');
   });
 });
 
 describe('SH-4 and SH-5: the header without projects, the palette row\'s start', () => {
+  test('without projects the sidebar has no project group and no project; with one it has both', () => {
+    const none = fake([]);
+    Object.assign(none.client, { shell: { projects: [], threads: [], sequence: 1 }, projectGroups: () => [] });
+    expect(sidebarSnapshot(none.client, NOW, helpers).sidebar).toMatchObject({ projectGroupCount: 0, hasProjects: false });
+    expect(sidebarSnapshot(fake([thread('a')]).client, NOW, helpers).sidebar).toMatchObject({ projectGroupCount: 1, hasProjects: true });
+  });
   test('Filter and Add project show only with a project group; New thread stays, disabled without projects', async () => {
     const lines = (await source('sidebar.contract')).split('\n');
     const gate = lines.findIndex(line => line.trim() === 'when data.sidebar.projectGroupCount > 0');
@@ -201,9 +232,13 @@ describe('TH-8: Custom snooze\'s date button and calendar', () => {
     expect(overlays).not.toContain('type="date"');
     expect(overlays).toContain('testId="snooze-unit" width="100%"');
     const field = await source('snooze-calendar.contract');
-    expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=local("calendar-open", "", "")');
+    expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=open');
     expect(field).toContain('column id="snooze-calendar" popover="auto" role="dialog" aria-label="Choose snooze date"');
-    expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 key=gridKey'); // Escape is the popover's while it shows
+    expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 width='); // Escape is the popover's while it shows
+    // The keys are the grid's (DayPicker handleDayKeyDown: a day button's), out of the Tab order; a month button's
+    // arrows do nothing (sidebar-palette-keys.test.contract presses them).
+    expect(field.match(/key=gridKey/g)).toHaveLength(1);
+    expect(field).toContain('column role="grid" aria-label=cal.title key=gridKey tabindex=-1');
     expect(field).toContain('press=pick popovertarget="snooze-calendar" popovertargetaction="hide"');
     const app = await source('app.contract');
     expect(app).toContain('task snoozeCalendarFocus when data.sidebar.calendar.focusSeq > 0 key=data.sidebar.calendar.focusSeq');
