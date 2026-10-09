@@ -11,13 +11,17 @@ pr_url: https://github.com/ccheever/exact2/pull/357
 verified_commit: null
 ---
 
-# Settings: the Diagnostics page fills again, and Diagnostics and the Project page keep the all-environments scope
+# Settings: the Diagnostics page fills again, and the Project page opens on every environment
 
 ## Outcome
 
 - Settings › General › View diagnostics shows its sections again (Resource monitor through Top Span Names). Today it stays
   empty, because its request is replaced before it can answer. The 2026-10-07 audit saw this page filled (regression).
-- Diagnostics keeps the scope sentence "Applying settings for All projects across All environments".
+- ~~Diagnostics keeps the scope sentence "Applying settings for All projects across All environments".~~ Superseded
+  (2026-10-09): the reference's only way into Diagnostics passes the General scope's environment
+  (`SettingsPanels.tsx:3357`, `search={{ machine }}`), so it reads "All projects on Daehyeon's MacBook Pro", as the clone
+  does. No change; see "Cause and fix", S2-11. (The title said "Diagnostics and the Project page keep the
+  all-environments scope" until then.)
 - The Project page opens scoped to all environments.
 
 Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
@@ -73,7 +77,7 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 | Id | How to verify | Before/after pair | Input |
 | --- | --- | --- | --- |
 | S2-2 | Diagnostics fills within a few seconds and stays filled; the logs show no repeated "forget request … (diagnostics)". A Bun test checks that the resource's arguments do not change on every answer. Check one normal launch too. | `s2-2-diagnostics.png` | agent, plus one normal launch |
-| S2-11 | Diagnostics' sentence stays "All projects across All environments". | `s2-11-scope.png` | agent |
+| S2-11 | ~~Diagnostics' sentence stays "All projects across All environments".~~ Superseded: the sentence matches the reference's after "View diagnostics" ("All projects on Daehyeon's MacBook Pro"; `SettingsPanels.tsx:3357` passes `machine`). | `s2-11-scope.png` | agent |
 | PG-8 | "Project settings" from the palette, the sidebar and the thread menu opens with "work across All environments". | `pg8-project-scope.png` | agent |
 
 ## Cause and fix
@@ -114,6 +118,19 @@ a project in no group keeps the old checkout reading). The result is the scope t
 chosen there. Observed side effect: the Project page's Model row now shows the project scope's traits ("Medium · 1M"),
 as choosing "work" in the scope menu already did; before it showed the checkout's ("Medium").
 
+What this changes for a project with more than one checkout (two checkouts of one repository), opened
+from the palette, the sidebar, the thread menu or the details card:
+- The Project page lists every checkout, and its Danger row reads "Remove this project everywhere" / "Remove all
+  entries"; its confirmation removes every checkout entry of the project (`removeTarget` empty, so the dialog confirms
+  `remove-group`: a `project.delete` per member, `client-ops-sidebar.ts` `manageGroup`). Before, it was one checkout,
+  "Remove checkout", and removed that one entry. This is the reference's project scope
+  (`ProjectSettingsPanel.tsx:497-523`).
+  "Remove checkout" stays on each checkout's own row and when a checkout is chosen in the scope menu.
+- Scheduled Tasks opened from that scope lists the tasks of every checkout, and Integrations' device switches read and
+  write Agent device access for every checkout (one `server.updateSettings` with each checkout's override). Before, both
+  covered the one checkout.
+A project with one checkout reads and writes the same entry as before.
+
 ## Acceptance results
 
 | Id | Result | Evidence |
@@ -124,17 +141,27 @@ as choosing "work" in the scope menu already did; before it showed the checkout'
 | PG-8, palette | Pass: "work across All environments" (before: "work on Daehyeon's MacBook Pro"); the reference reads the same | [pg8 pair](https://raw.githubusercontent.com/ccheever/exact2/6e290627d84a013a54b8e9114663fba21f591b08/settings-diagnostics-and-scope/pg8-project-scope.png) (row 1), [live record](https://raw.githubusercontent.com/ccheever/exact2/792ab62d792b01fea88108865a17289dc01236b3/settings-diagnostics-and-scope/live-drive.txt) |
 | PG-8, thread menu | Pass: "Verification fixture across All environments" (before: "… on Daehyeon's MacBook Pro") | [pg8 pair](https://raw.githubusercontent.com/ccheever/exact2/6e290627d84a013a54b8e9114663fba21f591b08/settings-diagnostics-and-scope/pg8-project-scope.png) (row 2) |
 | PG-8, sidebar | Code path passes: the sidebar sets the same bare project id, and the Bun test checks the scope a bare id gives (fails on the base, passes on the fix). Live: not verified, the row's menu is a native NSMenu | Real-input batch step 1 |
+| PG-8, every hunk tested (review 2026-10-10) | Pass: a two-checkout project from a bare id: the Project page lists both, its Danger row is "Remove all entries" with no single target, and confirming it deletes both entries; Scheduled Tasks lists both checkouts' tasks; Integrations' device scope is the project and Agent device access writes both overrides. A checkout chosen in the scope menu stays one in each. With each of `app.ts`, `scheduled-view.ts`, `source-control-view.ts` and `settings-core-view.ts` put back to the base alone, a test fails | [hunks base vs fix](https://raw.githubusercontent.com/ccheever/exact2/63430af2a84037ff6376b32f9477c52f05ad14a5/settings-diagnostics-and-scope/pg8-hunks-base-vs-fix.txt) |
 
 ## Tests
 
-- New `settings-diagnostics-scope.test.ts` (3 tests, through the app's own `answer()` with a small runner of `data` and
-  `diagnostics`; a replaced answer's native calls reject as Exact's do):
+- New `settings-diagnostics-scope.test.ts` (6 tests, through the app's own `answer()`; the S2-2 ones with a small runner
+  of `data` and `diagnostics`, where a replaced answer's native calls reject as Exact's do):
   - a telemetry sample asks only Diagnostics again: `data.revision` stays, `data.telemetry` moves, no read is sent;
   - a read the next answer joins lands although every answer is replaced before its reply (a sample every turn, replies
     two turns late), with one server request per read;
   - a bare project id gives the project scope across all environments, the same as the scope menu's project.
-  All three fail on the base sources and pass on the fix ([output](https://raw.githubusercontent.com/ccheever/exact2/a2e70ec46f101411fa3644a106cc79d094aeaa5e/settings-diagnostics-and-scope/test-base-vs-fix.txt)).
-  Its servers use generations 50 to 52: the app tests share the app's client in file order, and the client adopts only
+  These three fail on the base sources and pass on the fix ([output](https://raw.githubusercontent.com/ccheever/exact2/a2e70ec46f101411fa3644a106cc79d094aeaa5e/settings-diagnostics-and-scope/test-base-vs-fix.txt)).
+  Added after the review of 2026-10-10, each on a project with two checkouts (its own environment, `env-work`, so the
+  app client loads its shell and the next file's `env1` loads its own again):
+  - `projectsView` from a bare id: both members, "Remove this project everywhere" / "Remove all entries", no single
+    `removeTarget`, the confirmation for 3 threads in 2 entries, and confirming sends `project.delete` for both; the scope
+    menu's project gives the same; its checkout gives "Remove checkout" with target `p1`. It runs last in the file;
+  - `scheduledSettings` (`taskScope`) from a bare id lists both checkouts' tasks; a checkout lists its own;
+  - `integrationsPage` from a bare id gives the device scope `|<key>|`, and Agent device access pressed with it writes
+    both checkouts' overrides in one `server.updateSettings`.
+  Each fails with its hunk put back to the base alone ([output](https://raw.githubusercontent.com/ccheever/exact2/63430af2a84037ff6376b32f9477c52f05ad14a5/settings-diagnostics-and-scope/pg8-hunks-base-vs-fix.txt)).
+  Its servers use generations 50 to 55: the app tests share the app's client in file order, and the client adopts only
   a newer generation (`client.ts` `adoptStatus`), so they sit between `providers-scope.test.ts` (41, before) and
   `settings-integrations-reads.test.ts` (60, after).
 - `settings-core.test.ts`: the bare-project-id expectation is now `project` (was `checkout`), with the reference route.
@@ -172,6 +199,13 @@ agent mode with the same steps as the base. Draft PR [#357](https://github.com/c
 `settings-integrations-reads.test.ts` (each file passed alone). This file's servers used generations 72 to 74, above that
 later file's 60 and 61, so the shared app client ignored the later servers and never opened their device stream. The
 test now uses 50 to 52, and the full suite passes. The final checks ran once on the head (results in the PR).
+
+2026-10-10, review round: the review found three of the five PG-8 hunks untested (`app.ts`, `scheduled-view.ts`,
+`source-control-view.ts`; the old `projectsView` check used a one-checkout project, which passes either way), the PR body
+silent on the Danger row's wider scope, and this record still promising S2-11's "across All environments". Added three
+tests on a two-checkout project (each fails with its hunk at the base), wrote the scope change into "Cause and fix"
+and the PR body, and marked S2-11's planned outcome superseded. No app code changed, so no new screenshots and no live
+drive.
 
 ## Attempts and evidence
 
