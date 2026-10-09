@@ -1,0 +1,40 @@
+RD-1 Bun test (settings-core.test.ts, 'restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)')
+
+== Before: the same test against settings-core.ts at 0605c00d2 (the feature-branch tip this branch starts from)
+bun test v1.4.2 (744846f84)
+
+settings-core.test.ts:
+236 |   });
+237 |   test('restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)', async () => {
+238 |     const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
+239 |     applyBrowserDefault(client, 'zoom', '1.25');
+240 |     // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
+241 |     expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual(['Snooze limited threads', 'Browser zoom', 'Agent browser access']);
+                                                                                            ^
+error: expect(received).toEqual(expected)
+
+@@ -3,3 +3,2 @@
+    "Browser zoom",
+-   "Agent browser access",
+  ]
+
+- Expected  - 1
++ Received  + 0
+
+      at <anonymous> (examples/t3-code/settings-core.test.ts:241:87)
+(fail) writes through the command > restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore) [0.53ms]
+
+ 0 pass
+ 20 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [44.00ms]
+
+== After: settings-core.ts at e5a292ce6 (this branch)
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 20 filtered out
+ 0 fail
+ 8 expect() calls
+Ran 1 test across 1 file. [70.00ms]
