@@ -3,12 +3,12 @@ name: 20261010-audit-wave-followups-3
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-audit-wave-followups-3
 pr_url: https://github.com/ccheever/exact2/pull/378
-verified_commit: null
+verified_commit: 1b848a8bed96b0abc5c1c2001541ac363fbd8e64
 ---
 
 # Differences the audit fix agents found outside their tasks (third set)
@@ -163,3 +163,7 @@ T3_LOCAL_PORT=16422`), app launched normally and active, window 1280×840:
 
 The coordinator reviews the draft PR [#378](https://github.com/ccheever/exact2/pull/378), runs the real-input steps in
 the next batch, and merges it.
+
+## Delivery
+
+Merged on 2026-10-10 as `1b848a8be` (#378, squash) after an independent review and its repair round.
