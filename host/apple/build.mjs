@@ -46,7 +46,7 @@ import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRo
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { appIcon, buildInfo, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
+import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 import { appleComposition, assertLinkedSdk, linksByPlan } from './link.mjs';
@@ -176,10 +176,14 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
       : resolve(products, `${executable}.app`),
     embed: resolve(namespace, 'embed') };
 }
+/** Named catalog assets require an app bundle on macOS, including agent drives. */
+export function appleRunBinary(app, host = false) {
+  const paths = appleArtifacts(app, { host });
+  return !host && appleAssetCatalogInventory(app, 'macos').length ? resolve(paths.bundle, 'Contents/MacOS', paths.executable) : paths.binary;
+}
 /** An ephemeral exclusive writer claim. Never steal: even a dead PID needs
  * explicit removal after the operator verifies its owner. */
 export const appleBuildLock = (app, path = appleArtifacts(app).lock) => claimBuildOutput(app, path);
-
 /** Replace a complete directory using new inodes, restoring the previous
  * artifact if its final rename fails. Caller holds the app writer claim. */
 export function placeAppleArtifact(stage, destination) {
@@ -1256,6 +1260,7 @@ async function main(args) {
     // so two apps built here are two identities to the keychain (LLP 1018 D7).
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
+    appleAssets(app, binDir, { platform: 'macos', kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] });
     writeFileSync(resolve(binDir, `${paths.executable}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
     if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
@@ -1264,17 +1269,12 @@ async function main(args) {
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
     writeFileSync(resolve(binDir, 'receipt.json'), receipt(app, { compatibilityId:bakedCompat.id, build:buildReceipt, composition, platform: 'macos', target: process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin', sdk, identity: sha1 ?? 'ad-hoc', profile: null, entitlements: null, gpu: hasGpu ? dylib : null, development }));
-    // A local .app gives Launch Services a real owner for development links.
-    // It is not a notarized distribution artifact or a public download.
-    if (args.includes('--bundle')) {
+    // A local .app gives Launch Services an owner for development links.
+    if (args.includes('--bundle') || buildReceipt.binary.metadata.appleAssetCatalogs?.length) {
       const bundleDestination = appleArtifacts(app).bundle;
       const output = resolve(bundleDestination, '..');
       mkdirSync(output, { recursive: true });
-      // One stable path per app — `<target>/clients/<source-key>/<id>/macos/<Name>.app` —
-      // so `exact run`, `exact install`, Launch Services, and a Dock tile all
-      // name the same bundle across rebuilds (LLP 1033 D2). Assembled beside
-      // it and moved into place: a half-written bundle is never launchable,
-      // and a running app keeps the inodes it already mapped.
+      // Assemble beside the stable app path, then replace atomically (LLP 1033 D2).
       const stage = mkdtempSync(resolve(output, '.build-'));
       cleanup.push(stage);
       const bundle = resolve(stage, basename(bundleDestination)), contents = resolve(bundle, 'Contents');
@@ -1284,13 +1284,13 @@ async function main(args) {
       for (const file of [paths.executable, ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
       copyAppleStaticTrees(paths.capture, resources);
+      if (existsSync(resolve(binDir, 'Assets.car'))) copyFileSync(resolve(binDir, 'Assets.car'), resolve(resources, 'Assets.car'));
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: { ...appIcon(app, resources, 'macos'), ...buildInfo(app, { root, production: production || distribution, ...stampSdk }) } }));
       writeUsageStrings(bakedCompat.reach, resources);
       const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
-      // GPU artifacts were signed before their digests entered the baked receipt.
-      // Preserve those exact bytes, as the iOS bundle assembly does below.
+      // Preserve the GPU artifact signatures that the baked receipt names.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
       const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
@@ -1326,8 +1326,7 @@ async function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: { ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: iosAssets(app, bundle, device, { tv, catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc }, expected: buildReceipt.binary.metadata.appleAssetCatalogs ?? [] }), distribution: { ...(ipa ? distributionKeys(sdkName) : {}), ...buildInfo(app, { root, archive: !!ipa, production: production || distribution, ...stampSdk }) }, tv }));
   writeUsageStrings(appleReach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
@@ -1347,6 +1346,7 @@ async function main(args) {
     writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach, distribution: buildInfo(app, { root, production: production || distribution, ...stampSdk }) }));
     writeUsageStrings(appleReach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
+    if (existsSync(resolve(bundle, 'Assets.car'))) copyFileSync(resolve(bundle, 'Assets.car'), resolve(hostBundle, 'Assets.car'));
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
     bundles.push([hostBundle, true]);
