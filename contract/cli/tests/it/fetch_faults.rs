@@ -2,6 +2,7 @@
 //! would hand the request to its transport, as a refused connection does.
 
 use exact_kernel::Kernel;
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     agent, Answer, DataError, DataSource, Dispatch, FailureKind, Outcome, Request, Response,
     Runner, Store, Value, Work,
@@ -236,5 +237,98 @@ fn state_says_why_a_resource_failed_until_it_answers() {
     assert!(
         failed.starts_with("\"a\":\"") && failed.contains("outside its shape"),
         "{state}"
+    );
+}
+
+/// A source that lets a failed fetch through, as a TypeScript module that
+/// does not catch it (js/src/prelude.js `fail`), throws on `/boom`, and
+/// answers wider than its shape on `/wide`.
+struct Through;
+impl DataSource for Through {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::Unavailable("answers with a request".into()))
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, args: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(Request::get(
+            args[0].as_str().unwrap_or_default(),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let body = match outcome {
+            Outcome::Failed { kind, message } => {
+                return Err(DataError::Failed(FailureCode::of_kind(kind), message))
+            }
+            Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
+            other => format!("{other:?}"),
+        };
+        if body.ends_with("/boom") {
+            return Err(DataError::Unavailable("the source threw".into()));
+        }
+        let mut fields = vec![Value::str(&body)];
+        if body.ends_with("/wide") {
+            fields.push(Value::str("extra"));
+        }
+        Ok(Answer::Now(Value::record(fields)))
+    }
+}
+
+const WHY: &str = "shape Line\n  text: string\ncomponent App\n  resource a = through(\"https://api.test/a\") as shape Line\n  resource b = through(\"https://api.test/boom\") as shape Line\n  resource c = through(\"https://api.test/wide\") as shape Line\n  derive why = match failure(a) { case some(f) => `${f.code}: ${f.message}`, case none => \"ok\" }\n  view\n    column\n      text why testId=\"a\"\n      text (match failure(b) { case some(f) => f.code, case none => \"ok\" }) testId=\"b\"\n      text (match failure(c) { case some(f) => f.code, case none => \"ok\" }) testId=\"c\"\n";
+
+#[test]
+fn failure_names_each_class_and_says_why() {
+    // LLP 1109 D3: `failure(x)` is `none` until `x` fails, then its code
+    // and the message `state.failed` shows.
+    let mut r = Runner::boot(
+        contract::compile(WHY).unwrap(),
+        Through,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Through>, id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(text(&r, "a"), "ok", "none while in flight");
+    agent::handle(
+        &r,
+        r#"{"op":"prefer","faults":{"fail":"https://api.test/a","times":1}}"#,
+    );
+    for out in r.take_requests() {
+        let outcome = match r.fault_dispatch(&out) {
+            Some(Dispatch::Run(Work::Now(work))) => work(),
+            _ => Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: out.request.url.clone().into_bytes(),
+            }),
+        };
+        r.fulfill(out.ticket, outcome).unwrap();
+    }
+    assert_eq!(
+        text(&r, "a"),
+        "offline: fetch failed (driver fault): https://api.test/a"
+    );
+    assert_eq!(text(&r, "b"), "error");
+    assert_eq!(text(&r, "c"), "shape");
+    let state = agent::handle(&r, r#"{"op":"state"}"#);
+    assert!(
+        state.contains("\"a\":\"fetch failed (driver fault): https://api.test/a\""),
+        "the message is state.failed's: {state}"
+    );
+    assert_eq!(
+        FailureCode::from_name("offline"),
+        Some(FailureCode::Offline)
     );
 }

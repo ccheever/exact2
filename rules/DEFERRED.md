@@ -85,7 +85,7 @@ declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7), as d
 virtualized lists, `reachstart`/`reachend`, a dynamic `line-height`, and an app
 outside the repo (Bluesky builds on the JS target); so did dynamic composite rows
 (`clip-path`, SVG paint and dashes, `filter`, gradients, `animation`, the timeline
-rows, an eased `transition`) and full SVG (Sparkline and SVG Gallery build); `now()`
+rows, an eased `transition`) and full SVG (Sparkline and SVG Gallery build); `performanceNow()`
 readers, the reserved sources `exactPage`, `exactDelivery` and `exactSurface`,
 localized strings, `openAuthSession` and `scrollIntoView` (LLP 1071 §7, "The runtime
 gaps"); and `pan`, `panrelease`, `swiperight` and spring transitions over the motion
@@ -643,7 +643,7 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   no work at rest while nothing is showing. Take: none offered. Still out:
   a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
   component-scoped and action-started timers, computed intervals, a gate
-  that reads `now()`, and cancelling a queued send.
+  that reads `performanceNow()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none

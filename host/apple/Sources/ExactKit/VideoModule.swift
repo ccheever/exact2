@@ -132,7 +132,21 @@ final class VideoView {
     }
 
     #if os(iOS) || os(tvOS)
-    nonisolated(unsafe) private static var sessionAsked = false
+    /// Whether it holds the app's audio session: while it has sound (a
+    /// source, not muted), LLP 1096 D8.
+    private var holdsSession = false
+    private func holdSession(_ audible: Bool) {
+        guard audible != holdsSession else { return }
+        if audible {
+            // Held even when activation fails: the session activates it when
+            // the interruption ends, and a mute still releases it.
+            holdsSession = true
+            do { try AudioSession.hold(ObjectIdentifier(self)) } catch { fputs("exact audio session: \(error)\n", stderr) }
+        } else {
+            holdsSession = false
+            AudioSession.release(ObjectIdentifier(self))
+        }
+    }
     #endif
     init(owner: NodeView) {
         self.owner = owner
@@ -144,6 +158,9 @@ final class VideoView {
             guard let message = try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: length)) as? [String: Any] else { return }
             video.receive(message)
         })
+        #if os(iOS) || os(tvOS)
+        if handle != nil, !ExactEnv.agentMode { AudioSession.playerCame(ObjectIdentifier(self)) }
+        #endif
         if let handle, let raw = module.view(handle) {
             let view = Unmanaged<MediaPlatformView>.fromOpaque(raw).takeUnretainedValue()
             platformView = view
@@ -153,11 +170,21 @@ final class VideoView {
     deinit { invalidate() }
     func invalidate() {
         owner?.presenter?.videoVisibility?.remove(self)
-        guard let handle else { return }
+        guard let handle else {
+            #if os(iOS) || os(tvOS)
+            holdSession(false)
+            #endif
+            return
+        }
         self.handle = nil
         VideoModule.shared?.destroy(handle)
         platformView?.removeFromSuperview()
         platformView = nil
+        // The player is stopped and its claim gone before the category moves.
+        #if os(iOS) || os(tvOS)
+        holdSession(false)
+        AudioSession.playerWent(ObjectIdentifier(self))
+        #endif
     }
     func layout() {
         guard let owner, let platformView else { return }
@@ -237,17 +264,22 @@ final class VideoView {
         var listeners = owner.handlers.intersection(Self.events)
         if autoplayRule { listeners.formUnion(["pause", "play"]) }
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
+        // A video with sound, or a media-session claimant (Now Playing needs
+        // a non-mixable category), holds the app's session; muted (applied to
+        // the player first) or gone, it gives it back (LLP 1096 D8).
+        #if os(iOS) || os(tvOS)
+        let audible = !ExactEnv.agentMode && (props["mediaTitle"] != nil || (props["muted"] != "true" && props["src"]?.isEmpty == false))
+        #endif
         guard props != last else { return }
         last = props
         #if os(iOS) || os(tvOS)
-        // The first video with sound plays in the app's session (LLP 1096 D8).
-        if !Self.sessionAsked, !ExactEnv.agentMode, props["muted"] != "true", props["src"]?.isEmpty == false {
-            Self.sessionAsked = true
-            do { try AudioSession.activate() } catch { fputs("exact audio session: \(error)\n", stderr) }
-        }
+        if audible { holdSession(true) }
         #endif
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
+        #if os(iOS) || os(tvOS)
+        if !audible { holdSession(false) }
+        #endif
     }
     /// `fastSeek(id, seconds)`, `load(id)` or `requestFullscreen(id)`, by HTML's method names.
     func command(_ name: String, seconds: Double) {

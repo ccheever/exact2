@@ -3,6 +3,12 @@
 //! `xs.map(f)`, `xs.length`, `reduce`, `Math.min(...xs)` or `toPrecision` first,
 //! and each refusal names the spelling that works or says what to do instead.
 
+/// Why `now()` is refused (`type-now-renamed`), with both repairs: Contract's
+/// clock is the web's `performance.now()`, so it wears that name, and the
+/// date is the boot instant plus it.
+// @ref LLP 1109 D1 — `now()` read as `Date.now()`; deleted, not deprecated.
+pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds on the runner's clock since boot, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
+
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
 /// that has none: Contract has no methods.
 pub fn method_fix(name: &str) -> String {
@@ -15,6 +21,8 @@ pub fn method_fix(name: &str) -> String {
         "includes" => "write `includes(s, t)` for text, `includes(xs, x)` for a list (LLP 1088 §9.1)".into(),
         "startsWith" | "endsWith" => format!("write `{name}(s, t)`"),
         "toString" => "write `toString(x)`".into(),
+        // `Date.now()`, `performance.now()`.
+        "now" => NOW_REFUSED.into(),
         "trim" => "write `trim(s)`".into(),
         "toLowerCase" => "write `toLowerCase(s)`".into(),
         "slice" => "write `slice(s, start, end)` for text or a list (`end` may be left out)".into(),
@@ -37,8 +45,21 @@ pub fn method_fix(name: &str) -> String {
 /// to do instead; `None` for any other name.
 pub fn refusal(name: &str) -> Option<String> {
     Some(match name {
-        "reduce" | "reduceRight" | "find" | "findIndex" | "findLast" | "some" | "every"
-        | "sort" | "toSorted" | "flatMap" | "flat" | "forEach" | "reverse" | "toReversed" => format!(
+        // The four a view reaches for most are compositions of the roster:
+        // say which, then where the rest belongs.
+        "find" | "findIndex" | "some" | "every" => {
+            let instead = match name {
+                "find" => "`first(filter(xs, x => …))`, an `option` to `match`",
+                "findIndex" => "`indexOf(map(xs, x => …), true)`, `-1` for none",
+                "some" => "`includes(map(xs, x => …), true)`",
+                _ => "`not includes(map(xs, x => …), false)`",
+            };
+            format!(
+                "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
+            )
+        }
+        "reduce" | "reduceRight" | "findLast" | "sort" | "toSorted" | "flatMap" | "flat"
+        | "forEach" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent

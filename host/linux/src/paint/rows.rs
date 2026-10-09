@@ -50,6 +50,8 @@ struct Row {
     boxes: Vec<PaintedBox>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
+    /// Where each picture kept apart from the row is drawn.
+    slots: Vec<Slot>,
     /// Each node's frame relative to the row's (x, y) and its size.
     frames: Vec<(NodeKey, [f32; 4])>,
     /// The scrollers inside it and their offsets when recorded: one moved
@@ -67,11 +69,17 @@ struct Row {
     order: Option<exact_kernel::paint_order::Potentials>,
 }
 
+/// A picture a backend may keep apart from its row ([`Backend::slot_begin`]):
+/// the image node, its content box, its outer shape and the transform it
+/// was drawn in.
+type Slot = (ViewId, Rect4, Shape, Transform);
+
 /// A row being recorded.
 #[derive(Default)]
 struct Capture {
     refused: bool,
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
+    slots: Vec<Slot>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
     frames: Vec<(NodeKey, [f32; 4])>,
     scrolls: Vec<(ViewId, (f32, f32))>,
@@ -322,6 +330,69 @@ impl Painter {
         }
     }
 
+    /// Note a picture's slot while a row records.
+    pub(super) fn row_slot(&mut self, id: ViewId, content: Rect4, outer: Shape, ts: Transform) {
+        if let Some(c) = &mut self.rows.recording {
+            c.slots.push((id, content, outer, ts));
+        }
+    }
+
+    /// An image node's picture in its content box, once it has arrived.
+    pub(super) fn picture(
+        &mut self,
+        walk: &Walk<'_, '_>,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        outer: Shape,
+        ts: Transform,
+    ) {
+        let Some(img) = walk.scene.images.get(&node.id) else {
+            return;
+        };
+        if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
+            let shown = (walk.scene.presented)(node.id);
+            let tint = image_tint(node, &shown, self.dark);
+            self.backend
+                .image(img, dst, &[Shape::rect(content), outer], ts, tint);
+        }
+    }
+
+    /// A kept row that only pictures changed in (one arrived, or went):
+    /// each is drawn again in its slot, where the backend keeps slots, and
+    /// the row stands. A heavy feed's row was otherwise walked whole for
+    /// each of its pictures. False: the row is recorded again.
+    fn pictures_again(&mut self, walk: &Walk<'_, '_>, key: NodeKey) -> bool {
+        let Some(row) = self.rows.kept.get(&key) else {
+            return false;
+        };
+        let rid = row.id;
+        let mut changed = Vec::new();
+        for (i, (id, kept)) in row.images.iter().enumerate() {
+            if same_picture(walk.scene.images.get(id), kept) {
+                continue;
+            }
+            let Some(slot) = row.slots.iter().find(|slot| slot.0 == *id) else {
+                return false;
+            };
+            changed.push((i, *slot));
+        }
+        for (_, (id, content, outer, ts)) in &changed {
+            let Some(node) = walk.scene.kernel.node(*id) else {
+                return false;
+            };
+            if !self.backend.slot_again(rid, *id) {
+                return false;
+            }
+            self.picture(walk, &node, *content, *outer, *ts);
+            self.backend.slot_end();
+        }
+        let row = self.rows.kept.get_mut(&key).expect("kept");
+        for (i, (id, ..)) in changed {
+            row.images[i].1 = walk.scene.images.get(&id).map(Arc::downgrade);
+        }
+        true
+    }
+
     /// Note a paragraph leased while a row records.
     pub(super) fn row_text(&mut self, key: NodeKey, p: &Rc<Paragraph>) {
         if let Some(c) = &mut self.rows.recording {
@@ -336,12 +407,15 @@ impl Painter {
         }
     }
 
+    /// Whether a kept row draws what it would record now; `pictures`: its
+    /// pictures included.
     fn row_valid(
         &self,
         row: &Row,
         node: &NodeRef<'_>,
         walk: &Walk<'_, '_>,
         scale: (f32, f32),
+        pictures: bool,
     ) -> bool {
         let kernel = walk.scene.kernel;
         !row.stale
@@ -351,14 +425,11 @@ impl Painter {
                 .scrolls
                 .iter()
                 .all(|(id, at)| walk.scene.scroll.get(id).copied().unwrap_or((0.0, 0.0)) == *at)
-            && row
-                .images
-                .iter()
-                .all(|(id, kept)| match (walk.scene.images.get(id), kept) {
-                    (None, None) => true,
-                    (Some(now), Some(then)) => then.upgrade().is_some_and(|t| Arc::ptr_eq(&t, now)),
-                    _ => false,
-                })
+            && (!pictures
+                || row
+                    .images
+                    .iter()
+                    .all(|(id, kept)| same_picture(walk.scene.images.get(id), kept)))
             && (!self.rows.suspect.contains(&node.key)
                 || row.frames.iter().all(|(k, f)| {
                     kernel.node_by_key(*k).is_some_and(|n| {
@@ -390,12 +461,11 @@ impl Painter {
         let origin = (ts.sx * r.0 + ts.tx, ts.sy * r.1 + ts.ty);
         let scale = (ts.sx, ts.sy);
         let frame = self.rows.frame;
-        if let Some(row) = self
-            .rows
-            .kept
-            .get(&node.key)
-            .filter(|row| self.row_valid(row, &node, walk, scale))
-        {
+        let kept = self.rows.kept.get(&node.key);
+        let valid = kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, true))
+            || (kept.is_some_and(|row| self.row_valid(row, &node, walk, scale, false))
+                && self.pictures_again(walk, node.key));
+        if let Some(row) = self.rows.kept.get(&node.key).filter(|_| valid) {
             let d = (origin.0 - row.origin.0, origin.1 - row.origin.1);
             for b in &row.boxes {
                 let mut b = *b;
@@ -506,6 +576,7 @@ impl Painter {
                 boxes,
                 text: capture.text,
                 images: capture.images,
+                slots: capture.slots,
                 frames: capture
                     .frames
                     .into_iter()
@@ -519,6 +590,15 @@ impl Painter {
                 order,
             },
         );
+    }
+}
+
+/// Whether a node's picture is the one a row was recorded with.
+fn same_picture(now: Option<&Arc<Bitmap>>, kept: &Option<std::sync::Weak<Bitmap>>) -> bool {
+    match (now, kept) {
+        (None, None) => true,
+        (Some(now), Some(then)) => then.upgrade().is_some_and(|t| Arc::ptr_eq(&t, now)),
+        _ => false,
     }
 }
 

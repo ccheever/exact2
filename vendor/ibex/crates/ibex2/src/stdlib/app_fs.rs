@@ -6,9 +6,9 @@ mod implementation;
 #[path = "app_fs_windows.rs"]
 mod implementation;
 #[cfg(any(unix, windows))]
-pub(crate) use implementation::atomic_native;
-#[cfg(any(unix, windows))]
 pub use implementation::*;
+#[cfg(any(unix, windows))]
+pub(crate) use implementation::{atomic_native, document};
 
 #[cfg(not(any(unix, windows)))]
 mod implementation {
@@ -52,8 +52,18 @@ mod implementation {
     pub(crate) fn atomic_native(_path: &Path, _data: &[u8]) -> Result<FsResult, HostError> {
         Err(unsupported())
     }
+    pub(crate) fn document(
+        _root: &std::fs::File,
+        _path: &str,
+        _op: FsOp,
+        _data: Option<&[u8]>,
+    ) -> std::io::Result<FsResult> {
+        Err(std::io::Error::other(
+            "documents require native directory capabilities",
+        ))
+    }
 }
 #[cfg(not(any(unix, windows)))]
-pub(crate) use implementation::atomic_native;
-#[cfg(not(any(unix, windows)))]
 pub use implementation::*;
+#[cfg(not(any(unix, windows)))]
+pub(crate) use implementation::{atomic_native, document};

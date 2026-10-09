@@ -77,7 +77,7 @@ component Heavy
           send changed = tick()
   action second
     if live
-      secs = floor(now() / 1000)
+      secs = floor(performanceNow() / 1000)
 
   task producer mount
     every(250, tick)

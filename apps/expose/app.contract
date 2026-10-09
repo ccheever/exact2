@@ -92,7 +92,7 @@ component Expose
   action tick
     if nowMs == 0
       setScheme(appearance)
-    nowMs = now()
+    nowMs = performanceNow()
     if replyDone and replyRevision != bannerSeen
       bannerSeen = replyRevision
       if not inThread
@@ -163,7 +163,7 @@ component Expose
     dismissed = "all"
   action nope(name: string)
     toast = `${name} isn’t in this demo yet`
-    toastAt = now()
+    toastAt = performanceNow()
   action setScale(value: number)
     scale = value
   action setAirplane(on: bool)

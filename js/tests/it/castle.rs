@@ -7,6 +7,7 @@
 use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::{Plan, Value};
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     Answer, DataError, DataSource, Event, FailureKind, Outcome, Response, Runner, Store,
 };
@@ -183,7 +184,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Failed(message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(FailureCode::Error, message) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
@@ -551,6 +552,33 @@ fn an_answer_may_await_two_fetches_in_a_row() {
     assert_eq!(m.in_flight(), 0);
 }
 
+/// LLP 1109 D3: a fetch's rejection the module lets through keeps its
+/// class, as host/web-js does (shape.js `failureCode`); an aborted one is
+/// the module's error.
+#[test]
+fn a_rejection_let_through_keeps_its_class() {
+    for (kind, code) in [
+        (FailureKind::Network, Some(FailureCode::Offline)),
+        (FailureKind::Timeout, Some(FailureCode::Timeout)),
+        (FailureKind::Refused, Some(FailureCode::Refused)),
+        (FailureKind::Aborted, None),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        later(m.answer(&mut s, "refusedLater", &[]).unwrap());
+        let message = "the network is gone".to_string();
+        let failed = Outcome::Failed {
+            kind,
+            message: message.clone(),
+        };
+        let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
+        match code {
+            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
+        }
+    }
+}
+
 #[test]
 fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut m = module();
@@ -559,7 +587,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     // refusal of the commit (LLP 1027.000 D3, amended 2026-10-07).
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Failed(ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(FailureCode::Error, ref e)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -568,7 +596,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Failed(ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(FailureCode::Error, ref e)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(

@@ -60,8 +60,8 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
         | DataError::Unavailable(m)
         | DataError::UnknownSource(m)
         | DataError::Interface(m)
-        | DataError::Failed(m)
-        | DataError::DeferredAtBake(m) => m,
+        | DataError::DeferredAtBake(m)
+        | DataError::Failed(_, m) => m,
     };
     let scratch = Store::new("", []);
     let store_ptr = state.store;

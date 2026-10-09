@@ -3,15 +3,19 @@
 // app's native module (`exact_snapback4::Module` behind `native.call`); on
 // the web it is the same Rust as wasm, persisted through Exact SQLite
 // (`./web.ts`). Mount this directory in app.json:
-//   "typescript": { "sources": { "snapback": "../exact2/snapback4/ts" } }
-// and `import { openSnapback } from './snapback/snapback.ts'`.
+//   "typescript": { "sources": { "snapback4": "<the exact2 checkout>/snapback4/ts" } }
+// and `import { Snapback } from './snapback4/snapback.ts'`. README.md has
+// a complete app.
 //
 // Data modules have no clock: pass `now` (milliseconds) from a source argument.
 
 import { webDevice, type SqliteStorage } from './web.ts';
+export type { SqliteStorage } from './web.ts';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Request = { [key: string]: Json };
+/** A query's or a write's arguments: any JSON object (`undefined` fields are left out). */
+export type Args = Record<string, unknown>;
 
 export interface Refusal { code: string; family?: string; message: string; retryable?: boolean; [key: string]: Json | undefined }
 
@@ -19,8 +23,12 @@ export interface Refusal { code: string; family?: string; message: string; retry
  * predicted carry `pending: true`. */
 export interface Read<T = Json> {
   data?: T;
-  /** The server answered (the query reads an `online only` table or view). */
+  /** The server answered: the query reads an `online only` table or view,
+   * or the device could not vouch for its answer (`loading`, `speculative`). */
   server?: boolean;
+  /** The device could not vouch for this answer and the server was not
+   * reached: show it as unavailable, not as data. */
+  offline?: boolean;
   complete?: boolean;
   next?: string | null;
   loading?: boolean;
@@ -28,19 +36,23 @@ export interface Read<T = Json> {
   [key: string]: unknown;
 }
 
-/** A write as admitted: kept and predicted on this device, sent by a round. */
+/** A write as admitted: kept and predicted on this device, sent by a round;
+ * or refused by the device itself (its prediction refused it, as the server
+ * would on the same rows), which is final: never sent, and `outcome(id)` and
+ * `refusals()` answer it as they answer a refusal the server gave. */
 export type Write =
   | { id: string; state: 'pending'; newIds: string[] }
   | { id: string; state: 'failed'; why: Refusal };
 
-/** A write the server refused, kept in the partition until dismissed: what
+/** A refused write (by the server or by the device), kept in the partition
+ * until dismissed: what
  * it was (`op`, `args`, so its input is not lost), why, and when written.
  * A refusal too large to store (over 8 MiB once encoded) keeps all but its
  * `args`, which are then null and `argsOmitted` is true. */
 export interface Refused { id: string; op: string; args: Json; argsOmitted?: boolean; why: Refusal; at: number }
 
 /** What became of a write. `result` is the server's, while remembered. */
-export interface Outcome { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: Json; why?: Refusal }
+export interface Outcome<R = Json> { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: R; why?: Refusal }
 
 /** A session as Snapback mints it; `expiresAt` in milliseconds. */
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
@@ -69,7 +81,12 @@ export interface Status {
 export interface Device { call(request: Request): Promise<Request>; close?(): Promise<boolean | void>; healthy?(): boolean }
 
 /** Exact's native module, when the app links `exact_snapback4::Module`. */
-export interface NativeModule { call(request: Request): unknown }
+export interface NativeModule {
+  call(request: Request): unknown;
+  /** False at bake (and on a host that configured no module): the device's
+   * fact, not the build's. */
+  readonly available?: boolean;
+}
 
 export interface Options {
   /** The app's id: the web partition's identity (natively, the baked one). */
@@ -82,8 +99,9 @@ export interface Options {
   viewer: string;
   /** Credentials for each request: `{authorization: 'Bearer …'}`, or in development `{'x-snapback-persona': 'alice'}`. */
   headers?: () => Record<string, string>;
-  /** The dispatcher's `storage` (the web persists the partition there). */
-  storage: SqliteStorage;
+  /** The dispatcher's `storage`, Exact's own (the web persists the partition
+   * there); only its `sqlite` is used. */
+  storage: { readonly sqlite: { open(path: string): Promise<unknown> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
   /** Where the web's wasm is served (default `/assets/snapback4.wasm`). */
@@ -122,10 +140,15 @@ interface Partition {
   clients: number;
   /** The rounds, one after another: a `sync()` while one runs waits its turn. */
   rounds: Promise<unknown>;
+  /** The exchange of a round that stopped and could not be cancelled then. */
+  abandoned?: string;
   refreshing?: Promise<Refreshed>;
+  /** The change poll in flight: a second `poll()` shares it (a second poll
+   * would supersede the first, whose reply the client then refuses). */
+  polling?: Promise<boolean>;
   /** Which queries the server answers, by name; forgotten after each round
    * (a round can adopt a new backend). */
-  routes: Map<string, 'device' | 'server'>;
+  routes: Map<string, 'device' | 'server' | 'held'>;
   /** Its entry in `partitions`, while it is there. */
   entry?: Promise<Partition>;
   /** The last client closed it: a new `open` makes another. */
@@ -152,6 +175,12 @@ function refusal(code: string, message: string, extra: Partial<Refusal> = {}): E
 }
 
 async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
+  // At bake there is no module (and no storage): refused as storage is then,
+  // `kind: 'Unavailable'`, `code: 'bake'`, so the bake leaves the answer to
+  // the device and an app needs one check for it on every executor.
+  if (options.native && options.native.available === false) {
+    throw Object.assign(new Error('Snapback4: the native module is not available: at bake the device answers when the app runs; at run time, link exact_snapback4::Module (README)'), { kind: 'Unavailable', code: 'bake' });
+  }
   await page.closing.get(path)?.catch(() => undefined);
   const device = options.native
     ? nativeDevice(options.native)
@@ -229,7 +258,7 @@ export class Snapback {
     if (this.partition.opened) return;
     const round = await this.sync();
     if (!this.partition.opened) {
-      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it`, { retryable: true });
+      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it (in a test, let the app sync once, with \`clock data\`, before \`fail fetch\`)`, { retryable: true });
     }
   }
 
@@ -238,21 +267,38 @@ export class Snapback {
    * server answers it (`POST /q/<name>`), and the answer says `server: true`.
    * Unreached, such a read answers `denied` with `E_OFFLINE`, never an empty
    * page that looks like one. */
-  async read<T = Json>(name: string, args: Request, now: number): Promise<Read<T>> {
+  async read<T = Json>(name: string, args: Args, now: number): Promise<Read<T>> {
     const at = clock(now);
     await this.ready();
     let route = this.partition.routes.get(name);
     if (!route) {
-      route = ok<'device' | 'server'>(await this.call({ op: 'route', name }));
+      route = ok<'device' | 'server' | 'held'>(await this.call({ op: 'route', name }));
       this.partition.routes.set(name, route);
     }
     if (route === 'server') return this.serverRead<T>(name, args);
-    return ok<Read<T>>(await this.call({ op: 'read', name, args, now: at }));
+    const local = ok<Read<T>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
+    // Whose answer (CLIENT-AND-OPERATIONS.md, "The device reply"): the
+    // device's when it is not `unknown`, when it is `retained` history, or
+    // when the schema holds the query to the device; otherwise the server's.
+    // `E_PREDICT`/`E_NATIVE` with `unknown` mean evaluation never began.
+    if (route === 'held' || local.unknown !== true || local.retained === true) return local;
+    // The prediction fence, coarse: while any write is queued, the device's
+    // answer (with its predicted rows) stands; a speculative one is not an
+    // answer, so it shows as loading. Checked again when the server replies.
+    const placeholder = (extra: Partial<Read<T>>): Read<T> =>
+      local.speculative === true || local.loading === true
+        ? { loading: true, unknown: true, ...extra }
+        : { ...local, ...extra };
+    if (((await this.status()).queued ?? []).length) return placeholder({});
+    const served = await this.serverRead<T>(name, args);
+    if (served.denied?.code === 'E_OFFLINE') return placeholder({ offline: true });
+    if (((await this.status()).queued ?? []).length) return placeholder({});
+    return served;
   }
 
-  private async serverRead<T>(name: string, args: Request): Promise<Read<T>> {
+  private async serverRead<T>(name: string, args: Args): Promise<Read<T>> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
-    const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args } });
+    const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args: args as Request } });
     if (reply.error !== undefined) {
       return { server: true, denied: { code: 'E_OFFLINE', family: 'transport', retryable: true,
         message: `${name} reads data this device does not keep (online only), so the server answers it, and it was not reached: ${String(reply.error)}` } };
@@ -269,7 +315,7 @@ export class Snapback {
    * the first page sends no cursor, so an unpaged query reads whole).
    * `limit`, if given, refuses a query that holds more rows than that; by
    * default every row is read, and only a cursor that does not advance stops. */
-  async readAll<T = Json>(name: string, args: Request, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
+  async readAll<T = Json>(name: string, args: Args, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
     const rows: T[] = [];
     const seen = new Set<string>();
     let next: string | null = null;
@@ -293,13 +339,17 @@ export class Snapback {
    * draft version a post publishes), its id derives from the key, and writing
    * the same key again admits nothing: it answers what became of the first.
    * Whether the server took it is `outcome(id)` after a round: a round that
-   * ends `ok` has delivered the outbox, not had every write accepted. */
-  async write(name: string, args: Request, now: number): Promise<Write>;
-  async write(name: string, args: Request, now: number, key: string): Promise<Write | Outcome>;
-  async write(name: string, args: Request, now: number, key?: string): Promise<Write | Outcome> {
+   * ends `ok` has delivered the outbox, not had every write accepted.
+   * `failed` here is final and `outcome(id)` keeps answering it; a keyed
+   * write is never refused by a prediction (the server decides it), and the
+   * same key with other input answers `E_WRITE_ID_REUSE` while `outcome(id)`
+   * still answers the first write's fate. */
+  async write(name: string, args: Args, now: number): Promise<Write>;
+  async write(name: string, args: Args, now: number, key: string): Promise<Write | Outcome>;
+  async write(name: string, args: Args, now: number, key?: string): Promise<Write | Outcome> {
     const at = clock(now);
     await this.ready();
-    return ok<Write | Outcome>(await this.call({ op: 'write', name, args, now: at, ...(key === undefined ? {} : { key }) }));
+    return ok<Write | Outcome>(await this.call({ op: 'write', name, args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
   /** The id a write with this idempotency key has (or would have). */
@@ -307,9 +357,11 @@ export class Snapback {
     return ok<string>(await this.call({ op: 'write_id', key }));
   }
 
-  /** What became of a write. */
-  async outcome(id: string): Promise<Outcome> {
-    return ok<Outcome>(await this.call({ op: 'outcome', id }));
+  /** What became of a write: `pending` while unsent, `sent` or `failed`
+   * (the server's verdict, or the device's at `write`), `unknown` if this
+   * device never admitted it. */
+  async outcome<R = Json>(id: string): Promise<Outcome<R>> {
+    return ok<Outcome<R>>(await this.call({ op: 'outcome', id }));
   }
 
   async status(): Promise<Status> {
@@ -329,30 +381,50 @@ export class Snapback {
   }
 
   private async round(): Promise<Round> {
+    const partition = this.partition;
+    // A round an earlier answer could neither finish nor cancel is cancelled
+    // first. Natively that is a superseded answer's round: its reply still
+    // comes, but the device refuses calls once its answer has ended, and
+    // left there the client would answer `busy` to every round after it.
+    const abandoned = partition.abandoned;
+    if (abandoned !== undefined) {
+      await this.call({ op: 'cancel', exchange: abandoned });
+      if (partition.abandoned === abandoned) partition.abandoned = undefined;
+    }
     let step = ok<{ fetch?: Request; done?: Round }>(await this.call({ op: 'sync' }));
     try {
       while (step.fetch) {
-        const exchange = step.fetch.exchange;
-        const reply = await this.exchange(step.fetch);
-        try { step = ok(await this.call({ op: 'deliver', exchange, reply })); }
-        catch (error) {
-          // Only this round's own exchange can be cancelled.
-          await this.call({ op: 'cancel', exchange }).catch(() => undefined);
+        const exchange = step.fetch.exchange as string;
+        try {
+          const reply = await this.exchange(step.fetch);
+          step = ok(await this.call({ op: 'deliver', exchange, reply }));
+        } catch (error) {
+          // Only this round's own exchange can be cancelled; one that cannot
+          // be now is cancelled by the next round.
+          await this.call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
           throw error;
         }
       }
-    } finally { this.partition.routes.clear(); }
+    } finally { partition.routes.clear(); }
     const done = step.done ?? { ok: false };
     if (done.ok) this.partition.opened = true;
     return done;
   }
 
   /** Wait up to `wait` seconds for the server's head to move. `true`: call
-   * `sync()`. Throws when the server is unreachable or refuses. */
+   * `sync()`. Throws when the server is unreachable or refuses. A poll while
+   * another client of the partition has one in flight shares its answer. */
   async poll(wait = 20): Promise<boolean> {
-    const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
-    const reply = await this.exchange(request.fetch);
-    return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
+    await this.ready();
+    const partition = this.partition;
+    // One at a time for every client of the partition: a caller while one is
+    // in flight shares its answer (a second poll would supersede it).
+    partition.polling ??= (async () => {
+      const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
+      const reply = await this.exchange(request.fetch);
+      return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
+    })().finally(() => { partition.polling = undefined; });
+    return partition.polling;
   }
 
   /** Trade the session `headers()` sends for a fresh one (`POST
@@ -403,7 +475,8 @@ export class Snapback {
     try { await cleanup; } finally { if (closing.get(partition.path) === cleanup) closing.delete(partition.path); }
   }
 
-  /** Writes the server refused, oldest first, until dismissed. */
+  /** Refused writes (by the server or by the device at `write`), oldest
+   * first, until dismissed. */
   async refusals(): Promise<Refused[]> {
     return ok<Refused[]>(await this.call({ op: 'refusals' }));
   }

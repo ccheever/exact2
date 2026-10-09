@@ -1,4 +1,5 @@
 use super::*;
+use crate::failure::FailureCode;
 use crate::{Carried, Outcome, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Items, Plan, Stdlib, TypeKind};
@@ -259,7 +260,7 @@ fn a_typescript_answer_that_failed_now_fails_the_resource() {
     let older = r.take_requests();
     assert_eq!(older.len(), 1);
     let why = "setTimeout() is unavailable in data sources: there are no timers";
-    r.data().refuse = Some(DataError::Failed(why.into()));
+    r.data().refuse = Some(DataError::Failed(FailureCode::Error, why.into()));
     r.act("change", vec![Value::Number(2.)])
         .expect("the commit stands");
     assert_eq!(r.slot("revision"), Some(&Value::Number(2.)));
@@ -270,6 +271,8 @@ fn a_typescript_answer_that_failed_now_fails_the_resource() {
         [("rows", why)],
         "`state.failed` says why"
     );
+    let failure = r.failed_why[0].as_ref().unwrap();
+    assert_eq!(failure.code, FailureCode::Error, "`failure(rows)`'s code");
     assert!(!r.holds(older[0].ticket), "the older reply is not wanted");
     assert!(!r.has_pending());
     assert!(r
@@ -284,6 +287,17 @@ fn a_typescript_answer_that_failed_now_fails_the_resource() {
     r.act("change", vec![Value::Number(3.)]).unwrap();
     assert_eq!(rows(&r), Some(records(3)));
     assert_eq!(r.failed_args[0], None);
+    // A class the module let through keeps its code (LLP 1109 D3).
+    let why = "storage.sqlite.open: denied";
+    r.data().refuse = Some(DataError::Failed(FailureCode::Storage, why.into()));
+    r.act("change", vec![Value::Number(4.)])
+        .expect("the commit stands");
+    assert_eq!(rows(&r), Some(records(3)), "the value it had stays");
+    let failure = r.failed_why[0].as_ref().unwrap();
+    assert_eq!(
+        (failure.code, failure.message.as_str()),
+        (FailureCode::Storage, why)
+    );
 }
 
 /// A TypeScript send whose answer failed now ends unsent, as a failed reply
@@ -320,7 +334,7 @@ fn a_typescript_send_that_failed_now_ends_unsent() {
     let older = r.take_requests();
     assert_eq!(older.len(), 1);
     let why = "Date.now() is unavailable in data sources";
-    r.data().0 = Some(DataError::Failed(why.into()));
+    r.data().0 = Some(DataError::Failed(FailureCode::Error, why.into()));
     r.act("post", vec![Value::str("b")])
         .expect("the commit stands");
     assert_eq!(r.slot("note"), Some(&Value::str("b")));

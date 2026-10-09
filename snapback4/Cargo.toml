@@ -9,12 +9,12 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# Snapback4 0.4.13 release source: 67b2ce28a3823f3dd1728dc4a2421995e1b12ac8.
+# Snapback4 0.4.16 release source: 468d3aa5be3eee914883e37f3ab0424030ac882d.
 # Match the published CLI and browser device, without a mutable sibling checkout.
 [workspace.dependencies]
-snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "67b2ce28a3823f3dd1728dc4a2421995e1b12ac8", version = "=0.4.13", default-features = false }
-snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "67b2ce28a3823f3dd1728dc4a2421995e1b12ac8", version = "=0.4.13", default-features = false }
-snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "67b2ce28a3823f3dd1728dc4a2421995e1b12ac8", version = "=0.4.13" }
+snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
+snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
+snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16" }
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }

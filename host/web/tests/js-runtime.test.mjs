@@ -27,19 +27,28 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
 stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g;');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', 'export const answering = { call: null };');
+stub('ts-fetch.js', 'export const answering = { call: null }; export const files = { appId: null };');
 stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
   writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
-  readFile: async p => files.get(p) ?? '' });`);
+  readFile: async p => files.get(p) ?? '',
+  compressImage: async (from, to, o) => ({ path: to, type: 'image/jpeg', size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
 stub('app.mjs', `export const appId = 'test';
   export function answer(source, [op, value], store, storage) {
     if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
     if (op === 'read') return storage.fs.readFile('app:/data/song');
     if (op === 'bad') { storage.fs.atomicWriteFile('app:/data/absent/x', value).catch(() => {}); return 'saved'; }
+    if (op === 'compress') {
+      const options = { maxDimension: 4000, maxBytes: 2000000 };
+      const done = storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', options);
+      options.maxDimension = 1; // after the call: the call keeps what it was given
+      return done.then(r => JSON.stringify(r));
+    }
+    if (op === 'compress-bad') return storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', { maxDimension: 0, maxBytes: 1 })
+      .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     const codes = [];
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
     return codes[257];
@@ -338,6 +347,20 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(inflight.n).toBe(before);
   expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
+});
+
+// `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
+// checked and copied before it is queued; a bad one is a TypeError that
+// never enters the queue.
+test('compressImage copies its options and refuses bad ones before the queue', async () => {
+  const { data } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  install(data);
+  const ask = op => data.ts('work', [op, ''], new Map());
+  expect(JSON.parse(await ask('compress').promise)).toEqual({ path: 'app:/tmp/out.jpg', type: 'image/jpeg', size: 2000000, width: 4000, height: 1 });
+  const bad = ask('compress-bad');
+  expect(data.background().queued + data.background().inFlight).toBe(0);
+  expect(await bad.promise).toBe('TypeError undefined storage.fs.compressImage(): maxDimension must be an integer from 1 to 8192');
 });
 
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {

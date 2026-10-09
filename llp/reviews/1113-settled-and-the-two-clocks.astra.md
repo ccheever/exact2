@@ -398,7 +398,7 @@ Verdict: NOT READY
 - **Method:** one brief (sha256 `bed346f232fd6f35bc75d7b5abc2e72478f7e7a75968edf4e3f96968b1035d00`), shared verbatim with the other reviewer; blind to the other family's reviews, though the dispositions sections name concerns both raised. Requested by Charlie ("yeah sounds good do all that" to the r4 narrowing and a review). The author (Claude, Opus 5.5) is not a reviewer. Nothing redacted. This round uses the new numbers (1111, 1112, 1113).
 - **Transcription:** the review as returned, unedited.
 - **Verdict:** NOT READY.
-- **Disposition:** pending. The review loop stops after four rounds on this document; the remaining items go to Charlie with a recommendation to prototype the final-capture path.
+- **Disposition:** r5 (2026-10-08) is written from a throwaway prototype, `spike/settled-capture` (`ba1dee19a`, `f7786deda`), that ran these findings. Taken, prototyped: N1 (one bounded hatch turn per pass), N4 (the final capture's own path skips `screenshot()` and the epilogue; 0 pixels differ). N2 confirmed and taken (`pending()` skips symbols). N3 taken (≤50 ms image slices, one loop with a 20 ms idle sleep). Taken on paper: N5 (`faults` frozen into the final reply), N6 (completion after `take_requests`), N7 (owned `refresh_next`, transfer and coalescing), and the N8 minors. Dispositions are in LLP 1113 §7.
 
 **1. Overall assessment**
 

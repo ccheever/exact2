@@ -124,9 +124,9 @@ call with arguments of these types, or `none` when the call is refused.
 `any` is held to what the runner reads (`roster_accepts`). The entries the
 semantics refuses as unsupported (formats, routes, geometry) are typed as
 the roster spells them: their calls never produce a value here. `map`,
-`filter`, `pending`, `failed` and `path` are typed by rules of their own. -/
+`filter`, `pending`, `failed`, `failure` and `path` are typed by rules of their own. -/
 def rosterTy (name : String) (ts : List Ty) : Option Ty :=
-  if name = "now" then match ts with | [] => .some .number | _ => .none
+  if name = "performanceNow" then match ts with | [] => .some .number | _ => .none
   else if name = "length" then match ts with | [.string] | [.list _] => .some .number | _ => .none
   else if name = "isEmpty" then match ts with | [.string] | [.list _] => .some .bool | _ => .none
   else if name = "toString" then
@@ -293,6 +293,10 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
   | failed : p.fns.find? (·.name == "failed") = .none → isResource p x = true →
       lookupTy x Γ = .none → (lookupTy x G).isSome = true →
       HasTy p G Γ (.call "failed" [.var x]) .bool
+  /-- `failure(x)` names a resource in scope (LLP 1109 D3). -/
+  | failure : p.fns.find? (·.name == "failure") = .none → isResource p x = true →
+      lookupTy x Γ = .none → (lookupTy x G).isSome = true →
+      HasTy p G Γ (.call "failure" [.var x]) (.option (.record "Failure"))
   | roster : p.fns.find? (·.name == name) = .none → ListTy p G Γ args ts → rosterTy name ts = .some t →
       HasTy p G Γ (.call name args) t
   /-- `path("route", args…)` (as the compiler expands it): a declared

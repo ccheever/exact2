@@ -209,6 +209,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a request timeout cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
+        Ok(Answer::Later(r)) if r.body_from.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "exactBodyFrom cannot cross the Rust module seam".into(),
+            )),
+        ),
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -283,10 +290,12 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             let (tag, message) = match e {
                 DataError::UnknownSource(s) => (2, s),
                 DataError::BadArguments(s) => (3, s),
+                // A coded failure's class is the TypeScript seam's and the
+                // runner's (LLP 1109 D3): a Rust source's own is `error`.
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
-                | DataError::Failed(s)
-                | DataError::DeferredAtBake(s) => (4, s),
+                | DataError::DeferredAtBake(s)
+                | DataError::Failed(_, s) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -300,6 +309,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
             timeout_ms: None,
+            body_from: None,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {

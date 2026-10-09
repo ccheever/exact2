@@ -90,6 +90,13 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
   | failedOther : env.prog.fns.find? (·.name == "failed") = .none →
       env.prog.resources.any (·.name == x) = false →
       EvalR env inFn ls (.call "failed" [.var x]) (.bool false)
+  /-- `failure(r)`, likewise: nothing here says why (LLP 1109 D3). -/
+  | failureSettled : env.prog.fns.find? (·.name == "failure") = .none →
+      env.prog.resources.any (·.name == x) = true → (lookup x env.resources).isSome →
+      EvalR env inFn ls (.call "failure" [.var x]) .none
+  | failureOther : env.prog.fns.find? (·.name == "failure") = .none →
+      env.prog.resources.any (·.name == x) = false →
+      EvalR env inFn ls (.call "failure" [.var x]) .none
   /-- Any other roster entry, on its evaluated arguments. (`stdlib` refuses
   the names of the forms above, so this never overlaps them.) -/
   | stdlib : env.prog.fns.find? (·.name == name) = .none → ListR env inFn ls args vs →
@@ -216,6 +223,8 @@ theorem stdlib_pending {env : Env} {vs v} : stdlib env "pending" vs ≠ .ok v :=
   unfold stdlib; split <;> simp_all
 theorem stdlib_failed {env : Env} {vs v} : stdlib env "failed" vs ≠ .ok v := by
   unfold stdlib; split <;> simp_all
+theorem stdlib_failure {env : Env} {vs v} : stdlib env "failure" vs ≠ .ok v := by
+  unfold stdlib; split <;> simp_all
 
 theorem binop_and {a b v} : binop .and a b ≠ .ok v := by simp [binop]
 theorem binop_or {a b v} : binop .or a b ≠ .ok v := by simp [binop]
@@ -305,6 +314,12 @@ theorem sound_aux : ∀ n,
               obtain ⟨hs, rfl⟩ := Option.elim_err_const.mp h
               exact .failedSettled hfd hr hs
             next hr => simp at h; subst h; exact .failedOther hfd (by simpa using hr)
+          next x =>
+            split at h
+            next hr =>
+              obtain ⟨hs, rfl⟩ := Option.elim_err_const.mp h
+              exact .failureSettled hfd hr hs
+            next hr => simp at h; subst h; exact .failureOther hfd (by simpa using hr)
           next =>
             simp only [Except.bind_ok_iff] at h
             obtain ⟨vs, h1, h2⟩ := h
@@ -479,6 +494,7 @@ theorem mono_aux : ∀ n,
             exact ⟨a, ihE hm h1, xs, h2, ys, ihF hm h3, h4⟩
           next => exact h
           next => exact h
+          next => exact h
           next =>
             simp only [Except.bind_ok_iff] at h ⊢
             obtain ⟨vs, h1, h2⟩ := h
@@ -629,6 +645,7 @@ theorem eval_stdlib_intro {n env inFn ls name args vs v}
   next => exact absurd h2 stdlib_filter
   next => exact absurd h2 stdlib_pending
   next => exact absurd h2 stdlib_failed
+  next => exact absurd h2 stdlib_failure
   next => simp only [Except.bind_ok_iff]; exact ⟨_, h1, h2⟩
 
 local macro "lift" h:term : term =>
@@ -675,6 +692,8 @@ theorem EvalR.complete {env inFn ls e v} :
   | .pendingOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
   | .failedSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩
   | .failedOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
+  | .failureSettled hfd hr hs => ⟨1, by simp [eval, hfd, hr, Option.elim_err_const, hs]⟩
+  | .failureOther hfd hr => ⟨1, by simp [eval, hfd, hr]⟩
   | .stdlib hfd h1 h2 => by
     obtain ⟨n, h1⟩ := h1.complete
     exact ⟨n + 1, eval_stdlib_intro hfd h1 h2⟩

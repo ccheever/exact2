@@ -112,29 +112,6 @@ final class DateField: NSDatePicker {
     override func accessibilityValue() -> Any? { empty ? "" : super.accessibilityValue() }
 
     /// The locale's order of fields, written as Chrome writes an empty one.
-    static func placeholder(_ kind: String, _ locale: Locale) -> String {
-        func written(_ template: String) -> String {
-            let pattern = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale) ?? ""
-            var out = "", last: Character?
-            for c in pattern where c != "'" {
-                if c == last, c.isLetter { continue }
-                last = c
-                switch c {
-                case "y": out += "yyyy"
-                case "M", "L": out += "mm"
-                case "d": out += "dd"
-                case "h", "H", "k", "K", "m", "a": out += "--"
-                // A narrow no-break space before `a` too, as Chrome spaces it.
-                default: if c.isWhitespace { out += " " } else if !c.isLetter { out.append(c) }
-                }
-            }
-            return out
-        }
-        switch kind {
-        case "date": return written("yMMdd")
-        case "time": return written("jmm")
-        default: return written("yMMdd") + ", " + written("jmm")
-        }
-    }
+    static func placeholder(_ kind: String, _ locale: Locale) -> String { DateValue.placeholder(kind, locale) }
 }
 #endif

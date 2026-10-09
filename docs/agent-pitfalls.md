@@ -55,6 +55,13 @@ guide's rules don't make obvious.
   `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
   (Fresh-agent README trial, 2026-10-04.)
 
+- **A list of buttons is ragged: each is only as wide as its text.** A `button`
+  directly in a `scroll` or another block container shrinks to fit, so a row's
+  `flex-grow` title never grows and its trailing columns sit right after it.
+  Cause: as on the web, a button is `inline-block`; only a flex item, or one given
+  a width, fills its line. Fix: `width="100%"` on the button, or put the rows in
+  a `column`. (The LLP terminal reader's document tree, 2026-10-08.)
+
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
   beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
@@ -129,10 +136,23 @@ guide's rules don't make obvious.
   frame. (Signal Clone, build 2.)
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
-  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
-  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
-  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
+  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
+  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **An "on return" task also runs at every launch.** Cause: a gated task arms
+  when its gate becomes true and at boot when it is already true (LLP 1092 D8),
+  and the page is `visible` at launch: `task returned when page.visibilityState
+  == "visible"` with `after(1, onVisible)` runs `onVisible` once at launch and
+  once after each return from the background. A gate follows a state; it is not
+  an event. Fix: have the action skip its own first run (`if launched` … then
+  `launched = true`); it then hears every return. To keep the run out of the
+  launch as well, latch the hide (`task hid when page.visibilityState ==
+  "hidden"` with `after(1, markHidden)` setting `wasHidden`) and gate the return
+  on `wasHidden and page.visibilityState == "visible"`, clearing `wasHidden` in
+  its action: that misses a return which lands before the hide's timer has fired
+  (`prefer visibility-state hidden` then `visible` with no clock step between).
+  (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -255,15 +275,14 @@ guide's rules don't make obvious.
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
 
-- **An empty date input can still show a date on iOS.** `input type="date" value=""`
-  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
-  the last date in one whose value was cleared (`time` and `datetime-local` share the
-  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
-  show the field's emptiness yourself (a "Not set" label beside it), and validate
-  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
-  2026-10-05.)
-
 ## Actions
+
+- **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
+  after it starts, so state it fills is empty until then, after a test `reload`
+  too: a "today" label or a comparison against it reads the stale or empty
+  value. Fix: compute the value in a derive (from the `exactTime` source's
+  `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
+  the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
@@ -286,7 +305,7 @@ guide's rules don't make obvious.
   (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
-  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
@@ -327,8 +346,8 @@ guide's rules don't make obvious.
 - **A sequence's first hit is late when the first timer tick plays it.** A
   gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
   left to the tick is 25 ms late. Fix: schedule the first window from the press
-  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
-  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  itself (`playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, performanceNow() + 100)`). (Drums; LLP
   1096 D3.)
 
 ## Media session
@@ -349,6 +368,14 @@ guide's rules don't make obvious.
   1098 D8.)
 
 ## Input
+
+- **A keyboard shortcut does nothing.** Two causes, both as on the web.
+  `aria-keyshortcuts` belongs to a node that must be on the screen: a button with
+  `display="none"` (a "hidden" shortcut holder) is not, so its key never fires; give
+  the key a visible control (a status line of keys, as the LLP reader's) or handle
+  it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
+  key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
+  a terminal too, where a typed capital is reported as `Shift+N`).
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no
@@ -475,8 +502,37 @@ guide's rules don't make obvious.
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+- **`showPicker("x")` names the input's `id`, not its `testId`.** With only
+  `testId="x"` the press opens no picker, and a drive's `type @x photo.jpg`
+  answers `no held device request … (held: none)`. Fix: give the
+  `input type="file"` both, `id="x" testId="x"`. (Interview's profile photo,
+  LLP 1108, 2026-10-08.)
 
 ## Driving and testing
+
+- **Asserting a boot loading state against a live backend is a race.** The
+  real reply lands on real time, and under load it can arrive before the first
+  `expect`, so `expect tree has "loading"` passes once and fails once. Assert
+  loading against a stand-in server that answers late, never by racing the real
+  one; `fail fetch` (LLP 1103) tests the error state and its retry, not loading.
+  (Authoring bench, LLP 1087, t3-recipes, Studio, 2026-10-08.)
+
+- **On the web, a save still in flight when the tab closes is lost.** A
+  `storage.fs` write is one IndexedDB transaction, and the browser drops a
+  transaction still running when the page goes away (an immediate close after
+  Enter lost it 4 of 4 times; native hosts finish it, LLP 1097 D10). In a test,
+  let saves land (`clock data`, or wait for the saved state) before `reload`,
+  `relaunch` or closing. In the app, show a saving state until the write
+  resolves. (Authoring bench, LLP 1087, t5-pomodoro on the Android round,
+  2026-10-08.)
+
+- **A test fixture that patches `window.fetch` after boot changes nothing.** A
+  data source's `fetch` is captured when the data module loads, so a stub
+  installed later (a browser script's `page.evaluate`, a console patch) never
+  sees its requests. Fix: to test a failure, `fail fetch "<url prefix>"` (the
+  guide's testing section); a fixture that must stand in for the network
+  installs its stub before the document loads (`addInitScript`) or serves a
+  stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
 
 - **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
   several simulators booted, `booted` names any one of them, not the one the
@@ -484,24 +540,21 @@ guide's rules don't make obvious.
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
-- **A deadline the app computed lands in 1970, and the server sweeps it at once.**
-  `closesAt = now() + 7 * 86400000` was sent as `604800000`: a row the backend's
-  expiry job removed while the mutation said `sent`, a label reading "due in
-  20732d". Cause: `now()` is milliseconds since the runner's clock started, as the
-  web's `performance.now()`, not `Date.now()`; on every host, production included,
-  and from 0 under the agent and in tests. Fix: the date is `time.epochAtZero +
-  now()`, from `resource time = exactTime() as shape Clock` with `shape Clock` /
-  `epochAtZero: number` declared (`exactTime()` is a resource, never a call in an
-  expression); or let the server compute the deadline from a duration. LLP 1109 D1
-  asks whether `now()` should be the date. (App farm round 1, 12 builds,
-  2026-10-07.)
+- **`axe tap` misses on an exact2 app about one time in three.** Its default
+  style (FBSimulator `tapAt`) sometimes lands as nothing: a mute button toggled
+  1 of 3, a drawer button did not open, and the app looked frozen until
+  relaunched. Fix: `axe tap … --tap-style physical` (a real touch down and up),
+  which hit 6 of 6; or drive by `testId` with the agent. (Bluesky clone, b12,
+  2026-10-08.)
 
 - **Records an agent drive writes are dated 2026-01-01.** The driver's clock
-  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
   test posts out of the author feed, and they turned up only through search.
-  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
-  real service. (Bluesky clone, b12, 2026-10-07.)
+  Fix: `--epoch now` (the machine's clock, read once at launch; a test file's
+  `epoch now`) on any drive or test that talks to a real service, `snapback4 dev`
+  included: a backend on real time otherwise sees the app's dates months early
+  ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
 
 - **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
   captures the presented route (a fit-content repost sheet came out 402 × 270
@@ -605,6 +658,7 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+  Against a live backend, `--epoch now` (`epoch now`) instead.
 - **A simulator measurement shows a 100–200 ms stall the app never makes.** A
   plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
   stall with no batch applied about 0.4 s after `axe` first reads the screen

@@ -80,7 +80,9 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
   // Keep TypeScript's lines (`app.ts(2,8): error TS…`) and the shared
   // ambient check's file:line:col diagnostics, including paths with spaces.
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || ambientDiagnostic(l) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || ambientDiagnostic(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
+    // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
+    .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
   console.error(`${[...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
@@ -289,7 +291,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
 // `inode/directory` is the Apple bake's word for a folder; a browser's
 // file handler opens files only (LLP 1069.010 slice 4).

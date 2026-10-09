@@ -248,6 +248,13 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     assert_eq!(call(&mut m, &mut s, "add", "remember"), "remember");
     assert_eq!(call(&mut m, &mut s, "rollback", "discard"), "remember");
     assert_eq!(call(&mut m, &mut s, "refused", ""), "denied");
+    // A refused open names the file it wanted and the grant lines that admit it.
+    let refused = call(&mut m, &mut s, "sqlite-refused", "");
+    assert!(
+        refused.starts_with("denied denied: sqlite.open app:/data/notes-bob.db: ")
+            && refused.contains("`sqlite.open app:/data/notes-bob.db`, or `sqlite.open app:/data`"),
+        "{refused}"
+    );
     assert_eq!(
         call(&mut m, &mut s, "types", ""),
         "9223372036854775807/-9223372036854775808/1.25/0,255"
@@ -1104,6 +1111,40 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     );
     assert!(!folder.join("new.txt").exists());
     exact_data::documents::forget(9101);
+}
+
+#[test]
+#[cfg(unix)]
+fn typescript_document_operations_refuse_descendant_symlinks() {
+    use std::os::unix::fs::symlink;
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside").unwrap();
+    symlink(outside.join("secret"), folder.join("link")).unwrap();
+    symlink(&outside, folder.join("dir-link")).unwrap();
+    let doc = exact_data::documents::mint(&folder, 9102).unwrap();
+    let mut module = root.module();
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    for leaf in ["link", "dir-link/secret"] {
+        assert_eq!(
+            call(
+                &mut module,
+                &mut store,
+                "doc-link",
+                &format!("{doc}/{leaf}")
+            ),
+            ["refused"; 8].join(" ")
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret")).unwrap(),
+        "outside"
+    );
+    exact_data::documents::forget(9102);
 }
 
 /// No later UI request is needed to finish writes these answers already

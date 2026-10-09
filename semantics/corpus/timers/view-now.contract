@@ -1,4 +1,4 @@
-// now() read directly in a view and in a testId: shown as of the last
+// performanceNow() read directly in a view and in a testId: shown as of the last
 // render, which an idle advance does not redo.
 component App
   state n = 0
@@ -6,8 +6,8 @@ component App
     n = n + 1
   view
     column
-      text `${now()}` testId="clock"
-      text "x" testId=`at-${now()}`
+      text `${performanceNow()}` testId="clock"
+      text "x" testId=`at-${performanceNow()}`
       button "poke" press=poke testId="poke"
 
 test "view now"

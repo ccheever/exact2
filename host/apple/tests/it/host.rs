@@ -1434,7 +1434,7 @@ fn a_frame_task_fires_once_per_presented_frame() {
   state at = 0
   action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view

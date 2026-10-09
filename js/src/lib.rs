@@ -24,10 +24,12 @@
 //! `UnknownSource`, `BadArguments`, or `Unavailable` and a `message`; any
 //! other throw is `Unavailable`). In a session the runner asks, a throw, a
 //! rejection or an answer outside its shape (but `UnknownSource`) is
-//! `Failed`: the resource fails (a send ends unsent) and the commit that
-//! asked stands, as on the web, which learns it only after the commit (LLP
-//! 1027.000 D3, amended 2026-10-07). The bake and a replacement's
-//! validation still refuse it. `fetch(url, init)` is the web's, over the
+//! `Failed`, with the code `failure(x)` reads (LLP 1109 D3: its own error
+//! is `error`, a class it let through keeps its own): the resource fails (a
+//! send ends unsent) and the commit that asked stands, as on the web, which
+//! learns it only after the commit (LLP 1027.000 D3, amended 2026-10-07).
+//! The bake and a replacement's validation still refuse it, coded or not,
+//! as `Unavailable`. `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
@@ -76,6 +78,7 @@ pub use paired::Paired;
 use door::{c_string, host_door};
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Store, Target,
     Work,
@@ -221,6 +224,10 @@ pub struct Module {
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
+    /// Each dispatched waiter's flag, by its call: set when the call is let
+    /// go, so a waiter whose outcome will be discarded takes no
+    /// compression's right to write (LLP 1069.002 A1.5).
+    retired: std::collections::HashMap<u64, std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Stream answers (LLP 1016.000): each message is mapped by the call's
     /// `exactStream`, never resumed; forgetting the ticket ends the call.
     streams: Vec<(Key, Parked)>,
@@ -230,6 +237,8 @@ pub struct Module {
     progress: u64,
     budget_ms: f64,
     max_heap: u32,
+    /// How long a storage step is waited for (tests shorten it).
+    storage_wait: std::time::Duration,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -289,11 +298,13 @@ impl Module {
             plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
+            retired: std::collections::HashMap::new(),
             streams: Vec::new(),
             waiters: Vec::new(),
             progress: 0,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
+            storage_wait: storage::WAIT,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -471,7 +482,7 @@ impl Module {
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io)?);
+        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
@@ -584,6 +595,14 @@ impl Module {
         self.budget_ms = ms;
     }
 
+    /// How long a storage step is waited for before the answer fails
+    /// (30 s), from the next [`Module::load`]. For tests of what giving up
+    /// does (LLP 1069.002 A1.5).
+    #[doc(hidden)]
+    pub fn set_storage_wait(&mut self, wait: std::time::Duration) {
+        self.storage_wait = wait;
+    }
+
     /// The heap ceiling for the next [`Module::load`].
     pub fn set_max_heap(&mut self, bytes: u32) {
         self.max_heap = bytes;
@@ -655,16 +674,18 @@ impl Module {
         } = decoded;
         if engine.has_reply_strings() {
             if let Err(error) = engine.restore_reply(&mut reply) {
-                return Step::Done(Err(DataError::Unavailable(format!(
-                    "`{source}` answered outside its shape: {error}"
-                ))));
+                return Step::Done(Err(DataError::Failed(
+                    FailureCode::Shape,
+                    format!("`{source}` answered outside its shape: {error}"),
+                )));
             }
             value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
         }
         let num = |k: &str| reply.get(k).and_then(Json::as_u64);
         match num("tag") {
             Some(0) => Step::Done(value.map_err(|e| {
-                DataError::Unavailable(format!("`{source}` answered outside its shape: {e}"))
+                let why = format!("`{source}` answered outside its shape: {e}");
+                DataError::Failed(FailureCode::Shape, why)
             })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
@@ -692,7 +713,11 @@ impl Module {
                     {
                         DataError::DeferredAtBake(message)
                     }
-                    _ => DataError::Unavailable(message),
+                    // What it let through, by class (LLP 1109 D3; prelude.js `failureCode`).
+                    _ => FailureCode::seam_error(
+                        reply.get("failure").and_then(Json::as_str),
+                        message,
+                    ),
                 }))
             }
             _ => Step::Done(Err(DataError::Unavailable(format!(
@@ -728,7 +753,8 @@ impl Module {
             ));
         }
         // The runner's ask, on a session: not the bake's or a candidate's.
-        let session = store.is_some() && !self.host.baking && !self.host.validating;
+        let refuses = self.host.baking || self.host.validating;
+        let session = store.is_some() && !refuses;
         // No answer waits for another to begin (LLP 1097 D4.5): answers
         // interleave at their awaits, as two async calls do on the web, and
         // storage keeps the order it was issued in (the prelude's queue).
@@ -805,10 +831,14 @@ impl Module {
             // the web learns only after the commit (a rejection; its module
             // realm answers every call later), so it is the target's failure
             // here too, not a refusal (LLP 1027.000 D3, amended 2026-10-07).
+            // Its own error is `error`; a class it let through keeps its
+            // code (LLP 1109 D3). The bake and a candidate's validation
+            // refuse every failure, coded or not.
             Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
                 DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
-                    DataError::Failed(m)
+                    DataError::Failed(FailureCode::Error, m)
                 }
+                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
                 e => e,
             }),
             Ok(Step::Pending { call, ticket }) => {
@@ -885,6 +915,7 @@ impl Module {
         let Parked {
             call, ticket, last, ..
         } = self.parked.remove(pos).1;
+        self.retired.remove(&call);
         if ticket == WAITING {
             if let Outcome::Failed { message, .. } = &outcome {
                 return Err(DataError::Unavailable(message.clone()));

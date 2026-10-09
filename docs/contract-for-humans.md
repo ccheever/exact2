@@ -345,7 +345,7 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
+do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -581,6 +581,27 @@ accept a mutation: a mutation whose request fails without an answer stops being
 pending and keeps its previous value, and its `then` does not run. A domain error
 returned in a shaped answer is data to inspect, not a failed transport request.
 
+`failure(resource)` says why, so the view can tell a lost connection from a bug:
+`none` until the request fails, then `some` of a `Failure` record with a `code`
+from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
+`error`; the grammar says when each applies) and a `message` for a developer.
+The code is the same on every host; the message is not, so branch on the code:
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
+  view
+    text banner testId="banner"
+```
+
+A data module reports `offline`, `timeout`, `refused` or `storage` only by letting
+the `fetch` or storage rejection reach the runner; an error it throws of its own,
+for an HTTP error status say, is `error`.
+
 Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
@@ -789,7 +810,7 @@ call outside them fails. The capabilities are:
   `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
-  and seeds are arguments: pass `now()` from the Contract (the
+  and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
@@ -822,7 +843,12 @@ call outside them fails. The capabilities are:
 - *A domain failure is data.* `addBook` returns `ok: false` with a message
   rather than throwing, so the view can say what happened. A thrown error
   leaves a resource `failed(…)` and a mutation without an answer.
-- *`app.ts` imports only local files.* npm packages are not bundled yet.
+- *`app.ts` imports local files, and only types from packages.* An `import
+  type` (or a name used only as a type) may reach a package's declarations,
+  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
+  and every build checks against them. Importing a package's code is refused
+  (`module outside captured app: …/node_modules/…`): npm packages are not
+  bundled yet.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
@@ -1191,8 +1217,11 @@ them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
-nothing from it; a height in `vh` (the sheet's height on iOS) counts as
-`auto`. A route that scrolls itself is measured by what it scrolls,
+nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and their
+`s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
+smaller and larger side), as CSS's `vh` is the viewport's and never a
+dialog's, so `height: 50vh` is half the screen at any sheet height
+and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
 laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
 Linux show a modal route as authored and ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
@@ -1250,7 +1279,7 @@ component Undo
   state toastUntil = 0
   action deleted
     toast = "Deleted"
-    toastUntil = now() + 5000
+    toastUntil = performanceNow() + 5000
   action hideToast
     toast = ""
   task hide when toast != "" key=toastUntil
@@ -1263,13 +1292,14 @@ The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a ne
 `toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
-toast without testing the time again. Gates and keys read state, never `now()`
+toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
-source and add `time.epochAtZero + now()`. Advancing the clock alone does not
-necessarily trigger rendering: a derive using `now()` reevaluates when a later
+source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
+compiler refuses it and names both. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
 commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with

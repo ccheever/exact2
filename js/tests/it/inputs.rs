@@ -4,6 +4,7 @@
 use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::{Plan, Value};
+use exact_runner::failure::FailureCode;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Response, Runner, Store};
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/inputs.hbc"));
@@ -65,7 +66,7 @@ component App
   action refreshValue
     refresh value
   action tick
-    elapsedMs = now()
+    elapsedMs = performanceNow()
   action reseed(v: number)
     seed = v
   action ambient
@@ -376,7 +377,7 @@ fn a_session_fails_where_the_bake_and_a_candidates_validation_refuse() {
     let mut store = Store::new(GRANTS, vec![]);
     let session = module().answer(&mut store, "ambient", &args);
     assert!(
-        matches!(session, Err(DataError::Failed(ref m)) if m.contains("setTimeout()")),
+        matches!(session, Err(DataError::Failed(FailureCode::Error, ref m)) if m.contains("setTimeout()")),
         "{session:?}"
     );
     let mut candidate = module();

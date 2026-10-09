@@ -89,8 +89,8 @@ impl<D: DataSource> Runner<D> {
                 | super::DataError::BadArguments(m)
                 | super::DataError::Unavailable(m)
                 | super::DataError::Interface(m)
-                | super::DataError::Failed(m)
-                | super::DataError::DeferredAtBake(m),
+                | super::DataError::DeferredAtBake(m)
+                | super::DataError::Failed(_, m),
             ) => {
                 // The executor's own failure, not a failed operation (those
                 // are the module's `storage failed:` lines, D8).

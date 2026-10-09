@@ -114,6 +114,11 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         webView = WKWebView(frame: .zero, configuration: configuration)
         #endif
         super.init()
+        #if EXACT_DEVELOPMENT
+        // Safari's platform inspector sees only this guest, not Exact's
+        // native tree. Production arms never compile this opt-in (#101).
+        webView.isInspectable = true
+        #endif
         controller.add(self, contentWorld: world, name: "exactAgent")
         controller.add(self, contentWorld: world, name: "exactFrame")
         // A direct guest's `parent` is its own window: what it posts to

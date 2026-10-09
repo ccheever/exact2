@@ -150,6 +150,8 @@ mod picture;
 mod refine;
 #[path = "canvas/shadow.rs"]
 mod shadow;
+#[path = "canvas/slot.rs"]
+mod slot;
 #[path = "canvas/stream.rs"]
 mod stream;
 pub use picture::Picture;
@@ -214,6 +216,10 @@ pub struct Recorder {
     /// Each slot's drawing as last sent, and those to send after this row.
     slots: HashMap<u32, Vec<u32>>,
     slot_sets: Vec<u32>,
+    /// Each kept row's slots, and the frame's recording while one of them
+    /// is drawn again without its row (`canvas/slot.rs`).
+    slot_contexts: HashMap<u32, Vec<(ViewId, slot::Context)>>,
+    again: Option<slot::Again>,
     /// Nodes the reader animates, apart (`crate::host::lower`).
     layers: layer::Layers,
 }
@@ -233,6 +239,7 @@ struct RowRecording {
     id: u32,
     previous: Option<u32>,
     images: Vec<usize>,
+    slots: Vec<(ViewId, slot::Context)>,
 }
 
 impl Default for Recorder {
@@ -266,6 +273,8 @@ impl Recorder {
             slot: None,
             slots: HashMap::new(),
             slot_sets: Vec::new(),
+            slot_contexts: HashMap::new(),
+            again: None,
             layers: Default::default(),
         }
     }
@@ -422,8 +431,9 @@ impl Recorder {
     fn image_id(&mut self, image: &Picture) -> u32 {
         let key = image.key();
         let now = self.frames;
-        if let Some(row) = &mut self.row {
-            row.images.push(key);
+        match &mut self.row {
+            Some(row) => row.images.push(key),
+            None => self.again_image(key),
         }
         if let Some((id, weak, used)) = self.images.get_mut(&key) {
             if weak.is(image) {
@@ -462,6 +472,7 @@ impl Backend for Recorder {
         self.row = None;
         self.group = None;
         self.slot = None;
+        self.again = None;
         self.slot_sets.clear();
         self.layers.begin();
         self.recorded = None;
@@ -745,6 +756,7 @@ impl Backend for Recorder {
             id,
             previous,
             images: Vec::new(),
+            slots: Vec::new(),
         });
         self.origin = (origin.0 - ROW_PAD, origin.1 - ROW_PAD);
         self.ops
@@ -759,6 +771,7 @@ impl Backend for Recorder {
             id,
             previous,
             images,
+            slots,
         }) = self.row.take()
         else {
             return 0;
@@ -788,11 +801,13 @@ impl Backend for Recorder {
             self.ops.truncate(at);
             self.ops.extend(sets);
             self.kept.get_mut(&old).expect("kept").1 = images;
+            self.keep_slots(old, slots);
             self.layers.row_end(old);
             return old;
         }
         let body = body.to_vec();
         self.kept.insert(id, (body, images));
+        self.keep_slots(id, slots);
         self.recorded = Some((id, at));
         self.ops.extend(sets);
         self.layers.row_end(id);
@@ -800,33 +815,15 @@ impl Backend for Recorder {
     }
 
     fn slot_begin(&mut self, id: ViewId) {
-        if self.row.is_none() || self.slot.is_some() || !*SLOTS {
-            return;
-        }
-        self.ops.extend([SLOT, id]);
-        let row = std::mem::take(&mut self.ops);
-        let emitted = self.clips.iter().map(|c| c.emitted()).collect();
-        self.slot = Some((id, row, self.matrix.take(), emitted));
+        self.slot_open(id);
     }
 
     fn slot_end(&mut self) {
-        let Some((id, row, matrix, emitted)) = self.slot.take() else {
-            return;
-        };
-        // Clips the picture wrote close inside its slot: outside, pending again.
-        for i in (0..self.clips.len()).rev() {
-            if self.clips[i].emitted() && !emitted.get(i).copied().unwrap_or(false) {
-                self.ops.push(RESTORE);
-                self.clips[i].reopen();
-            }
-        }
-        let drawing = std::mem::replace(&mut self.ops, row);
-        self.matrix = matrix;
-        if self.slots.get(&id) != Some(&drawing) {
-            self.slot_sets.extend([SLOT_SET, id, drawing.len() as u32]);
-            self.slot_sets.extend(&drawing);
-            self.slots.insert(id, drawing);
-        }
+        self.slot_close();
+    }
+
+    fn slot_again(&mut self, row: u32, id: ViewId) -> bool {
+        self.slot_reopen(row, id)
     }
 
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
@@ -891,6 +888,7 @@ impl Backend for Recorder {
 
     fn row_free(&mut self, id: u32) {
         self.kept.remove(&id);
+        self.slot_contexts.remove(&id);
         self.layers.row_free(id);
         self.ops.extend([ROW_FREE, id]);
     }
@@ -968,6 +966,11 @@ pub struct CanvasHost<D: DataSource> {
     /// last of them was (ms).
     moved: u32,
     moved_at: f64,
+    /// When the last scroll step came, whether a pass waits for more, and
+    /// whether the last pass left rows to build.
+    scrolled_at: f64,
+    waiting: bool,
+    leftover: bool,
     /// A touch began or ended: paint the next frame.
     force: bool,
     /// A scroll came since the last collection pass: the frame drawing it
@@ -1101,6 +1104,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             painted: None,
             moved: 0,
             moved_at: 0.0,
+            scrolled_at: 0.0,
+            waiting: false,
+            leftover: false,
             force: false,
             scrolled: false,
             prefetching: false,
@@ -1237,9 +1243,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             return None;
         }
         let p = &mut self.p;
-        let frame = crate::android::trace(c"exact paint", || {
-            crate::text::cache::deferring_eviction(|| p.display_frame())
-        })?;
+        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
@@ -1330,11 +1334,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Whether a moved paint owes a paint: once moves pause (a frame
     /// without one), the paint brings boxes, hits and pictures up to date.
     pub fn owed(&self) -> bool {
-        self.moved > 0 && self.moves < 1000
+        (self.moved > 0 && self.moves < 1000) || self.waiting
     }
 
     fn owed_at(&self, now: f64) -> bool {
-        self.owed() && now - self.moved_at >= 12.0
+        self.moved > 0 && self.moves < 1000 && now - self.moved_at >= 12.0
     }
 
     fn shift(&mut self, at: f64) -> Option<Vec<u32>> {
@@ -1423,6 +1427,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
+        self.scrolled_at = self.now();
         self.travel.scrolled(dy / self.scale);
         self.p.hold_collections(self.prefetching);
         // The feed: the scroller the first wheel at the centre took, moved

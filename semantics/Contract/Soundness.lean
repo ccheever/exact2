@@ -423,7 +423,7 @@ value of the type it gives, or is unsupported; never a type error. -/
 theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} {ts : List Ty} {t : Ty}
     (hp : env.prog = p) (hrs : routeShapesOK p = true) (hv : ValTyL p vs ts) (h : rosterTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
   delta rosterTy at h
-  by_cases hn : name = "now"
+  by_cases hn : name = "performanceNow"
   · subst hn; rw [ite_pos rfl] at h
     split at h <;> simp at h; subst h; rw [hv.nil_inv]; simp [stdlib, GoodR, ValTy]
   rw [ite_neg hn] at h
@@ -1081,11 +1081,22 @@ theorem ty_sound_aux {p : Program} (hfn : ProgOK p) {E : Err → Prop}
             simp [hv, GoodW, ValTy]
           · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
         · simp [GoodW, ValTy]
+      | failure hfd hr _ hin' =>
+        simp only [eval, hp, hfd]
+        split
+        · next hr =>
+          rcases hres _ hin' hr with hs | hs
+          · obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp hs
+            simp [hv, GoodW, ValTy]
+          · cases lookup _ env.resources <;> simp [GoodW, ValTy, hs]
+        · simp [GoodW, ValTy]
       | roster hfd hargs hr =>
         simp only [eval, hp, hfd]
         split
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
+        · cases hargs with | cons _ h2 => cases h2 with | nil =>
+            delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
             delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>

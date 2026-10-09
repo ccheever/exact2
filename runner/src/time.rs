@@ -1,6 +1,6 @@
 //! The date as a host fact: the Unix time at which the runner's clock read
-//! zero, and the viewer's offset from UTC. `now()` stays elapsed time; the
-//! date now is `epochAtZero + now()`. Beside it, where the viewer is: their
+//! zero, and the viewer's offset from UTC. `performanceNow()` stays elapsed time; the
+//! date now is `epochAtZero + performanceNow()`. Beside it, where the viewer is: their
 //! locale and IANA time zone, so a source formats a date the way the device
 //! would (`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`)
 //! without reading either from ambient state.
@@ -24,7 +24,7 @@ pub const FIELDS: &[&str] = &[
 /// host that has not supplied it, answer an unknown date as `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct WallTime {
-    /// Unix milliseconds at which `now()` read zero.
+    /// Unix milliseconds at which `performanceNow()` read zero.
     pub epoch_at_zero: f64,
     /// Minutes east of UTC in the viewer's zone (UTC+2 is `120`).
     pub utc_offset: f64,

@@ -155,10 +155,16 @@ pub(crate) struct Unpersisted {
     pub id: String,
     pub outcome: Json,
     pub revalidated: Option<Json>,
+    /// The store the write was sent to: a late success settles only there.
+    pub dispatched: Option<Json>,
     pub kept: bool,
 }
 
 const OUTCOMES: usize = 256;
+
+/// The last submission number a write took, refused ones included (the
+/// device counts only what it admitted).
+const SUBMITTED: &str = "exact:submission";
 
 impl Shared {
     pub fn finish(&mut self, id: &str, outcome: Json) {
@@ -366,25 +372,41 @@ impl Client {
         ))
     }
 
-    /// Whether the device answers the query `name` from its partition: every
-    /// table it or its rules read is synced here. A query over an `online
-    /// only` table or view is the server's to answer (`POST /q/<name>`); the
-    /// device would answer it with unknown coverage, an empty page that only
-    /// looks like an answer.
-    pub fn answers_on_device(&mut self, core: &mut dyn Core, name: &str) -> Result<bool, String> {
+    /// Who answers the query `name`: `"server"` when it reads a table or view
+    /// the device does not sync (`online only`: the device would answer with
+    /// unknown coverage, an empty page that only looks like an answer),
+    /// `"held"` when the schema holds it to the device
+    /// (`schema.operations.<name>.held`: never ask the server), else
+    /// `"device"` (CLIENT-AND-OPERATIONS.md, "The device reply").
+    pub fn route(&mut self, core: &mut dyn Core, name: &str) -> Result<&'static str, String> {
         self.require_open(core)?;
         let backend = ok(core.call(json!({"op": "backend"})))?;
-        Ok(crate::backend::predictable(&backend, name))
+        let held = &backend["schema"]["operations"][name]["held"];
+        if !held.is_null() && *held != Json::Bool(false) {
+            return Ok("held");
+        }
+        Ok(if crate::backend::predictable(&backend, name) {
+            "device"
+        } else {
+            "server"
+        })
     }
 
     /// Admit a write: kept in the outbox and predicted in one device commit.
-    /// Returns `{id, state:"pending", newIds, result?}`, or the refusal as
-    /// `{id, state:"failed", why}`. The next round sends it.
+    /// Returns `{id, state:"pending", newIds, result?}`, which the next round
+    /// sends, or the refusal as `{id, state:"failed", why}`: a write the
+    /// device refuses (its prediction refused it, as the server would on the
+    /// same rows) is never sent, and `outcome` and `refusals` answer it as
+    /// they answer the server's refusals.
     ///
     /// With a `key` (an idempotency key: the app's name for this intent, such
     /// as the draft version a post publishes) the write's id is derived from
     /// it ([`Client::write_id`]): asking again for the same key admits
-    /// nothing new and answers what became of the first.
+    /// nothing new and answers what became of the first. A prediction does
+    /// not refuse a keyed write: it queues without a row, for the server,
+    /// which may hold its receipt. A keyed write the device cannot admit at
+    /// all (the same key with other input, `E_WRITE_ID_REUSE`) is refused in
+    /// this answer only: the id names the first write, or none yet.
     pub fn write(
         &mut self,
         core: &mut dyn Core,
@@ -396,9 +418,18 @@ impl Client {
         self.require_open(core)?;
         let backend = ok(core.call(json!({"op": "backend"})))?;
         let device = self.device(core)?;
+        // A refused write consumed its number too (`SUBMITTED`), which the
+        // device does not count: the next write must not take its id.
+        let submitted = ok(core.call(json!({"op": "meta", "key": SUBMITTED})))?;
         let seq = ok(core.call(json!({"op": "next_submission"})))?
             .as_u64()
-            .ok_or("next_submission is an integer")?;
+            .ok_or("next_submission is an integer")?
+            .max(
+                submitted
+                    .as_str()
+                    .and_then(|n| n.parse::<u64>().ok())
+                    .map_or(0, |n| n + 1),
+            );
         let (id, new_ids): (String, Vec<String>) = match key {
             Some(key) => {
                 let id = keyed_id(&device, key, None);
@@ -427,11 +458,31 @@ impl Client {
             ),
         };
         let predictable = crate::backend::predictable(&backend, op);
+        // A keyed write whose prediction refuses queues without a row so the
+        // server, which may hold its receipt, decides; a fresh id's refusal
+        // is final here (Snapback's `mutate`, a caller-supplied id).
         let entry = json!({"id": id, "seq": seq, "op": op, "args": args, "viewer": self.config.viewer,
             "now": now, "new_ids": new_ids, "predictable": predictable, "predicted": [],
-            "replay_candidate": false});
-        let admitted = core.call(json!({"op": "admit", "entry": entry}))?;
+            "replay_candidate": key.is_some()});
+        // Ephemeral writes are not in this client yet: refuse them here, as a
+        // terminal failure the app sees, rather than queue what never lands.
+        let unsupported = crate::backend::touches_ephemeral(&backend, op).then(|| {
+            json!({"denied": {"code": "E_CLIENT_UNSUPPORTED", "family": "client",
+                "message": format!("{op} writes an ephemeral table, which this client does not send yet (snapback4/README.md); it was not sent")}})
+        });
+        let admitted = match unsupported {
+            Some(refused) => refused,
+            None => core.call(json!({"op": "admit", "entry": entry}))?,
+        };
         if let Some(why) = admitted.get("denied") {
+            // A keyed write the device could not admit at all (a reused key,
+            // a device that cannot write) took nothing: its key names the
+            // first write, or none yet. Any other refusal is this write's.
+            if key.is_none() {
+                ok(core
+                    .call(json!({"op": "set_meta", "key": SUBMITTED, "value": seq.to_string()})))?;
+                self.refused_here(core, &entry, why)?;
+            }
             return Ok(json!({"id": id, "state": "failed", "why": why}));
         }
         lock(&self.shared).revision += 1;
@@ -440,6 +491,29 @@ impl Client {
             reply["result"] = result.clone();
         }
         Ok(reply)
+    }
+
+    /// A write the device refused at admission (its prediction refused it,
+    /// as the server would on the same rows, or the device could not admit
+    /// it) is terminal, as in Snapback's own client (`mutate`'s local
+    /// failure): it is never sent, and [`Client::outcome`] and
+    /// [`Client::refusals`] answer it as they answer the server's refusals.
+    fn refused_here(
+        &mut self,
+        core: &mut dyn Core,
+        entry: &Json,
+        why: &Json,
+    ) -> Result<(), String> {
+        let id = entry["id"].as_str().unwrap_or_default();
+        let failed = json!({"id": id, "state": "failed", "why": why});
+        lock(&self.shared).finish(id, failed.clone());
+        ok(core.call(json!({"op": "keep_write", "value": failed.to_string()})))?;
+        let refused = crate::journal::entry(entry, why);
+        for (key, value) in crate::journal::append(&self.journal(core)?, refused) {
+            ok(core.call(json!({"op": "set_meta", "key": key, "value": value})))?;
+        }
+        lock(&self.shared).revision += 1;
+        Ok(())
     }
 
     /// The digest of the operation and input a write carried ([`input_key`]),
@@ -567,7 +641,7 @@ impl Client {
         let mut held: Vec<Json> = shared
             .unpersisted
             .iter()
-            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated}))
+            .map(|held| json!({"id": held.id, "outcome": held.outcome, "revalidated": held.revalidated, "dispatched": held.dispatched}))
             .collect();
         for (id, outcome) in &shared.outcomes {
             if !shared.unpersisted.iter().any(|held| &held.id == id) {
@@ -594,6 +668,7 @@ impl Client {
                 id: id.into(),
                 outcome: item["outcome"].clone(),
                 revalidated: item.get("revalidated").filter(|v| !v.is_null()).cloned(),
+                dispatched: item.get("dispatched").filter(|v| !v.is_null()).cloned(),
                 kept: false,
             });
         }

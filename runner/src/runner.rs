@@ -269,7 +269,8 @@ enum Seed<'a> {
 #[derive(Clone)]
 struct PendingReq {
     refusal: Option<(&'static str, bool)>,
-    /// The host refused it at admission: it never ran (LLP 1041 §8.4).
+    /// The host refused this ordered request before execution (LLP 1041 §8.4).
+    /// Earlier source turns may already have executed effects.
     refused: bool,
     ticket: u64,
     target: Target,
@@ -369,14 +370,11 @@ pub struct Runner<D: DataSource> {
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
-    /// Resources refused ordered admission, asked again once the last
-    /// ordered refusal has settled (`release_refused`).
-    refused_asks: Vec<usize>,
     /// Failed arguments suppress another ask until they change or refresh.
     failed_args: Vec<Option<Vec<Value>>>,
     /// Why each resource last failed, shown in `state.failed` while
     /// `failed_args` holds (app farm round 1: a refusal only in the journal).
-    failed_why: Vec<Option<String>>,
+    failed_why: Vec<Option<crate::failure::Failure>>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -764,7 +762,7 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let mut runner = Runner {
-            sites: crate::instance::SiteIndex::new(&plan),
+            sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
@@ -811,7 +809,6 @@ impl<D: DataSource> Runner<D> {
             background: Default::default(),
             picked_count: 0,
             forgot: false,
-            refused_asks: Vec::new(),
             failed_args: Vec::new(),
             failed_why: Vec::new(),
             deferred_edges: Vec::new(),
@@ -1199,7 +1196,10 @@ impl<D: DataSource> Runner<D> {
             .filter(|(_, (args, _))| args.is_some())
             .map(|(i, (_, why))| {
                 let name = self.plan.str(self.plan.resources[i].name);
-                (name, why.as_deref().unwrap_or("it failed"))
+                (
+                    name,
+                    why.as_ref().map_or("it failed", |w| w.message.as_str()),
+                )
             })
             .collect()
     }
@@ -1441,6 +1441,7 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             pending_resources: &self.pending_res,
             failed_resources: &self.failed_args,
+            failed_why: &self.failed_why,
             pending_mutations: &self.pending_mut,
             store_dependent_derives: &[],
             store_dependent_resources: &[],

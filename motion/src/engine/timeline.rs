@@ -44,10 +44,21 @@ pub(super) struct Timelines {
     bound: Vec<(u64, NamedTimeline, [f64; 2])>,
 }
 
+impl Timelines {
+    /// Whether `node` is a timeline's source or follows one.
+    pub(super) fn names(&self, node: u64) -> bool {
+        self.sources.iter().any(|s| s.0 == node) || self.bound.iter().any(|b| b.0 == node)
+    }
+}
+
 impl Engine {
     /// Declare (or with `None`, retract) the timeline `node`'s presented
     /// translate drives, and whether it reads the `x` axis.
     pub fn set_drag_timeline(&mut self, node: u64, x: Option<bool>) {
+        (self.links.set_drag_timeline)(self, node, x)
+    }
+
+    pub(super) fn set_drag_timeline_full(&mut self, node: u64, x: Option<bool>) {
         let at = self.timelines.sources.iter().position(|s| s.0 == node);
         match (x, at) {
             (Some(x), Some(i)) => self.timelines.sources[i].1 = x,
@@ -68,6 +79,14 @@ impl Engine {
     /// name resolved to, over `range`: at `range[0]` they are at their
     /// start, at `range[1]` at their end.
     pub fn set_animation_timeline(
+        &mut self,
+        node: u64,
+        binding: Option<(NamedTimeline, [f64; 2])>,
+    ) {
+        (self.links.set_animation_timeline)(self, node, binding)
+    }
+
+    pub(super) fn set_animation_timeline_full(
         &mut self,
         node: u64,
         binding: Option<(NamedTimeline, [f64; 2])>,
@@ -121,6 +140,10 @@ impl Engine {
 
     /// Hold every bound consumer's plays at the time its timeline gives.
     pub(super) fn seek_timelines(&mut self) {
+        (self.links.seek_timelines)(self)
+    }
+
+    pub(super) fn seek_timelines_full(&mut self) {
         for i in 0..self.timelines.bound.len() {
             self.seek_timeline(i);
         }

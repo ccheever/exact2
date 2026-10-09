@@ -140,7 +140,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * that keeps its data in storage loads and no test, concurrent run or
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
- * was seen. Returns `{ passed, failed, results }`.
+ * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -168,17 +168,22 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     let beforeData = false, leading = 0;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
+    // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
+    // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
+    const notes = [];
+    const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
-      else if (st.op === 'fail-fetch') { facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
+      else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
       else break;
       lines.push(st.line);
       leading++;
     }
-    // A zone or locale the driver refuses fails this test at its line, not the run.
-    try { launchFacts({ ...facts, env: env ?? {} }); } catch (e) {
+    // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
+    // a test, so a `reload` relaunches at the same date on every host (the web's page keeps its launch URL's).
+    try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
@@ -216,6 +221,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
+    // Whether a clock step has let the app's first loads answer (without `before data`, the wait before the first step).
+    let loaded = !beforeData;
     // The line whose `close` closed the window, if one did.
     let closedAt = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
@@ -264,6 +271,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
             case 'fail-fetch': {
               if (n < leading) break;
+              // Under `before data` nothing has loaded until a clock step (or a reload) waits for it.
+              if (beforeData && !loaded) early(st);
               await unfired(st.prefix);
               const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
               if (r?.error) throw new Error(r.error);
@@ -296,12 +305,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
-            case 'reload': await reload(); await data(); input = null; break;
+            case 'reload': await reload(); await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
-            case 'clock': await s.clock(st.arg); input = null; break;
+            case 'clock': await s.clock(st.arg); input = null; loaded = true; break;
             case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
             // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
             // one that closed takes the session, so a step after it fails naming it.
@@ -380,7 +389,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
-    results.push({ name: t.name, failures });
+    results.push({ name: t.name, failures, notes });
     if (base) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length;
