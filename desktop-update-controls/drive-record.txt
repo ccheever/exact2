@@ -1,0 +1,36 @@
+desktop-update-controls: live drive record (2026-10-10)
+
+Before = feature tip 950e8e2e5 (t3-code-evidence-base), lane desktop-update-controls-before.
+After  = this branch's bundle (614a2b504, merged with origin/feat(example)/t3-code 6cb2828ba), lane desktop-update-controls, one agent-mode drive.
+Reference = T3 Code 1e2ecbd975 Electron production build (T3CODE_DISABLE_AUTO_UPDATE=1, no feed), over CDP, lane desktop-update-controls.
+
+Clone steps (both builds; the before build has no update control to hover):
+  clock +20000 real; clock +3000 real; screenshot window
+  [after] tap tip-sidebar-update hover; clock +1500 real; screenshot window; tree
+  tap connection-settings; clock +1500 real; tap setting-update-track hover; clock +1000 real; screenshot window
+  [after] tap tip-settings-update hover; clock +1500 real; screenshot window
+  [after] tap setting-update-track; clock +800 real; screenshot window
+  [after] tap setting-update-track-menu-latest; clock +1500 real; screenshot window; tree
+
+Agent tree, after (excerpts):
+  View tip-sidebar-update handlers [hover]
+    Pressable sidebar-check-updates accessibilityLabel "Check for updates" role button disabled true handlers []
+  hover at [231, 820] -> Text "Check for updates" in role tooltip (window layer)
+  View tip-settings-update handlers [hover]   (Settings nav footer, after Back)
+    Pressable settings-check-updates accessibilityLabel "Check for updates" role button disabled true handlers []
+  hover at [232, 820] -> Text "Check for updates" in role tooltip
+  Pressable setting-update-track role combobox disabled false; label "Nightly" before the pick, "Stable" after it
+Agent tree, before:
+  no "Check for updates" control in either footer; Pressable setting-update-track label "Stable" disabled true
+
+Reference (CDP):
+  button[aria-label="Check for updates"]: aria-disabled "true", opacity 0.6, cursor not-allowed, rect x 215 y 804 w 32 h 32
+    (center 231, 820); Playwright click times out (not enabled); hover shows "Check for updates" above it.
+  Settings: the same control after Back; About's "Check for Updates" disabled; [aria-label="Update track"] disabled false, "Stable".
+  Picking Nightly: the select reads "Nightly"; the Mobile app row appears.
+
+desktop-settings.json (<T3 home>/userdata) after the pick:
+  clone:     {"updateChannel":"latest","updateChannelConfiguredByUser":true}
+  reference: {"mainWindowBounds":{"x":126,"y":30,"width":1100,"height":780},"updateChannel":"nightly","updateChannelConfiguredByUser":true}
+  (Each app writes only the keys that differ from its defaults. Its default track follows its version, resolveDefaultDesktopUpdateChannel:
+   the clone is 0.0.46-nightly.20261004.1, so Nightly; the reference build is 0.0.45, so Stable.)
