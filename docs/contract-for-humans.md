@@ -566,9 +566,10 @@ component Items
       text notice testId="notice"
 ```
 
-The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
-the source gives at once shows immediately) and forces it again when the reply
-lands. `then afterSave` runs a parameterless action in its own commit at the
+The `refreshes items` clause asks `items` again when the reply lands. To show the
+save before then, the data module exports an `overlay` for `loadItems` (the [agent
+guide](contract-for-agents.md#optimistic-writes-the-overlay) has the pattern).
+`then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
 reads the latest answer (the agent driver lands it at the end of the input
 that settled the answer). It does not run for a failure that brought no answer,

@@ -87,6 +87,15 @@ impl DataSource for Composed {
     ) -> Result<exact_runner::Answer, exact_runner::DataError> {
         self.0.answer_for(target, store, source, args)
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        self.0.overlay(source, args, answer, writes)
+    }
     fn app_id(&self) -> &str {
         self.0.app_id()
     }
@@ -213,6 +222,18 @@ impl DataSource for Seeded<'_> {
             return self.query(source, args).map(exact_runner::Answer::Now);
         }
         self.module.answer_for(target, store, source, args)
+    }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        if self.seed.values.contains_key(source) {
+            return Ok(None);
+        }
+        self.module.overlay(source, args, answer, writes)
     }
     fn app_id(&self) -> &str {
         self.module.app_id()
@@ -896,6 +917,10 @@ fn bake_in(
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // An overlay shows writes over the resources they change.
+    if exports(&app_ts, "overlay") {
+        entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
+    }
     if draws {
         entry.push_str(CANVAS_ENTRY);
     }

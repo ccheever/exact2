@@ -149,6 +149,16 @@ export function setAppGrantSet(...sets) {
 }
 export const appGrantSet = () => appSet;
 
+// While a source's `overlay` runs (overlay.js): it shows writes over an answer and has no effects, so `fetch`,
+// storage, the store, `native` and `crypto` refuse by name, as the prelude refuses them (js/src/prelude.js): a call
+// that returns a promise rejects, any other throws.
+export const overlaying = { on: false, say: null }; // `say`: the journal, set by ts-data.js
+export const inOverlay = api => {
+  const e = Object.assign(new Error(`${api} is unavailable in an overlay, which runs synchronously and has no effects; do the work in the source's answer or the mutation, and pass the overlay what it needs in the mutation's arguments`), { overlay: true });
+  overlaying.say?.(`overlay refused: ${e.message}`);
+  return e;
+};
+const effect = api => { if (overlaying.on) throw inOverlay(api); };
 export function createSecretFacade(store, admitted, keys) {
   const refused = name => {
     const parse = grantError(admitted);
@@ -160,14 +170,15 @@ export function createSecretFacade(store, admitted, keys) {
   const seen = {
     read: false,
     get(name) {
+      effect('store.get()');
       if (String(name).startsWith('exact.kept.')) return null;
       seen.read = true;
       return admitsSecret(admitted, name) ? store.get(name) ?? null : null;
     },
-    set(name, value) { allowed(name); store.set(name, String(value)); },
-    forget(name) { allowed(name); store.set(name, null); },
-    keepKey(name, pair) { allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
-    key(name) { const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },
+    set(name, value) { effect('store.set()'); allowed(name); store.set(name, String(value)); },
+    forget(name) { effect('store.forget()'); allowed(name); store.set(name, null); },
+    keepKey(name, pair) { if (overlaying.on) return Promise.reject(inOverlay('store.keepKey()')); allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
+    key(name) { if (overlaying.on) return Promise.reject(inOverlay('store.key()')); const handle = seen.get(name); return handle == null ? Promise.resolve(null) : keys().then(service => service.get(handle) ?? null); },
   };
   return seen;
 }

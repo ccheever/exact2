@@ -243,8 +243,8 @@ not a `refresh`, a declared refresh, `data_ready` or a store-revision re-ask
 no continuation, storage or surface operation), the ticket is **kept**. Its
 reply is parsed with the newest arguments and nothing new is sent. The newest
 arguments still win; the duplicate fetch is what goes. A mutation's request is
-never kept. LLP 1054.000.000 D1 adds the other half: `mutation m … refreshes
-r` re-asks `r`, forced, when `m` is sent and when its reply lands.
+never kept. LLP 1054.000.000 D1 adds the other half:
+`mutation m … refreshes r` re-asks `r`, forced, when its reply lands.
 
 The native JavaScript executor keeps a sent mutation queued behind a storage turn
 even when a newer send forgets its reply. Such mutations run their storage work

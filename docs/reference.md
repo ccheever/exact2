@@ -521,9 +521,9 @@ rejects with a `FetchError` of kind `Aborted` (the request may already have
 been sent), so a `catch` or `finally` runs. A stream's fetch never settles. Its reply is
 dropped either way; a mutation that needs every reply is declared `queue`. Unloading finishes storage the module already
 started, within a second, and drops what has not begun. Reads remain
-replaceable. An answer the runner lets go between storage steps (a refresh it
-discards before a mutation lands, a read whose arguments changed or that a
-`refresh` replaced) still runs the steps it began, and the chain behind them, to
+replaceable. An answer the runner lets go between storage steps (one asked in a
+commit that is refused, a read whose arguments changed or that a `refresh`
+replaced) still runs the steps it began, and the chain behind them, to
 their end; only its answer is dropped, so
 serializing storage through one promise chain composes with `refreshes` and
 fast-changing arguments (ledger F12, minesweeper F10).
