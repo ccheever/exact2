@@ -77,16 +77,20 @@ export function resolveDesktopCoreAdvertisedEndpoints(input: { port: number; exp
   return endpoints;
 }
 
+// `name` is the tagged error's name, which Electron's IPC carries into the renderer's message (connections-network.ts).
 export class DesktopServerExposureNoNetworkAddressError extends Error {
   readonly _tag = 'DesktopServerExposureNoNetworkAddressError';
+  override readonly name = 'DesktopServerExposureNoNetworkAddressError';
   constructor(readonly port: number) { super(`No reachable network address is available for desktop network access on port ${port}.`); }
 }
 export class DesktopServerExposureModePersistenceError extends Error {
   readonly _tag = 'DesktopServerExposureModePersistenceError';
+  override readonly name = 'DesktopServerExposureModePersistenceError';
   constructor(readonly mode: DesktopServerExposureMode, readonly cause: unknown) { super(`Failed to persist desktop server exposure mode ${mode}.`); }
 }
 export class DesktopTailscaleServePersistenceError extends Error {
   readonly _tag = 'DesktopTailscaleServePersistenceError';
+  override readonly name = 'DesktopTailscaleServePersistenceError';
   constructor(readonly enabled: boolean, readonly port: number | null, readonly cause: unknown) {
     super(`Failed to persist desktop Tailscale Serve settings (enabled: ${enabled}, port: ${port ?? 'unchanged'}).`);
   }

@@ -52,6 +52,7 @@ import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThre
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 import { clampInterfaceFontSize } from './appearance-fonts';
+import { windowAppearanceMode } from './settings-appearance-look'; // audit-wave-followups-2 FV-3: the window draws in the resolved mode
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -313,7 +314,7 @@ export class T3Client {
     native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       const ticket = statusTicket(this);
       const status = await this.raw(native, { op: 'status' });
       if (status.ok) settleTraces(this, obj(status.value), ticket);
@@ -656,14 +657,14 @@ export class T3Client {
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
       else {
         if (providers) providers.requireWrite(); else this.requireWrite(); // a provider write on another environment needs that one's session
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else throw new ClientError(`Unknown action: ${op}`);
       }
-      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       await this.save(storage);
       await this.flushSnapshotReleases(native, storage);
       shellSuccess(this, op, value, resultMessage, id);
