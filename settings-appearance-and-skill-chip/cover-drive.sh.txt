@@ -1,0 +1,35 @@
+#!/bin/zsh
+# The review's covered-popover check (settings-appearance-and-skill-chip, round 2). Usage: cover-drive.sh before|after
+# before: this worktree's bundle built from the PR's first head (a62b514db); after: the fixed head. Same steps, same size.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-appearance-and-skill-chip
+S=$W/target/chip-lane/cover/$MODE; mkdir -p $S
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  'tap "Dismiss notification"' "clock +600 real"
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "screenshot $S/c0-open.png window" "tree"
+  "type composer key Meta+," "clock +1500 real"
+  "screenshot $S/c1-settings.png window" "tree" "state"
+  "tap settings-go-to-threads" "clock +1500 real"
+  "screenshot $S/c2-back.png window" "tree"
+  "tap composer mouse at 60 12" "clock +1000 real" "tree"
+  "type composer key Meta+k" "clock +1000 real"
+  "screenshot $S/c3-palette.png window" "tree"
+  "type palette-input key Escape" "clock +1000 real"
+  "screenshot $S/c4-palette-closed.png window" "tree"
+  "type composer key Escape" "clock +600 real"
+  "tap connection-settings" "clock +1000 real"
+  "tap settings-appearance" "clock +1000 real"
+  "tap prompt-font-preview down at 90 13" "tap up" "clock +1000 real"
+  "screenshot $S/p0-open.png window" "tree"
+  "type prompt-font-preview key Meta+k" "clock +1000 real"
+  "screenshot $S/p1-palette.png window" "tree"
+  "type palette-input key Escape" "clock +1000 real"
+  "screenshot $S/p2-palette-closed.png window" "tree"
+)
+print -r -- "${(j:\n:)ops}" > $S/ops.txt
+EXACT_ROOT=$W $A/clone-drive.sh settings-appearance-and-skill-chip 16920 "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
