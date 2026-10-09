@@ -1383,6 +1383,7 @@ export const i = () => Date['n\u006fw']();
     }
 }
 
+#[path = "producer/socket.rs"]
 mod socket;
 
 /// LLP 1091.001: a native producer keeps package identity without symlink privilege.
