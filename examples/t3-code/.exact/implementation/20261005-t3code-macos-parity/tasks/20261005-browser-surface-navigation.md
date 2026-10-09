@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-navigation
 pr_url: https://github.com/ccheever/exact2/pull/348
-verified_commit: 4466f27ced9f089b5919bda4259198146922a500
+verified_commit: f5d232b0f16b04c22bcd188907d7c50870666321
 ---
 
 # Browser surface part 2: navigation, history, zoom and the device toolbar
@@ -181,6 +181,7 @@ Appearance shows an agent's choice and part 5's overlay no longer reports System
 | Verification attempt 2 | after review round 1 | Stopped after 4 passing checks: review round 2's fixes changed the source | runner report (partial) | none |
 | Verification attempt 3 | the staged change on `d564a5c02` after both review rounds; source fingerprint `ffe6a1cd44c2…` (sha256 over the 25 task-owned files), unchanged by the run | 11 required checks passed (`run_checks.py`): Bun 3,662 pass / 1 skip / 0 fail (3,663 tests, 261 files); strict tsc; contract build (5,882 slots); `cargo test -p t3-code-macos --lib` 13 passed; AppKit `macos/tests/browser` 27/27; caps; `cargo build --all-targets --keep-going`; `cargo test --lib --bins --tests --no-fail-fast` (94 binaries ok: 3,521 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings`; `cargo fmt --all -- --check`; boot. Optional, recorded as unavailable: the live drive (session limit used) and real input (screen locked) | runner report | real-input batch |
 | User decision applied (Recently used matches the reference; item 10 moved to part 4) | after the PR's `2cb4c271a` (base `0fe34a3b0`) | The project registration removed (`browser-navigation.ts`), its tests updated (an unregistered thread's visit waits and the list stays empty; a saved mapping lists and titles). Bun 3,664 pass / 1 skip / 0 fail (3,665 tests), strict tsc, contract build (5,882 slots), caps. No Swift, Rust or Contract change, so the cargo and AppKit checks were not run again; no new live session (coordinator) | Bun and checks above | real-input batch |
+| Part 5 merged and wired (`_resize`, the agent default, the rollback, one appearance mechanism) | `f5d232b0f` (base `5f0ae7dca`, #346, merged in as `777c3a4d5`) | All on the committed tree, unchanged by the run: Bun 3,770 pass / 1 skip / 0 fail (3,771 tests, 264 files); strict tsc; contract build (5,900 slots); caps; `cargo test -p t3-code-macos --lib` 13 passed; AppKit `macos/tests/browser` 27/27 and `macos/tests/browser-automation` 20/20 (three new viewport cases); `cargo build --all-targets --keep-going`; `cargo test --lib --bins --tests --no-fail-fast` (94 binaries ok: 3,521 passed, 0 failed, 34 ignored); clippy `-D warnings`; fmt; boot. No live agent run of the wired resize (no new live session) | check logs (`target/bsn/checks-wire346`) | real-input batch |
 | Part-1 test flake found | — | Two part-1 AppKit assertions read a page's title the moment its load ends; WebKit's title KVO can trail it (base `7ce613206`: 1 of 6 runs failed; the branch before the fix 2–4 of 9). Their waits now include the title: 10 of 10 clean | AppKit runs | none |
 
 ### Independent review, round 1 (2026-10-09)
