@@ -94,7 +94,9 @@ describe('header and panels', () => {
     const rows = surfaces(client);
     expect(rows.map(row => `${row.label} ${row.shortcut}`)).toEqual(['Browser B', 'Terminal T', 'Files F', 'Diff D', 'Pull request P', 'Linked pull requests L', 'Device M']);
     expect(rows.find(row => row.id === 'diff')).toMatchObject({ available: true, reason: '' });
+    // browser-surface: the Browser row needs the desktop module (its WKWebView); without one it says why.
     expect(rows.find(row => row.id === 'browser')).toMatchObject({ available: false, reason: 'Only available in the desktop app.' });
+    expect(surfaces(Object.assign(client, { available: true })).find(row => row.id === 'browser')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'pull-request')!.reason).toBe('No pull request on this branch yet.');
     expect(surfaces(fakeClient()).find(row => row.id === 'diff')!.available).toBe(false);
   });

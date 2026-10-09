@@ -9,7 +9,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 
 | ID | Missing in exact2 | T3 feature blocked | Kind | Workaround in the clone |
 |---|---|---|---|---|
-| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared; it starts after the root rewrite |
+| X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none yet: [#100](https://github.com/ccheever/exact2/issues/100) closed upstream, not planned (2026-10-08); the Browser surface is built in the clone's own module on a `WKWebView` (path B, user decision 2026-10-08), with X1's path-B differences declared ("Browser surface: declared differences (X1 path B)"); part 1 (tabs, chrome, page states, security posture) built, parts 2–5 planned |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy, decided ([#101](https://github.com/ccheever/exact2/issues/101), 2026-10-08): development-only Safari inspection of web views | none: View › Toggle Developer Tools is a permanent declared difference; the clone's own web views (terminal, rendered HTML, Mermaid) are inspectable in development builds and never in release builds (`T3WebInspection.swift`, `app-developer-tools`, [#326](https://github.com/ccheever/exact2/pull/326)); Exact's `iframe` web views get the same from main [#309](https://github.com/ccheever/exact2/pull/309) (merged to main on 2026-10-08 as `f2f0e7092`: done on main, round 7 adopts it and removes nothing) |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
@@ -54,7 +54,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X54 | An ancestor cannot hear the focus enter its subtree: no `focusin`/`focusout`, no `:focus-within` ([#283](https://github.com/ccheever/exact2/issues/283), filed 2026-10-08) | A long pull request comment opening when Tab reaches a link it holds below the fold; a remark's pencil showing while the remark has the focus | contract/host | none: "Show full comment" is a Tab stop before the held body, and the pencil shows while it is itself focused; approved, no fix in progress: waits for main fix of #283 (decided 2026-10-08) |
 | X55 | macOS exposes no `progressbar` role on a drawn box, no `status` or `alert`, and no modal `dialog` to accessibility; the `progress` element and an explicit `aria-live` work ([#278](https://github.com/ccheever/exact2/issues/278), filed 2026-10-08) | The first-launch view's progress bar, stage line, error and dialog (portable-app-download, dropped 2026-10-08) | host | none; approved, no fix in progress: waits for main fix of #278 (decided 2026-10-08) |
 | X56 | A mouse click whose mouse-down focuses a `button` that restyles itself from its `focus` handler runs no `press`, on macOS (not reproduced on main `0365ad1a4` in a one-file app, six variants; local draft closed 2026-10-08, not filed) | The Usage page's pooled segments: a click on an unfocused segment did not open its popover (Enter did) | host | the segment draws no ring of its own; the host's focus ring (X47, main #189) stands in |
-| X57 | A line wider than its box keeps its `text-align` on macOS: under `center` (a button's UA value, inherited by its text; `right` takes the same offset, not driven) it starts left of the box, so its start is cut and an ellipsis sits early; CSS Text 3 §7.1 and the web host start-align it ([#291](https://github.com/ccheever/exact2/issues/291), filed 2026-10-08; reproduced on main `0365ad1a4` in a one-file app) | The Pull Requests row's title after a rename or on a long first read ("cribe the vowel count…") | host | `text-align="left"` where the reference says `text-left` (the row, the timeline group toggle, the copyable branch and command) and on the base freshness mark and the filter submenu's value (`20261008-pr-list-title-clip`); other clone buttons still inherit the centre (listed in the issue); attempt withdrawn, no fix in progress: #327 withdrew its attempt and #291 stays open (decided 2026-10-08) |
+| X57 | A line wider than its box keeps its `text-align` on macOS: under `center` (a button's UA value, inherited by its text; `right` takes the same offset, not driven) it starts left of the box, so its start is cut and an ellipsis sits early; CSS Text 3 §7.1 and the web host start-align it ([#291](https://github.com/ccheever/exact2/issues/291), filed 2026-10-08; reproduced on main `0365ad1a4` in a one-file app) | The Pull Requests row's title after a rename or on a long first read ("cribe the vowel count…") | host | `text-align="left"` where the reference says `text-left` (the row, the timeline group toggle, the copyable branch and command) and on the base freshness mark and the filter submenu's value (`20261008-pr-list-title-clip`), and on the right panel's tab title, which a browser tab fills with a page title ("op-up test: sign…" before, `20261005-browser-surface` real input); other clone buttons still inherit the centre (listed in the issue); attempt withdrawn, no fix in progress: #327 withdrew its attempt and #291 stays open (decided 2026-10-08) |
 | X58 | A wheel-scrolled `scroll` keeping its offset after the window is focused again: on macOS the Pull Requests list goes back to its top when the window's return re-renders it (not reproduced on main `0365ad1a4` in a one-file app, four variants; local draft closed 2026-10-08, not filed) | The Pull Requests list read again on focus (pr-list-live-refresh): a reader who had scrolled down is put back at the top; a re-read without a focus change and the minute tick keep the place | host | none |
 | X59 | A `line-clamp` text mounted after launch paints its last kept line cut at a word with no ellipsis until a restyle, on macOS: the first raster skips the clamp's last line (layout is right; the agent's default `screenshot` hides it, `screenshot … window` shows it) ([#300](https://github.com/ccheever/exact2/issues/300), filed 2026-10-08; reproduced on main `febb2c5fb` in a one-file app) | A collapsed Markdown table cell right after "Collapse table cells" (visual-parity-followup) | host | none: a later restyle (a colour-scheme change) draws the ellipsis; base `07dcef1ab` shows the same; done on main (#305, `9314e7a81`): round 7 adopts it |
 | X60 | `input type="number"` on macOS is a plain text field: ArrowUp/ArrowDown do not step within `min`/`max`, letters are accepted, and the accessibility role is `textbox` (the web steps, refuses them and says `spinbutton`) ([#301](https://github.com/ccheever/exact2/issues/301), filed 2026-10-08; reproduced on main `febb2c5fb` in a one-file app) | The Tailscale HTTPS port field (provisional-decisions-parity) | host | the dialog's key handler steps the value itself (`tsStep`, clamped to 1…65535); a typed letter still shows, with the error under it; approved, no fix in progress: waits for main fix of #301 (decided 2026-10-08) |
@@ -125,7 +125,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) was closed upstream a
 - X2 `host/apple/build.mjs:1021-1045`: module dependencies link only as static libraries or framework slices from `modules/apple/*.xcframework` ("a dynamic library is not linked into the module").
 - X2 `host/apple/build.mjs:1229-1244`: the macOS bundle copies only exact's binaries and `assets/`. No `Contents/Frameworks` for third-party frameworks, and no helper apps.
 
-**Current state.** The clone has no Browser surface. The launcher row "Browser" is always unavailable (`shell.ts:152`), and "Open links in" is disabled (`settings-source-control.contract:446`).
+**Current state.** Part 1 of `20261005-browser-surface` (2026-10-09): Browser tabs over a `WKWebView` in the clone's module (`t3-browser`, `T3Browser*.swift`), the chrome row, the page states, the security posture and Safari inspection in development builds; each path-B row it builds is declared in "Browser surface: declared differences (X1 path B)" below. Parts 2–5 (navigation aids, zoom and the device toolbar; annotate, capture and picture in picture; profiles and cookie import; the automation host, links and Mute) are planned records. "Open links in" stays disabled (`settings-source-control.contract`) until part 5.
 
 **Why it does not work.**
 1. Chromium (CEF) needs a dynamic framework plus GPU/renderer/plugin helper apps inside the bundle. The exact2 Apple build cannot embed either.
@@ -415,6 +415,51 @@ Task `20261005-pr-handoffs-and-quick-actions` (`pages-pr-handoffs.*`, `pages-pr-
   - *A native context menu keeps the pointer held* (unconfirmed, no draft). A right-click on a node with a `contextPopover` (sidebar thread and draft rows, panel tabs) goes through `pointerPressed`, which now holds the pointer on the window's root; the NSMenu opened on the next turn takes the secondary button's up, so `pointerHeld` stays set until the next primary button's up (`MouseChainMac.swift` `pointerPressed` / `pointerReleased`, read, not run: the agent shows a painted menu). Until then no node hears a `pointerdown` (the first press after such a menu does not dismiss a pinned popover, and the colour plane or hue slider misses that first press), and the hit test that follows a resting pointer after a layout change pauses (hover still follows a moving pointer). A real-input check is in the task's steps.
 - **The popover's side (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** Worked out from the layout as Base UI's flip lands on an unscrolled page (`popoverSides`); after a scroll a popover near the scroll area's top can still be clipped (no `position-try`). #112's first slice covers invoker popovers only, so this hover-opened layer keeps the app's placement.
 - **Hatching of the spent share.** One SVG path of the same 1px stripes 5px apart at 135°: the kernel paints no `repeating-linear-gradient` (it says so at compile time). No visible difference.
+
+## Browser surface: declared differences (X1 path B)
+
+Task `20261005-browser-surface` part 1 (`browser-*.ts`, `browser-surface.contract`, `T3BrowserSession.swift`,
+`T3BrowserSessions.swift`, `T3BrowserView.swift`, `T3BrowserFavicon.swift`). The engine is a `WKWebView` in the clone's
+module, the user's decision of 2026-10-08 after #100 was closed upstream as not planned; each row is a path-B row of X1's
+table, built here. Parts 2–5 add their own rows when they build them.
+- **Engine and rendering.** Pages render with WebKit, not Chromium: layout, fonts, form controls, scroll bars and
+  standards support follow Safari's engine at the macOS version, and a page that sniffs the engine sees WebKit.
+- **User agent.** The page keeps the engine's native user agent, as the reference does (`BrowserSession.ts:198-205`), so
+  the string is WebKit's (`AppleWebKit/605.1.15 (KHTML, like Gecko)`, no `Version/… Safari/…` token, no Electron or
+  Chrome token); nothing rewrites it.
+- **Developer tools.** No "Open DevTools" item: Safari's Web Inspector attaches to a tab's page in a development build
+  (`T3WebInspection.mark`, #101/X2) and cannot be opened from code; a release build never marks the page inspectable.
+- **Permissions.** The reference grants clipboard-read, clipboard-sanitized-write, notifications and geolocation and denies
+  the rest (`BrowserSession.ts:31-40`). WebKit asks a delegate only for the camera and the microphone, which are denied as
+  there. A clipboard write needs a user gesture (WebKit's rule) and a clipboard read shows WebKit's own Paste
+  confirmation; `WKWebView` has no Notification API, and asks no delegate for geolocation (the app declares no location
+  use), so those two are unavailable in the page.
+- **Pop-ups.** As `previewWindowOpenAction`: a scripted pop-up to an http(s) URL opens a real window that keeps its
+  opener, and its own pop-ups are refused; a `target=_blank` link loads in the tab. WebKit gives no Chromium
+  disposition: a request is a pop-up when a script asked for it with window features (a size, a position or a hidden
+  bar). As Chromium's pop-up blocker, a script opens a window only from a user gesture.
+- **Load failures.** The code is WebKit's (`NSURLErrorDomain`); the description is Chromium's error name where WebKit's
+  error has one (`ERR_CONNECTION_REFUSED`, `ERR_NAME_NOT_RESOLVED`, `ERR_CERT_AUTHORITY_INVALID`, …), else WebKit's own
+  words. A cancelled load (WebKit -999, Chromium -3) and a load a policy stopped are not failures. WebKit keeps the last
+  page under a failed load (Chromium shows its error page at the failed URL); the load-failed page covers it, and Refresh
+  and Reload load the failed URL again.
+- **Refresh while loading.** The button is named Stop while a page loads and reloads, as the reference's
+  `PreviewManager.refresh` does; during a tab's first load it asks for the pending URL again (WebKit's `reload()` would
+  reload the committed page).
+- **Favicons.** WebKit has no `page-favicon-updated`: a user script in the module's own content world reads the page's
+  icon links (or `/favicon.ico`) after each load; the icon is fetched without the tab's cookies (the reference sends them
+  for a same-origin icon), so an icon behind a sign-in falls back to the public favicon service, then the globe.
+- **Crash recovery.** A crash is `webViewWebContentProcessDidTerminate`; recovery follows `webviewCrashRecovery`
+  (three reloads 250, 500 and 1,000 ms apart within 30 s) at the last URL, then the page stays down until Refresh.
+- **Hidden tabs.** A tab the panel does not show keeps running, throttled (`inactiveSchedulingPolicy = .throttle`), as a
+  background Chromium guest is throttled.
+- **Non-web links and downloads (until part 3).** The main frame refuses schemes other than http(s), `about:`, `data:`
+  and `blob:` (a `mailto:` link does nothing); a response the page cannot show is not loaded until part 3 sends
+  downloads to the artifact directory.
+- **The "+" menu's profile list (X66, [#319](https://github.com/ccheever/exact2/issues/319)).** The reference opens
+  it on hover of the Browser row (`MenuSubTrigger`); here its chevron opens it, until a popover can open from an action.
+- **Storage.** Each environment's profile has its own persistent WebKit data store (identifier derived from the
+  environment and the profile), apart from the app's other web views; agent runs keep it in memory.
 
 ## Not exact2 asks (stay in the app module)
 

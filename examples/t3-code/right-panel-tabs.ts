@@ -1,5 +1,5 @@
 // MIT T3 Code 1e2ecbd975: rightPanelStore / RightPanelTabs / ChatView.
-// Browser's toggle-mute slot is reserved in TabAction; Browser remains excluded (X1).
+// Browser tabs close through the 'browser' close hook (browser-surface.ts); their toggle-mute slot is reserved in TabAction for part 5.
 import type { T3Client } from './client';
 import type { PanelState, Surface, SurfaceKind } from './r4-surfaces-panel';
 import type { DeviceTarget } from './r6-media-device';

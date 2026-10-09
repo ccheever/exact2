@@ -146,3 +146,7 @@ state, as on the web. With them:
 - The snooze row pins on focus inside the menu or the pointer on a menu row.
 - One limit remains. The table Copy menu mounts at the window, outside its trigger's tree, so ↓/↑
   open it with the popup focused, and the next ↓ or ↑ reaches the first or last item.
+- browser-surface part 1 (2026-10-09): the "+" menu's Browser row is the reference's `MenuSubTrigger`, whose
+  profile list opens on hover. A hover cannot show a popover here, so the row's chevron is a `popovertarget`
+  invoker of the nested profile popover (`browser-surface.contract` `BrowserAddItem`), declared in
+  `EXACT2-GAPS.md` ("Browser surface: declared differences"). Nonblocking.
