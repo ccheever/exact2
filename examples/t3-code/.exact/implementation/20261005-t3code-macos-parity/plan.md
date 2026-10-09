@@ -239,7 +239,7 @@ draft. `issue-open` reproduces it and checks it against #321. Publication needs 
 Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
 draft PR (option a of the blocked record).
 
-Progress (2026-10-10): 18 audit-era PRs merged: #357, #356, #355, #359, #365, #362, #361, #360, #364, #366, #370, #369,
+Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, #360, #364, #366, #370, #369,
 #368 (the user decided to build the no-feed update controls), #367, plus #353 and Browser part 2 (#352, merged on the
 user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. In flight: markdown-links-and-files-preview,
 usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
