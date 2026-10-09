@@ -49,7 +49,7 @@ async function surfaceLocalIn(client: T3Client, state: PanelState, op: string, i
   surfaceStore(client).panels.set(panelKey(client), state);
   return surfaceLocal(client, module, op, id, '');
 }
-const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, failures: 0, zoomFactor: 1, colorScheme: 'system', ...overrides });
+const nativeTab = (overrides: Partial<NativeTab> = {}): NativeTab => ({ kind: 'Success', url: 'https://example.com/', title: 'Example Domain', code: 0, description: '', canGoBack: false, canGoForward: false, favicon: null, failures: 0, ...overrides });
 
 describe('openPreviewSession', () => {
   it('creates an idle tab without recording a recently visited URL', async () => {
