@@ -402,6 +402,12 @@ guide's rules don't make obvious.
   value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
   codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
   13.)
+- **A field's `change` fires when a tap elsewhere blurs it.** A dialog that adds
+  a word on `change` adds it the moment the person taps a duration or another
+  control, before they meant to submit. Cause: `change` is the commit event, and
+  a text field commits on Enter and on blur, as in HTML. Fix: submit on `submit`
+  (Return, a form's button) and keep `change` for normalizing the draft.
+  (The Bluesky clone's muted words dialog, 2026-10-08.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does

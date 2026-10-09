@@ -692,7 +692,10 @@ impl<D: DataSource> Presenter<D> {
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();

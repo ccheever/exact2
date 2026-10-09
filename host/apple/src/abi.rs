@@ -242,7 +242,10 @@ impl<D: DataSource> Bridge<D> {
         if let (Some(h), Some(x)) = (host.as_mut(), executor.as_deref()) {
             x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
-                x.resume_ordered();
+                for (ticket, reason) in x.resume_ordered() {
+                    h.refuse_request(ticket, reason, true);
+                    x.notify();
+                }
             }
             let admitted = h.grants();
             let mut presenter = crate::batch::Batch::new();

@@ -77,9 +77,10 @@ impl Executor {
         self.core.drain()
     }
 
-    /// Lift the ordered lane's fence after a refusal.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Lift the ordered lane's fence after a refusal, admitting the ordered
+    /// requests held behind it; returns those refused at a limit.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
 
     /// Let go of the work for tickets the runner no longer holds.

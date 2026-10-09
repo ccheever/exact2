@@ -74,8 +74,10 @@ impl Executor {
         self.core.ordered_idle()
     }
     /// Called only after the runner has no retained ordered admission refusals.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Admits the ordered requests held behind them; returns any of those
+    /// refused at a limit, for the host to record on their tickets.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {

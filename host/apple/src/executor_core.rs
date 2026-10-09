@@ -79,6 +79,13 @@ struct State {
     ordered: VecDeque<u64>,
     retired: bool,
     ordered_barrier: bool,
+    /// Ordered requests behind the barrier, in order, with the request
+    /// buffers each is charged: held rather than refused with the refusal
+    /// before them, and admitted when the host lifts it (`resume_ordered`).
+    /// Each is a current runner ticket; count and bytes are capped as the
+    /// ordered queue's waiting buffers are.
+    fenced: VecDeque<(RequestOut, Option<OwnedWork>, usize)>,
+    fenced_bytes: usize,
     notified: bool,
     wake: Option<Wake>,
 }
@@ -254,7 +261,15 @@ impl Core {
                 return Err("native executor retired");
             }
             if ordered && state.ordered_barrier {
-                return Err("earlier ordered admission refusal must settle first");
+                // Behind an earlier ordered refusal: held until it settles,
+                // so that later work neither bypasses its settlement nor is
+                // refused with it (one refusal must not poison the lane).
+                let full = state.fenced.len() >= ORDERED_READS
+                    || charge > ORDERED_WAITING_BYTES.saturating_sub(state.fenced_bytes);
+                if full {
+                    return Err("earlier ordered admission refusal must settle first");
+                }
+                return Ok(None);
             }
             // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
@@ -288,10 +303,16 @@ impl Core {
                     return Err("native ordered queue byte limit reached");
                 }
             }
-            Ok((lane, charge, limit))
+            Ok(Some((lane, charge, limit)))
         })();
         let (lane, charge, limit) = match admitted {
-            Ok(value) => value,
+            Ok(Some(value)) => value,
+            Ok(None) => {
+                let charge = reservation(&r.request).map_or(0, |(_, charge, _)| charge);
+                state.fenced_bytes += charge;
+                state.fenced.push_back((r, work, charge));
+                return Ok(());
+            }
             Err(reason) => {
                 // Failure parsing can mutate Store too. Refusals live on
                 // runner tickets, but fence later ordered work here until
@@ -402,6 +423,7 @@ impl Core {
     /// its count and bytes when it ends.
     pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
         let mut aborts = Vec::new();
+        let let_go: VecDeque<_>;
         {
             let mut guard = self.shared.state.lock().unwrap();
             let state = &mut *guard;
@@ -442,11 +464,20 @@ impl Core {
                 }
             }
             state.ordered.retain(|ticket| held(*ticket));
+            // A held request has not begun: one let go is dropped unsent,
+            // as a refused one would have been (outside the lock).
+            let (kept, gone) = std::mem::take(&mut state.fenced)
+                .into_iter()
+                .partition(|(r, _, _)| held(r.ticket));
+            state.fenced = kept;
+            state.fenced_bytes = state.fenced.iter().map(|f| f.2).sum();
+            let_go = gone;
             self.shared.ready.notify_all();
             if has_ready(state) {
                 wake(state);
             }
         }
+        drop(let_go);
         // Transport callbacks run outside the lock, as retirement's do.
         for abort in aborts {
             abort.abort();
@@ -457,8 +488,25 @@ impl Core {
         self.shared.state.lock().unwrap().counts[0] == 0
     }
 
-    pub(super) fn resume_ordered(&self) {
-        self.shared.state.lock().unwrap().ordered_barrier = false;
+    /// Lift the barrier once the runner retains no ordered refusal, and
+    /// admit the requests held behind it, in order. One past a limit is
+    /// refused, raising the barrier again over the rest: its ticket and
+    /// reason are returned for the host to record (`refuse_request`).
+    pub(super) fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        let fenced = {
+            let mut state = self.shared.state.lock().unwrap();
+            state.ordered_barrier = false;
+            state.fenced_bytes = 0;
+            std::mem::take(&mut state.fenced)
+        };
+        let mut refused = Vec::new();
+        for (r, work, _) in fenced {
+            let ticket = r.ticket;
+            if let Err(reason) = self.run_owned(r, work) {
+                refused.push((ticket, reason));
+            }
+        }
+        refused
     }
 
     pub(super) fn notify(&self) {

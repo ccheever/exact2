@@ -456,7 +456,13 @@ port, F2.) Request buffers are capped at 4 MiB; response limits apply during
 HTTP reads. One completion or admission refusal settles per pump,
 with alternating opportunities for ready lanes/refusals and coalesced wakes.
 Ordered refusals wait for prior admitted work and prevent later ordered effects
-from bypassing their settlement. Refusals occupy existing current runner tickets,
+from bypassing their settlement. As built 2026-10-08, later ordered requests are
+held behind the refusal, not refused with it (on current tickets, capped at 128
+and 64 MiB of request buffers), and admitted in order once it settles; one over
+a limit then is refused alone and the rest wait again. (The Bluesky clone: a
+seventeenth answer at boot was refused and so was every later ordered request,
+and the app stayed on skeletons.) The request over the limit is still refused,
+not queued: D2 leaves durable queues to the application. Refusals occupy existing current runner tickets,
 not a new unbounded failure queue. A full queue refuses explicitly. A refusal
 the source cannot settle clears pending and records the resource's failure,
 keeping its last value. Capacity refusal never restarts the source: earlier

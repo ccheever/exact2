@@ -1,5 +1,6 @@
 //! Actual Bridge pump regression: rejected ordered work must not overtake a
-//! previously admitted effect, even though refusal never enters an I/O queue.
+//! previously admitted effect, even though refusal never enters an I/O queue,
+//! and later ordered work waits for the refusal to settle, then runs.
 use super::*;
 use exact_runner::{Answer, Outcome, Request, Store, Value};
 use std::sync::{
@@ -51,7 +52,15 @@ impl DataSource for Ordered {
         _: &[Value],
         _: Outcome,
     ) -> Result<Answer, exact_runner::DataError> {
-        self.parsed.lock().unwrap().push(name.into());
+        // Whether `c`'s work had run when `b`'s refusal settled.
+        let ran = self.ran_third.load(std::sync::atomic::Ordering::SeqCst);
+        let mut parsed = self.parsed.lock().unwrap();
+        parsed.push(if name == "b" && ran {
+            "b after c ran".into()
+        } else {
+            name.into()
+        });
+        drop(parsed);
         Ok(Answer::Now(Value::Number(1.)))
     }
 }
@@ -130,12 +139,12 @@ fn rejected_ordered_b_waits_for_held_a_and_c_cannot_bypass_b() {
         bridge.pump(0.);
         std::thread::sleep(Duration::from_millis(1));
     }
+    // `c` was held behind `b`'s refusal, not refused with it: it ran once
+    // `b` settled, never before (the Bluesky clone's poisoned lane).
     assert_eq!(*parsed.lock().unwrap(), ["a", "b", "c"]);
-    assert!(
-        !ran_third.load(std::sync::atomic::Ordering::SeqCst),
-        "later work bypassed the refusal barrier"
-    );
-    // Once the refusal cohort has settled, a new ordered request must recover.
+    assert!(ran_third.load(std::sync::atomic::Ordering::SeqCst));
+    ran_third.store(false, std::sync::atomic::Ordering::SeqCst);
+    // A new ordered request is admitted as before.
     let kernel = bridge.host.as_ref().unwrap().runner().kernel();
     let retry = kernel
         .node_by_key(kernel.find_by_test_id("retry")[0])

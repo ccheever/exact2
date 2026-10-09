@@ -48,14 +48,17 @@ impl Executor {
         self.core.ordered_idle()
     }
     /// Called only after the runner has no retained ordered admission refusals.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Admits the ordered requests held behind them; returns any of those
+    /// refused at a limit, for the host to record on their tickets.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
-    /// Admit or return a terminal refusal without allocating a failure queue.
+    /// Admit, hold behind an earlier ordered refusal until it settles, or
+    /// return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
@@ -87,7 +90,7 @@ pub trait Io {
     /// [`Executor::ordered_idle`].
     fn ordered_idle(&self) -> bool;
     /// [`Executor::resume_ordered`].
-    fn resume_ordered(&self);
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)>;
     /// [`Executor::forget`].
     fn forget(&self, held: &dyn Fn(u64) -> bool);
     /// [`Executor::run`].
@@ -109,7 +112,7 @@ impl Io for Executor {
     fn ordered_idle(&self) -> bool {
         Executor::ordered_idle(self)
     }
-    fn resume_ordered(&self) {
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
         Executor::resume_ordered(self)
     }
     fn forget(&self, held: &dyn Fn(u64) -> bool) {

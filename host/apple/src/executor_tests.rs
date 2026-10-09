@@ -863,6 +863,110 @@ fn writes_and_opaque_work_keep_the_sixteen_ticket_admission_bound() {
     assert!(settled(&core));
 }
 
+/// Sixteen writes in flight, a seventeenth refused at the limit: the ordered
+/// requests after it wait behind the refusal instead of being refused with it
+/// (the Bluesky clone, 2026-10-08: more than sixteen answers at boot, then
+/// every later ordered request refused, and the app sat on skeletons).
+#[test]
+fn ordered_requests_after_a_capacity_refusal_wait_for_it_to_settle() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    let write = |n: u64| Request::post_json(&format!("https://example.test/write/{n}"), "{}");
+    for ticket in 1..16 {
+        core.run(job(ticket, write(ticket)), None).unwrap();
+    }
+    assert_eq!(
+        core.run(job(16, write(16)), None),
+        Err("native executor admission limit reached")
+    );
+    // Later ordered work is held, not refused, while the refusal is retained.
+    for ticket in 17..=18 {
+        core.run(job(ticket, write(ticket)), None).unwrap();
+    }
+    core.run(job(19, Request::get("https://example.test/read")), None)
+        .unwrap();
+    fixture.release();
+    let first = collect(&core, &woke, 16);
+    assert_eq!(
+        first.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+        (0..16).collect::<Vec<_>>()
+    );
+    assert!(
+        core.ordered_idle(),
+        "held requests don't hold the refusal back"
+    );
+    // The refusal settled; the host lifts the fence and the held requests go.
+    assert!(core.resume_ordered().is_empty());
+    assert_eq!(
+        collect(&core, &woke, 3)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        [17, 18, 19]
+    );
+    let sent = fixture.state.lock().unwrap().2.clone();
+    assert_eq!(sent.len(), 19, "{sent:?}");
+    assert!(!sent.iter().any(|url| url.ends_with("/write/16")));
+    assert_eq!(
+        &sent[16..],
+        [
+            "https://example.test/write/17",
+            "https://example.test/write/18",
+            "https://example.test/read"
+        ]
+    );
+    assert!(settled(&core));
+    // The lane is not poisoned: a later request is admitted at once.
+    core.run(job(20, write(20)), None).unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 20);
+}
+
+/// Held requests past the limit when the fence lifts: the first one over is
+/// refused (and named, for the host to record on its ticket), the rest wait
+/// behind it again; a request the runner lets go is dropped unsent.
+#[test]
+fn held_ordered_requests_past_the_limit_refuse_one_and_wait_again() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    let write = |n: u64| Request::post_json(&format!("https://example.test/write/{n}"), "{}");
+    for ticket in 1..16 {
+        core.run(job(ticket, write(ticket)), None).unwrap();
+    }
+    assert!(core.run(job(16, write(16)), None).is_err());
+    for ticket in 17..=36 {
+        core.run(job(ticket, write(ticket)), None).unwrap();
+    }
+    core.forget(|ticket| ticket != 20);
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 16).len(), 16);
+    // 17..=36 less 20 is 19 held: sixteen admitted, the seventeenth (34) refused.
+    assert_eq!(
+        core.resume_ordered(),
+        [(34, "native executor admission limit reached")]
+    );
+    let next = collect(&core, &woke, 16);
+    let expected: Vec<u64> = (17..=33).filter(|t| *t != 20).collect();
+    assert_eq!(next.into_iter().map(|v| v.0).collect::<Vec<_>>(), expected);
+    assert!(core.ordered_idle());
+    assert_eq!(core.resume_ordered(), []);
+    assert_eq!(
+        collect(&core, &woke, 2)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        [35, 36]
+    );
+    let sent = fixture.state.lock().unwrap().2.clone();
+    assert!(!sent
+        .iter()
+        .any(|url| url.ends_with("/write/20") || url.ends_with("/write/34")));
+    assert!(settled(&core));
+}
+
 #[test]
 fn forgotten_ordered_backlog_releases_queued_buffers_and_aborts_running_read() {
     let (core, fixture, woke) = setup();

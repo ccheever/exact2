@@ -808,9 +808,12 @@ struct Held {
 }
 
 fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
-    // The runner holds no refusals in a render, so nothing fences the lane.
+    // The runner holds no refusals in a render, so the fence lifts at each
+    // hand-out: what it held is admitted, or the render is busy.
     executor.forget(|ticket| runner.holds(ticket));
-    executor.resume_ordered();
+    for (ticket, _) in executor.resume_ordered() {
+        held.busy.insert(ticket);
+    }
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
