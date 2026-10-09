@@ -37,9 +37,10 @@ struct HeaderShape: Equatable {
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
-        /// The authored colour of the item's face, light and dark: a
-        /// symbol's tint, else the text's `color` (CSS's, inherited from
-        /// the button). Nil for a platform colour, which leaves UIKit's.
+        /// The colour the author gave the item's face, light and dark: a
+        /// symbol's tint, else a `color` set on the button itself. Nil
+        /// (UIKit's tint, the platform default) for an inherited or
+        /// platform colour.
         let tint: [[Double]]?
         init(_ button: NodeView) {
             var symbol: String?, text = "", ink: (NodeView, String)?
@@ -67,8 +68,13 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
-            let (node, key) = ink ?? (button, "text_color")
-            let row = [node.style[key], button.style["text_color"]].lazy.compactMap { $0 }.first { !$0.isSystemColor }
+            // The platform's tint unless the button says otherwise: a
+            // symbol's own tint, or a `color` set on the button rather than
+            // inherited from the page (the same as the nearest node above).
+            let above = sequence(first: button.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
+            let own = button.style["text_color"].flatMap { $0.key == above?.style["text_color"]?.key ? nil : $0 }
+            let symbolTint = ink?.1 == "tint_color" ? ink?.0.style["tint_color"] : nil
+            let row = [symbolTint, own].lazy.compactMap { $0 }.first { !$0.isSystemColor }
             if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
                 tint = [light, dark]
             } else {
