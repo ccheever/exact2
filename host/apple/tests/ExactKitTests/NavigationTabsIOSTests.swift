@@ -12,12 +12,21 @@ import XCTest
 final class NavigationTabsIOSTests: XCTestCase {
     private var window: UIWindow?
     private var sessions: [ExactSession] = []
+    private var animationsWereEnabled = true
+
+    override func setUp() {
+        super.setUp()
+        // Hostless UIKit does not finish an animated tab selection.
+        animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+    }
 
     override func tearDown() {
         for session in sessions { session.destroy() }
         sessions = []
         window?.isHidden = true
         window = nil
+        UIView.setAnimationsEnabled(animationsWereEnabled)
         super.tearDown()
     }
 

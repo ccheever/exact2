@@ -103,7 +103,11 @@ final class StickyHost {
     /// scroll view of its own.
     private func pageScrolls(_ scroller: UInt32) -> Bool {
         guard let v = presenter.views[scroller] else { return false }
+        #if os(macOS)
         return v.scroll == nil && v.superview === presenter.root
+        #else
+        return v.scrollView == nil && v.superview === presenter.root
+        #endif
     }
     /// The scroller's offset in its content's space: its own scroll view's,
     /// the page's for a root that does not scroll itself, else none (it
@@ -115,7 +119,7 @@ final class StickyHost {
         guard v.superview === presenter.root else { return .zero }
         let page = presenter.viewport.contentView.bounds.origin
         #else
-        if let sv = v.scroll { return sv.contentOffset }
+        if let sv = v.scrollView { return sv.contentOffset }
         guard v.superview === presenter.root else { return .zero }
         let page = presenter.viewport.contentOffset
         #endif

@@ -522,7 +522,7 @@ extension NodeView {
         content = .zero
         if let e = extras {
             e.beforeLayoutScroll = nil; e.hiddenScroll = nil; e.followedScroll = nil
-            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = .zero
+            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = (.zero, 0)
             e.readingAnchors.removeAll(); e.activeReadingAnchor = nil; e.scrollAnchor = nil
             e.pendingScrollTop = nil; e.pendingScrollLeft = nil
         }

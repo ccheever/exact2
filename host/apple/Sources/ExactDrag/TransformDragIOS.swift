@@ -67,13 +67,13 @@ extension NodeView {
         let horizontal = abs(direction.x) > abs(direction.y)
         var view: UIView? = hitTest(start, with: nil) ?? self
         while let current = view {
-            if let scroll = current as? ScrollView {
+            if let scroll = current as? UIScrollView, scroll is ScrollView || scroll is GroupedScroller {
                 let i = scroll.adjustedContentInset
                 let room = horizontal ? scroll.contentSize.width + i.left + i.right - scroll.bounds.width
                                       : scroll.contentSize.height + i.top + i.bottom - scroll.bounds.height
-                if scroll.isScrollEnabled, (horizontal ? scroll.scrollsX : scroll.scrollsY) && room > 0.5 {
+                if scroll.isScrollEnabled, (horizontal ? (scroll as? ScrollView)?.scrollsX ?? false : (scroll as? ScrollView)?.scrollsY ?? (scroll.superview as? NodeView)?.scrollsVertically ?? false) && room > 0.5 {
                     if let owner = scroll.superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
-                    if !scroll.chains(direction) { return true }
+                    if (scroll as? ScrollView)?.chains(direction) != true { return true }
                 }
             } else if let node = current as? NodeView, !node.allowsTouchPan(direction) {
                 return false

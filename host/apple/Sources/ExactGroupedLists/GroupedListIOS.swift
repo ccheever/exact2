@@ -2,9 +2,9 @@
 // own list: a UICollectionView with UICollectionLayoutListConfiguration in
 // the list's box, its cells UIListContentConfiguration and cell accessories
 // read from the kernel (`exact_grouped_list`), so separators, highlight,
-// dynamic type and dark mode are the platform's. The authored scroll stays
-// beneath, hidden: the kernel still lays it out, a custom row's views are
-// carried into their cell, and every batch sees the authored hierarchy.
+// dynamic type and dark mode are the platform's. The collection is the list's
+// only scroller. The authored sections stay hidden under it, a custom row's
+// views are carried into their cell, and every batch sees that hierarchy.
 import ExactKit
 
 /// The grouped lists capability (LLP 1047.001 D4): an app's composition
@@ -265,8 +265,16 @@ final class GroupedListHost: GroupedLists {
 
     // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
-    func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
+    func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.hidesAuthored(node) } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
+
+    func projectedRect(for node: NodeView, in scroll: UIScrollView) -> CGRect? {
+        lists.values.first { $0.collection === scroll }?.projectedRect(for: node)
+    }
+
+    func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)] {
+        lists[id]?.scrollAnchors() ?? []
+    }
 }
 
 /// One projected list.
@@ -291,7 +299,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
     private var resized = false
-    private var scrollWasHidden = false
+    /// Only the host-hidden bit: CSS display remains authoritative.
+    private var hiddenRoots: [UInt32: (node: NodeView, hidden: Bool)] = [:]
+    /// The list's padding and final footer space, independent of other insets.
+    private var addedInsets = UIEdgeInsets.zero
 
     init(owner: NodeView, host: GroupedListHost) {
         self.owner = owner; self.host = host
@@ -379,15 +390,15 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             snapshot.appendSections([s.view])
             snapshot.appendItems(s.rows.map(\.view).filter { seen.insert($0).inserted }, toSection: s.view)
         }
-        // A row whose parts changed is configured again; a custom row always
-        // is, as its views may have changed size.
+        // Changed native parts configure the cell again. A custom row keeps
+        // its own live views; mount carries their current box into the cell.
         // A standard row whose symbol's authored tint changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
         let recarded = Set(next.sections.flatMap { s in s.rows.compactMap { r in wasCarded[r.view].flatMap { $0 != s.card ? r.view : nil } } })
-        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom || tints[id] != looks[id] || recarded.contains(id) } ?? false }
+        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || tints[id] != looks[id] || recarded.contains(id) } ?? false }
         looks = tints
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of
@@ -408,7 +419,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             || !recarded.isEmpty // separators are the section layout's
         let regapped = previous.sections.map(\.spaceAbove) != next.sections.map(\.spaceAbove) || previous.spaceBelow != next.spaceBelow
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
-        source.apply(snapshot, animatingDifferences: false)
+        // An unchanged snapshot can reset UIKit's estimated geometry and
+        // adjust its offset after the core's pending scroll write. Remounting
+        // still refreshes switches and custom boxes; changed parts reconfigure.
+        if previous != next || !changed.isEmpty { source.apply(snapshot, animatingDifferences: false) }
         if texts {
             for kind in [UICollectionView.elementKindSectionHeader, UICollectionView.elementKindSectionFooter] {
                 for path in collection.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
@@ -424,47 +438,39 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         mount()
     }
 
-    /// Shown in the list's box over the hidden authored scroll, insets as
-    /// that scroll's; custom rows carried into their cells.
+    /// The collection owns scrolling; the original sections retain their
+    /// authored layout and custom rows are carried into their cells.
     func mount() {
         if collection.superview !== owner { owner.addSubview(collection) }
-        if let scroll = owner.scrollView {
-            if !scroll.isHidden { scrollWasHidden = false; scroll.isHidden = true }
-            assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
-            // An authored space under a last section with a footer is under
-            // the footer: its section's bottom inset is the rows-to-footer gap.
-            // What the list adds to the hidden scroll's insets: an authored
-            // space under a last section with a footer (its section's bottom
-            // inset is the rows-to-footer gap), and the list's own padding,
-            // room before its first section and after its last as a scroll's
-            // is (a tab bar's, under a list that runs beneath it).
-            var added = UIEdgeInsets.zero
-            if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
-            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
-            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
-            var inset = scroll.contentInset
-            inset.top += added.top
-            inset.bottom += added.bottom
-            // A list at rest at its top stays there, its first section below
-            // the new room, as a scroll keeps its top under a new inset.
-            // Only when the inset moves and the list is still, so a drag, a
-            // fling or a bounce past the top is left alone.
-            let moved = collection.contentInset.top != inset.top
+        // Padding is room around the sections; final footer space is below
+        // the footer. Apply only this module's delta, keeping refresh and
+        // keyboard insets on the collection that owns them.
+        let added = UIEdgeInsets(
+            top: CGFloat(owner.style["padding_top"]?.number ?? 0), left: 0,
+            bottom: CGFloat(owner.style["padding_bottom"]?.number ?? 0)
+                + (model.sections.last?.footer != nil ? model.spaceBelow ?? 0 : 0), right: 0)
+        let roomChanged = added != addedInsets
+        owner.mountNativeScrollView(collection, contentInsets: added)
+        if roomChanged {
+            let delta = UIEdgeInsets(top: added.top - addedInsets.top, left: 0,
+                                     bottom: added.bottom - addedInsets.bottom, right: 0)
+            addedInsets = added
             let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
+            var inset = collection.contentInset
+            inset.top += delta.top
+            inset.bottom += delta.bottom
             assign(collection, \.contentInset, inset)
-            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
+            if delta.top != 0, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
                 collection.contentOffset.y = -collection.adjustedContentInset.top
             }
-            // The indicator keeps to the same room.
-            var indicator = scroll.verticalScrollIndicatorInsets
-            indicator.top += added.top
-            indicator.bottom += added.bottom
+            var indicator = collection.verticalScrollIndicatorInsets
+            indicator.top += delta.top
+            indicator.bottom += delta.bottom
             assign(collection, \.verticalScrollIndicatorInsets, indicator)
-            // A short list bounces, as Settings does; UICollectionView's own
-            // default would not.
-            assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
-            assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
         }
+        // A short settings list bounces, as UIKit's collection default would not.
+        assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
+        assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {
             guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
@@ -476,7 +482,59 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #if !os(tvOS)
         for (id, toggle) in switches { refresh(id, toggle) }
         #endif
+        for case let section as NodeView in owner.container.subviews {
+            if hiddenRoots[section.id] == nil { hiddenRoots[section.id] = (section, section.hiddenByHost) }
+            section.isHidden = true
+        }
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
+        // Settle UIKit's dirty layout before the core applies pending offsets.
+        // This is a no-op when unchanged, including a simple remount.
+        collection.layoutIfNeeded()
+        // The CSS origin can change without moving UIKit's physical offset.
+        if roomChanged { owner.scrollViewDidScroll(collection) }
+    }
+
+    func hidesAuthored(_ node: NodeView) -> Bool {
+        hiddenRoots.values.contains { node === $0.node || node.isDescendant(of: $0.node) }
+    }
+
+    /// A standard row has a native frame even when its original view is hidden
+    /// or its cell is offscreen. A carried descendant keeps its own exact box.
+    func projectedRect(for node: NodeView) -> CGRect? {
+        if node.isDescendant(of: collection) { return node.convert(node.bounds, to: collection) }
+        var at: UIView? = node
+        while let view = at {
+            if let n = view as? NodeView, let row = rows[n.id] {
+                if row.target == node.id, let control = accessory(row.view) {
+                    return control.convert(control.bounds, to: collection)
+                }
+                guard let frame = source.indexPath(for: row.view).flatMap({ collection.layoutAttributesForItem(at: $0)?.frame }) else { return nil }
+                if row.custom {
+                    // The same row x used by carry; nested scroll offsets are
+                    // already represented by this descendant-in-row conversion.
+                    return node.convert(node.bounds, to: n).offsetBy(dx: frame.minX + n.frame.minX, dy: frame.minY)
+                }
+                return frame
+            }
+            at = view.superview
+        }
+        return nil
+    }
+
+    func scrollAnchors() -> [(node: NodeView, y: CGFloat)] {
+        let port = collection.bounds.inset(by: owner.scrollPortInsets(collection))
+        var whole: [(node: NodeView, y: CGFloat)] = [], partial: [(node: NodeView, y: CGFloat)] = []
+        for path in collection.indexPathsForVisibleItems.sorted() {
+            guard let id = source.itemIdentifier(for: path), let node = host.presenter.views[id],
+                  let frame = collection.layoutAttributesForItem(at: path)?.frame,
+                  frame.width > 0, frame.height > 0, frame.intersects(port) else { continue }
+            // A sliver of a row above the reader is only a fallback: its own
+            // height can grow while its top stays fixed. Prefer a whole row.
+            if port.contains(frame) { whole.append((node, frame.minY)) }
+            else { partial.append((node, frame.minY)) }
+        }
+        whole.append(contentsOf: partial)
+        return whole
     }
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
@@ -510,7 +568,6 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.row = id
         guard let row = rows[id] else { return }
         interact(cell, id)
-        cell.accessibilityIdentifier = host.presenter.views[id]?.props["testId"]
         // A card-less section's rows sit on the list's background; a
         // pressable standard row still shows UIKit's highlight while pressed.
         if card(of: id) {
@@ -687,12 +744,25 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         carried.removeAll()
         carriedOrder.removeAll()
+        for root in hiddenRoots.values { root.node.isHidden = root.hidden }
+        hiddenRoots.removeAll(keepingCapacity: true)
     }
 
     func remove() {
         restore()
+        owner.mountNativeScrollView(nil)
         collection.removeFromSuperview()
-        owner.scrollView?.isHidden = scrollWasHidden
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { owner.scrollViewDidScroll(scrollView) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { owner.scrollViewWillBeginDragging(scrollView) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        owner.scrollViewDidEndDragging(scrollView, willDecelerate: decelerate)
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { owner.scrollViewDidEndDecelerating(scrollView) }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { owner.scrollViewDidEndScrollingAnimation(scrollView) }
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        owner.scrollViewWillEndDragging(scrollView, withVelocity: velocity, targetContentOffset: targetContentOffset)
     }
 
     /// A tap: UIKit's highlight, then the row's press.
@@ -701,6 +771,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         collection.selectItem(at: path, animated: false, scrollPosition: [])
         collectionView(collection, didSelectItemAt: path)
         return true
+    }
+
+    func collectionView(_ view: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt path: IndexPath) {
+        guard let cell = cell as? GroupedCell, let id = source.itemIdentifier(for: path) else { return }
+        // UIKit may prepare a cell before a batch gives its carried row back.
+        // Displaying that prepared cell does not configure it again.
+        let height = cell.height
+        carry(id, into: cell)
+        interact(cell, id)
+        if cell.height != height { host.presenter.requestProjectionSync() }
     }
 
     func collectionView(_ view: UICollectionView, shouldHighlightItemAt path: IndexPath) -> Bool {
@@ -716,6 +796,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// An inert row's cell takes no touch and is no element, as its node.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
+        assign(cell, \.accessibilityIdentifier, host.presenter.views[id]?.props["testId"])
         let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
