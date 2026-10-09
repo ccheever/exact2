@@ -49,6 +49,7 @@ use ProjectsPanel from "./settings-projects.contract"
 use CoreRowView from "./settings-rows.contract"
 use ProjectsPage from "./settings-projects.contract"
 use ProjectActionDialog from "./settings-b-actions.contract"
+use ProjectActionEditor from "./settings-b-actions.contract"
 use ProjectIconDialog from "./settings-b-icons.contract"
 use ProjectFaviconDialog from "./settings-b-icons.contract"
 use SbPicker from "./settings-b-icons.contract"
@@ -317,6 +318,10 @@ component ProjectDialogs
     SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
+    // The thread details card's Add project script (ProjectScriptsControl openAddDialog): a new action for `restSubject`, the thread's project.
+    when restEditor == "card-action"
+      each blank in projectsSettings.blankActions key=blank.id
+        ProjectActionEditor(item=blank, scope=restSubject, editing=false, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     when restEditor == "project-icon"
       ProjectIconDialog(data=projectsSettings, picker=sbPicker, query=sbQuery, letters=(sbLettersEdited ? sbLetters : projectsSettings.iconLetters), custom=sbEmoji, dark=(viewport.prefersColorScheme == "dark"), busy=commandPending, error=modalError, raw=restRaw, set=sbSet, close=restClose)
     when restEditor == "project-favicon"
