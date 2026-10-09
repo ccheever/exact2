@@ -91,7 +91,7 @@ final class VisibilityMacTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["visibility": "hidden"]]]))
         XCTAssertTrue(window.firstResponder === box, "not inside the batch")
         let deadline = Date().addingTimeInterval(10)
-        while window.firstResponder === box, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while window.firstResponder === box, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
         XCTAssertFalse(window.firstResponder === box, "hidden, it gives up the focus it had")
 
         let session = ExactApp.shared.makeSession(label: "hidden-run") // a text engine, to lay runs out

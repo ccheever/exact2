@@ -46,6 +46,7 @@ import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRo
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
+import { macTests, withoutPerformanceChecker } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
@@ -1416,7 +1417,7 @@ async function main(args) {
  *  simulator: `--sim`/EXACT_SIM, else one that is not running (another
  *  session may be driving a booted one), shut down again only if booted here.
  *  The async lane runs these for commits under host/apple. */
-function test(args) {
+async function test(args) {
   const ios = args.includes('--ios');
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
   app.prepare?.();
@@ -1450,10 +1451,9 @@ function test(args) {
       // here as `cargo build` would, never assumed from an earlier build.
       run('cargo', ['build', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml')]);
       env.EXACT_CONTRACT = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug', 'contract');
-      runApple('swift', ['test', '--scratch-path', resolve(paths.namespace, 'tests')], {
-        cwd: pkg, stdio: 'inherit', env: { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' },
-      });
-      return;
+      const swiftEnv = { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' }, scratch = resolve(paths.namespace, 'tests');
+      runApple('swift', ['build', '--build-tests', '--scratch-path', scratch], { cwd: pkg, stdio: 'inherit', env: swiftEnv });
+      return await macTests(pkg, scratch, swiftEnv);
     }
     // The fixture's plan and hatch module (LLP 1075.003 §3.9), built for the
     // tests' simulator so they run its hatches over its routes: the glue, its
@@ -1483,10 +1483,11 @@ function test(args) {
     const dev = simulator(pick ?? idle.sort((a, b) => newest(b) - newest(a))[0]?.udid);
     const bootedHere = before.find(d => d.udid === dev.udid)?.state !== 'Booted';
     try {
-      runApple('xcodebuild', ['test', '-scheme', 'Exact', '-destination', `platform=iOS Simulator,id=${dev.udid}`,
-        '-derivedDataPath', resolve(paths.namespace, 'ios-tests'), ...classes.map(c => `-only-testing:ExactKitTests/${c}`)], {
-        cwd: pkg, stdio: 'inherit', env: { ...env, IPHONEOS_DEPLOYMENT_TARGET: '17.0' },
-      });
+      const destination = `platform=iOS Simulator,id=${dev.udid}`, derived = resolve(paths.namespace, 'ios-tests'), xcodeEnv = { ...env, IPHONEOS_DEPLOYMENT_TARGET: '17.0' };
+      runApple('xcodebuild', ['build-for-testing', '-scheme', 'Exact', '-destination', destination, '-derivedDataPath', derived], { cwd: pkg, stdio: 'inherit', env: xcodeEnv });
+      // Without the Thread Performance Checker (xctest.mjs), a test class to each clone of the simulator, and no diagnostics collected after the run.
+      runApple('xcodebuild', ['test-without-building', '-xctestrun', withoutPerformanceChecker(resolve(derived, 'Build/Products')), '-destination', destination,
+        '-collect-test-diagnostics', 'never', '-parallel-testing-enabled', 'YES', '-parallel-testing-worker-count', '2', ...classes.map(c => `-only-testing:ExactKitTests/${c}`)], { cwd: pkg, stdio: 'inherit', env: xcodeEnv });
     } finally { if (bootedHere) read('xcrun', ['simctl', 'shutdown', dev.udid]); }
   } finally { cargoRelease?.(); release(); }
 }
@@ -1494,6 +1495,5 @@ if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pat
   const args = process.argv.slice(2);
   useXcode();
   const failed = (error) => { console.error(error.message); process.exitCode = 1; };
-  try { if (args.includes('--test')) test(args); else main(args).catch(failed); }
-  catch (error) { failed(error); }
+  (args.includes('--test') ? test(args) : main(args)).catch(failed);
 }

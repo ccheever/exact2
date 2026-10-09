@@ -262,7 +262,7 @@ final class ChooserMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while pressed.isEmpty && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while pressed.isEmpty && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(seen?.items.first?.title, "Open location in")
@@ -299,7 +299,7 @@ final class ChooserMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while !ended && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while !ended && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(pressed, [], "a hidden row is not chosen")
@@ -349,7 +349,7 @@ final class ChooserMacTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(token) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         let menu = try XCTUnwrap(frame, "the menu's window")
         XCTAssertGreaterThanOrEqual(menu.minY, invoker.maxY - 8, "above the invoker (screen y grows up): \(menu) vs \(invoker)")
         XCTAssertEqual(menu.midX, invoker.midX, accuracy: 12, "centred on it")

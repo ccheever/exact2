@@ -43,6 +43,7 @@ final class NativeButtonFocusMacTests: XCTestCase {
     /// Override only the process's AppKit query; never change the person's preferences.
     /// AppKit's key-view eligibility and traversal are exercised with both answers.
     func testTabAndShiftTabUseOnlyTheNativeOwnerWithKeyboardNavigationOnAndOff() throws {
+        _ = NSApplication.shared  // NSApp, read below before any fixture creates it
         let method = try XCTUnwrap(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.isFullKeyboardAccessEnabled)))
         let original = method_getImplementation(method)
         defer { method_setImplementation(method, original) }
