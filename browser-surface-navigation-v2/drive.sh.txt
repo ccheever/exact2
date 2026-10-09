@@ -1,0 +1,56 @@
+#!/bin/zsh
+# browser-surface-navigation-v2: Charlie's checks 1-3 on #352 (agent mode, lane env, 1280x840, light). Not committed.
+# Lane ports 16700-16719: the app's embedded T3 server on 16700, the fixture on 16701. The lane server's ACP Registry
+# instance "Lane browser agent" runs fake-acp.mjs, which calls the server's preview_* MCP tools (part 5's approach).
+# Usage: drive.sh <run name>
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-navigation-v2
+L=$W/target/bsn2/lane
+P=${1:-drive}; OUT=$L/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+R=$(ls -d $L/runtime/t3-*)
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16700 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$R
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+rm -f $L/results.jsonl $L/fake-acp.log $L/agent-state.json
+FIXTURE_PORT=16701 $BUN $L/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd $W
+S=$OUT
+U=http://127.0.0.1:16701
+OPS=(
+  "clock +15000 real" "clock +6000 real" "screenshot $S/00-start.png window"
+  # Check 1: the agent opens a tab (1280 x 800), then resizes it (freeform, presets) while the panel shows it.
+  "type composer bsn open $U/" "clock +400 real" "tap send-message" "clock +12000 real" "screenshot $S/01-open-default.png window" tree logs
+  "type composer bsn resize" "clock +400 real" "tap send-message" "clock +12000 real" "screenshot $S/02-resized.png window" tree
+  # Check 2a: the person hides the panel (⇧⌘J; a tap on the hidden shortcut button presses nothing in agent mode); the agent resizes the shown tab.
+  "type composer key Meta+Shift+j" "clock +1500 real" "screenshot $S/03-panel-hidden.png window" tree
+  "type composer bsn hidden" "clock +400 real" "tap send-message" "clock +10000 real" "screenshot $S/04-hidden-resized.png window" tree
+  # Check 2b: hidden again; the agent opens a second tab without presenting it and resizes it in no stage.
+  "type composer key Meta+Shift+j" "clock +1500 real" tree
+  "type composer bsn suppressed $U/a" "clock +400 real" "tap send-message" "clock +14000 real" "screenshot $S/05-suppressed-resized.png window" tree
+  # The person shows the panel and the second tab: its toolbar and page at the agent's size.
+  "type composer key Meta+Shift+j" "clock +2000 real" tree
+  "tap panel-tab-browser:tab_2" "clock +2500 real" "screenshot $S/06-tab2-shown.png window" tree
+  "tap panel-tab-browser:tab_1" "clock +2500 real" tree
+  # Check 3: refused sizes, then a size not rendered in time (timeoutMs 1) on the shown tab.
+  "type composer bsn reject" "clock +400 real" "tap send-message" "clock +10000 real" "screenshot $S/07-rejected.png window" tree
+  "logs" "type composer bsn timeout" "clock +400 real" "tap send-message" "clock +16000 real" "screenshot $S/08-timeout.png window" tree logs
+  "type composer bsn measure" "clock +400 real" "tap send-message" "clock +10000 real" "screenshot $S/09-measure.png window" tree logs state
+)
+printf '%s\n' "${OPS[@]}" > $OUT/ops.txt
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $R/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+cp $L/results.jsonl $L/fake-acp.log $L/agent-state.json $OUT/ 2>/dev/null
+cp $T3_LOCAL_HOME/userdata/logs/server.trace.ndjson* $OUT/ 2>/dev/null
+echo DRIVE-DONE
