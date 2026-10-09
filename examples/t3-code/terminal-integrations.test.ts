@@ -125,6 +125,7 @@ const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, asy
 function scriptClient(fail = '') {
   const client = new T3Client(), calls: { method: string; payload: Obj }[] = [];
   client.environmentId = 'e'; client.threadId = 't'; client.projectId = 'p';
+  Object.assign(client, { loaded: true }); // the saved settings were read: a preview opens only under read defaults (part 4)
   client.shell = { projects: [{ id: 'p', workspaceRoot: '/repo', scripts: [{ id: 'test', name: 'Test', command: 'bun test', icon: 'play' }, { id: 'build', name: 'Build', command: 'bun build', icon: 'play' }] }], threads: [{ id: 't', projectId: 'p' }], sequence: 0 };
   client.request = async (_native, method, payload) => { calls.push({ method, payload }); if (method === fail) throw new Error(`${method} refused`); return {}; };
   return { client, calls };

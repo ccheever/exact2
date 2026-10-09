@@ -92,6 +92,9 @@ describe('Settings › Integrations reads its config, settings and device state 
     // page was asked on every turn until the limit (12 asks, 36 reads, never idle).
     expect({ asks: opened.asks, idle: opened.idle, reads: native.reads(before) }).toEqual({ asks: 1, idle: true, reads: [] });
     expect(opened.page).toMatchObject({ available: true, error: '', hubStatus: 'v0.3.0', agentStatus: 'v1.2.0' });
+    // browser-surface part 4: the page's Browser rows (profiles and the tab defaults) come from the client's own
+    // preferences and add no server read to the answer.
+    expect(obj(opened.page.browserProfiles)).toMatchObject({ hydrated: true, rows: [{ id: 'default', name: 'Default', isDefault: true }], defaults: { viewportValue: 'fill' } });
     expect(native.calls.slice(before).some(call => call.op === 'subscribe')).toBe(false); // the shell's stream serves the page
     // Closing and opening it again: once more, still no reads.
     await run(native, files, false);

@@ -4,6 +4,7 @@ import { claimBoldChord, richTextComposer } from './r8-keys-chords'; // lane r8-
 import { taskFromArguments } from './scheduled-settings';
 import { scheduledPage } from './scheduled-view';
 import { sourceControlPage, integrationsPage } from './source-control-view';
+import { browserProfilesView, emptyBrowserProfilesView } from './browser-profiles-settings'; // browser-surface part 4
 import { viewState } from './settings-rest-commands';
 import { keyboardDispatchSource } from './keyboard-dispatch';
 import { projectsView } from './projects-view';
@@ -116,7 +117,8 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan);
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? client.projectGroups().find(candidate => candidate.members.some(member => member.id === legacy)) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? '' : String(args[1] || ''), args[3] === true, native); } // a bare project id is its project on every environment (settingsScopeOf)
-  if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''));
+  if (source === 'integrationsPage') return { ...(await integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''))),
+    browserProfiles: args[2] === true ? await browserProfilesView(client, native) : emptyBrowserProfilesView() }; // browser-surface part 4: Browser profiles and the import wizard
   if (source === 'settingsNavigation') return settingsNavigation(String(args[0] || ''), searchContext(client.config, client.ready, String(args[1] || 'all')), Number(args[2]) || 0);
   if (source === 'settingsCore') return settingsCore(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), args[6] === true, String(args[9] || ''), String(args[10] || ''), String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));
   if (source === 'settings') {
