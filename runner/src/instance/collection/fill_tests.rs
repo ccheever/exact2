@@ -293,3 +293,33 @@ fn noise_is_small_and_never_crosses_zero() {
     assert!(!index.noise_at(1, 0.005));
     assert_eq!(index.denoised(1, 0.005), 0.005);
 }
+
+#[test]
+fn a_window_that_leans_keeps_a_quarter_viewport_behind_its_travel() {
+    let rows = |lean: bool, velocity: f64| {
+        let mut h = Harness::new(1_000, false, false);
+        h.send(h.feedback(3200.0));
+        h.send_filled(
+            h.feedback(3840.0),
+            CollectionFill {
+                velocity,
+                lean,
+                ..Default::default()
+            },
+        );
+        let rows = h.snapshot().rows;
+        (rows[0].index, rows[rows.len() - 1].index)
+    };
+    // 320 px of port, 32 px rows, the view at rows 120 to 129.
+    let (first, last) = rows(false, 1_600.0);
+    assert!((109..=110).contains(&first), "a viewport behind: {first}");
+    let (lean_first, lean_last) = rows(true, 1_600.0);
+    assert!((117..=118).contains(&lean_first), "a quarter: {lean_first}");
+    assert_eq!(lean_last, last, "the same ahead");
+    // Toward the start it is the end side that is behind.
+    let (up_first, up_last) = rows(true, -1_600.0);
+    assert!((131..=132).contains(&up_last), "{up_last}");
+    assert_eq!(up_first, rows(false, -1_600.0).0);
+    // Without a velocity nothing leans.
+    assert_eq!(rows(true, 0.0), rows(false, 0.0));
+}

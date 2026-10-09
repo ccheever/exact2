@@ -988,13 +988,16 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             }
             cursor.sent = Some(sent);
+            let velocity = (self.collection.velocity)
+                .filter(|(v, _)| *v == view)
+                .map_or(0.0, |(_, v)| v);
             let fill = CollectionFill {
-                velocity: self
-                    .collection
-                    .velocity
-                    .filter(|(v, _)| *v == view)
-                    .map_or(0.0, |(_, v)| v),
+                velocity,
                 limit: self.collection.limit,
+                // A window this host leads keeps little behind: its lead
+                // ends, and the window has a viewport each side again, before
+                // its travel turns (crypto rested 4 MB lower after a fling).
+                lean: velocity != 0.0,
                 ..CollectionFill::default()
             };
             match self.host.collection_feedback_filled(feedback, fill) {

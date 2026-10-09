@@ -31,23 +31,55 @@ const FAST_STEP: f32 = 50.0;
 /// is still three quarters of one away.
 const BATCH: f32 = 0.25;
 
-/// Logical px a second from which the feed's window leads its travel, and
-/// below which a leading one stops. Two thresholds, and a lead of all the
-/// runner allows rather than one that follows the speed: a window whose far
-/// edge moved with each frame's jitter mounted and retired rows there.
-const LEAD_ON: f32 = 8000.0;
-const LEAD_OFF: f32 = 4000.0;
-/// The velocity a leading window is reported with, logical px/s: past any
-/// viewport's cap (the runner leads by a quarter second of travel, two
-/// viewports at most).
-const LEAD_VELOCITY: f64 = 1e6;
-/// Viewports a leading window reaches past the view: its own, and the two
-/// of [`LEAD_VELOCITY`].
-const LED_REACH: f32 = 3.0;
+/// One way the feed's window leads its travel: from `on` logical px a
+/// second, until the feed slows below `off`, turns or pauses, the window
+/// reaches `lead` viewports past its own, and a pass waits for up to `batch`
+/// viewports of rows.
+struct Tier {
+    on: f32,
+    off: f32,
+    lead: f32,
+    batch: f32,
+}
+
+/// The tiers, slowest first. Each has two thresholds, and a lead in whole
+/// steps rather than one that follows the speed: a window whose far edge
+/// moved with each frame's jitter mounted and retired rows there. The lead
+/// is the smallest that paid (a led window mounts more rows at once, and
+/// what is sized by the most rows alive keeps that size): at 3,000 dp/s
+/// half a viewport took a fifth off easy's and crypto's exact thread and a
+/// whole one no more; at 6,000 one viewport took 30%, half 20%, two no
+/// more; from 8,000 all the runner allows (two), without which a pass
+/// each sixth step at 24,000 dp/s is not possible.
+const TIERS: [Tier; 3] = [
+    Tier {
+        on: 2500.0,
+        off: 1500.0,
+        lead: 0.5,
+        batch: 0.75,
+    },
+    Tier {
+        on: 5000.0,
+        off: 3500.0,
+        lead: 1.0,
+        batch: 1.25,
+    },
+    Tier {
+        on: 8000.0,
+        off: 4000.0,
+        lead: 2.0,
+        batch: 1.75,
+    },
+];
+/// The rows a pass's slice must hold for the tiers below the last to lead
+/// (and three, to go on): where a row costs a quarter of a pass or more
+/// (heavy, xheavy) its passes come one row at a time whatever waits, and a
+/// lead at 3,000 and 6,000 dp/s only mounted more (heavy the same exact
+/// thread, xheavy 10% more cycles at 6,000).
+const CHEAP_ROWS: f32 = 4.0;
 /// Frames of travel a leading window's pass leaves before the rows it
 /// mounts can show, and the viewports of rows one pass may wait for.
 const LED_FRAMES: f32 = 5.0;
-const LED_BATCH: f32 = 1.75;
 /// Scroll steps between a reader's asks for a pass.
 const ASK_STEPS: f32 = 3.0;
 /// Scroll steps the feed's speed is taken over: all of them, so a step's
@@ -70,8 +102,12 @@ pub(crate) struct Travel {
     steps: usize,
     /// The side the window leads toward (1: the end, -1: the start), or 0.
     leading: f32,
+    /// Which of [`TIERS`] it leads by, from 1 (0: none).
+    tier: u8,
     /// A step came since the reader last asked for a pass.
     stepped: bool,
+    /// The feed turned while its window led, and no pass has run since.
+    turned: bool,
     /// Since the last collection pass.
     since_pass: f32,
     /// A pass's ms per row it built, smoothed (0: none measured).
@@ -94,6 +130,7 @@ impl Travel {
         if last.is_some_and(|(t, was)| at - t > SETTLE_MS || was.signum() != toward) {
             self.steps = 0;
         }
+        self.turned |= self.tier > 0 && self.leading != toward;
         if self.steps == SPEED_STEPS {
             self.recent.rotate_left(1);
             self.steps -= 1;
@@ -101,12 +138,28 @@ impl Travel {
         self.recent[self.steps] = (at, dy);
         self.steps += 1;
         let speed = self.speed();
-        let on = if self.leading == toward {
-            speed >= LEAD_OFF
+        let same = self.leading == toward;
+        let was = if same { self.tier } else { 0 };
+        // Rows a slice holds (unknown until a pass that leads or travels
+        // fast has measured one: then the tier is tried).
+        let rows = if self.row_ms > 0.0 {
+            PASS_MS / self.row_ms
         } else {
-            speed >= LEAD_ON
+            f32::INFINITY
         };
-        self.leading = if on { toward } else { 0.0 };
+        self.tier = (1..=TIERS.len() as u8)
+            .rev()
+            .find(|t| {
+                let tier = &TIERS[usize::from(*t) - 1];
+                let (from, cheap) = if *t <= was {
+                    (tier.off, CHEAP_ROWS - 1.0)
+                } else {
+                    (tier.on, CHEAP_ROWS)
+                };
+                speed >= from && (usize::from(*t) == TIERS.len() || rows >= cheap)
+            })
+            .unwrap_or(0);
+        self.leading = if self.tier > 0 { toward } else { 0.0 };
     }
 
     /// The feed's speed, logical px/s, over its last steps: their travel
@@ -126,12 +179,18 @@ impl Travel {
         }
     }
 
-    /// The velocity the feed's window leads by, logical px/s, positive
-    /// toward the end: [`LEAD_VELOCITY`] while the feed travels fast one
-    /// way (from [`LEAD_ON`], until it slows below [`LEAD_OFF`], turns or
-    /// pauses), else `None`.
-    pub(crate) fn lead(&self) -> Option<f64> {
-        (self.leading != 0.0).then(|| f64::from(self.leading) * LEAD_VELOCITY)
+    /// The velocity the feed's window (`viewport` long) leads by, logical
+    /// px/s, positive toward the end, while one of the [`TIERS`] holds:
+    /// what makes the runner lead by that tier's viewports (it leads by a
+    /// quarter second of the velocity it is told, two viewports at most).
+    pub(crate) fn lead(&self, viewport: f32) -> Option<f64> {
+        let tier = self.tier()?;
+        Some(f64::from(self.leading) * f64::from(tier.lead * viewport) * 4.0)
+    }
+
+    /// The tier the window leads by, if it leads.
+    fn tier(&self) -> Option<&'static Tier> {
+        TIERS.get(usize::from(self.tier.checked_sub(1)?))
     }
 
     /// The reader asks for a pass: whether a step came since it last did
@@ -141,17 +200,27 @@ impl Travel {
         std::mem::take(&mut self.stepped)
     }
 
+    /// Whether the feed turned back while its window led and no pass has
+    /// run since: the window kept little behind it ([`TIERS`] lean), so what
+    /// each step brings into view is built with the step, not at the
+    /// reader's next ask three steps on (at 24,000 dp/s that was 600 dp:
+    /// four frames with up to 40% of crypto's view blank).
+    pub(crate) fn turned(&self) -> bool {
+        self.turned
+    }
+
     /// The feed stopped (a touch took it): nothing leads.
     pub(crate) fn stopped(&mut self) {
         self.steps = 0;
+        self.tier = 0;
         self.leading = 0.0;
     }
 
     /// Whether a pass of a leading window can wait: at the reader's next
     /// ask ([`ASK_STEPS`] steps on) the nearest row it would mount is still
     /// [`LED_FRAMES`] frames of travel and three quarters of the `viewport`
-    /// past the view, and no more than [`LED_BATCH`] viewports of rows have
-    /// come into the window. A pass each third step at 24,000 dp/s mounted
+    /// past the view, and no more than its tier's batch of rows has come
+    /// into the window. A pass each third step at 24,000 dp/s mounted
     /// its rows a frame and a half before they showed, four a commit (easy);
     /// one each sixth step under a lead mounts them six frames before, eight
     /// or nine a commit, and at 12,000 dp/s one each fifteenth step, ten.
@@ -159,9 +228,12 @@ impl Travel {
         if self.step <= 0.0 {
             return false;
         }
+        let Some(tier) = self.tier() else {
+            return self.waits(viewport);
+        };
         let keep = (0.75 * viewport).max(LED_FRAMES * self.step);
-        let may = (LED_REACH * viewport - keep)
-            .min(LED_BATCH * viewport)
+        let may = ((1.0 + tier.lead) * viewport - keep)
+            .min(tier.batch * viewport)
             .max(BATCH * viewport);
         self.since_pass + ASK_STEPS * self.step <= may
     }
@@ -170,6 +242,7 @@ impl Travel {
     /// Frames the scroll may move the last paint before one must paint to
     /// show it in time (0: paint now); `None` when that is not soon.
     pub(crate) fn passed(&mut self, lead: f32, soon: u32) -> Option<u32> {
+        self.turned = false;
         let ahead = (lead - std::mem::take(&mut self.since_pass)).max(0.0);
         if self.step <= 0.0 {
             return None;
@@ -182,7 +255,8 @@ impl Travel {
     /// fast, those its measured cost fits in [`PASS_MS`] (at least one);
     /// otherwise the whole window (`None`).
     pub(crate) fn limit(&self) -> Option<u32> {
-        (self.fast() && self.row_ms > 0.0).then(|| ((PASS_MS / self.row_ms) as u32).max(1))
+        ((self.fast() || self.tier > 0) && self.row_ms > 0.0)
+            .then(|| ((PASS_MS / self.row_ms) as u32).max(1))
     }
 
     /// Whether the feed travels fast: a pass's rows are limited, and their
@@ -280,39 +354,53 @@ mod tests {
         assert_eq!(t.passed(858.0, 6), Some(5));
     }
 
+    /// The viewports a travel's window leads by, toward the end positive.
+    fn led(t: &Travel) -> Option<f32> {
+        t.lead(858.0).map(|v| (v / (4.0 * 858.0)) as f32)
+    }
+
+    /// `steps` more steps of `step`, a frame apart, from frame `from`.
+    fn more(t: &mut Travel, step: f32, from: u32, steps: u32) {
+        for i in from..from + steps {
+            t.scrolled(step, f64::from(i) * FRAME);
+        }
+    }
+
     #[test]
-    fn fast_travel_leads_and_slow_travel_does_not() {
-        // 12,000 and 24,000 dp/s lead; 6,000 does not.
-        assert_eq!(moving(100.0, 8).lead(), Some(1e6));
-        assert_eq!(moving(-200.0, 8).lead(), Some(-1e6));
-        assert_eq!(moving(50.0, 30).lead(), None);
-        assert_eq!(moving(100.0, 7).lead(), None, "too few steps to tell");
+    fn the_faster_the_travel_the_farther_its_window_leads() {
+        assert_eq!(led(&moving(12.5, 30)), None, "1,500 dp/s");
+        assert_eq!(led(&moving(25.0, 8)), Some(0.5), "3,000");
+        assert_eq!(
+            led(&moving(-50.0, 8)),
+            Some(-1.0),
+            "6,000, toward the start"
+        );
+        assert_eq!(led(&moving(100.0, 8)), Some(2.0), "12,000");
+        assert_eq!(led(&moving(-200.0, 8)), Some(-2.0), "24,000");
+        assert_eq!(led(&moving(100.0, 7)), None, "too few steps to tell");
     }
 
     #[test]
     fn a_lead_holds_until_the_feed_slows_turns_or_pauses() {
         let mut t = moving(100.0, 8);
-        // 6,000 dp/s: under the speed that starts a lead, over the one that ends it.
-        for i in 8..24 {
-            t.scrolled(50.0, f64::from(i) * FRAME);
-        }
-        assert_eq!(t.lead(), Some(1e6));
-        for i in 24..40 {
-            t.scrolled(25.0, f64::from(i) * FRAME);
-        }
-        assert_eq!(t.lead(), None, "3,000 dp/s");
+        // 6,000 dp/s: under the speed that starts the last tier, over the one that ends it.
+        more(&mut t, 50.0, 8, 16);
+        assert_eq!(led(&t), Some(2.0));
+        // 3,000: the last tier ends, the first holds.
+        more(&mut t, 25.0, 24, 16);
+        assert_eq!(led(&t), Some(0.5));
+        more(&mut t, 10.0, 40, 16);
+        assert_eq!(led(&t), None, "1,200 dp/s");
         let mut t = moving(100.0, 8);
         t.scrolled(-100.0, 8.0 * FRAME);
-        assert_eq!(t.lead(), None, "a turn");
-        for i in 9..16 {
-            t.scrolled(-100.0, f64::from(i) * FRAME);
-        }
-        assert_eq!(t.lead(), Some(-1e6));
+        assert_eq!(led(&t), None, "a turn");
+        more(&mut t, -100.0, 9, 7);
+        assert_eq!(led(&t), Some(-2.0));
         t.scrolled(-100.0, 16.0 * FRAME + 150.0);
-        assert_eq!(t.lead(), None, "a pause");
+        assert_eq!(led(&t), None, "a pause");
         let mut t = moving(100.0, 8);
         t.stopped();
-        assert_eq!(t.lead(), None);
+        assert_eq!(led(&t), None);
     }
 
     #[test]
@@ -322,15 +410,13 @@ mod tests {
         let mut t = moving(50.0, 8);
         t.scrolled(150.0, 10.0 * FRAME);
         t.scrolled(50.0, 10.0 * FRAME + 1.0);
-        assert_eq!(t.lead(), None);
-        for i in 12..20 {
-            t.scrolled(50.0, f64::from(i) * FRAME);
-        }
-        assert_eq!(t.lead(), None);
+        assert_eq!(led(&t), Some(1.0));
+        more(&mut t, 50.0, 12, 8);
+        assert_eq!(led(&t), Some(1.0));
     }
 
     #[test]
-    fn a_turn_at_slow_travel_does_not_lead() {
+    fn a_turn_does_not_lead_farther_than_its_speed() {
         // 6,000 dp/s turned back: its first steps, one of them two frames'
         // travel taken late and the next a millisecond after.
         let mut t = moving(50.0, 8);
@@ -338,11 +424,27 @@ mod tests {
         t.scrolled(-100.0, 10.0 * FRAME + 7.0);
         t.scrolled(-50.0, 11.0 * FRAME);
         t.scrolled(-50.0, 12.0 * FRAME);
-        assert_eq!(t.lead(), None);
+        assert_eq!(led(&t), None, "too few steps to tell");
         for i in 13..30 {
             t.scrolled(-50.0, f64::from(i) * FRAME);
-            assert_eq!(t.lead(), None, "step {i}");
+            assert!(led(&t).is_none_or(|l| l == -1.0), "step {i}");
         }
+        assert_eq!(led(&t), Some(-1.0));
+    }
+
+    #[test]
+    fn a_turn_from_a_led_travel_is_known_until_a_pass() {
+        let mut t = moving(100.0, 8);
+        assert!(!t.turned());
+        t.scrolled(-100.0, 8.0 * FRAME);
+        t.scrolled(-100.0, 9.0 * FRAME);
+        assert!(t.turned());
+        t.passed(858.0, 6);
+        assert!(!t.turned());
+        // A turn at a speed that leads nothing is not one to make up for.
+        let mut slow = moving(10.0, 8);
+        slow.scrolled(-10.0, 8.0 * FRAME);
+        assert!(!slow.turned());
     }
 
     #[test]
@@ -354,14 +456,48 @@ mod tests {
         assert!(t.asked());
     }
 
+    /// A travel of `steps` steps of `step` whose last pass came `since`
+    /// steps ago.
+    fn passed_ago(step: f32, steps: u32, since: u32) -> Travel {
+        let mut t = moving(step, steps - since);
+        t.passed(858.0, 6);
+        more(&mut t, step, steps - since, since);
+        t
+    }
+
     #[test]
     fn a_leading_window_waits_longer_for_its_pass() {
         // 24,000 dp/s: a pass each sixth step.
-        assert!(moving(200.0, 3).waits_led(858.0));
-        assert!(!moving(200.0, 6).waits_led(858.0));
+        assert!(passed_ago(200.0, 12, 3).waits_led(858.0));
+        assert!(!passed_ago(200.0, 12, 6).waits_led(858.0));
         // 12,000 dp/s: each fifteenth.
-        assert!(moving(100.0, 12).waits_led(858.0));
-        assert!(!moving(100.0, 15).waits_led(858.0));
+        assert!(passed_ago(100.0, 24, 12).waits_led(858.0));
+        assert!(!passed_ago(100.0, 24, 15).waits_led(858.0));
+        // 6,000 dp/s, a viewport led: each twenty-first (1,050 dp).
+        assert!(passed_ago(50.0, 40, 18).waits_led(858.0));
+        assert!(!passed_ago(50.0, 40, 21).waits_led(858.0));
+        // 3,000 dp/s, half a viewport led: each twenty-fourth (600 dp;
+        // without a lead, each ninth).
+        assert!(passed_ago(25.0, 40, 21).waits_led(858.0));
+        assert!(!passed_ago(25.0, 40, 24).waits_led(858.0));
         assert!(!Travel::default().waits_led(858.0), "nothing moved");
+    }
+
+    #[test]
+    fn a_slow_lead_is_for_rows_a_pass_builds_several_of() {
+        // 3,000 dp/s, a row costing a pass's whole share: no lead.
+        let mut t = moving(25.0, 8);
+        assert_eq!(led(&t), Some(0.5), "no row measured yet");
+        t.built(1, 8.0);
+        more(&mut t, 25.0, 8, 2);
+        assert_eq!(led(&t), None);
+        // From 8,000 dp/s it leads whatever a row costs.
+        more(&mut t, 100.0, 10, 8);
+        assert_eq!(led(&t), Some(2.0));
+        // Rows at half a millisecond: sixteen a slice.
+        let mut t = moving(25.0, 8);
+        t.built(4, 2.0);
+        more(&mut t, 25.0, 8, 2);
+        assert_eq!(led(&t), Some(0.5));
     }
 }

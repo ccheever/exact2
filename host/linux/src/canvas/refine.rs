@@ -57,7 +57,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // A row's cost is measured only where it is used: while the feed
         // travels fast (two walks to the list each pass otherwise, 2% of
         // crypto's scrolling).
-        let measure = self.travel.fast();
+        let measure = self.travel.fast() || lead.is_some();
         let mut before = std::mem::take(&mut self.rows_before);
         if measure {
             self.feed_rows(&mut before);
@@ -118,7 +118,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_LEAD").is_ok_and(|v| v == "0"));
         let travels = self.now() - self.scrolled_at < crate::travel::SETTLE_MS;
-        self.travel.lead().filter(|_| *ON && self.lead && travels)
+        let viewport = (self.feed.and_then(|id| self.p.host().kernel().node(id)))
+            .map_or(self.viewport.1, |n| n.frame.height);
+        (self.travel.lead(viewport)).filter(|_| *ON && self.lead && travels)
     }
 
     /// Whether a moved paint owes a paint: once moves pause (a frame
@@ -130,6 +132,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
         (self.moved > 0 && self.moves < 1000)
             || self.waiting
             || (self.led && self.now() - self.scrolled_at >= STEP_MS)
+    }
+
+    /// After a scroll step: when the feed has turned back from a travel its
+    /// window led ([`crate::travel::Travel::turned`]), the rows the step
+    /// brought into view are built now, and nothing else.
+    pub(super) fn rescue(&mut self) {
+        if self.travel.turned() {
+            self.p.slice_collections(Some(0), 0.0);
+            self.p.refine_deferred(true);
+        }
     }
 
     /// `timer` (ms until the next one), or sooner: when a window that leads
