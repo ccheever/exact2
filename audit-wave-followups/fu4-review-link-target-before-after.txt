@@ -1,0 +1,21 @@
+audit-wave-followups FU-4, review of #372: the link compares with the route's target, not the page's pick
+examples/t3-code/audit-wave-followups.test.ts -t FU-4 (bun test v1.4.2)
+
+Sequence: link A (target:codex) -> pick A on the page (raw row id 'codex') -> open Add custom model -> link A again.
+Reference: same route key (environment:instance, ProviderSettingsPanel.tsx:288), no remount, the field stays open.
+Then: nav away and back to Providers -> open Add -> link A: the route had no instance, so the key changes and the field closes.
+
+BEFORE: the test file run against the PR head's sources (7c65afe53: app.contract and app-settings.contract checked out from it):
+(fail) FU-4: a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key) > the root counts the links, and Settings reads the field through the count
+(fail) FU-4: a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key) > the route's target, not the page's pick: link A, pick A, Add, link A keeps the field; a link after the nav closes it
+Expected: "codex:models:0"
+Received: ""
+ 1 pass
+ 2 fail
+  (the first fail is the source assertion that openProviderSettings passes providerLinkTarget; the second is the
+   sequence: the field the reference keeps open was closed, Expected "codex:models:0", Received "")
+
+AFTER: the same file on this branch:
+ 3 pass
+ 8 filtered out
+ 0 fail
