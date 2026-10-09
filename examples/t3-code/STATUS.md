@@ -129,8 +129,6 @@ Rows deferred after the 2026-10-08 batch (#298). Each task record has the steps.
 | browser-surface-automation (#346) | Keys typed in the composer while an agent clicks and types in a Browser page stay in the composer (the focus is lent to the page for each action and given back) | record "Real-input batch steps" 1 (after the live session; the e2e lane) |
 | browser-surface-automation (#346) | With "Open links in" = T3 Code: a real click on a chat link opens a Browser tab, and a real ⌘-click opens the system browser (both passed in agent mode on 2026-10-09); the agent cursor's glide and ping under a real window | record "Real-input batch steps" 2-3 |
 | browser-surface-automation (#346) | A muted tab behind another keeps its muted indicator, and its media plays on when shown again (fixed in `b6b3e417e` after the 2026-10-09 drive found it; AppKit-tested, not re-driven) | record "Real-input batch steps" 4 |
-| browser-surface-profiles (#354) | Stores across a relaunch: a named profile's imported cookie is still there after ⌘Q and a normal launch, an Incognito cookie is gone (agent runs keep every store in memory) | record "Real-input batch steps" 1 |
-| browser-surface-profiles (#354) | The profile menus by real keys (Add profile, a row's ⋮, the launcher's chevron: ↓ reaches the first item, Escape gives the focus back); the badge's tooltip and the "+" › Browser chevron under a real pointer; a rename by real key events | record "Real-input batch steps" 2-4 |
 
 #307, #310 and #312 have merged; their real-input rows are in this list (#306's ran in the 2026-10-08 batch). Those rows re-check the clone bugs the 2026-10-08 batch found.
 

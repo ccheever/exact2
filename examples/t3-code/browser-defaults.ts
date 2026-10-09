@@ -84,6 +84,34 @@ export function resolveBrowserOpenDefaults(owner: Holder & { preferencesLoaded?:
   return browserOpenDefaults(owner);
 }
 
+// ── Settings › General's Restore defaults (useSettingsRestore) ─────────────────────────────────────
+/** SettingsPanels.logic.ts isSamePreviewViewport: the setting is a tagged union, compared by what it describes. */
+function isSamePreviewViewport(left: PreviewViewportSetting, right: PreviewViewportSetting): boolean {
+  if (left._tag !== right._tag) return false;
+  if (left._tag === 'fill' || right._tag === 'fill') return true;
+  if (left.width !== right.width || left.height !== right.height) return false;
+  return left._tag === 'preset' && right._tag === 'preset' ? left.presetId === right.presetId : true;
+}
+/** getChangedBrowserSettingLabels: the browser-default rows that differ from the defaults, in the reference's order. */
+export function changedBrowserSettingLabels(owner: Holder): string[] {
+  const local = owner.local as Partial<BrowserTabDefaultsPrefs>, fallback = defaultsOf(), client = clientPrefs(owner);
+  return [
+    ...(isSamePreviewViewport(local.browserDefaultViewport ?? fallback.browserDefaultViewport, fallback.browserDefaultViewport) ? [] : ['Browser viewport']),
+    ...((local.browserDefaultZoomFactor ?? fallback.browserDefaultZoomFactor) !== fallback.browserDefaultZoomFactor ? ['Browser zoom'] : []),
+    ...((local.browserDefaultAppearance ?? fallback.browserDefaultAppearance) !== fallback.browserDefaultAppearance ? ['Browser appearance'] : []),
+    ...(client.browserRecordingFrameRate !== DEFAULT_BROWSER_RECORDING_FRAME_RATE ? ['Recording frame rate'] : []),
+    ...(client.browserRecordingShowKeyPresses ? ['Recording key presses'] : []),
+    ...(client.browserRecordingShowMousePresses ? ['Recording mouse presses'] : []),
+    ...(client.browserLinkTarget !== 'system' ? ['Open links in'] : []),
+    ...(client.browserAutoShowFloatingPreview !== DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW ? ['Floating preview'] : []),
+  ];
+}
+/** restoreDefaults' browser keys kept at the preference root (viewport, zoom, appearance); the recording rows, "Open links
+ *  in" and Auto-show are client settings, which restoreDeviceDefaults resets with the rest. */
+export function restoreBrowserTabDefaults(owner: Holder): void {
+  Object.assign(owner.local, defaultsOf());
+}
+
 // ── The settings writes (useUpdatePrimarySettings for the group's rows) ───────────────────────────
 const sized = (viewport: PreviewViewportSetting) => viewport._tag === 'fill' ? null : viewport;
 /** BrowserViewportSetting selectViewport: Fill, Responsive (keeping a typed size, else the seed) or a preset. */
@@ -137,8 +165,10 @@ export function applyBrowserDefault(owner: Holder, key: string, value: string): 
 
 // ── The rows' projection ─────────────────────────────────────────────────────────────────────────
 export type DefaultsOption = { value: string; label: string; selected: boolean };
+/** The viewport menu's rows: Fill panel, Responsive, then the presets under "Standard" (SelectGroupLabel), each with its size. */
+export type ViewportOption = DefaultsOption & { detail: string; heading: string };
 export type BrowserDefaultsView = {
-  viewportValue: string; viewportLabel: string; viewportSized: boolean; viewportWidth: number; viewportHeight: number; rotateLabel: string; viewportReset: boolean; viewportOptions: DefaultsOption[];
+  viewportValue: string; viewportLabel: string; viewportSized: boolean; viewportWidth: number; viewportHeight: number; rotateLabel: string; viewportReset: boolean; viewportOptions: ViewportOption[];
   zoomLabel: string; zoomReset: boolean; zoomOptions: DefaultsOption[]; appearanceLabel: string; appearanceReset: boolean; appearanceOptions: DefaultsOption[];
   frameRateLabel: string; frameRateReset: boolean; frameRateOptions: DefaultsOption[]; keyPresses: boolean; mousePresses: boolean; autoShow: boolean; autoShowReset: boolean;
 };
@@ -155,8 +185,8 @@ export function browserDefaultsView(owner: Holder): BrowserDefaultsView {
   return {
     viewportValue: select.value, viewportLabel: select.label, viewportSized: !!fixed, viewportWidth: width, viewportHeight: height,
     rotateLabel: `Rotate to ${height >= width ? 'landscape' : 'portrait'}`, viewportReset: viewport._tag !== 'fill',
-    viewportOptions: [{ value: 'fill', label: 'Fill panel', selected: select.value === 'fill' }, { value: 'responsive', label: 'Responsive', selected: select.value === 'responsive' },
-      ...PREVIEW_VIEWPORT_PRESETS.map(preset => ({ value: preset.id, label: `${preset.label}  ${preset.detail}`, selected: select.value === preset.id }))],
+    viewportOptions: [{ value: 'fill', label: 'Fill panel', detail: '', heading: '', selected: select.value === 'fill' }, { value: 'responsive', label: 'Responsive', detail: '', heading: '', selected: select.value === 'responsive' },
+      ...PREVIEW_VIEWPORT_PRESETS.map((preset, index) => ({ value: preset.id, label: preset.label, detail: preset.detail, heading: index === 0 ? 'Standard' : '', selected: select.value === preset.id }))],
     zoomLabel: zoomLabel(prefs.browserDefaultZoomFactor), zoomReset: prefs.browserDefaultZoomFactor !== DEFAULT_PREVIEW_ZOOM_FACTOR,
     zoomOptions: PREVIEW_ZOOM_LEVELS.map(level => ({ value: String(level), label: zoomLabel(level), selected: level === prefs.browserDefaultZoomFactor })),
     appearanceLabel: APPEARANCE_LABELS[prefs.browserDefaultAppearance], appearanceReset: prefs.browserDefaultAppearance !== 'system',

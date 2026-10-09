@@ -3,7 +3,7 @@
 // BrowserViewportSetting selectViewport / commitDimension / rotateViewport and the other rows' writes and resets).
 import { describe, expect, it } from 'bun:test';
 import {
-  adoptBrowserPrefs, applyBrowserDefault, browserDefaultsView, browserOpenDefaults, decodeViewport, resolveBrowserOpenDefaults, viewportSelect,
+  adoptBrowserPrefs, applyBrowserDefault, browserDefaultsView, browserOpenDefaults, changedBrowserSettingLabels, decodeViewport, resolveBrowserOpenDefaults, viewportSelect,
 } from './browser-defaults';
 import { BrowserSettingsReadError } from './browser-profiles';
 import type { Obj } from './domain';
@@ -77,6 +77,16 @@ describe('BrowserViewportSetting', () => {
     expect(browserOpenDefaults(client).viewport).toEqual({ _tag: 'preset', presetId: 'ipad-mini', width: 1024, height: 768 });
     expect(browserDefaultsView(client).viewportLabel).toBe('iPad Mini');
   });
+  it('lists Fill panel and Responsive, then the presets under "Standard", each size beside its name', () => {
+    const client = owner();
+    applyBrowserDefault(client, 'viewport', 'iphone-12-pro');
+    const options = browserDefaultsView(client).viewportOptions;
+    expect(options.slice(0, 4)).toEqual([
+      { value: 'fill', label: 'Fill panel', detail: '', heading: '', selected: false }, { value: 'responsive', label: 'Responsive', detail: '', heading: '', selected: false },
+      { value: 'iphone-se', label: 'iPhone SE', detail: '375 × 667', heading: 'Standard', selected: false }, { value: 'iphone-xr', label: 'iPhone XR', detail: '414 × 896', heading: '', selected: false }]);
+    expect(options.filter(option => option.heading !== '').map(option => option.value)).toEqual(['iphone-se']);
+    expect(options.find(option => option.selected)).toMatchObject({ label: 'iPhone 12 Pro', detail: '390 × 844' });
+  });
 });
 
 describe('the zoom, appearance, recording and auto-show rows', () => {
@@ -97,5 +107,22 @@ describe('the zoom, appearance, recording and auto-show rows', () => {
     expect(browserDefaultsView(client)).toMatchObject({ zoomLabel: '100%', zoomReset: false, appearanceLabel: 'System', frameRateLabel: '30 fps', autoShow: true, autoShowReset: false });
     expect(applyBrowserDefault(client, 'reset', 'key-presses')).toBe(false);
     expect((client.local as { clientSettings: Obj }).clientSettings).toMatchObject({ browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: true, browserAutoShowFloatingPreview: true });
+  });
+});
+
+// SettingsPanels.logic.test.ts getChangedBrowserSettingLabels (3, under their own names); Settings › General's Restore
+// defaults over them is settings-core.test.ts's.
+describe('getChangedBrowserSettingLabels', () => {
+  it('reports nothing for the defaults', () => {
+    expect(changedBrowserSettingLabels(owner())).toEqual([]);
+    expect(changedBrowserSettingLabels(owner({ browserDefaultViewport: { _tag: 'fill' }, browserDefaultZoomFactor: 1, browserDefaultAppearance: 'system', clientSettings: decodeClientPrefs({}) }))).toEqual([]);
+  });
+  it('treats a structurally equal viewport as unchanged', () => {
+    expect(changedBrowserSettingLabels(owner({ browserDefaultViewport: { ...{ _tag: 'fill' } } }))).toEqual([]);
+  });
+  it('labels each browser default that differs', () => {
+    const client = owner({ browserDefaultViewport: { _tag: 'freeform', width: 900, height: 600 }, browserDefaultZoomFactor: 1.5, browserDefaultAppearance: 'dark',
+      clientSettings: decodeClientPrefs({ browserRecordingFrameRate: 60, browserRecordingShowKeyPresses: true, browserRecordingShowMousePresses: true, browserLinkTarget: 'app', browserAutoShowFloatingPreview: false }) });
+    expect(changedBrowserSettingLabels(client)).toEqual(['Browser viewport', 'Browser zoom', 'Browser appearance', 'Recording frame rate', 'Recording key presses', 'Recording mouse presses', 'Open links in', 'Floating preview']);
   });
 });

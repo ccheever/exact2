@@ -26,6 +26,7 @@ import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettings
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from './settings-b-fleet';
+import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from './browser-defaults'; // browser-surface part 4: Restore defaults' browser rows
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
@@ -149,6 +150,7 @@ export function restoreDeviceDefaults(local: LocalPrefs): void {
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS);
   local.clientSettings = decodeClientPrefs({});
   local.groupingMode = 'repository';
+  restoreBrowserTabDefaults({ local }); // browser-surface part 4: the default viewport, zoom and appearance (browser-defaults.ts)
 }
 
 // ── Scope ─────────────────────────────────────────────────────────────────
@@ -607,7 +609,8 @@ export function restoreLabels(local: LocalPrefs, settings: Obj, connected: boole
     confirmThreadUnpin: 'Unpin confirmation', confirmThreadArchive: 'Archive confirmation', confirmThreadDelete: 'Delete confirmation', confirmQuit: 'Quit shortcut' };
   const device = changedDeviceLabels(local).filter(key => key in names && key !== 'themeLight' && key !== 'themeDark').map(key => names[key]!);
   const server = connected ? Object.keys(SERVER_LABELS).filter(key => key in settings && !same(settings[key], SERVER_DEFAULTS[key])).map(key => SERVER_LABELS[key]!) : [];
-  return [...new Set([...device, ...server])];
+  // getChangedBrowserSettingLabels, after "Text generation model" as in the reference (browser-defaults.ts).
+  return [...new Set([...device, ...server, ...changedBrowserSettingLabels({ local })])];
 }
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
