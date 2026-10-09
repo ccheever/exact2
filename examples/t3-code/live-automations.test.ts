@@ -21,7 +21,7 @@ const task = (over: Record<string, unknown> = {}) => ({ id: 'task-1', title: 'Ni
 
 const subs: Record<string, string> = {};
 let serial = 0;
-function fakeClient(tracking = true) {
+function fakeClient(tracking = true, listRefs = (_payload: Record<string, unknown>): unknown => ({ refs: [] })) {
   const calls: Call[] = [];
   const client = {
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, writable: true, revision: 0, generation: 3, busy: false,
@@ -31,7 +31,7 @@ function fakeClient(tracking = true) {
     projectGroups() { return [{ key: 'g1', name: 'fixture', members: this.shell.projects }]; },
     async openProjectDraft(_native: Native, projectId: string) { calls.push({ method: 'openProjectDraft', payload: { projectId }, write: false }); this.projectId = projectId; this.threadId = ''; },
     restAccess: () => ({
-      request: async (method: string, payload: Record<string, unknown>, write = false) => { calls.push({ method, payload, write }); return method === 'vcs.listRefs' ? { refs: [] } : {}; },
+      request: async (method: string, payload: Record<string, unknown>, write = false) => { calls.push({ method, payload, write }); return method === 'vcs.listRefs' ? listRefs(payload) : {}; },
       call: async (request: Record<string, unknown>) => { calls.push({ method: String(request.op), payload: request, write: false }); const id = `3-${++serial}`; subs[String(request.method)] = id; return { id }; },
       ids: async (count: number) => Array.from({ length: count }, (_, index) => `id-${index}`),
       http: async () => { calls.push({ method: 'http', payload: {}, write: false }); return { snapshotSequence: 1, projects: [], threads: [] }; },
@@ -107,6 +107,35 @@ describe('Settings › Scheduled tasks', () => {
     expect(taskSection({ ...base, tasks: { value: null, error: '', subscribes: 0 } }, scope, true, '', NOW)).toMatchObject({ state: 'disconnected', title: 'Environment disconnected', description: 'Reconnect Server to view its scheduled tasks.', heading: true });
     expect(taskSection({ ...base, connected: true, tasks: { value: [], error: 'boom', subscribes: 1 } }, scope, false, '', NOW)).toMatchObject({ state: 'error', title: 'Could not load scheduled tasks', description: 'boom' });
     expect(editTarget('env2|t9', 'env')).toEqual({ environmentId: 'env2', taskId: 't9', link: false });
+  });
+  // settings-rows-and-labels S2-6: WorktreeBaseBranchPicker's selectedRefQuery finds the base past the first page by name.
+  test('the editor looks up its base by name only when the chosen project\'s first page of refs does not list it', async () => {
+    const page = (refs: Record<string, unknown>[], found: Record<string, unknown>[]) => fakeClient(true, payload => ({ refs: payload.query ? found : refs }));
+    const local = { name: 'main', isRemote: false }, others = Array.from({ length: 100 }, (_, index) => ({ name: `feature-${index}`, isRemote: false }));
+    const open = async (fake: ReturnType<typeof fakeClient>, taskBase = '') => {
+      await watchLive(fake.client, native);
+      const view = await scheduledPage(fake.client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase);
+      return { view, group: view.branches[0]!, reads: fake.calls.filter(call => call.method === 'vcs.listRefs').map(call => call.payload) };
+    };
+    // Past the first 100: found by the lookup, a local branch (the trigger reads "From origin/main").
+    let { view, group, reads } = await open(page(others, [{ name: 'main-old', isRemote: false }, local]));
+    expect(reads).toEqual([{ cwd: '/repo', limit: 100 }, { cwd: '/repo', query: 'main', limit: 10 }]);
+    expect([group.refs.length, group.selected]).toEqual([100, [{ value: 'main', label: 'main', search: 'main', badge: '', remote: false }]]);
+    expect(view.editors[0]!.key).toBe('env:new');
+    // On the first page: no lookup.
+    ({ group, reads } = await open(page([local], [])));
+    expect([reads.length, group.selected]).toEqual([1, []]);
+    // Nowhere (the Verification fixture's "No refs found."): unknown, so "From main".
+    ({ group, reads } = await open(page([], [])));
+    expect([reads.length, group.error, group.selected]).toEqual([2, '', []]);
+    // After the editor switched to another project whose page lacks its base, that project's lookup; a stale key asks nothing.
+    const fake = fakeClient(true, payload => ({ refs: payload.query ? [{ name: String(payload.query), isRemote: false }] : payload.cwd === '/repo' ? [local] : others }));
+    fake.client.shell.projects = [...fake.client.shell.projects, { id: 'p2', title: 'second', workspaceRoot: '/second' }];
+    ({ view, reads } = await open(fake, 'key=env%3Anew&project=p2&ref=feature-200'));
+    expect(reads.slice(-1)).toEqual([{ cwd: '/second', query: 'feature-200', limit: 10 }]);
+    expect(view.branches.map(entry => [entry.projectId, entry.selected.map(ref => ref.value)])).toEqual([['p1', []], ['p2', ['feature-200']]]);
+    ({ view, reads } = await open(fake, 'key=env%3Aold&project=p2&ref=feature-200'));
+    expect(view.branches.map(entry => entry.selected.length)).toEqual([0, 0]);
   });
   test('row writes check the live list and go to the task environment', async () => {
     const { client, calls } = fakeClient();

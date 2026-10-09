@@ -27,8 +27,13 @@ describe('S2-6: the base branch trigger says origin/ only for a listed local bra
     const page = await source('settings-scheduled.contract');
     expect(page).toContain('fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)');
     const editor = await component('settings-scheduled.contract', 'ScheduledEditor');
-    expect(editor).toContain('derive baseLocal = length(filter(data.branches, (group) => group.projectId == projectId and length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0)) > 0');
+    // The loaded page first, then the lookup by name (scheduled-view.ts `selected`; live-automations.test.ts).
+    expect(editor).toContain('derive baseLocal = length(filter(data.branches, (group) => group.projectId == projectId and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0');
     expect(editor).toContain('text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size');
+    // Another project asks again when its page lacks the base (selectedRefQuery is keyed by project): the root's page looks it up.
+    expect(editor).toContain('lookupBase(`key=${encodeURIComponent(draft.key)}&project=${encodeURIComponent(value)}&ref=${encodeURIComponent(baseRef)}`)');
+    expect(editor).toContain('options=data.projects, choose=chooseProject)');
+    expect(await source('app.contract')).toContain('settingsMachine, settingsProjectKey, settingsCheckout, taskBase) as shape ScheduledPage');
   });
 });
 

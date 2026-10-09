@@ -6,7 +6,8 @@ import { runConnectionOp } from './connections';
 import { fleet } from './settings-b-fleet';
 import { toasts } from './toast';
 import { obj, type Obj } from './domain';
-import { ClientError, type Native } from './protocol';
+import { ClientError, type Files, type Native } from './protocol';
+import { connectionOps } from './client-ops-connection';
 import type { T3Client } from './client';
 import { checkoutLocal, checkoutView, checkoutState } from './r9-connect-checkout';
 
@@ -60,7 +61,30 @@ describe('Add environment with nothing connected', () => {
       expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add backend', message]]);
     }
     await expect(runConnectionOp(new Transport(), 'environment-add', 'not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
+    // A pairing link in the code field: its #token= is still the code, so the request fails as above.
+    const linked = new Transport();
+    await expect(runConnectionOp(linked, 'environment-add', '', 'https://not a url/pair#token=abc', true, disconnected())).rejects.toThrow(message);
+    expect(linked.calls).toEqual([]);
     fleet.entries.clear();
+  });
+  test('Add route to a host with spaces fails the same way, after its pairing code check', async () => {
+    const message = 'Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).';
+    const native = new Transport(), client = disconnected();
+    await expect(runConnectionOp(native, 'environment-route-add', 'env-b not a url', 'ABC', true, client)).rejects.toThrow(message);
+    expect(native.calls).toEqual([]);
+    expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add route', message]]);
+    await expect(runConnectionOp(new Transport(), 'environment-route-add', 'env-b not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
+  });
+  test('connect and reconnect to a host with spaces fail the same way and send nothing', async () => {
+    const message = 'Failed to fetch remote environment endpoint http://my%20host:3773/.well-known/t3/environment (HttpClientError: Transport error (GET http://my%20host:3773/.well-known/t3/environment)).';
+    const sent: unknown[] = [];
+    const client = { origin: 'http://127.0.0.1:3773', raw: async (_native: Native, request: unknown) => { sent.push(request); return { ok: true, generation: 1, value: {} }; } } as unknown as T3Client;
+    for (const [op, id, value] of [['connect', 'http://My Host:3773', 'ABC'], ['reconnect', 'http://My Host:3773', ''], ['connect', '', 'http://My Host:3773/pair#token=abc']] as const) {
+      const out = { message: '', id: '', value: '' };
+      await expect(connectionOps.call(client, op, id, value, 0, new Transport(), {} as Files, out)).rejects.toThrow(message);
+      expect(out).toEqual({ message: '', id, value });
+    }
+    expect(sent).toEqual([]);
   });
 });
 

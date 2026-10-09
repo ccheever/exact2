@@ -78,11 +78,11 @@ export function taskSection(environment: LiveEnvironment, scope: TaskScope, head
       runStatus: str(task.lastRunStatus) === 'never' ? '' : str(task.lastRunStatus), runError: str(task.lastRunError), enabled: task.enabled === true, first: index === 0 })) };
 }
 
-export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '') {
+export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '') {
   const empty = { available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[],
     editors: [] as (ReturnType<typeof editorDraft> & { key: string; missing: boolean })[], projects: [] as Choice[], models: [] as Choice[], workspaces: [] as Choice[], environments: [] as Choice[],
-    branches: [] as { projectId: string; error: string; refs: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
+    branches: [] as { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[] }[], marks: [] as { value: string; name: string; driver: string; badge: string; accent: string }[] };
   if (!active) return empty;
   try {
     if (!native?.available) throw new Error('Open this app on macOS to connect to T3 Code.');
@@ -115,18 +115,29 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       return { value: `${provider.instanceId}:${model.slug}`, name: str(model.name, str(model.slug)), driver: str(provider.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
     }));
     if (draft.modelKey && !models.some(model => model.value === draft.modelKey)) models.unshift({ value: draft.modelKey, label: draft.modelKey.slice(draft.modelKey.indexOf(':') + 1), selected: false });
-    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs).
+    // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), and the base when the chosen
+    // project's page does not list it: the picker's selectedRefQuery asks for it by name (limit 10), so a local branch past
+    // the first page still reads "From origin/<ref>". The base is the draft's in its project, and the editor's after it
+    // switched project (`taskBase`, settings-scheduled.contract chooseProject). A failed lookup leaves it unknown.
+    const key = `${editing.environmentId}:${target?.taskId || 'new'}`;
+    const switched = new URLSearchParams(taskBase);
+    const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }];
+    if (switched.get('key') === key) wanted.push({ projectId: str(switched.get('project')), ref: str(switched.get('ref')).trim() });
     const branches = await Promise.all(projects.map(async project => {
+      const cwd = str(project.workspaceRoot), projectId = str(project.id);
       try {
         // VcsListRefsInput's query is optional and non-empty: an empty search omits it (usePaginatedBranches).
-        const refs = arr((await editing.request('vcs.listRefs', { cwd: str(project.workspaceRoot), limit: 100 })).refs);
-        return { projectId: str(project.id), error: '', refs: refs.map(ref => branchRef(ref, str(project.workspaceRoot))) };
-      } catch (error) { return { projectId: str(project.id), error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[] }; }
+        const refs = arr((await editing.request('vcs.listRefs', { cwd, limit: 100 })).refs);
+        const unlisted = [...new Set(wanted.filter(entry => cwd && entry.ref && entry.projectId === projectId && !refs.some(ref => str(ref.name) === entry.ref)).map(entry => entry.ref))];
+        const selected = (await Promise.all(unlisted.map(async name => arr((await editing.request('vcs.listRefs', { cwd, query: name, limit: 10 }).catch((): Obj => ({}))).refs)
+          .filter(ref => str(ref.name) === name)))).flat();
+        return { projectId, error: '', refs: refs.map(ref => branchRef(ref, cwd)), selected: selected.map(ref => branchRef(ref, cwd)) };
+      } catch (error) { return { projectId, error: error instanceof Error ? error.message : 'Could not load refs.', refs: [] as BranchRef[], selected: [] as BranchRef[] }; }
     }));
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target && !!all && !task;
     return { ...base, missing,
-      editors: [{ ...draft, key: `${editing.environmentId}:${target?.taskId || 'new'}`, missing }],
+      editors: [{ ...draft, key, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })), models,
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
       environments: environments.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),

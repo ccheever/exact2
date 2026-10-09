@@ -334,8 +334,9 @@ component ProjectDialogs
     sbEmoji: string
     viewport: Viewport
     sbSet: action
+    taskBase: action
   view
-    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose)
+    SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, taskBase=taskBase)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
     // The thread details card's Add project script (ProjectScriptsControl openAddDialog): a new action for `restSubject`, the thread's project.
