@@ -12,6 +12,7 @@ import { mobileOutboxSnapshot } from './mobile-outbox';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileThreadSendPlan, type ThreadSendSnapshot, type ThreadSendFacts, type ThreadSendPlan } from './thread-send-admission';
 import { mobileThreadTransferSubmit, type ThreadTransferResult } from './thread-send-transfer';
+import {mobileThreadMountedSendCurrent,type MountedSendAdmission} from './thread-send-mounted';
 import { providersWithLimits } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
 import { fleet } from './shared/settings-b-fleet';
@@ -21,6 +22,7 @@ import { activeRun, ClientError, type Native, type Files } from './shared/protoc
 import { arr, obj, str, type Obj } from './shared/domain';
 
 export interface ThreadSendControllerInput {
+  editor?:MountedSendAdmission;
   expectedOwner:string; alternate:boolean;
   /** Already-loaded mobile preferences, captured at tap. Never reread after an await. */
   preferences:{followUpBehavior:'queue'|'steer';planModeEnabled:boolean};
@@ -91,7 +93,8 @@ export function mobileThreadSendRead(client:MobileDraftClient,input:ThreadSendCo
     const origin=mobileQueuedEditOrigin(client).trim().replace(/\/+$/,'');
     if(mobileCacheCatalogIdentity(fleet.saved,target.environmentId)!==JSON.stringify([target.environmentId,origin]))return blocked('The saved environment identity changed.');
     const rich=mobileEditorOwner(client);
-    if(rich&&rich.target.origin===target.origin&&rich.target.environmentId===target.environmentId&&rich.target.key===target.key)
+    if(input.editor?!mobileThreadMountedSendCurrent(client,target,input.editor)
+      :rich&&rich.target.origin===target.origin&&rich.target.environmentId===target.environmentId&&rich.target.key===target.key)
       return blocked('Finish the active rich editor before sending.');
     const shell=client.shell.threads.find(t=>t.id===target.threadId);
     if(!shell||shell.projectId!==target.projectId)return blocked('The selected thread is unavailable.');
@@ -141,7 +144,7 @@ export async function mobileThreadSendSubmit(client:MobileDraftClient,native:Nat
   if(!input.current())throw new ClientError('The thread visit changed before Send.','superseded');
   const {target,plan}=ready;
   if(plan.kind==='message')return {kind:'transfer',scope:target,result:await mobileThreadTransferSubmit(client,native,storage,
-    {target,record:plan.record,now:input.now,current:input.current})};
+    {target,record:plan.record,now:input.now,current:input.current,...(input.editor?{editor:input.editor}:{})})};
   const context:ThreadSendCommandContext={...ready,now:input.now,current:input.current};
   const result=plan.kind==='usage-limits'?await commands.usageLimits(context,native,storage)
     :await commands.feedback(context,native,storage,plan.reason);

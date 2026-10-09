@@ -7,7 +7,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { Obj } from './shared/domain';
-import { mobileComposerContextCompleteSend, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileComposerContextCompleteSend, mobileComposerContextMountedSend, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
 import { mobileComposerContextInventoryOwnerAvailable, mobileComposerContextInsertDocument, type ComposerExternalContextContent, type ComposerExternalContextResult, mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileEditorDocumentEnroll, mobileEditorDocumentMembership, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
@@ -23,7 +23,8 @@ export interface EditorIntentCapture {
   id:string; producer:string; target:MobileComposerTarget; key:string; incarnation:string; revision:number;
   before:string; selection:{start:number;end:number}; admission:string; mountId:string; eventCount:number;
 }
-export interface EditorCommandEffect { id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
+export interface EditorUsageCommand { kind:'usage-limits'; instanceId:string; usageKey:string; config:Obj; now:number }
+export interface EditorCommandEffect { queuedSend?:string; localCommand?:EditorUsageCommand; id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
 export interface EditorRootEffect { id:string; kind:'focus'|'blur'|'submit'; payload:string }
 export interface EditorOwner {
   admission:string; signature:string; target:MobileComposerTarget; route:EditorRouteInput;
@@ -242,5 +243,21 @@ export function mobileEditorCompleteQueuedSend(client:T3Client,capture:EditorDoc
     if(entry)Object.assign(entry,ledger);
     r.revision++;
   }
+  return result;
+}
+
+/** Concrete mounted Send reduction. Queue/fence authenticity is additionally checked by the
+ * Send owner; this wrapper proves current native terminal and installs its prepared ledger. */
+export function mobileEditorCompleteMountedSend(client:T3Client,capture:EditorDocumentIntent,
+  claim:import('./thread-send-transfer-model').ThreadSendTransferClaim,
+  terminal:Parameters<typeof mobileComposerContextMountedSend>[3]) {
+  const r=registry(client),owner=r.active;
+  if(!owner||owner.target.owner!==capture.target.owner||!Number.isSafeInteger(r.revision)||r.revision>=Number.MAX_SAFE_INTEGER)return {ok:false as const};
+  if(terminal&&(!owner.pending?.queuedSend||owner.pending.queuedSend!==claim.transferId
+    ||canonical(owner.state.commandEffect?.event)!==canonical(terminal.proof.terminal)
+    ||canonical(owner.state.commandEffect?.command)!==canonical(terminal.proof.command)
+    ||canonical(owner.state.lastEvent)!==canonical(terminal.proof.latest)))return {ok:false as const};
+  const result=mobileComposerContextMountedSend(client,capture,claim,terminal);
+  if(result.ok&&result.write){Object.assign(owner.document,result.ledger);r.revision++}
   return result;
 }

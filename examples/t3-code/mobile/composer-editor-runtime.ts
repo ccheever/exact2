@@ -1,13 +1,18 @@
 // Inactive app-owned Thread rich editor runtime. No producer or root activation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+import { mobileComposerMenuSelection } from './composer-command-selection';
+import { mobileThreadLocalUsageOpen } from './thread-send-local-commands';
+import type { EditorUsageCommand } from './composer-editor-owner';
 import type { T3Client } from './shared/client';
 import { arr,obj,str,type Obj } from './shared/domain';
 import { ClientError,reply,type Native,type Files } from './shared/protocol';
 import { letGo } from './shared/let-go';
+import {mobileThreadMountedSendConsume} from './thread-send-mounted';
 import { mobileEditorRetirementAllowed, mobileEditorRetirementReceipt, mobileEditorRetirementComplete, mobileEditorDocumentWritten } from './composer-editor-persistence';
 import { fleet } from './shared/settings-b-fleet';
 import { mobileDraftAttachmentsOrdered } from './draft-attachment-order';
 import { draftFiles } from './shared/composer-editor-files';
+import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { stage } from './shared/composer-controls';
 import { messageContext,workspaceCwd } from './shared/composer-editor';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
@@ -16,7 +21,7 @@ import { mobileDraftChanged } from './draft';
 import { mobileComposerContextRead,mobileComposerContextCapture,mobileComposerContextCommit } from './composer-command-context';
 import { mobileNewTaskContextProject,type MobileMessageContext } from './mobile-new-task-context';
 import { mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
-import { mobileComposerTrigger,mobileComposerCommandRows,mobileComposerCommandReplacement,replaceTextRange,
+import { mobileComposerTrigger,mobileComposerCommandRows,replaceTextRange,
   resolveProviderSkillsForCwd,mobileComposerThreadRecord,mobileComposerPullRequestRecord,
   type ComposerCommandItem,type ComposerTrigger,type ServerProvider } from './composer-command-model';
 import { mobileComposerCommandPresentation,type ComposerCommandPopover } from './composer-command-presentation';
@@ -33,7 +38,7 @@ export interface EditorPresentation {
   themeJson:string; placeholder:string; fontSize:number; lineHeight:number;
   enterBehavior:'send'|'newline'; fontFamily?:string; contentInsetVertical?:number; scrollEnabled?:boolean; autoCorrect?:boolean; spellCheck?:boolean;
   textPasteThresholdBytes?:number; maxInputChars?:number; submitTitle?:string; alternateSubmitTitle?:string; iconUris:Record<string,string>;
-  hasCompactableConversation:boolean; offersUsageLimits:boolean; allowInteractionMode:boolean;
+  usageKey?:string; hasCompactableConversation:boolean; offersUsageLimits:boolean; allowInteractionMode:boolean;
   repository:string; permissionRevision:string; session?:Obj;
 }
 export interface EditorWake { key:string; dueAt:number; delayMs:number }
@@ -155,10 +160,24 @@ function result(client:T3Client,runtime:Runtime,message=''):EditorResult {
   return {revision:client.revision+runtime.owner.state.revision+mobileEditorOwnerRevision(client),message,
     effect:editorCopy(runtime.owner.effects[0]??null),admission:runtime.owner.admission};
 }
+function rootEffect(owner:EditorOwner,staged:ComposerEditorEffect):void {
+  if(!['focus','blur','submit'].includes(staged.event.kind))return;
+  const effect:EditorRootEffect={id:staged.id,kind:staged.event.kind as EditorRootEffect['kind'],payload:JSON.stringify({...mounted(owner),eventCount:staged.event.eventCount,documentRevision:owner.document.revision,value:owner.state.value,alternate:staged.event.alternate??false})};
+  if(effect.kind==='submit'){
+    if(owner.effects.some(item=>item.kind==='submit'))owner.error='A previous submit action is still waiting. Keep this draft.';
+    else owner.effects.push(effect);
+  }else{owner.effects=owner.effects.filter(item=>item.kind==='submit');owner.effects.push(effect)}
+}
 /** Synchronous prefix reduces newest text and command effects before persistence awaits. */
 async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Files):Promise<EditorResult> {
   requireCurrent(client,runtime);const owner=runtime.owner,effect=owner.state.latestEffect;
-  let saving:Promise<{revision:number;message:string}>|null=null,needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown;
+  if(owner.pending?.queuedSend&&mobileThreadMountedSendConsume(client)){
+    if(effect)rootEffect(owner,effect);
+    await client.persist(storage);requireCurrent(client,runtime);
+    if(effect)owner.state=mobileComposerEditorCommitted(owner.state,effect);
+    return result(client,runtime);
+  }
+  let saving:Promise<{revision:number;message:string}>|null=null,needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown,commandMessage='';
   try {
   // Durable terminal disposition is included in the same synchronous draft-save snapshot.
   const pendingRetirement=owner.pending, retirement=pendingRetirement?.retirementKey, outcome=owner.state.commandEffect;
@@ -172,13 +191,7 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     }
     const claimed=mobileComposerEditorStageEffect(owner.state,effect.id);owner.state=claimed.state;staged=claimed.effect;
     if(staged){owner.document.selection={...owner.state.selection};mobileEditorDocumentWritten(client,owner.target,owner.document.value,owner.document.value,owner.state.selection)}
-    if(staged && ['focus','blur','submit'].includes(staged.event.kind)){
-      const rootEffect:EditorRootEffect={id:staged.id,kind:staged.event.kind as EditorRootEffect['kind'],payload:JSON.stringify({...mounted(owner),eventCount:staged.event.eventCount,documentRevision:owner.document.revision,value:owner.state.value,alternate:staged.event.alternate??false})};
-      if(rootEffect.kind==='submit'){
-        if(owner.effects.some(item=>item.kind==='submit'))owner.error='A previous submit action is still waiting. Keep this draft.';
-        else owner.effects.push(rootEffect);
-      }else{owner.effects=owner.effects.filter(item=>item.kind==='submit');owner.effects.push(rootEffect)}
-    }
+    if(staged)rootEffect(owner,staged);
   }
   const terminal=owner.state.commandEffect;
   if(terminal){
@@ -187,6 +200,14 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     if(terminal.event.kind==='commandApplied'){
       if(pending.added){const guard=mobileComposerContextCapture(client,mobileComposerTarget(client));
         if(!guard || !mobileComposerContextCommit(client,guard,owner.state.value,pending.added))throw new ClientError('The context could not be retained. Keep this draft.','retained');needsSave=true}
+      if(pending.localCommand){
+        const command=pending.localCommand;
+        if(pending.settings===settings(client,runtime)&&command.usageKey===runtime.presentation.usageKey&&!owner.route.readOnly&&!owner.route.voiceBusy){
+          const opened=mobileThreadLocalUsageOpen(client,{...command,scope:{origin:mobileQueuedEditOrigin(client).trim().replace(/\/+$/,''),
+            environmentId:owner.target.environmentId,threadId:owner.target.threadId,draftKey:owner.target.key}});
+          if(opened.message){owner.error=opened.message;commandMessage=opened.message;}
+        }
+      }
       if(pending.mode){
         if(pending.settings===settings(client,runtime)){stage(client,{interactionMode:pending.mode});client.revision++;needsSave=true}
         else owner.error='The model or mode changed before this selection finished. Keep the current choice.';
@@ -199,7 +220,7 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
   else if(needsSave){await client.persist(storage);requireCurrent(client,runtime)}
   if(prefixError!==undefined)throw prefixError;
   if(staged)owner.state=mobileComposerEditorCommitted(owner.state,staged);
-  return result(client,runtime);
+  return result(client,runtime,commandMessage);
 }
 function settings(client:T3Client,runtime:Runtime):string{return JSON.stringify([client.providerId,client.modelId,client.interactionMode,runtime.presentation.allowInteractionMode])}
 function actionRuntime(client:T3Client,route:EditorRouteInput):Runtime {
@@ -232,7 +253,7 @@ async function invokeCommand(client:T3Client,runtime:Runtime,native:Native,stora
 /** Reserve all plain effects before native dispatch. No settings or context change
  * occurs merely because a caller requested a replacement. */
 export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIntentCapture,next:ComposerEditorDocument,
-  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey=''):Promise<EditorResult> {
+  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey='',localCommand?:EditorUsageCommand):Promise<EditorResult> {
   const runtime=runtimes.get(client);if(!runtime || !mobileEditorIntentCurrent(client,capture))throw superseded();
   requireCurrent(client,runtime);const owner=runtime.owner;
   if(retirementKey&&!mobileEditorRetirementAllowed(client,retirementKey))throw superseded();
@@ -242,7 +263,7 @@ export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIn
   const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
   const reserved=mobileComposerEditorCommand(owner.state,id,revision,{...next,tokensJson:doc.tokensJson});
   if(!reserved.command)throw superseded();
-  owner.pending={id,revision,...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
+  owner.pending={id,revision,...(localCommand?{localCommand:editorCopy(localCommand)}:{}),...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
   owner.state=reserved.state;
   return invokeCommand(client,runtime,native,storage);
 }
@@ -264,18 +285,20 @@ export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
     if(requested.admission!==owner.admission || requested.menuRevision!==runtime.menuRevision || owner.dismissed===runtime.menuRevision)throw superseded();
     const item=runtime.items.find(row=>row.id===requested.id),trigger=runtime.trigger;
     if(!item || !trigger || owner.route.readOnly || owner.route.voiceBusy)throw superseded();
-    let added:Obj|undefined,text='',cursor=0,mode:'plan'|'default'|null=null;
+    let added:Obj|undefined,text='',cursor=0,mode:'plan'|'default'|null=null,localCommand:EditorUsageCommand|undefined;
     if(item.type==='thread' || item.type==='pull-request'){
       added=obj(item.type==='thread'?mobileComposerThreadRecord(item.thread,item.label)
         :mobileComposerPullRequestRecord(item.pullRequest,`pr_${owner.state.identity.renderEpoch.replace(/-/g,'_')}_${++owner.serial}`));
       const insertion=formatComposerContextReference({kind:str(added.kind),contextId:str(added.contextId),label:str(added.label)})+' ';
       ({text,cursor}=replaceTextRange(owner.state.value,trigger.rangeStart,trigger.rangeEnd,insertion));
     }else{
-      const replacement=mobileComposerCommandReplacement({draftMessage:owner.state.value,trigger,item,allowInteractionMode:runtime.presentation.allowInteractionMode});
+      const replacement=mobileComposerMenuSelection({draftMessage:owner.state.value,trigger,item,allowInteractionMode:runtime.presentation.allowInteractionMode,
+        openUsageLimits:runtime.presentation.offersUsageLimits&&!!runtime.presentation.usageKey&&clipboardAttachments(client,owner.target.key).length===0});
       if(!replacement)throw superseded();({text,cursor}=replacement);mode=replacement.interactionMode;
+      if(replacement.localCommand)localCommand={kind:'usage-limits',instanceId:client.providerId,usageKey:runtime.presentation.usageKey!,config:editorCopy(client.config),now:clock()};
     }
     const capture=mobileEditorCaptureIntent(client,owner.target,'suggestion');if(!capture)throw superseded();
-    return await mobileEditorRequestIntent(client,capture,{value:text,selection:{start:cursor,end:cursor}},added,native,storage,mode);
+    return await mobileEditorRequestIntent(client,capture,{value:text,selection:{start:cursor,end:cursor}},added,native,storage,mode,'',localCommand);
   }catch(error){if(letGo(error))throw error;requireCurrent(client,runtime);owner.error=error instanceof Error?error.message:'Could not update the composer.';mobileEditorOwnerChanged(client);return result(client,runtime,owner.error)}
 }
 /** Timer identity is source debounce identity; request scope is resolved only when

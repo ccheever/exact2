@@ -2,6 +2,7 @@
 import {expect,test} from 'bun:test';
 import {mobileEditorSnapshot as snapshot,mobileEditorAction as action,mobileEditorQueryWake as wake,mobileEditorPrepareImmediate as immediate,
  mobileEditorClaimEffect as claim,type EditorPresentation,type EditorRouteInput} from './composer-editor-runtime';
+import {mobileThreadLocalCommandsSnapshot} from './thread-send-local-commands';
 import {MobileDraftClient} from './mobile-draft-recovery';
 import {mobileEditorOwner} from './composer-editor-owner';
 import {mobileComposerContextRead} from './composer-command-context';
@@ -154,4 +155,66 @@ test('invalid saved context remains blocked while display keeps canonical unavai
  context.mobileComposerContextsHydrate(f.client,{mobileComposerContexts:{version:9,entries:{}}});const view=await f.ready();
  expect(view.message).toContain('unsupported');const control=JSON.parse(view.configuration),tokens=JSON.parse(control.document.tokensJson);expect(tokens).toHaveLength(1);expect(tokens[0].label).toBe('Saved · unavailable');
  expect(context.mobileComposerContextRead(f.client).ok).toBe(false);
+});
+
+// Source menu selection differs from typed Send: preserve everything outside its trigger.
+function usageFixture(text='/us suffix') {
+ const f=fixture(text);f.presentation.offersUsageLimits=true;f.presentation.usageKey='usage-key';
+ const selected=(f.client.config.providers as Obj[])[0]!;selected.slashCommands=[{name:'usage-limits'}];
+ (selected.workspaceSnapshots as Obj[])[0]!.slashCommands=[{name:'usage-limits'}];
+ Object.assign((f.client.config.providers as Obj[])[0]!,{enabled:true,installed:true,availability:'available',usageLimits:{checkedAt:new Date(1000).toISOString(),windows:[{id:'daily',kind:'primary',label:'Daily',usedPercent:25}]}});
+ const usage=()=>mobileThreadLocalCommandsSnapshot(f.client,{scope:{origin:f.client.origin,environmentId:f.client.environmentId,threadId:'t',draftKey:f.client.draftKey},
+  usageKey:f.presentation.usageKey!,instanceId:'codex',config:f.client.config,userInputActive:false}).usage;
+ const pick=async()=>{await f.ready();await f.send('event',f.event('selection',undefined,{selection:{start:3,end:3}}));const v=f.view();
+  return f.send('pick',JSON.stringify({admission:v.admission,menuRevision:v.menuRevision,id:'pcmd:usage-limits'}));};
+ return {...f,usage,pick};
+}
+test('mounted Limits menu opens its local report only after CAS and preserves surrounding draft',async()=>{
+ const f=usageFixture();const response=await f.pick();expect(response.message).toBe('');expect(f.client.draft).toBe(' suffix');expect(f.usage()?.accounts).toHaveLength(1);
+ expect(f.calls.map(c=>c.op)).toEqual(['composerEditorApply']);expect(mobileEditorOwner(f.client)?.pending).toBeNull();
+});
+test('mounted Limits with attachments inserts command text and does not open local report',async()=>{
+ const f=usageFixture();f.client.local.snapshotDrafts[f.client.draftKey]=[{id:'image',name:'image.png',mimeType:'image/png',sizeBytes:1}];
+ await f.pick();expect(f.client.draft).toBe('/usage-limits  suffix');expect(f.usage()).toBeNull();
+});
+test('rejected Limits CAS keeps draft and does not open its local report',async()=>{
+ const f=usageFixture();f.response(async request=>{const c=obj(request.command),expected=obj(c.expected);return {ok:true,generation:1,value:{event:{...obj(request.identity),kind:'commandRejected',
+ eventCount:Number(expected.eventCount)+1,commandId:c.commandId,commandRevision:c.commandRevision,reason:'composition',value:expected.value,selection:expected.selection,composing:true,focused:true}}}});
+ await f.pick();expect(f.client.draft).toBe('/us suffix');expect(f.usage()).toBeNull();
+});
+test('unavailable Limits still removes only its trigger and returns the source warning',async()=>{
+ const f=usageFixture();delete (f.client.config.providers as Obj[])[0]!.usageLimits;
+ expect((await f.pick()).message).toBe('This provider does not currently report limits.');expect(f.client.draft).toBe(' suffix');expect(f.usage()).toBeNull();
+});
+test('changed usage panel key before CAS reply prevents opening an obsolete report',async()=>{
+ const f=usageFixture(),hold=deferred<unknown>();f.response(async request=>{const c=obj(request.command),next=obj(c.next);
+ f.presentation.usageKey='new-panel';f.view();hold.resolve({ok:true,generation:1,value:{event:{...obj(request.identity),kind:'commandApplied',eventCount:Number(obj(c.expected).eventCount)+1,
+ commandId:c.commandId,commandRevision:c.commandRevision,reason:'',value:next.value,selection:next.selection,composing:false,focused:true}}});return hold.promise;});
+ await f.pick();expect(f.client.draft).toBe(' suffix');expect(f.usage()).toBeNull();
+});
+
+test('newer typing accompanying the Limits terminal is kept while its accepted report opens once',async()=>{
+ const f=usageFixture();let repeated='';f.response(async request=>{const c=obj(request.command),next=obj(c.next);const terminal={kind:'commandApplied',eventCount:Number(obj(c.expected).eventCount)+1,
+ commandId:c.commandId,commandRevision:c.commandRevision,reason:'',value:next.value,selection:next.selection,composing:false,focused:true};
+ repeated=JSON.stringify({...obj(request.identity),kind:'text',eventCount:Number(terminal.eventCount)+1,value:'newer text',selection:{start:10,end:10},composing:false,focused:true,pendingCommand:terminal});
+ await f.send('event',repeated);return {ok:true,generation:1,value:{event:{...obj(request.identity),...terminal}}};});
+ await f.pick();expect(f.client.draft).toBe('newer text');expect(f.usage()?.accounts).toHaveLength(1);
+ await f.send('event',repeated);expect(f.client.draft).toBe('newer text');expect(f.usage()?.createdAt).toBe(new Date(1000).toISOString());
+});
+test('interrupted Limits reply keeps exact pending action and opens only after explicit same-command retry',async()=>{
+ const f=usageFixture(),sentinel={name:'FetchError',kind:'Aborted'};let retained:Obj|undefined;
+ f.response(async request=>{retained=request;throw sentinel});
+ await expect(f.pick()).rejects.toBe(sentinel);expect(f.usage()).toBeNull();expect(f.client.draft).toBe('/us suffix');
+ const id=mobileEditorOwner(f.client)!.pending!.id;
+ f.response(async request=>{expect(request).toEqual(retained!);const c=obj(request.command),next=obj(c.next);return {ok:true,generation:1,value:{event:{...obj(request.identity),kind:'commandApplied',
+ eventCount:Number(obj(c.expected).eventCount)+1,commandId:c.commandId,commandRevision:c.commandRevision,reason:'',value:next.value,selection:next.selection,composing:false,focused:true}}}});
+ await f.send('retry',id);expect(f.client.draft).toBe(' suffix');expect(f.usage()?.accounts).toHaveLength(1);expect(f.calls).toHaveLength(2);
+});
+
+for(const covered of [false,true])test(`Limits terminal after ${covered?'a covering modal':'a model change'} cannot open the old report`,async()=>{
+ const f=usageFixture();f.response(async request=>{const c=obj(request.command),next=obj(c.next);
+ if(covered)f.route.readOnly=true;else f.client.modelId='different-model';f.view();
+ return {ok:true,generation:1,value:{event:{...obj(request.identity),kind:'commandApplied',eventCount:Number(obj(c.expected).eventCount)+1,
+ commandId:c.commandId,commandRevision:c.commandRevision,reason:'',value:next.value,selection:next.selection,composing:false,focused:true}}};});
+ await f.pick();expect(f.client.draft).toBe(' suffix');expect(f.usage()).toBeNull();
 });

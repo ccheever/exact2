@@ -2,7 +2,7 @@
 // Controlled invocation callbacks test the local owner; real draft/RPC/root acceptance is separate.
 import {expect,test} from 'bun:test';
 import {mobileThreadSendLocalCommand as send,mobileThreadLocalCommandsSnapshot as view,
-  mobileThreadLocalFeedbackDismiss as dismiss,mobileThreadLocalUsageDismiss as close,
+  mobileThreadLocalFeedbackDismiss as dismiss,mobileThreadLocalUsageDismiss as close,mobileThreadLocalUsageOpen as open,
   type ThreadLocalCommandContext,type ThreadLocalPresentationInput} from './thread-send-local-commands';
 import type {Obj} from './shared/domain';
 import {hasProviderUsageLimits,collectProviderUsageLimits} from './thread-local-usage-model';
@@ -134,4 +134,23 @@ test('report reuse excludes unavailable native providers, dedupes usable account
 test('returned report is detached from config and later views',async()=>{
   const c=context('/usage-limits'),owner={};await send(owner,c);const first=view(owner,presentation(c));first.usage!.accounts[0]!.limits.windows=[];
   expect(view(owner,presentation(c)).usage!.accounts[0]!.limits.windows).toHaveLength(1);
+});
+
+test('menu usage open shares panel owner without clearing or uploading a draft',()=>{
+ const owner={},c=context('/us suffix'),input=presentation(c);
+ expect(open(owner,{...input,now})).toEqual({opened:true,message:''});expect(view(owner,input).usage?.accounts).toHaveLength(1);
+ expect(view(owner,input).busy).toBe(false);expect(view(owner,input).feedback).toEqual([]);
+ expect(close(owner,input.scope,input.usageKey)).toBe(true);expect(view(owner,input).usage).toBeNull();
+});
+test('invalid menu ownership or time leaves an existing report unchanged',()=>{
+ const owner={},c=context('/us'),input=presentation(c);open(owner,{...input,now});
+ for(const patch of [{usageKey:''},{now:NaN},{scope:{...input.scope,draftKey:'foreign'}}]) {
+  expect(open(owner,{...input,now,...patch})).toEqual({opened:false,message:'The selected usage report changed.'});
+  expect(view(owner,input).usage?.accounts).toHaveLength(1);
+ }
+});
+test('menu usage unavailable replaces the old panel without a typed-Send clear callback',()=>{
+ const owner={},c=context('/us'),input=presentation(c);open(owner,{...input,now});
+ expect(open(owner,{...input,now,config:{providers:[]}})).toEqual({opened:false,message:'This provider does not currently report limits.'});
+ expect(view(owner,input).usage).toBeNull();
 });
