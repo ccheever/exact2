@@ -7,7 +7,7 @@ import Foundation
 extension T3Module {
     /// `localBackendStatus`: `{state, enabled, port, httpBaseUrl, wsBaseUrl, bearerReady, environmentId,
     /// label, serverVersion, restartAttempt, nextRestartMs, lastExit, install, refused, …}`; `t3.local`
-    /// announces each change; its `desktopSettings` are the four keys of desktop-settings.json this app
+    /// announces each change; its `desktopSettings` are the five keys of desktop-settings.json this app
     /// changes, written by `desktopSettingsSet`. `localBackendSetEnabled {enabled}`: the switch's stopgap (stop, or start
     /// and wait until ready); it answers the status, or the reason it could not. `localNetworkFacts`,
     /// `localBackendRestart {host, tailscaleServe*}` and `localAccess {method, path, body}`: Network access,

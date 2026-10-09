@@ -159,8 +159,8 @@ describe('exposure keys (DesktopAppSettings decoding; desktop-settings.json, dec
     for (const port of [0, 70_000, 44.5, '8443']) expect(decodeExposureSettings({ tailscaleServePort: port }).tailscaleServePort).toBe(443);
     // The native status's desktopSettings parse the same way (local-backend.ts).
     expect(parseDesktopSettings({ serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, localEnvironmentEnabled: false }))
-      .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443 });
-    expect(parseDesktopSettings(undefined)).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 });
+      .toEqual({ localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true, tailscaleServePort: 8443, updateChannel: 'nightly' });
+    expect(parseDesktopSettings(undefined)).toEqual({ localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443, updateChannel: 'nightly' });
     // A saved t3-code.json from before U7: only the default endpoint stays (uiStateStore's key); the rest moved.
     const next: Record<string, unknown> = {};
     adoptNetworkPrefs(next, { serverExposureMode: 'network-accessible', tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'tailscale:ip:http' });
