@@ -1,0 +1,126 @@
+shell-sidebar-palette-keys: agent drives (macOS, 1280x840). Before = feature-branch tip build (t3-code-evidence-base 950e8e2e5); after = this branch (main drive at 89fafed7e; SH-2 drive at 141c893ea after its two fixes). Per op: the driver's reply; 'tree' lines list the matching nodes (id:testId|label|text, F = focused); 'state' lines the focus and commandPending.
+
+== before/main
+  {"at": [1241, 91], "delivery": "platform", "tapped": 596, "target": "toast-dismiss-2", "carrier": "macos", "mode": "agent", "epoch": 14, "incarnation": 1, "clock": 23000}
+  {"delivery": "platform", "tapped": 312, "at": [127.5, 141], "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 16, "incarnation": 1, "clock": 23600}
+  {"value": "", "typed": 312, "key": "Meta+n", "target": "thread-verify-timeline", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 24, "incarnation": 1, "clock": 26100}
+  {"epoch": 25, "h": 840, "scale": 2, "incarnation": 1, "w": 1280, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpa
+  state focus= {"pending": null, "logical": 312, "editor": null, "responder": "NodeView"} commandPending= False paletteOpen= False
+  {"typed": 1, "key": "Escape", "value": "", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 26, "incarnation": 1, "clock": 27600}
+  {"delivery": "platform", "tapped": 312, "at": [127.5, 141], "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 28, "incarnation": 1, "clock": 28400}
+  {"value": "", "key": "Meta+Shift+n", "typed": 312, "target": "thread-verify-timeline", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 30, "incarnation": 1, "clock": 29900}
+  {"epoch": 31, "scale": 2, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/before/sh1
+  tree root=chat-header n=43 373:header-project|New thread in Verification fixture| ; 379:||New thread in Verification fixture ; 852:thread-title|Thread actions for Timeline verification|
+  {"delivery": "platform", "tapped": 312, "at": [127.5, 141], "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 32, "incarnation": 1, "clock": 31900}
+  {"typed": 1, "value": "", "key": "Meta+k", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 35, "incarnation": 1, "clock": 33400}
+  {"delivery": "platform", "tapped": 916, "at": [640, 217], "target": "palette-row-actions:new-thread-in", "carrier": "macos", "mode": "agent", "epoch": 37, "incarnation": 1, "clock": 34200}
+  {"screenshot": "sh3-project-hints.png", "epo
+  tree root=command-palette n=53 1081:palette-row-projects:new-thread-in:verify-project|Verification fixture| ; 1091:palette-row-projects:new-thread-in:3d88b999-2ef9-4cdc-8aa5-9a19598e73ec|work|
+  {"value": "", "key": "2", "typed": 903, "target": "palette-input", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 37, "incarnation": 1, "clock": 35000}
+  {"screenshot": "sh3-cmd-2.png", "epoch": 37,
+  tree root=chat-header n=43 373:header-project|New thread in Verification fixture| ; 379:||New thread in Verification fixture ; 852:thread-title|Thread actions for Timeline verification|
+  {"key": "Escape", "typed": 1, "value": "", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 39, "incarnation": 1, "clock": 37000}
+  {"tapped": 312, "at": [127.5, 141], "delivery": "platform", "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 41, "incarnation": 1, "clock": 37500}
+  {"at": [521.07, 26], "tapped": 852, "delivery": "platform", "target": "thread-title", "carrier": "macos", "mode": "agent", "epoch": 43, "incarnation": 1, "clock": 39000}
+  {"delivery": "platform", "at": [547.55, 115], "tapped": 1207, "target": "title-menu-snooze", "carrier": "macos", "mode": "agent", "epoch": 44, "incarnation": 1, "clock": 39600}
+  {"at": [744.95, 269], "delivery": "platform", "tapped": 1270, "target": "title-menu-snooze:custom", "carrier": "macos", "mode": "agent", "epoch": 45, "incarnation": 1, "clock": 40100}
+  {"h": 840, "scale": 2, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/before/th8-sn
+  {"native": "control", "delivery": "host-activation", "tapped": 1286, "target": "snooze-date", "carrier": "macos", "mode": "agent", "epoch": 47, "incarnation": 1, "clock": 41100}
+  {"h": 840, "w": 1280, "epoch": 47, "incarnation": 1, "clock": 41900, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scrat
+  tree root=sidebar-snooze n=25 1286:snooze-date|Date|
+  {"tapped": 1281, "delivery": "platform", "at": [722.5, 384.5], "target": "snooze-mode-duration", "carrier": "macos", "mode": "agent", "epoch": 48, "incarnation": 1, "clock": 41900}
+  {"window": true, "scale": 2, "w": 1280, "epoch": 49, "incarnation": 1, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scr
+  {"tapped": 1291, "at": [687.51, 533.5], "delivery": "platform", "target": "snooze-cancel", "carrier": "macos", "mode": "agent", "epoch": 49, "incarnation": 1, "clock": 42500}
+  {"at": [127.5, 141], "tapped": 312, "delivery": "platform", "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 51, "incarnation": 1, "clock": 43000}
+  {"tapped": 115, "at": [1189, 26], "delivery": "platform", "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 53, "incarnation": 1, "clock": 44500}
+  {"tapped": 115, "at": [1189, 26], "delivery": "platform", "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 57, "incarnation": 1, "clock": 44800}
+  {"value": "", "typed": 1, "key": "Meta+Shift+s", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 61, "incarnation": 1, "clock": 45400}
+  {"h": 840, "epoch": 64, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/before/sh2-u
+  tree root=sidebar n=121 72:filter-project|Filter threads by project| ; 75:tip-sidebar-add-project|| ; 76:add-project|Add project| ; 79:tip-sidebar-new-thread|| ; 80:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (1)
+  {"typed": 1, "key": "Meta+z", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 64, "incarnation": 1, "clock": 46600}
+  {"screenshot": "sh2-after-cmd-z.png", "clock
+  tree root=sidebar n=121 72:filter-project|Filter threads by project| ; 75:tip-sidebar-add-project|| ; 76:add-project|Add project| ; 79:tip-sidebar-new-thread|| ; 80:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (1)
+
+== after/main
+  {"delivery": "platform", "tapped": 596, "at": [1241, 91], "target": "toast-dismiss-2", "carrier": "macos", "mode": "agent", "epoch": 14, "incarnation": 1, "clock": 23000}
+  {"at": [127.5, 141], "tapped": 312, "delivery": "platform", "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 16, "incarnation": 1, "clock": 23600}
+  {"key": "Meta+n", "typed": 312, "value": "", "target": "thread-verify-timeline", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 24, "incarnation": 1, "clock": 26100}
+  {"w": 1280, "screenshot": "sh1-row-cmd-n.png"
+  state focus= {"pending": null, "responder": "NSTextView", "editor": 897, "logical": 897} commandPending= False paletteOpen= True
+  {"typed": 1, "key": "Escape", "value": "", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 27, "incarnation": 1, "clock": 27600}
+  {"delivery": "platform", "at": [127.5, 141], "tapped": 312, "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 29, "incarnation": 1, "clock": 28400}
+  {"key": "Meta+Shift+n", "typed": 312, "value": "", "target": "thread-verify-timeline", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 32, "incarnation": 1, "clock": 29900}
+  {"window": true, "scale": 2, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/after/s
+  tree root=chat-header n=38 373:header-project|New thread in Verification fixture| ; 379:||New thread in Verification fixture
+  {"delivery": "platform", "at": [127.5, 141], "tapped": 312, "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 38, "incarnation": 1, "clock": 31900}
+  {"key": "Meta+k", "value": "", "typed": 1, "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 44, "incarnation": 1, "clock": 33400}
+  {"at": [640, 217], "delivery": "platform", "tapped": 1346, "target": "palette-row-actions:new-thread-in", "carrier": "macos", "mode": "agent", "epoch": 45, "incarnation": 1, "clock": 34200}
+  {"window": true, "incarnation": 1, "epoch": 45, "w": 1280, "h": 840, "clock": 35000, "scale": 2, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-
+  tree root=command-palette n=55 1511:palette-row-projects:new-thread-in:verify-project|Verification fixture| ; 1521:||⌘1 ; 1522:palette-row-projects:new-thread-in:ccc07f01-b84a-432f-a82b-27d133795d24|work| ; 1532:||⌘2
+  {"typed": 1333, "value": "", "key": "Meta+2", "target": "palette-input", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 48, "incarnation": 1, "clock": 35000}
+  {"epoch": 54, "clock": 37000, "h": 840, "scale": 2, "window": true, "w": 1280, "incarnation": 1, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-
+  tree root=chat-header n=38 373:header-project|New thread in work| ; 379:||New thread in work
+  {"key": "Escape", "typed": 1, "value": "", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 54, "incarnation": 1, "clock": 37000}
+  {"at": [127.5, 141], "delivery": "platform", "tapped": 312, "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 56, "incarnation": 1, "clock": 37500}
+  {"at": [521.07, 26], "tapped": 1920, "delivery": "platform", "target": "thread-title", "carrier": "macos", "mode": "agent", "epoch": 63, "incarnation": 1, "clock": 39000}
+  {"at": [547.55, 115], "tapped": 1944, "delivery": "platform", "target": "title-menu-snooze", "carrier": "macos", "mode": "agent", "epoch": 64, "incarnation": 1, "clock": 39600}
+  {"delivery": "platform", "at": [744.95, 269], "tapped": 2007, "target": "title-menu-snooze:custom", "carrier": "macos", "mode": "agent", "epoch": 65, "incarnation": 1, "clock": 40100}
+  {"incarnation": 1, "h": 840, "scale": 2, "clock": 41100, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-
+  {"tapped": 2024, "at": [553.5, 458.5], "delivery": "platform", "target": "snooze-date", "carrier": "macos", "mode": "agent", "epoch": 67, "incarnation": 1, "clock": 41100}
+  {"incarnation": 1, "clock": 41900, "h": 840, "scale": 2, "w": 1280, "epoch": 67, "window": true, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-
+  tree root=sidebar-snooze n=124 2024:snooze-date|Date| ; 2034:snooze-calendar-title||January 2026 ; 2085:snooze-day-2026-01-14|Wednesday, January 14th, 2026| ; 2087:snooze-day-2026-01-15|Thursday, January 15th, 2026|
+  state focus= {"editor": null, "responder": "NodeView", "pending": null, "logical": 2031} commandPending= False paletteOpen= False
+  {"typed": 2085, "value": "", "key": "ArrowRight", "target": "snooze-day-2026-01-14", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 67, "incarnation": 1, "clock": 41900}
+  state focus= {"logical": 2087, "responder": "NodeView", "pending": null, "editor": null} commandPending= False paletteOpen= False
+  {"value": "", "typed": 2121, "key": "ArrowRight", "target": "snooze-day-2026-01-31", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 68, "incarnation": 1, "clock": 42500}
+  {"h": 840, "epoch": 69, "w": 1280, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/a
+  state focus= {"editor": null, "logical": 2135, "pending": null, "responder": "NodeView"} commandPending= False paletteOpen= False
+  tree root=snooze-calendar n=79 2034:snooze-calendar-title||February 2026 ; 2135:snooze-day-2026-02-01|Sunday, February 1st, 2026| F
+  {"value": "", "key": "Escape", "typed": 2135, "target": "snooze-day-2026-02-01", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 69, "incarnation": 1, "clock": 43300}
+  {"scale": 2, "w": 1280, "window": true, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-k
+  tree root=sidebar-snooze n=108 2024:snooze-date|Date| F ; 2034:snooze-calendar-title||February 2026 ; 2135:snooze-day-2026-02-01|Sunday, February 1st, 2026|
+  {"at": [553.5, 458.5], "delivery": "platform", "tapped": 2024, "target": "snooze-date", "carrier": "macos", "mode": "agent", "epoch": 69, "incarnation": 1, "clock": 43900}
+  {"at": [608, 658.5], "tapped": 2232, "delivery": "platform", "target": "snooze-day-2026-01-14", "carrier": "macos", "mode": "agent", "epoch": 70, "incarnation": 1, "clock": 44700}
+  {"screenshot": "th8-picked.png", "window": tr
+  tree root=sidebar-snooze n=124 2024:snooze-date|Date| F ; 2034:snooze-calendar-title||January 2026 ; 2232:snooze-day-2026-01-14|Wednesday, January 14th, 2026, selected| ; 2234:snooze-day-2026-01-15|Thursday, January 15th, 2026|
+  {"delivery": "platform", "at": [722.5, 384.5], "tapped": 2018, "target": "snooze-mode-duration", "carrier": "macos", "mode": "agent", "epoch": 72, "incarnation": 1, "clock": 45500}
+  {"h": 840, "epoch": 73, "clock": 46100, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-k
+  {"at": [687.51, 533.5], "tapped": 2127, "delivery": "platform", "target": "snooze-cancel", "carrier": "macos", "mode": "agent", "epoch": 73, "incarnation": 1, "clock": 46100}
+  {"at": [127.5, 141], "tapped": 312, "delivery": "platform", "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 75, "incarnation": 1, "clock": 46600}
+  {"at": [1189, 26], "tapped": 107, "delivery": "platform", "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 77, "incarnation": 1, "clock": 48100}
+  {"at": [1189, 26], "delivery": "platform", "tapped": 107, "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 81, "incarnation": 1, "clock": 48400}
+  {"typed": 1, "value": "", "key": "Meta+Shift+s", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 85, "incarnation": 1, "clock": 49000}
+  {"h": 840, "scale": 2, "clock": 50200, "incarnation": 1, "w": 1280, "epoch": 88, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a
+  tree root=sidebar n=121 301:filter-project|Filter threads by project| ; 304:tip-sidebar-add-project|| ; 305:add-project|Add project| ; 71:tip-sidebar-new-thread|| ; 72:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (1)
+  {"typed": 1, "key": "Meta+z", "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 88, "incarnation": 1, "clock": 50200}
+  {"h": 840, "scale": 2, "clock": 52200, "incarnation": 1, "w": 1280, "epoch": 88, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a
+  tree root=sidebar n=121 301:filter-project|Filter threads by project| ; 304:tip-sidebar-add-project|| ; 305:add-project|Add project| ; 71:tip-sidebar-new-thread|| ; 72:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (1)
+
+== before/fresh
+  {"w": 1280, "scale": 2, "window": true, "clock": 23000, "incarnation": 1, "epoch": 9, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a
+  {"at": [947.22, 649.75], "delivery": "platform", "tapped": 467, "target": "welcome-continue", "carrier": "macos", "mode": "agent", "epoch": 10, "incarnation": 1, "clock": 23000}
+  {"at": [947.22, 627.25], "tapped": 479, "delivery": "platform", "target": "welcome-agents-continue", "carrier": "macos", "mode": "agent", "epoch": 12, "incarnation": 1, "clock": 25500}
+  {"at": [763.92, 546.75], "tapped": 529, "delivery": "platform", "target": "welcome-skip-import", "carrier": "macos", "mode": "agent", "epoch": 14, "incarnation": 1, "clock": 28500}
+  {"w": 1280, "scale": 2, "window": true, "epoch": 16, "incarnation": 1, "clock": 31500, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-
+  tree root=sidebar n=104 72:filter-project|Filter threads by project| ; 75:tip-sidebar-add-project|| ; 76:add-project|Add project| ; 79:tip-sidebar-new-thread|| ; 80:new-thread|New thread| ; 91:sidebar-empty-add-project||
+
+== after/fresh
+  {"incarnation": 1, "w": 1280, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-sidebar-palette-keys/after/
+  {"tapped": 459, "delivery": "platform", "at": [947.22, 649.75], "target": "welcome-continue", "carrier": "macos", "mode": "agent", "epoch": 10, "incarnation": 1, "clock": 23000}
+  {"at": [947.22, 627.25], "tapped": 471, "delivery": "platform", "target": "welcome-agents-continue", "carrier": "macos", "mode": "agent", "epoch": 12, "incarnation": 1, "clock": 25500}
+  {"delivery": "platform", "tapped": 521, "at": [763.92, 546.75], "target": "welcome-skip-import", "carrier": "macos", "mode": "agent", "epoch": 14, "incarnation": 1, "clock": 28500}
+  {"w": 1280, "h": 840, "clock": 31500, "window": true, "epoch": 16, "scale": 2, "incarnation": 1, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-
+  tree root=sidebar n=96 71:tip-sidebar-new-thread|| ; 72:new-thread|New thread| ; 83:sidebar-empty-add-project||
+
+== after/sh2
+  {"tapped": 596, "delivery": "platform", "at": [1241, 91], "target": "toast-dismiss-2", "carrier": "macos", "mode": "agent", "epoch": 14, "incarnation": 1, "clock": 23000}
+  {"delivery": "platform", "tapped": 312, "at": [127.5, 141], "target": "thread-verify-timeline", "carrier": "macos", "mode": "agent", "epoch": 16, "incarnation": 1, "clock": 23600}
+  {"tapped": 107, "delivery": "platform", "at": [1189, 26], "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 22, "incarnation": 1, "clock": 25100}
+  {"delivery": "platform", "tapped": 107, "at": [1189, 26], "target": "toggle-thread-details", "carrier": "macos", "mode": "agent", "epoch": 26, "incarnation": 1, "clock": 25400}
+  {"key": "Meta+Shift+s", "value": "", "typed": 1, "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 30, "incarnation": 1, "clock": 26000}
+  {"w": 1280, "h": 840, "scale": 2, "incarnation": 1, "epoch": 32, "window": true, "screenshot": "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a
+  tree root=sidebar n=125 301:filter-project|Filter threads by project| ; 304:tip-sidebar-add-project|| ; 305:add-project|Add project| ; 71:tip-sidebar-new-thread|| ; 72:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (1) ; 968:sidebar-undo-notice|| ; 969:||Settled 1 thread, ; 970:sidebar-undo||
+  state focus= {"editor": null, "responder": "NodeView", "logical": 107, "pending": null} commandPending= False paletteOpen= False
+  {"key": "Meta+z", "value": "", "typed": 1, "target": "t3-code", "delivery": "platform", "carrier": "macos", "mode": "agent", "epoch": 33, "incarnation": 1, "clock": 27200}
+  {"screenshot": "sh2-after-cmd-z.png", "scale"
+  tree root=sidebar n=162 301:filter-project|Filter threads by project| ; 304:tip-sidebar-add-project|| ; 305:add-project|Add project| ; 71:tip-sidebar-new-thread|| ; 72:new-thread|New thread| ; 367:toggle-settled|Toggle Settled| ; 368:||Settled (0)
