@@ -1,0 +1,19 @@
+// browser-surface-navigation-v2 lane fixture (part 2's, unchanged): pages on 127.0.0.1:16701 that print their CSS viewport, dpr and colour scheme (not committed).
+const port = Number(process.env.FIXTURE_PORT || 16701);
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKElEQVR4nGP8z8Dwn4ECwESJ5lEDRg0YNWDUgFEDRg0YNWDUAAoBAOTiAh9JeVnSAAAAAElFTkSuQmCC', 'base64');
+// Every page reports what the reference's features change: the CSS viewport, the device pixel ratio and the colour scheme the page is told to prefer.
+const probe = `<p id="probe" style="font:600 18px ui-monospace,monospace">…</p><script>
+const show = () => { document.getElementById('probe').textContent = innerWidth + ' × ' + innerHeight + ' · dpr ' + devicePixelRatio + ' · ' + (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); };
+addEventListener('resize', show); matchMedia('(prefers-color-scheme: dark)').addEventListener('change', show); show();
+</script>`;
+const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><link rel="icon" href="/favicon.png"><style>:root{color-scheme:light dark}body{font:15px -apple-system,sans-serif;margin:24px;background:#fff;color:#222}@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}@media (max-width: 500px){h1{color:#1b8a3a}}a{color:#1b4ed8}</style></head><body><h1>${title}</h1>${probe}${body}</body></html>`;
+Bun.serve({ port, hostname: '127.0.0.1', async fetch(request) {
+  const url = new URL(request.url);
+  console.log(`${new Date().toISOString()} ${request.method} ${url.pathname}`);
+  if (url.pathname === '/favicon.png') return new Response(png, { headers: { 'content-type': 'image/png' } });
+  if (url.pathname === '/a') return new Response(page('Page A', '<p><a id="to-b" href="/b">Go to page B</a></p>'), { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/b') return new Response(page('Page B', '<p>Second page. <a href="/a">Back to A</a></p>'), { headers: { 'content-type': 'text/html' } });
+  if (url.pathname === '/') return new Response(page('Lane fixture', '<p>A lane-served page for the Browser surface. Green heading below 500 CSS px.</p><p><a href="/a">Page A</a></p>'), { headers: { 'content-type': 'text/html' } });
+  return new Response(page('Not found', '<p>No such page.</p>'), { status: 404, headers: { 'content-type': 'text/html' } });
+} });
+console.log(`fixture on ${port}`);
