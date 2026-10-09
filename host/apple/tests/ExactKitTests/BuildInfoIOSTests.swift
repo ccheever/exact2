@@ -1,8 +1,9 @@
 import XCTest
 @testable import ExactKit
 
-/// The development menu's build lines, from the keys build.mjs stamps.
-class BuildInfoTests: XCTestCase {
+/// The development menu's build lines, from the keys build.mjs stamps (no
+/// UIKit: named for the iOS lane, it runs in the macOS suite too).
+class BuildInfoIOSTests: XCTestCase {
     func testTheStampedBuildReadsAsLines() {
         let now = ISO8601DateFormatter().date(from: "2026-10-08T12:00:00Z")!
         let lines = BuildInfo.lines([

@@ -13,7 +13,7 @@ const git = (dir, args) => {
 /** `{ sha, dirty }` for the repository holding `dir`, or `null` outside one. */
 export function commitOf(dir) {
   const sha = git(dir, ['rev-parse', 'HEAD']);
-  return sha ? { sha, dirty: git(dir, ['status', '--porcelain']) !== '' } : null;
+  return sha ? { sha, dirty: git(dir, ['status', '--porcelain', '--untracked-files=normal']) !== '' } : null;
 }
 
 /** The Info.plist keys for `app` built from the exact2 checkout at `root`:

@@ -12,6 +12,7 @@ enum BuildInfo {
         var lines = ["\(name) — \(info["CFBundleIdentifier"] as? String ?? "?")",
                      "version \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))"]
         if let stamp = info["ExactBuildTime"] as? String, let built = ISO8601DateFormatter.fractional.date(from: stamp) ?? ISO8601DateFormatter().date(from: stamp) {
+            local.timeZone = .current // the device may have moved since the last opening
             lines.append("built \(local.string(from: built)) (\(age(of: built, now: now)))")
         }
         if let sha = info["ExactCommit"] as? String { lines.append("exact2 \(commit(sha, dirty: info["ExactCommitDirty"]))") }
@@ -37,7 +38,6 @@ enum BuildInfo {
     static let local: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = .current
         f.dateFormat = "yyyy-MM-dd HH:mm"
         return f
     }()

@@ -1,4 +1,5 @@
-// The build stamp (`buildinfo.mjs`): `bun test host/apple/buildinfo.test.mjs`.
+// The build stamp (`buildinfo.mjs`): `bun test host/apple/buildinfo.test.mjs`;
+// the async lane runs it (`tests/it/development.rs`).
 import { test, expect } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,6 +31,7 @@ test('an app in its own repository carries its commit and whether it was dirty',
   const clean = buildInfo({ dir }, { root, now });
   expect(clean.ExactAppCommit).toBe(commitOf(dir).sha);
   expect(clean.ExactAppCommitDirty).toBe(false);
+  git('config', 'status.showUntrackedFiles', 'no');
   writeFileSync(resolve(dir, 'new.contract'), 'component N\n');
   expect(buildInfo({ dir }, { root, now }).ExactAppCommitDirty).toBe(true);
   expect(buildInfo({ dir: tmpdir() }, { root, now }).ExactAppCommit).toBeUndefined();
