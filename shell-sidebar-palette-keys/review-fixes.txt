@@ -1,0 +1,34 @@
+shell-sidebar-palette-keys, review fixes of 2026-10-10: text before/after (no visible change, so no images).
+
+Before = the PR head before the fixes (dcbac49b7). After = f13e222bd (the fixes, 4cf923406, merged with
+origin/feat(example)/t3-code), built with host/apple/build.mjs t3-code-macos --bundle.
+
+1. TH-8, the calendar's keys (snooze-calendar.contract)
+   Before: the review's repro. gridKey sat on the wrapper around the month buttons and the grid, and
+   'current' (the last focused day) was never cleared, so an arrow on Previous/Next Month moved the focus
+   from a stale day, also after the card was closed and reopened (Previous autofocused).
+   After: gridKey sits on the grid (tabindex=-1, so no new Tab stop); opening the card clears 'current'.
+   Agent test (below): <- on Previous Month with February 1st focused before leaves "February 2026";
+   -> on Previous Month after a reopen leaves "January 2026"; a day's -> still moves.
+
+2. SH-3, the palette field's chords (palette.ts threadJumpChords, palette-view.ts, palette.contract inputKey)
+   Before: the field consumed a thread.jump chord only when a displayed row had it, else passed it to onKey.
+   After: the view carries every chord that resolves to thread.jump.N (jumpKeys); the field prevents and
+   stops each one and runs the row that has it, if any (CommandPalette.tsx handleKeyDown 3041-3054).
+   ⌘5 with two projects leaves the palette open on New thread in… and runs nothing; ⌘2 opens a draft in work.
+
+3. Tests (finding 4)
+   New: examples/t3-code/sidebar-palette-keys.test.contract, the keys of SH-1, SH-2, SH-3 and TH-8 through
+   the app's Contract handlers, run by the agent against the app:
+     EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh shell-sidebar-palette-keys 16220 \
+       --test examples/t3-code/sidebar-palette-keys.test.contract
+   Output on the after build (exit 0, 2 min 43 s, macOS agent mode, 1280x840):
+     test "SH-1: ⌘N with the focus on a thread row opens the palette on New thread in…": ok
+     test "SH-1: ⇧⌘N with the focus on a thread row opens a draft in its project": ok
+     test "SH-3: in the palette, ⌘5 with two projects is the field's and does nothing; ⌘2 opens a draft in the second": ok
+     test "TH-8: the calendar's arrows move a day only from a day, not from a month button, also after reopening": ok
+     test "SH-2: ⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it back": ok
+     5 passed, 0 failed
+   sidebar-palette-keys.test.ts: threadJumpChords and the view's jumpKeys (root page, New thread in…, closed),
+   and SH-4's header facts from sidebarSnapshot, as data. On the old sources the file does not load
+   (threadJumpChords does not exist): 0 pass, 1 fail. After: 18 pass, 0 fail.
