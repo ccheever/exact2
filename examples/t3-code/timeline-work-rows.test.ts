@@ -168,7 +168,7 @@ describe('the inspector’s search results and file changes (TH-5)', () => {
   test('Open diff selects the change’s run and file, as onOpenTurnDiff does', () => {
     const value = { environmentId: 'e', threadId: 't1', diffState: { selections: {} as Obj } } as unknown as T3Client;
     selectTurn(value, 'r1', 'src/a.ts');
-    expect((value.diffState as unknown as { selections: Obj }).selections['e:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'src/a.ts' });
+    expect((value.diffState as unknown as { selections: Obj }).selections['e:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'src/a.ts', baseRef: null });
     expect(() => selectTurn(value, '', 'src/a.ts')).toThrow('That turn is no longer available.');
   });
   test('expanded rows carry the parts instead of a plain output block', async () => {

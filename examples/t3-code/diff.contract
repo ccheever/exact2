@@ -5,6 +5,9 @@ use Snapshot from "./shapes.contract"
 use DiffItem from "./shapes.contract"
 use DiffSegment from "./shapes.contract"
 use DiffFile from "./shapes.contract"
+use DiffBaseRef from "./shapes.contract"
+use R4Glyph from "./r4-git.contract"
+use R4Switch from "./r4-git.contract"
 use ReqIcon from "./requests.contract"
 use diffInk from "./settings-appearance-look.contract"
 use synColor from "./markdown.contract"
@@ -160,15 +163,18 @@ component DiffToolbar
       command("diff-view", "menu", "scope", 0)
   view
     row height="1.75rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" gap="0.25rem"
-      button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") aria-label=`Diff scope: ${data.diffScopeLabel}` aria-expanded=(data.diffMenu != "") testId="diff-scope" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fafafa, #111111)" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1
+      button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") aria-label=`Diff scope: ${data.diffScopeLabel}` aria-expanded=(data.diffMenu != "") testId="diff-scope" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fafafa, #111111)" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=(data.diffCompare ? 0 : 1)
         text data.diffScopeLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         ReqIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
+      // diff-panel-parity: Changes with a base ref names "<head> → <base>", the base being the comparison target picker.
+      when data.diffCompare
+        DiffCompare(data=data, command=command)
       box flex=1
       // DiffPanel header: the stat shows with files to count, refresh with a git workspace, expand-all and the tree with files.
       when length(data.diffFiles) > 0 or data.diffAdditions + data.diffDeletions > 0
         row gap="0.25rem" align-items="center" flex-shrink=0 margin-right="0.25rem" role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
-          text `+${data.diffAdditions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "add-count")
-          text `-${data.diffDeletions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "del-count")
+          text data.diffAdditionsText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "add-count")
+          text data.diffDeletionsText font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "del-count")
       when data.diffCanRefresh
         DiffTool(icon="refresh", label=(data.diffLoading ? "Refreshing diff" : "Refresh diff"), pressed=false, toggle=false, radius=8, testId="diff-refresh", choose=command("diff-refresh", "", "", 0))
       when length(data.diffFiles) > 0
@@ -195,9 +201,11 @@ component DiffScopeMenu
     command: action
     keyed: number
   // The turn submenu mounts from the data module too: its row lets go of the focus for the submenu's.
+  // With no turns the row stays (DiffPanel always lists it) and opens nothing, as the reference's empty submenu shows nothing.
   action openTurns
-    blur()
-    command("diff-view", "menu", "turns", 0)
+    if length(data.diffTurns) > 0
+      blur()
+      command("diff-view", "menu", "turns", 0)
   // fix-keyboard-focus: Escape belongs to the open menu (Base UI Menu), not to the right panel. The menu scopes
   // the window's shortcuts while it shows (`aria-modal`), so the panel toggle's Escape shortcut stays out, and the
   // menu's own Escape (a hidden button inside the scope) closes the menus and gives the focus back to the trigger,
@@ -208,13 +216,14 @@ component DiffScopeMenu
   view
     column aria-modal=true position="absolute" left="0.5rem" top="5.09375rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
       button press=closeMenus aria-keyshortcuts="Escape" aria-label="Close diff scope menu" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="diff-scope-escape"
-      KeyMenu(menuId="diff-scope-keys", items=concat([KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted")], (length(data.diffTurns) > 0 ? [KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")] : [])), keyed=keyed, gap="0px", modal=false)
+      // DiffPanel lists Changes, Uncommitted, Latest turn and the Turn submenu whether or not the thread has turns;
+      // Latest turn without one only closes the menu (client-ops-diff.ts).
+      KeyMenu(menuId="diff-scope-keys", items=[KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted"), KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")], keyed=keyed, gap="0px", modal=false)
         DiffMenuItem(label="Changes", time="", selected=(data.diffScope == "branch"), submenu=false, testId="diff-scope-branch", choose=command("diff-scope", "", "branch", 0))
         DiffMenuItem(label="Uncommitted", time="", selected=(data.diffScope == "unstaged"), submenu=false, testId="diff-scope-unstaged", choose=command("diff-scope", "", "unstaged", 0))
-        when length(data.diffTurns) > 0
-          DiffMenuItem(label="Latest turn", time="", selected=data.diffLatestSelected, submenu=false, testId="diff-scope-latest", choose=command("diff-scope", "", "latest", 0))
-          DiffMenuItem(label="Turn", time="", selected=(data.diffMenu == "turns"), submenu=true, testId="diff-scope-turns", choose=openTurns)
-      when data.diffMenu == "turns"
+        DiffMenuItem(label="Latest turn", time="", selected=data.diffLatestSelected, submenu=false, testId="diff-scope-latest", choose=command("diff-scope", "", "latest", 0))
+        DiffMenuItem(label="Turn", time="", selected=(data.diffMenu == "turns"), submenu=true, testId="diff-scope-turns", choose=openTurns)
+      when data.diffMenu == "turns" and length(data.diffTurns) > 0
         column position="absolute" left="9.6875rem" top="5.25rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Turn" testId="diff-turn-menu"
           KeyMenu(menuId="diff-turns-keys", items=map(data.diffTurns, (turn) => KmItem(id=`diff-${turn.id}`, label=turn.label)), keyed=1, gap="0px", modal=false)
             each turn in data.diffTurns key=turn.id
@@ -241,3 +250,147 @@ component DiffMenuItem
         text time font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" flex-shrink=0
       when submenu
         ReqIcon(name="chevron-right", size=14, color="light-dark(#71717a, #818181)")
+
+// DiffPanel's comparison (Changes with a base ref): "<head> →" (the head truncates first: the
+// trigger keeps its width) and the Combobox trigger "Change comparison target. Currently <base>".
+// Its popup reads the ref lists as it opens and as the search changes (`diffbase`, diff-base-ref.ts);
+// a choice asks for the preview against it (`diff-base`).
+component DiffCompare
+  props
+    data: Snapshot
+    command: action
+  state hovered = false
+  state query = ""
+  state opened = 0
+  action hover(over: bool)
+    hovered = over
+  action open
+    query = ""
+    opened = opened + 1
+    command("diffbase", "open", "", 0)
+  action search(text: string)
+    query = text
+    command("diffbase", "query", text, 0)
+  view
+    // DiffPanel's comparison group is overflow-hidden: past the head's truncation its trigger (a shrink-0 Button) is
+    // clipped rather than drawn over the stats beside it. The popup stays outside the clip.
+    row min-width=0 flex-shrink=1 margin-left="0.5rem" align-items="center" role="group" aria-label=`Comparing ${data.diffHead} against ${data.diffBase}` testId="diff-compare"
+      row min-width=0 flex-shrink=1 gap="0.5rem" align-items="center" overflow="hidden"
+        row min-width=0 flex-shrink=1 gap="0.5rem" align-items="center" title=`${data.diffHead} → ${data.diffBase}`
+          text data.diffHead min-width=0 max-width="12rem" flex-shrink=1 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" testId="diff-compare-head"
+          box flex-shrink=0 opacity=0.7 display="flex"
+            ShellIcon(name="arrow-right", size=14, color="light-dark(#71717a, #818181)")
+        button id="diff-base" popovertarget="diff-base-menu" popovertargetaction="show" press=open hover=hover role="combobox" aria-label=`Change comparison target. Currently ${data.diffBase}` testId="diff-base" flex-shrink=0 max-width="12rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          text data.diffBase min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)") testId="diff-base-label"
+          box flex-shrink=0 opacity=0.7 display="flex"
+            ReqIcon(name="chevron-down", size=14, color="light-dark(#71717a, #818181)")
+      DiffBasePicker(data=data, command=command, query=query, search=search, session=opened)
+
+// Base UI Combobox's list navigation (loopFocus, allowEscape): ↓ from no item goes to the first and past
+// the last to none; ↑ from no item goes to the last and before the first to none ("-").
+fn dbStep(ids: list<string>, current: string, down: bool): string = length(ids) == 0 ? "-" : (down ? (indexOf(ids, current) < 0 ? join(slice(ids, 0, 1), "") : (indexOf(ids, current) + 1 >= length(ids) ? "-" : join(slice(ids, indexOf(ids, current) + 1, indexOf(ids, current) + 2), ""))) : (indexOf(ids, current) < 0 ? join(slice(ids, length(ids) - 1), "") : (indexOf(ids, current) == 0 ? "-" : join(slice(ids, indexOf(ids, current) - 1, indexOf(ids, current)), ""))))
+
+// The keys' items, as the reference's are. With no query: Automatic and the refs. With a query
+// (filteredBaseRefItems, trimmed) Base UI counts only the matching refs, but the static Automatic row
+// keeps its place in the list: the first N rows (Automatic, then all but the last ref) take the N indices.
+fn dbKeys(refIds: list<string>, query: string): list<string> = trim(query) == "" ? concat(["automatic"], refIds) : slice(concat(["automatic"], refIds), 0, length(refIds))
+// ↓/↑ over those items. With a query, ↑ from no item lands past the counted items and Base UI drops it.
+fn dbMove(keys: list<string>, current: string, down: bool, query: string): string = (trim(query) != "" and not down and indexOf(keys, current) < 0) ? "-" : dbStep(keys, current, down)
+// Return: "pick" the highlighted item, "close" with none, or "stay" on Automatic under a query (its
+// list slot holds no item to click: nothing is picked and the popup stays open).
+fn dbReturn(keys: list<string>, current: string, query: string): string = indexOf(keys, current) < 0 ? "close" : ((trim(query) != "" and current == "automatic") ? "stay" : "pick")
+
+// ComboboxPopup (w-72, align start): the search, the Branch / Remote heading, "No matching refs.",
+// Automatic and the refs. The popup scopes the window's shortcuts while it shows (`aria-modal`), so
+// Escape closes it rather than the right panel, and gives the focus back to the trigger.
+// The highlighted item is Base UI's activeIndex, by id: an opening starts at the selected item, the
+// pointer and ↓/↑ in the search move it, typing clears it, and Return picks it (none: Return only
+// closes). The selected item keeps its own tint (data-selected) under a moving highlight. Under a query
+// the keys follow the reference's static Automatic row (dbKeys, the user's rule of 2026-10-09, PR #360):
+// ↓ lights Automatic first, Return on it does nothing, and the last matching ref takes no key. A Return
+// empties the popover until the trigger opens it again: a popover cannot be hidden from an action (X66, #319).
+component DiffBasePicker
+  props
+    data: Snapshot
+    command: action
+    query: string
+    search: action
+    session: number
+  state cursor = ""
+  state cursorAt = -1
+  state pickedAt = -1
+  state focused = true
+  derive selectedId = (data.diffBaseAutomatic ? "automatic" : join(map(filter(data.diffBaseRefs, (r) => r.selected), (r) => r.id), ""))
+  derive highlight = (cursorAt == session ? cursor : selectedId)
+  derive keys = dbKeys(map(data.diffBaseRefs, (r) => r.id), query)
+  derive pickValue = (highlight == "automatic" ? "__automatic_base_ref__" : join(map(filter(data.diffBaseRefs, (r) => r.id == highlight), (r) => r.value), ""))
+  action hover(id: string, over: bool)
+    cursor = over ? id : (highlight == id ? "-" : highlight)
+    cursorAt = session
+  action edit(text: string)
+    cursor = "-"
+    cursorAt = session
+    search(text)
+  action searchKey(k: string)
+    if k == "ArrowDown" or k == "ArrowUp"
+      preventDefault()
+      let next = dbMove(keys, highlight, k == "ArrowDown", query)
+      cursor = next
+      cursorAt = session
+      if next != "-"
+        scrollIntoView(`diff-base-option-${next}`, block="nearest")
+  action pick
+    let outcome = dbReturn(keys, highlight, query)
+    if outcome != "stay"
+      pickedAt = session
+      focus("diff-base")
+      if outcome == "pick" and pickValue != ""
+        command("diff-base", "", pickValue, 0)
+  action searchFocus(value: bool)
+    focused = value
+  action back
+    focus("diff-base")
+  view
+    column id="diff-base-menu" popover="auto" position="absolute" padding-top="0.25rem" width="18rem" testId="diff-base-layer"
+      when pickedAt != session
+        column aria-modal=true width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Comparison target" testId="diff-base-picker"
+          button press=back popovertarget="diff-base-menu" popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close comparison target" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="diff-base-escape"
+          column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
+            row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(focused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
+              box position="absolute" left=0 top="0.375rem" display="flex" pointer-events="none"
+                R4Glyph(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
+              when query == ""
+                text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true pointer-events="none"
+              input id="diff-base-search" value=query input=edit key=searchKey submit=pick focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs..." testId="diff-base-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+          row width="100%" padding-left="0.75rem" padding-right="1.625rem" padding-top="0.5rem" padding-bottom="0.375rem" gap="0.5rem" box-sizing="border-box" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)"
+            box width="1rem" flex-shrink=0 aria-hidden=true
+            text "Branch" flex=1 min-width=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" letter-spacing="0.025rem" text-transform="uppercase" color="light-dark(#71717a, #818181)"
+            text "Remote" width="2rem" text-align="right" font-size="0.625rem" font-weight=500 line-height="0.875rem" letter-spacing="0.025rem" text-transform="uppercase" color="light-dark(#71717a, #818181)"
+          when data.diffBaseEmpty
+            text "No matching refs." role="status" width="100%" padding="0.5rem" box-sizing="border-box" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" testId="diff-base-empty"
+          scroll max-height="16rem" width="100%"
+            column width="100%" padding="0.25rem" box-sizing="border-box" role="listbox" aria-label="Refs"
+              button id="diff-base-option-automatic" press=command("diff-base", "", "__automatic_base_ref__", 0) popovertarget="diff-base-menu" popovertargetaction="hide" hover=hover("automatic") role="option" aria-selected=data.diffBaseAutomatic aria-label="Automatic" testId="diff-base-automatic" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(highlight == "automatic" ? "light-dark(#f4f4f5, #ffffff0a)" : data.diffBaseAutomatic ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                text "Automatic" flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+              each ref in data.diffBaseRefs key=ref.id
+                DiffBaseRow(ref=ref, lit=(highlight == ref.id), command=command, hover=hover(ref.id))
+
+// One ref: its name, and the remote column: the "Use remote version of" switch for a ref with
+// both sides (it picks the other side), the "Remote only" mark for a remote ref alone.
+component DiffBaseRow
+  props
+    ref: DiffBaseRef
+    lit: bool
+    command: action
+    hover: action
+  view
+    row id=`diff-base-option-${ref.id}` width="100%" min-height="1.75rem" box-sizing="border-box" border-radius="0.375rem" align-items="center" hover=hover background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : ref.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") testId=`diff-base-row-${ref.id}`
+      button press=command("diff-base", "", ref.value, 0) popovertarget="diff-base-menu" popovertargetaction="hide" role="option" aria-selected=ref.selected aria-label=(ref.remote == "switch" ? `${ref.label} Use remote version of ${ref.label}` : ref.remote == "only" ? `${ref.label} Remote only` : ref.label) testId=`diff-base-${ref.label}` flex=1 min-width=0 min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        text ref.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+      row width="2rem" margin-right="0.5rem" flex-shrink=0 justify-content="flex-end" align-items="center"
+        when ref.remote == "switch"
+          button press=command("diff-base", "", ref.other, 0) popovertarget="diff-base-menu" popovertargetaction="hide" role="switch" aria-checked=ref.remoteOn aria-label=`Use remote version of ${ref.label}` testId=`diff-base-remote-${ref.label}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            R4Switch(on=ref.remoteOn)
+        when ref.remote == "only"
+          box display="flex" role="img" aria-label="Remote only" title="Remote only" testId=`diff-base-remote-only-${ref.label}`
+            ShellIcon(name="check", size=12, color="light-dark(#71717a, #818181)")

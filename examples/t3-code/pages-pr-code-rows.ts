@@ -15,10 +15,12 @@ export type CodeItem = {
   tone: string; number: string; segments: Segment[]; leftTone: string; leftNumber: string; leftSegments: Segment[]; rightTone: string; rightNumber: string; rightSegments: Segment[];
   label: string; gutter: number; side: string; line: number; selected: boolean; leftLine: number; rightLine: number; leftSelected: boolean; rightSelected: boolean;
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean; entry: string; text: string;
+  /** The Diff panel's header counts (diff.ts headerStat); the Code tab draws its own header. */
+  statAligned: boolean; addText: string; delText: string;
 };
 export const BASE: CodeItem = { id: '', kind: '', path: '', name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, tone: '', number: '', segments: [],
   leftTone: '', leftNumber: '', leftSegments: [], rightTone: '', rightNumber: '', rightSegments: [], label: '', gutter: 33.3, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-  leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '' };
+  leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
 const LETTER: Record<string, string> = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R' };
 
 /** What one file's rows read beside the file itself. */
