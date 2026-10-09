@@ -12,6 +12,7 @@ import { shellCommand, shellLocal } from './shell-commands';
 import { composerCommand, composerLocal } from './composer-controls-commands';
 import { chatLocal } from './timeline-presentation';
 import { editorLocal } from './composer-editor';
+import { chipPopoverLocal } from './composer-chip-popover';
 import { sidebarCommand, sidebarLocal } from './sidebar-commands';
 import { settingsBCommand } from './settings-b-commands';
 import { pagesLocal } from './pages-commands';
@@ -25,6 +26,7 @@ export async function laneOps(this: T3Client, op: string, id: string, value: str
     if (op.startsWith('restlocal:')) { resultMessage = await restLocal(this, native, storage, op.slice(10), id, value);
     } else if (op.startsWith('chatlocal:')) { resultMessage = await chatLocal(this, native, op.slice(10), id, value, storage);
     } else if (op.startsWith('pageslocal:')) { resultMessage = await pagesLocal(this, native, storage, op.slice(11), id, value);
+    } else if (op.startsWith('editorlocal:chip-')) { resultMessage = await chipPopoverLocal(this, native, op.slice(12), id, value); // a skill chip's details (composer-chip-popover.ts)
     } else if (op.startsWith('editorlocal:')) { resultMessage = await editorLocal(this, native, op.slice(12), id, value, n);
     } else if (op.startsWith('shelllocal:')) { resultMessage = await shellLocal(this, native, op.slice(11), id, value);
     } else if (op.startsWith('cclocal:')) { resultMessage = await composerLocal(this, native, storage, op.slice(8), id, value);
