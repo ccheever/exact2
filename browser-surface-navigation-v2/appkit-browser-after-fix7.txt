@@ -1,0 +1,63 @@
+Test Case '-[T3browserTests.BrowserReferenceTests testAllowsRecoveryAgainAfterTheCrashWindowExpires]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testAllowsRecoveryAgainAfterTheCrashWindowExpires]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testBacksOffAndStopsAfterABoundedNumberOfRapidCrashes]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testBacksOffAndStopsAfterABoundedNumberOfRapidCrashes]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testDoesNotHandAWindowToSchemesThatCannotBeHardened]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testDoesNotHandAWindowToSchemesThatCannotBeHardened]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testFaviconCandidatesAreBoundedAsTheReferenceBoundsThem]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testFaviconCandidatesAreBoundedAsTheReferenceBoundsThem]' passed (0.002 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testKeepsTargetBlankLinksInThePreviewTab]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testKeepsTargetBlankLinksInThePreviewTab]' passed (0.000 seconds).
+Test Case '-[T3browserTests.BrowserReferenceTests testOpensARealWindowForScriptedPopupsSoTheOpenerSurvives]' started.
+Test Case '-[T3browserTests.BrowserReferenceTests testOpensARealWindowForScriptedPopupsSoTheOpenerSurvives]' passed (0.000 seconds).
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Case '-[T3browserTests.BrowserSessionTests testACrashedPageRecoversAtItsURL]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testACrashedPageRecoversAtItsURL]' passed (0.501 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testAFaviconFetchCancelledWithItsTabDoesNotRunOn]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testAFaviconFetchCancelledWithItsTabDoesNotRunOn]' passed (1.268 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading]' passed (0.113 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testALoadFailureIsReportedUntilTheNextLoad]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testALoadFailureIsReportedUntilTheNextLoad]' passed (0.087 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testAMissingPageIsAPageNotAFailure]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testAMissingPageIsAPageNotAFailure]' passed (0.065 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testAnIdleTabLoadsAPageAndReportsItsStates]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testAnIdleTabLoadsAPageAndReportsItsStates]' passed (1.114 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testAPageCannotLeaveTheWebOrDownload]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testAPageCannotLeaveTheWebOrDownload]' passed (0.111 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testATabOutlivesItsViewAndClosesWithItsSession]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testATabOutlivesItsViewAndClosesWithItsSession]' passed (0.112 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testBackForwardRefreshAndHardReload]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testBackForwardRefreshAndHardReload]' passed (0.171 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testCancelledAndPolicyStoppedLoadsAreNotFailures]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testCancelledAndPolicyStoppedLoadsAreNotFailures]' passed (0.005 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testEachEnvironmentProfileHasItsOwnStore]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testEachEnvironmentProfileHasItsOwnStore]' passed (0.005 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testRefreshWhileLoadingAsksForThePendingPageAgain]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testRefreshWhileLoadingAsksForThePendingPageAgain]' passed (1.606 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab]' passed (0.236 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testTheCameraAndMicrophoneAreDenied]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testTheCameraAndMicrophoneAreDenied]' passed (0.179 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testTheModuleOps]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testTheModuleOps]' passed (0.066 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testThePageKeepsWebKitsNativeUserAgentAndIsInspectableInDevelopment]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testThePageKeepsWebKitsNativeUserAgentAndIsInspectableInDevelopment]' passed (0.087 seconds).
+Test Case '-[T3browserTests.BrowserSessionTests testTwoSessionsKeepTheirOwnPages]' started.
+Test Case '-[T3browserTests.BrowserSessionTests testTwoSessionsKeepTheirOwnPages]' passed (0.011 seconds).
+	 Executed 17 tests, with 0 failures (0 unexpected) in 5.738 (5.740) seconds
+Test Case '-[T3browserTests.BrowserNavigationTests testAFixedViewportScaledToFitKeepsItsCSSSize]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testAFixedViewportScaledToFitKeepsItsCSSSize]' passed (0.256 seconds).
+Test Case '-[T3browserTests.BrowserNavigationTests testAPageSyncedAtAFixedViewportLaysOutAtItFirst]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testAPageSyncedAtAFixedViewportLaysOutAtItFirst]' passed (0.167 seconds).
+Test Case '-[T3browserTests.BrowserNavigationTests testAppearanceIsWhatThePagePrefers]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testAppearanceIsWhatThePagePrefers]' passed (0.237 seconds).
+Test Case '-[T3browserTests.BrowserNavigationTests testAShownPageIsMadeAtItsStagesLaidOutSize]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testAShownPageIsMadeAtItsStagesLaidOutSize]' passed (0.929 seconds).
+Test Case '-[T3browserTests.BrowserNavigationTests testThePreviewsChordsAreAnsweredWhileThePageOrTheURLFieldHasTheFocus]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testThePreviewsChordsAreAnsweredWhileThePageOrTheURLFieldHasTheFocus]' passed (0.262 seconds).
+Test Case '-[T3browserTests.BrowserNavigationTests testZoomIsThePagesZoomOnTheReferenceLadderAndOutlivesANavigation]' started.
+Test Case '-[T3browserTests.BrowserNavigationTests testZoomIsThePagesZoomOnTheReferenceLadderAndOutlivesANavigation]' passed (0.216 seconds).
+	 Executed 6 tests, with 0 failures (0 unexpected) in 2.066 (2.067) seconds
+	 Executed 29 tests, with 0 failures (0 unexpected) in 7.807 (7.811) seconds
+Executed 29 tests, with 0 failures
