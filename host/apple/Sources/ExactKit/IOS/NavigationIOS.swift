@@ -366,21 +366,31 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // transition ended: a list's top half, then the rest. The change
         // waits one turn, for that growth (a swipe drops the keyboard first:
         // dropKeyboard).
+        // Only the change UIKit animates (the top stack's, with no
+        // presentation opening or closing in the same batch) waits: a
+        // closing sheet's cleanup and the focus it hands over stay in order.
+        let top = owners.count - 1
+        let animatedChange = top >= 0 && top <= common && mounted.count == boundaries.count && !unanimated
+            && owners[top].view.window != nil
+            && !owners[top].viewControllers.elementsEqual(wanted[parts[top]], by: { $0 === $1 })
         if awaitingKeyboardViewport || NavigationRules.waitsForKeyboardViewport(
             applying: presenter.applying, keyboardShown: presenter.keyboardTop != nil,
-            editing: presenter.hasKeyboardEditor, agentFreezes: ExactEnv.agentFreezes,
-            stackChanges: zip(owners, parts).contains { nav, part in
-                !nav.viewControllers.elementsEqual(wanted[part], by: { $0 === $1 })
-            }) {
+            editing: presenter.hasKeyboardEditor, agentFreezes: ExactEnv.agentFreezes, stackChanges: animatedChange) {
             pendingSync = true
             if !awaitingKeyboardViewport {
                 awaitingKeyboardViewport = true
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+                    // A no-duration hide waits 80 ms to be applied; apply it
+                    // now, while the resize batch's own sync still waits.
+                    presenter.flushKeyboardResize()
                     awaitingKeyboardViewport = false
                     guard pendingSync, !changing, !presenter.modals.inTransition else { return }
                     pendingSync = false
                     sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+                    // The batches that ran meanwhile reconciled autofocus
+                    // with the destination still out of the window.
+                    presenter.syncAccessibility()
                 }
             }
             return
@@ -591,6 +601,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// A stack change waits a turn for the viewport a leaving keyboard
     /// frees (see sync).
     private var awaitingKeyboardViewport = false
+    /// The editor a back swipe put away, focused again if the swipe cancels.
+    private weak var droppedEditor: UIView?
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -718,7 +730,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             return false
         }
-        guard let start, let view else { dropKeyboard(); return true }
+        guard let start, let view else { dropKeyboard(); return popStillMayBegin }
         var overSwipeRight = false
         var hit = view.hitTest(start, with: nil)
         if CanvasInputs.owns(hit) { return false }
@@ -728,8 +740,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             hit = current.superview
         }
         let begins = NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: velocity)
-        if begins { dropKeyboard() }
-        return begins
+        guard begins else { return false }
+        dropKeyboard()
+        return popStillMayBegin
     }
 
     /// One viewport holds both routes, and with the keyboard up it ends at
@@ -740,11 +753,20 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// to the screen first.
     private func dropKeyboard() {
         guard presenter.hasKeyboardEditor || presenter.keyboardTop != nil,
-              let window = navigation?.view.window else { return }
+              navigation?.view.window != nil else { return }
         keyboardDropped = true
-        window.endEditing(true)
+        // This session's editor only: another session's in the same window
+        // keeps its focus (LLP 1035.001 D5).
+        droppedEditor = (FirstResponder.current as? UIView).flatMap { $0.isDescendant(of: presenter.viewport) ? $0 : nil }
+        presenter.viewport.endEditing(true)
         presenter.session?.view?.fit()
         navigation?.view.layoutIfNeeded()
+    }
+
+    /// Whether a pop may still begin after dropKeyboard: the blur it caused
+    /// was delivered at once and may have changed the route or its Back.
+    private var popStillMayBegin: Bool {
+        !changing && !presenter.modals.inTransition && (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
@@ -842,6 +864,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                                            modalActive: presenter.modals.inTransition)
         } ?? false
         let cancelled = interactiveTransition && (viewController as? RouteController)?.node === source?.node
+        // A cancelled swipe returns to the route it began on: so does the
+        // editor it put away, if it is still this session's and on screen.
+        if cancelled, let editor = droppedEditor, editor.window != nil, editor.isDescendant(of: presenter.viewport) {
+            _ = editor.becomeFirstResponder()
+        }
+        droppedEditor = nil
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         interactiveTransition = false
         guard dispatches, let control = backControl else { return }
@@ -881,6 +909,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         interactiveSource = nil
         interactiveTransition = false
         keyboardDropped = false
+        droppedEditor = nil
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }

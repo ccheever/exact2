@@ -257,6 +257,15 @@ package final class Presenter {
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
+    /// Apply a waiting no-duration keyboard change now: a stack change that
+    /// waited for the viewport a leaving keyboard frees must not start
+    /// before it (NavigationHost.sync).
+    func flushKeyboardResize() {
+        guard let work = keyboardDebounce else { return }
+        keyboardDebounce = nil
+        work.perform()
+        work.cancel() // its queued run, not this one
+    }
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
             guard let sv = node.scroll else { return false }
