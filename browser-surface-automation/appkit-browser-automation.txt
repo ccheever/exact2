@@ -1,0 +1,53 @@
+# browser-surface-automation: AppKit tests (macos/tests/browser-automation and part 1's macos/tests/browser), README recipe, 2026-10-09T04:16Z, branch at ac610d7f2
+passed  T3browserautomationTests.BrowserAutomationTests.testAClickOnAPageInNoWindowIsDOMEvents (0.446 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testAPageInNoWindowStillAnswersASnapshot (0.086 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testClickByLocatorAndByPointIsANativeClickInAWindow (1.479 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testClicksInQuickSuccessionEachLand (1.007 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testEvaluateReturnsSerializableValuesFromThePage (0.300 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testEveryAnswerGoesBackOnItsConnectionOnce (0.087 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testMuteSilencesTheDocumentsMediaAndTheAudibleStateFollowsPlayback (0.279 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testNavigateWaitsForItsReadiness (1.693 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testOpenCreatesATabAndWaitsForItsPage (0.091 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testOpenReusingATabNavigatesIt (0.128 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testPressSendsNativeKeysAndEditingCommands (0.254 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testScrollWaitForAndTheirFailures (0.921 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testSnapshotReportsThePageItsDiagnosticsAndAScreenshot (0.755 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testStatusReadsThePageAndFallsBackToTheSnapshot (0.128 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTheColourSchemeIsThePagesPreferredScheme (0.150 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTheHostsErrorAnswers (0.675 s)
+passed  T3browserautomationTests.BrowserAutomationTests.testTypeInsertsTextAndClearReplacesIt (0.213 s)
+	 Executed 17 tests, with 0 failures (0 unexpected) in 8.693 (8.695) seconds
+Executed 17 tests, with 0 failures
+passed  T3browserTests.BrowserReferenceTests.testAllowsRecoveryAgainAfterTheCrashWindowExpires (0.000 s)
+passed  T3browserTests.BrowserReferenceTests.testBacksOffAndStopsAfterABoundedNumberOfRapidCrashes (0.000 s)
+passed  T3browserTests.BrowserReferenceTests.testDoesNotHandAWindowToSchemesThatCannotBeHardened (0.000 s)
+passed  T3browserTests.BrowserReferenceTests.testFaviconCandidatesAreBoundedAsTheReferenceBoundsThem (0.002 s)
+passed  T3browserTests.BrowserReferenceTests.testKeepsTargetBlankLinksInThePreviewTab (0.000 s)
+passed  T3browserTests.BrowserReferenceTests.testOpensARealWindowForScriptedPopupsSoTheOpenerSurvives (0.000 s)
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+passed  T3browserTests.BrowserSessionTests.testACrashedPageRecoversAtItsURL (0.500 s)
+passed  T3browserTests.BrowserSessionTests.testAFaviconFetchCancelledWithItsTabDoesNotRunOn (1.267 s)
+passed  T3browserTests.BrowserSessionTests.testAFragmentJumpAndARedirectedRefusedDownloadDoNotStayLoading (0.112 s)
+passed  T3browserTests.BrowserSessionTests.testALoadFailureIsReportedUntilTheNextLoad (0.088 s)
+passed  T3browserTests.BrowserSessionTests.testAMissingPageIsAPageNotAFailure (0.066 s)
+examples/t3-code/macos/tests/browser/main.swift:117: error: -[T3browserTests.BrowserSessionTests testAnIdleTabLoadsAPageAndReportsItsStates] : XCTAssertEqual failed: ("Optional("")") is not equal to ("Optional("Slow page")")
+failed  T3browserTests.BrowserSessionTests.testAnIdleTabLoadsAPageAndReportsItsStates (1.115 s)
+passed  T3browserTests.BrowserSessionTests.testAPageCannotLeaveTheWebOrDownload (0.109 s)
+passed  T3browserTests.BrowserSessionTests.testATabOutlivesItsViewAndClosesWithItsSession (0.111 s)
+passed  T3browserTests.BrowserSessionTests.testBackForwardRefreshAndHardReload (0.168 s)
+passed  T3browserTests.BrowserSessionTests.testCancelledAndPolicyStoppedLoadsAreNotFailures (0.005 s)
+passed  T3browserTests.BrowserSessionTests.testEachEnvironmentProfileHasItsOwnStore (0.004 s)
+passed  T3browserTests.BrowserSessionTests.testRefreshWhileLoadingAsksForThePendingPageAgain (1.604 s)
+passed  T3browserTests.BrowserSessionTests.testScriptedPopupsOpenAWindowAndBlankLinksStayInTheTab (0.232 s)
+passed  T3browserTests.BrowserSessionTests.testTheCameraAndMicrophoneAreDenied (0.180 s)
+passed  T3browserTests.BrowserSessionTests.testTheModuleOps (0.064 s)
+passed  T3browserTests.BrowserSessionTests.testThePageKeepsWebKitsNativeUserAgentAndIsInspectableInDevelopment (0.088 s)
+passed  T3browserTests.BrowserSessionTests.testTwoSessionsKeepTheirOwnPages (0.010 s)
+	 Executed 17 tests, with 1 failure (0 unexpected) in 5.723 (5.725) seconds
+	 Executed 23 tests, with 1 failure (0 unexpected) in 5.726 (5.729) seconds
+Executed 23 tests, with 1 failures
+
+# part 1's browser binary, rerun three times right after (the first run's title assertion raced; it passed 3/3):
+Executed 23 tests, with 0 failures
+Executed 23 tests, with 0 failures
+Executed 23 tests, with 0 failures
