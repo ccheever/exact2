@@ -1,0 +1,151 @@
+// browser-surface-automation: a lane-only ACP agent for the end-to-end check (not committed; uploaded as evidence).
+// The real lane server launches it as an ACP Registry instance (commandPath override) and gives it the thread's
+// MCP credential (T3_ACP_MCP_ENDPOINT, T3_ACP_MCP_AUTHORIZATION). A prompt "e2e <url>" calls the server's preview
+// MCP tools one after another, so the server's broker sends each request to the app's previewAutomation host; the
+// agent writes every tool result (screenshots elided) to e2e-results.jsonl beside it and a summary as its reply.
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+
+const here = import.meta.dir;
+const log = join(here, 'e2e-results.jsonl');
+const trace = (line) => appendFileSync(join(here, 'fake-acp.log'), `${new Date().toISOString()} ${line}\n`);
+const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+trace(`start pid=${process.pid} args=${JSON.stringify(process.argv.slice(2))} mcp=${process.env.T3_ACP_MCP_ENDPOINT ? 'yes' : 'no'}`);
+
+let mcpSession = null, mcpId = 0;
+// The credential also comes in session/new's stdio MCP server entry (its env); kept in memory only, never logged.
+const sessionMcp = {};
+async function mcp(method, params, notification = false) {
+  const endpoint = process.env.T3_ACP_MCP_ENDPOINT ?? sessionMcp.endpoint, authorization = process.env.T3_ACP_MCP_AUTHORIZATION ?? sessionMcp.authorization;
+  if (!endpoint || !authorization) throw new Error('no MCP credential in the environment');
+  const body = notification ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: ++mcpId, method, params };
+  const response = await fetch(endpoint, { method: 'POST', body: JSON.stringify(body), headers: {
+    'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization,
+    ...(mcpSession ? { 'mcp-session-id': mcpSession } : {}), 'mcp-protocol-version': '2025-06-18',
+  } });
+  mcpSession = response.headers.get('mcp-session-id') ?? mcpSession;
+  if (notification) return null;
+  const text = await response.text();
+  if ((response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const message = JSON.parse(line.slice(5));
+      if (message.id === body.id) return message;
+    }
+    throw new Error(`no reply in the event stream (${response.status})`);
+  }
+  return JSON.parse(text);
+}
+const elide = (value) => JSON.parse(JSON.stringify(value, (key, entry) => (key === 'data' && typeof entry === 'string' && entry.length > 200) ? `<${entry.length} base64 chars>` : entry));
+
+async function tool(name, args) {
+  const started = Date.now();
+  let reply;
+  try { reply = await mcp('tools/call', { name, arguments: args }); }
+  catch (error) { reply = { error: { message: String(error) } }; }
+  const result = reply.result ?? {};
+  const structured = result.structuredContent ?? null;
+  const text = (result.content ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('\n');
+  const images = (result.content ?? []).filter((part) => part.type === 'image').length;
+  const entry = { tool: name, args, ms: Date.now() - started, isError: result.isError === true || !!reply.error, structured: elide(structured), text: text.slice(0, 1200), images, rpcError: reply.error ?? null };
+  appendFileSync(log, JSON.stringify(entry) + '\n');
+  return entry;
+}
+
+async function scenario(url) {
+  writeFileSync(log, '');
+  const init = await mcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'bsa-fake-acp', version: '1' } });
+  await mcp('notifications/initialized', {}, true);
+  const tools = await mcp('tools/list', {});
+  const names = (tools.result?.tools ?? []).map((entry) => entry.name).filter((name) => name.startsWith('preview_'));
+  appendFileSync(log, JSON.stringify({ initialize: init.result?.serverInfo ?? init.error, previewTools: names }) + '\n');
+  const steps = [
+    ['preview_status', {}],
+    ['preview_open', { url }],
+    ['preview_status', {}],
+    ['preview_snapshot', { includeImage: true }],
+    ['preview_click', { locator: "role=button[name='Go']" }],
+    ['preview_type', { locator: '#name', text: 'Ada Lovelace', clear: true }],
+    ['preview_press', { key: 'Enter' }],
+    ['preview_wait_for', { text: 'submitted Ada Lovelace', timeoutMs: 5000 }],
+    ['preview_evaluate', { expression: "({ title: document.title, clicks: window.clicks ?? 0, submitted: document.getElementById('submitted')?.textContent })" }],
+    ['preview_scroll', { deltaY: 300 }],
+    ['preview_set_appearance', { colorScheme: 'dark' }],
+    ['preview_evaluate', { expression: "matchMedia('(prefers-color-scheme: dark)').matches" }],
+    ['preview_set_appearance', { colorScheme: 'system' }],
+    ['preview_resize', { mode: 'fill' }],
+    ['preview_resize', { mode: 'freeform', width: 800, height: 600 }],
+    ['preview_navigate', { url: url.replace(/\/form$/, '/b'), readiness: 'load' }],
+    ['preview_snapshot', { includeImage: false }],
+    ['preview_recording_start', {}],
+    ['preview_recording_stop', {}],
+    ['preview_navigate', { url: url.replace(/\/form$/, '/media') }],
+    ['preview_click', { locator: '#play' }],
+    ['preview_evaluate', { expression: "({ paused: document.getElementById('tone').paused, muted: document.getElementById('tone').muted })" }],
+  ];
+  const summary = [];
+  for (const [name, args] of steps) {
+    const entry = await tool(name, args);
+    const detail = entry.isError ? `error: ${entry.text.split('\n')[0].slice(0, 160)}` : summarize(name, entry);
+    summary.push(`- ${name} ${JSON.stringify(args)} → ${detail}`);
+  }
+  return summary.join('\n') + `\n\nOpen [LanePageB](${url.replace(/\/form$/, '/b')}) to check a chat link.`;
+}
+// "nohost <url>": the base build has no previewAutomation host, so the server answers with its no-host error.
+async function noHost(url) {
+  writeFileSync(log, '');
+  await mcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'bsa-fake-acp', version: '1' } });
+  await mcp('notifications/initialized', {}, true);
+  const entry = await tool('preview_status', {});
+  return `- preview_status → ${entry.isError ? 'error' : 'ok'}: ${entry.text.split('\n')[0]}\n\nOpen [LanePageB](${url.replace(/\/form$/, '/b')}) to check a chat link.`;
+}
+function summarize(name, entry) {
+  const value = entry.structured ?? {};
+  if (name === 'preview_status' || name === 'preview_open' || name === 'preview_navigate') return `ok (tab ${value.tabId}, ${value.url}, “${value.title}”, loading ${value.loading}, visible ${value.visible})`;
+  if (name === 'preview_snapshot') return `ok (“${value.title}”, ${value.interactiveElements?.length ?? 0} elements, ${value.consoleEntries?.length ?? 0} console, ${entry.images} image)`;
+  if (name === 'preview_evaluate') return `ok (${JSON.stringify(value.value)})`;
+  if (name === 'preview_resize') return `ok (${JSON.stringify(value.viewport)})`;
+  return 'ok';
+}
+
+const sessions = new Set();
+const lines = createInterface({ input: process.stdin });
+lines.on('line', async (line) => {
+  if (!line.trim()) return;
+  let message;
+  try { message = JSON.parse(line); } catch { return; }
+  trace(`<- ${message.method ?? 'reply'} ${message.id ?? ''}`);
+  if (message.method === undefined) return; // a reply to one of ours (none are sent)
+  const reply = (result) => message.id !== undefined && send({ id: message.id, result });
+  switch (message.method) {
+    case 'initialize':
+      return reply({ protocolVersion: 1, agentCapabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } }, authMethods: [], agentInfo: { name: 'bsa-fake-acp', version: '1.0.0' } });
+    case 'session/new': {
+      for (const server of message.params?.mcpServers ?? []) for (const entry of server.env ?? []) {
+        if (entry.name === 'T3_ACP_MCP_ENDPOINT') sessionMcp.endpoint = entry.value;
+        if (entry.name === 'T3_ACP_MCP_AUTHORIZATION') sessionMcp.authorization = entry.value;
+      }
+      trace(`session/new mcp env=${process.env.T3_ACP_MCP_ENDPOINT ? 'yes' : 'no'} params=${sessionMcp.endpoint ? 'yes' : 'no'}`);
+      const sessionId = `bsa-${Date.now()}`;
+      sessions.add(sessionId);
+      return reply({ sessionId });
+    }
+    case 'session/prompt': {
+      const text = (message.params?.prompt ?? []).filter((part) => part.type === 'text').map((part) => part.text).join(' ');
+      const url = /e2e\s+(\S+)/.exec(text)?.[1];
+      let answer;
+      const probe = /nohost\s+(\S+)/.exec(text)?.[1];
+      try {
+        if (probe) answer = `Preview tools with no host (${probe}):\n${await noHost(probe)}`;
+        else answer = url ? `Preview tools end to end against ${url}:\n${await scenario(url)}` : 'Send "e2e <url>" to run the preview tools.';
+      }
+      catch (error) { answer = `The scenario failed: ${error}`; trace(String(error?.stack ?? error)); }
+      send({ method: 'session/update', params: { sessionId: message.params?.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } } });
+      return reply({ stopReason: 'end_turn' });
+    }
+    case 'session/cancel': return;
+    default:
+      if (message.id !== undefined) send({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } });
+  }
+});
