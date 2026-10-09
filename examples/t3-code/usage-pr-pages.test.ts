@@ -120,7 +120,8 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('map(authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
     const sub = await component('pages-prs.contract', 'PrFilterSub');
     expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" aria-label="Search authors"');
-    expect(sub).toContain('action searchKey(k: string)\n    if k != "ArrowDown" and k != "Escape"\n      stopPropagation()');
+    // Its keys stay in the field but ↓; Escape closes the submenu (audit-wave-followups-3 FW-3, menu-keys.test.ts).
+    expect(sub).toContain('action searchKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
     expect(sub).toContain('each person in authors key=person.key');
     expect(sub).toContain('when length(authors) == 0\n          text "No authors found"');
     // The search field precedes Anyone.
