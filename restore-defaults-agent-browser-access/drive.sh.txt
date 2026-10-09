@@ -1,0 +1,22 @@
+#!/bin/zsh
+# restore-defaults-agent-browser-access: one clone drive (agent mode). Usage: drive.sh <before|after>
+# before: the evidence base build (never edited); after: this task's worktree. Same steps, same size.
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+T=restore-defaults-agent-browser-access
+S=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/$T
+MODE=$1; OUT=$S/runs/$MODE; rm -rf $OUT; mkdir -p $OUT
+case $MODE in before) ROOTW=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=$T-before;; *) ROOTW=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-$T; LANE=$T;; esac
+O=$OUT
+EXACT_ROOT=$ROOTW $A/clone-drive.sh $LANE 16440 \
+  "clock +20000 real" "clock +3000 real" \
+  "tap connection-settings" "clock +1500 real" \
+  "tap settings-integrations" "clock +3000 real" "tap \"Dismiss notification\"" "clock +1500 real" "screenshot $O/01-integrations-start.png window" tree \
+  "tap scoped-enableAgentBrowserAccess" "clock +3000 real" "screenshot $O/02-access-off.png window" tree \
+  "tap settings-general" "clock +3000 real" "tap setting-snooze-limited-threads" "clock +3000 real" "screenshot $O/03-general-changed.png window" tree \
+  "tap restore-device-defaults" "clock +1500 real" "screenshot $O/04-restore-dialog.png window" tree \
+  "tap restore-defaults-confirm" "clock +3000 real" "screenshot $O/05-general-restored.png window" tree \
+  "tap settings-integrations" "clock +3000 real" "screenshot $O/06-integrations-restored.png window" tree \
+  > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" > $OUT/exit.txt
+cp $A/lanes/$LANE/clone-t3-home/userdata/settings.json $OUT/settings-after-drive.json 2>/dev/null
+echo DONE
