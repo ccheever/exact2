@@ -209,28 +209,38 @@ ${patchLines(dir).join('\n')}
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
       deploy: { store: { web: '0', macos: '0', ios: '0', linux: '0' } },
     }, null, 2) + '\n',
-    'app.contract': `// ${title}: the view. app.ts answers what it asks for.
+    'app.contract': `// ${title}: the view. app.ts answers what it asks for. Colours, fonts,
+// sizes and the safe area are left unsaid, so each platform supplies its own:
+// the header is the navigation bar, its heading the title, its button a bar item.
 shape Greeting
   text: string
 
+routes nav
+  home "/"
+
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
+  state liked = false
+  action like
+    liked = not liked
   view
-    main testId="root"
-      viewport-fit="cover"
-      width="100%"
-      height="100%"
-      box-sizing="border-box"
-      padding-top="calc(env(safe-area-inset-top) + 24px)"
-      padding-right="calc(env(safe-area-inset-right) + 24px)"
-      padding-bottom="calc(env(safe-area-inset-bottom) + 24px)"
-      padding-left="calc(env(safe-area-inset-left) + 24px)"
-      background-color="light-dark(#ffffff, #111111)"
-      text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
+    main testId="root" navigationKey=\`\${top(nav).id}\` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" justify-content="space-between"
+            text "${title}" role="heading" aria-level=1
+            button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
+              image (liked ? "symbol:heart-fill" : "symbol:heart")
+          scroll id="content" flex=1 min-height=0
+            text greeting.text testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"
   expect tree has "root"
   expect text "greeting" == "Hello from ${title}."
+
+test "the header's button likes it"
+  tap "like"
+  expect state liked == true
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
@@ -412,7 +422,7 @@ names anything this machine is missing. Cargo builds themselves are forced offli
 
 Build it native. A hand-built lookalike of a system control is a bug; write the
 Contract form and each host draws its own (the agent guide's "Prefer native
-controls"): \`button appearance="auto"\`, \`list appearance="auto"\` with
+controls"): a \`button\` (native by default), \`list appearance="auto"\` with
 \`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
 date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
 and a route whose first child is a \`header\` holding one heading (the nav bar).
@@ -425,6 +435,15 @@ Drive it by \`testId\`, never by screen coordinates: give every control a \`test
 find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
 \`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
 authored header and tablist stand in for the native bars and take the same taps.
+
+Write less style (LLP 1115). What you leave unsaid is the platform's: text
+colour, tint, backgrounds, body and heading type and control sizes come out as
+a hand-built native app has them, and what you write wins. So
+omit colours, \`font-size\`, \`font-family\` and control metrics; say what a
+thing is instead (a \`header\` with its heading and buttons, \`role="heading"
+aria-level=1\` rather than a big \`font-size\`, a \`tablist\`). When you must colour
+something, name a role (\`CanvasText\`, \`AccentColor\`, \`-exact-secondary-label\`,
+\`-exact-separator\`, \`-exact-system-red\`; the agent guide lists them), never a hex.
 
 Match a reference's structure, controls and hierarchy, not its pixels: native
 controls set their own metrics. Don't measure sub-point positions; stop when it

@@ -38,9 +38,11 @@ guide's rules don't make obvious.
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
-  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: add
-  `object-fit="contain"` to every symbol with a `width`/`height`. (Signal Clone,
-  2026-10-02.)
+  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
+  it follows its text (in a button, tab or bar item, its title's font; give it a
+  `font-size` if it must differ; a native button refuses its symbol's `width` and
+  `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
+  Clone, 2026-10-02.)
 - **On iOS the whole window scrolls when the keyboard opens, and the header goes
   with it.** Cause: without `interactive-widget`, the root is not resized for the
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
@@ -220,11 +222,17 @@ guide's rules don't make obvious.
   `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
-  grouped list). Fix: the native Contract forms
+  grouped list), and values copied from a screenshot: Apple's system colours as hex
+  (`#8e8e93`, `#007aff`, `#f2f2f7`), headings as `font-size=34 font-weight=700`, a
+  large title or a search bar painted in the content. Each is a tell: it misses dark
+  mode, Increased Contrast and the next iOS. Fix: the native Contract forms
   ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
-  native controls"); a hand-built lookalike of a system control is a bug. Match a
-  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
-  2026-10-04.)
+  native controls"): a `header` with a `role="heading" aria-level=1` (the large
+  title) and an `input type="search"` (the bar's search field); a colour role
+  (`-exact-secondary-label`, `AccentColor`, `-exact-grouped-background`) or nothing
+  where you would write a hex. A hand-built lookalike of a system control is a bug.
+  Match a reference's structure and controls, not its pixels. (Exact-new iOS app
+  feedback, 2026-10-04; LLP 1115.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.

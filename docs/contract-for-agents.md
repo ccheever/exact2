@@ -883,6 +883,59 @@ route under the platform bar, that control's text becomes the bar's back button 
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`.
 
+Say what a thing is and leave how it looks unsaid: no `background-color`, `height`,
+`font-size` or `padding` on these, or the host draws your box instead of its
+control (LLP 1115). Worked forms, each compiled:
+
+```text
+// The navigation bar: buttons before the heading are leading items, after it
+// trailing; a popovertarget button is a menu item (⋯), a search input the bar's
+// search field, a tablist the segmented title.
+column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    text "Inbox" role="heading" aria-level=1
+    row role="tablist"
+      button role="tab" aria-selected=(filter == "all") press=show("all")
+        text "All"
+      button role="tab" aria-selected=(filter == "unread") press=show("unread")
+        text "Unread"
+    input type="search" value=query input=search placeholder="Search"
+    button popovertarget="inbox-menu" aria-label="More"
+      image "symbol:more"
+    button press=compose aria-label="Compose"
+      image "symbol:compose"
+  column id="inbox-menu" popover="auto" role="menu"
+    button press=compose
+      text "New Message"
+  // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
+  // spinner until the reload settles.
+  scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
+    each m in items key=m.id
+      // Swipe actions: a horizontal snap scroll naming its content and actions.
+      scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+        row width="100%"
+          button id=`item-${m.id}` press=open(m.id) width="100%" flex-shrink=0 scroll-snap-align="start" text-align="start"
+            text m.title
+          button id=`delete-${m.id}` destructive=true press=remove(m.id) aria-label="Delete" flex-shrink=0 scroll-snap-align="start"
+            image "symbol:delete"
+
+// A sheet's bar: Cancel is the root's navigationBack control, Done trails.
+column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="form" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    button id="back" press=back
+      text "Cancel"
+    text "New Message" role="heading"
+    button press=save
+      text "Done"
+  scroll id="form" flex=1 min-height=0
+    …
+```
+
+`action reload` is `refresh items`; `pending(items)` is true while it runs.
+A segmented control in the content is the same `row role="tablist"` of text tabs
+outside the header. iOS needs a swipe row's content exactly the scroll's size
+([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
+
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
 [`schema.json`](../kernel/tables/schema.json)'s `symbols`; a player's are `play`,
@@ -1137,9 +1190,15 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     each t in nav.tabs key=t.name
       column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
         each e in t.stack key=e.id
-          column navigationKey=`${e.id}` position="absolute" inset=0 background-color="#fff"
-            …
-  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex") height=56
+          column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
+            header
+              when e.name == "item"
+                button id="back" press=back
+                  text "Home"
+              text e.name role="heading" aria-level=(e.name == "item" ? 2 : 1)
+            scroll id=`content-${e.id}` flex=1 min-height=0
+              …
+  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex")
     button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
       image "symbol:home"
       text "Home"
@@ -1147,6 +1206,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
+- Each route starts with a `header` (its heading, and on a pushed route the
+  `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
+  routes' backgrounds, heights and colours unsaid: the platform draws the bars and the
+  page.
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1747,7 +1810,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
-| `background-color: "#fff"` in a `style` | `background-color="#fff"` |
+| `background-color: "Canvas"` in a `style` | `background-color="Canvas"` (or nothing: an unset background is the platform's) |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
 | Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
 
@@ -1824,7 +1887,7 @@ change in the laid-out box using the existing measured projection.
 inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
 where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 
-`font-family` accepts literal CSS fallback lists and choices of them, including
+Omit `font-family` for the platform's font. `font-family` accepts literal CSS fallback lists and choices of them, including
 `"Inter, system-ui, sans-serif"` and quoted names. A family declared with
 `font` uses its bundled faces; other names are local installed families,
 whose own italic and bold faces `font-style` and `font-weight` select by CSS's
@@ -1895,6 +1958,24 @@ rather than polling with a timer. `user-select="none"` prevents
 ordinary text selection; `auto` is the default. Text/all/contain need iOS and
 Linux selection executors and are refused precisely. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
+
+**Colours: say a role, not a value.** Leave a colour unsaid where you can (text,
+tint, page and sheet backgrounds, separators and controls are the platform's).
+Where you must say one, name a role, which each host resolves to its own colour
+for light, dark and Increased Contrast (`labelColor` on iOS, the browser's own on
+the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
+`GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
+`ButtonText`, `Highlight`, `HighlightText`, and Exact's `-exact-label`,
+`-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
+`-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
+`-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
+`-exact-grouped-background`, `-exact-secondary-grouped-background`,
+`-exact-tertiary-grouped-background`, `-exact-fill` (and `secondary-`, `tertiary-`,
+`quaternary-`), and the hues `-exact-system-red`, `-orange`, `-yellow`, `-green`,
+`-mint`, `-teal`, `-cyan`, `-blue`, `-indigo`, `-purple`, `-pink`, `-brown`,
+`-gray` (each `-exact-system-…`). `color="-exact-secondary-label"`, not
+`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. A brand colour
+the platform has no role for is the one place for a literal.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
