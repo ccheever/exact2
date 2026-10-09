@@ -1,0 +1,26 @@
+realinput-1010-fixes RI-1, review round 1: a launcher letter's re-posted copy never reaches type-to-focus.
+
+Reference (T3 Code 1e2ecbd975, RightPanelTabs.tsx:408-420): the launcher's window capture listener takes a launcher
+letter (preventDefault, stopPropagation) before ChatView's type-to-focus; the letter never types anywhere.
+
+Race (before, 3be705a83): R8KeysLauncher.route posts a launcher letter again (.taken) after taking the focus from a
+bare window. If the focus left the launcher before the copy came back, route returned .none for the copy, and
+T3Composer.editorKey went on to type-to-focus, which typed the letter into the composer.
+
+After: route recognises its own copy first (timestamp, key code, window; R8KeysLauncher.swift:93-100): with the
+launcher focused it goes on to Exact's route (.pass); otherwise it is dropped (.dropped, new), and
+T3Composer.editorKey returns Routed(event: nil) for it (T3Composer.swift:176). Also when the focus moved into a text
+field (typing context) meanwhile: the copy is dropped there, a new key types on.
+
+AppKit test macos/tests/r8-keys (new assertions):
+  testTheLauncherTakesFocusAndItsLetters: the copy with the focus gone -> .dropped (was .none); the copy after the
+    focus moved into the editor -> .dropped; a new key there -> .none (types on).
+  testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder: from the bare window, composer.handle(D) -> nil, copy
+    posted; focus leaves; composer.handle(copy) -> nil; nothing posted again; composer text stays "".
+
+Before (old R8KeysLauncher.swift + T3Composer.swift from 3be705a83, same test, `.dropped` expectations read as `.none`):
+  main.swift:296: XCTAssertEqual failed: ("d") is not equal to ("") - type-to-focus never takes a launcher letter
+  R8 keys tests: 6 run, 3 failed   (exit 1)
+After (this branch):
+  Executed 6 tests, with 0 failures (0 unexpected)
+  R8 keys tests: 6 run, 0 failed   (exit 0)
