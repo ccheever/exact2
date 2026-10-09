@@ -113,14 +113,23 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 - **S2-6.** The trigger said "From origin/<ref>" whenever Start from origin was on. resolveBranchTriggerLabel adds
   `origin/` only for a ref that the project's refs list as a local branch (`isRemote === false`). Each ref now carries
   `remote` (`scheduled-view.ts` `branchRef`). The editor derives `baseLocal` from the chosen project's refs, and
-  `taskBaseLabel` (`settings-scheduled.contract`) is the reference's function for a future worktree.
+  `taskBaseLabel` (`settings-scheduled.contract`) is the reference's function for a future worktree. A base that is
+  not on the project's first page of 100 refs is looked up by name, as WorktreeBaseBranchPicker's `selectedRefQuery`
+  does (`listRefs { query: <base>, limit: 10 }`, review fix): the page resource does it for the draft's project and base,
+  and for the project the editor switched to (`chooseProject` hands `key`, `project` and `ref` to the root's `taskBase`
+  state, an argument of the `scheduled` resource, because a child component has no resource of its own, X9). The
+  result is each project group's `selected`, which `baseLocal` reads after `refs`.
 - **S2-8.** URL refuses a host with a space ("invalid URL: invalid international domain name"). The reference's
   Chromium renderer instead escapes it (`https://not%20a%20url/`) and fails at the transport. `parsePairing`
   (`protocol.ts`) now returns that escaped origin, marked `unreachable`, for a host with spaces, and "Backend URL is
   invalid." (RemoteBackendUrlInvalidError) for any other host URL refuses. Add environment, Add route and the
   connect op report `environmentFetchFailure` (failRemoteRequest's message, `rpc/http.ts:156`) after their own checks:
   without a pairing code it is still "Enter a pairing code.", as in the reference. Nothing is sent to the native
-  transport.
+  transport. Review fix: Chromium still reads such a link's `token` and `host`, so `escapedUrl` (`protocol.ts`) gives
+  the escaped origin with the query and fragment as written, and both `parsePairing` and Add environment's Host field
+  split (`pairingFields`, `r10-connect-pairing.ts`, parsePairingUrlFields) use it: `https://not a url/pair#token=abc`
+  pasted into Host fills Host `https://not%20a%20url` and Pairing code `abc`, and Add environment then reports the
+  transport failure, as the reference does.
 - **S2-10.**
   - `ScopedRow` carries the control's accessible name (`control`) and the reset's label (`resetLabel`) where the
     reference's differ from the title: switch "Default automatic pull"; combobox "Default pull request merge method";
@@ -151,6 +160,9 @@ reference shots.
 | S2-8 | Pass: inline error and toast read "Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment))." (before: "invalid URL: invalid international domain name"). Unit tests | [s2-8 triple](https://raw.githubusercontent.com/ccheever/exact2/15a2bec2e8da4b919c89296f6a2ed3cac8b58b81/settings-rows-and-labels/s2-8-invalid-host.png), [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
 | S2-10 | Pass: switch "Default automatic pull", combobox "Default pull request merge method", resets "Reset default automatic pull / default merge method / branch naming / source control writing style to default"; the Icon kinds are `menuitemradio` with Laptop checked (before: the titles, `menuitem`, no checked state). Unit test | [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) |
 | S2-9 (part) | Pass: the Icon submenu's labels and the "Icon" row start at the left (before: centred). Placement stays X17's | [s2-9 triple](https://raw.githubusercontent.com/ccheever/exact2/a547af9d67e0fe87af99b7f92e0a66724fc092f1/settings-rows-and-labels/s2-9-icon-rows.png) |
+| Review R1 (S2-8 edge): a pairing link whose host has spaces | Pass: pasted into Host it splits into `https://not%20a%20url` and `abc`, and Add environment reports the reference's transport failure (before: the link stayed in Host, "invalid URL: invalid international domain name"; this PR's previous head: credential lost, "Enter a pairing code."). The reference reads the same. Unit tests | [r1 triple](https://raw.githubusercontent.com/ccheever/exact2/88886bc564d0a5773a9b31d7a51f3391112ac3e5/settings-rows-and-labels/s2-8-pairing-link.png), [text](https://raw.githubusercontent.com/ccheever/exact2/522068efbd752e0d48dd58d44ab184871dbe9cde/settings-rows-and-labels/text-review-fixes.txt) |
+| Review R2 (S2-6 edge): a local base past the first 100 refs | Pass: lane project many-refs (122 branches, main past the first page): "From origin/main" after switching to it, as the reference (this PR's previous head: "From main"; the feature tip: "From origin/main" because it always added origin/). Unit test | [r2 triple](https://raw.githubusercontent.com/ccheever/exact2/f3ae6efd75846d3622b63b753402f35306d5ce2e/settings-rows-and-labels/s2-6-base-past-first-page.png), [text](https://raw.githubusercontent.com/ccheever/exact2/522068efbd752e0d48dd58d44ab184871dbe9cde/settings-rows-and-labels/text-review-fixes.txt) |
+| Review R3: tests for the connect op and Add route | Pass: `r10-connect.test.ts` covers both paths (no UI change) | tests |
 | PolicyTip on General (no finding; the replaced `InfoTip`) | Pass, no regression: the Background activity tooltip shows the same words above the (i) | [general pair](https://raw.githubusercontent.com/ccheever/exact2/e5ec221a10d53343c6e80248e06c8cd8fe5e0014/settings-rows-and-labels/general-policy-tooltip.png) |
 
 ## Tests
@@ -167,12 +179,20 @@ reference shots.
   and in a hosted link's `host`), "Backend URL is invalid." for another refused host, and `environmentFetchFailure`'s
   message.
 - `r10-connect.test.ts`: Add environment with "not a url" and "ABC" rejects with the reference's message and toasts it,
-  connected or not. Nothing reaches the native transport. Without a code it is "Enter a pairing code.".
+  connected or not. Nothing reaches the native transport. Without a code it is "Enter a pairing code.". Review fixes:
+  the split and the whole link (`https://not a url/pair#token=abc`) fail the same way; Add route to a host with spaces
+  ("Could not add route") and the connect and reconnect ops (`connectionOps`) report the same failure and send nothing;
+  `pairingFields` splits a link whose host has spaces as Chromium does (escaped host, token, a hosted `host`).
+- `client.test.ts` (review fix): `parsePairing` reads a refused link's `#token=`, `?token=` and `?host=`, and maps
+  `ws://` to `http://`.
+- `live-automations.test.ts` (review fix): the editor's base past the first page is looked up by name, and only then;
+  nothing found leaves it unknown; after a project switch (`taskBase`) that project is looked up, and a stale key asks
+  nothing.
 - `hover-layer.test.ts`: `PolicyTip`'s layer call (kind policy, top, centre, hover and focus), the policy kind as a
   tooltip with a 200 ms open delay, and its three uses with the reference's words.
 - New `settings-labels.test.ts`, which reads the Contract sources:
   - S1-8's buttons;
-  - S2-6's `taskBaseLabel` and `baseLocal`;
+  - S2-6's `taskBaseLabel`, `baseLocal` (page, then lookup), `chooseProject`'s `lookupBase` and the resource argument;
   - S2-10's control and reset labels in `ScopedSettingRow`;
   - S2-9 and S2-10's radio Icon kinds and left-aligned menu labels.
 
@@ -189,16 +209,26 @@ the base build and then this branch once each, with the same steps. Every row pa
 [#367](https://github.com/ccheever/exact2/pull/367). Merged `6cb2828ba` (settings-escape-and-nav and two more) before
 the final checks.
 
+2026-10-10, review round: an independent review found three should-fix problems (R1 a refused pairing link lost its
+token, R2 the base branch read only the first 100 refs, R3 two unreachable-host paths had no test). All three fixed in
+one round; R1 also covers Add environment's Host field split, the reference's path for a pasted link. Merged
+`eba445c44` before the final checks. One live drive per side (lane project many-refs added with `t3 project add`).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
 | --- | --- | --- | --- |
 | Before drive | evidence-base `950e8e2e5` | Complete on the first run | [tree text](https://raw.githubusercontent.com/ccheever/exact2/b4489a2c3ba1632c3d371c5a711d35c6ed5c0bb7/settings-rows-and-labels/text-before-after.txt) (with the drive's steps) |
 | After drive (the one live drive) | this branch, bundle built after merging `c081d6d43` | Complete on the first run, every row passes | the links above |
+| Review round, before drive | evidence-base `950e8e2e5` | Complete on the first run | [text](https://raw.githubusercontent.com/ccheever/exact2/522068efbd752e0d48dd58d44ab184871dbe9cde/settings-rows-and-labels/text-review-fixes.txt) |
+| Review round, after drive | this branch `b6efbf144` (bundle after merging `eba445c44`) | Complete on the first run, R1 and R2 pass | the review rows above |
 
 ## Next action
 
-The coordinator reviews the draft PR and merges it. `settings-core.ts` is shared with
+The coordinator reviews the draft PR and merges it. Seen during the review drive, not this task's findings (both also
+on the feature tip): the base branch picker's ref names are centred (a `button` centres its text; the reference's are
+left-aligned), and the picker has no "Showing 100 of 122 refs" status, server-side search or next page
+(usePaginatedBranches). `settings-core.ts` is shared with
 [settings-diagnostics-and-scope](20261009-settings-diagnostics-and-scope.md), and `settings-scheduled.contract` and
 `settings-source-control.contract` with [model-picker-parity](20261009-model-picker-parity.md). The second of these to
 merge keeps both sides.
