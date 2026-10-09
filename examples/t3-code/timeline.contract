@@ -388,7 +388,7 @@ component TimelineContent
                             when message.kind == "subagent" or message.kind == "subagents"
                               column width="100%"
                                 each agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.body}\t${agent.result}`
-                                  SubagentRow(agent=agent, command=command)
+                                  SubagentRow(agent=agent, command=command, now=now)
                             else
                               when message.kind == "worktree-setup"
                                 each setup in message.setup key=setup.id
@@ -400,7 +400,7 @@ component TimelineContent
                                   text message.title font-size="0.75rem" color="light-dark(#71717b, #818181)"
                                   box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
 
-// WorkGroupHeader: the group's summary icon and sentence, hover time.
+// WorkGroupHeader: the group's icon (its tools' image, else the summary glyph) and sentence, hover time.
 component WorkGroupHeader
   props
     message: Message
@@ -413,28 +413,45 @@ component WorkGroupHeader
   view
     button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       each keyed in message.activities key=keyed.id
-        WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight="", iconDark="")
+        WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
       // TimelineRowTimestamp: the full date in a tooltip once the time shows.
       box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) flex-shrink=0 margin-right="0.25rem"
         RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(over == "time"), hover=hover("time"))
           text message.timestamp font-size="0.75rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
-// A work group's entries: standalone rows, or an expanded group's list capped
-// at 18rem with its own scroll (ExpandedWorkGroupEntries).
+// What one row of an expanded group adds over a compact row: its size less 1.5rem while open, 0 shut.
+shape EntryExtra
+  id: string
+  extra: number
+
+// A work group's entries: standalone rows, or an expanded group's list with its own scroll
+// (ExpandedWorkGroupEntries): capped at min(18rem, 50dvh) plus what its open rows add over a
+// compact row (expandedContentHeight). Each row reports its own extra from its element resize
+// event; only an open row counts, so a shut row taller than a compact line (a provider error's
+// detail, a retry) adds nothing, as the reference sums `expandedEntries` only. Contract has no list
+// sum: `opened` keeps the running total as the reports come (timeline-work-rows TH-4).
 component WorkEntries
+  inject
+    rem: number
   props
     message: Message
     command: action
+  state extras = filter([EntryExtra(id="", extra=0)], (e) => e.id != "")
+  state opened = 0
+  action entrySized(id: string, extra: number)
+    let previous = match first(filter(extras, (e) => e.id == id)) { case some(e) => e.extra, case none => 0 }
+    opened = max(0, opened - previous + extra)
+    extras = concat(filter(extras, (e) => e.id != id), [EntryExtra(id=id, extra=extra)])
   view
     when message.kind == "details"
-      scroll width="100%" max-height="18rem" overflow-x="hidden" aria-label="Tool calls"
+      scroll width="100%" max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)` overflow-x="hidden" aria-label="Tool calls" testId=`tool-calls-${message.id}`
         column width="100%"
           each entry in message.activities key=`${entry.id}\t${entry.label}`
-            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize)
+            WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)
     else
       column width="100%"
         each entry in message.activities key=`${entry.id}\t${entry.label}`
-          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize)
+          WorkEntry(entry=entry, grouped=false, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)
 
 // TimelineHistoryControl: "Load earlier turns" leads the scrolling timeline and
 // a failed load reads as a centred status line beneath it.

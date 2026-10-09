@@ -203,6 +203,43 @@ test('custom models add and remove with T3 validation (a new bare entry is store
   expect(stored()).toEqual([{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }]);
 });
 
+// settings-escape-and-nav (review): SettingsWindow holds an open "Add custom model" field by its Models block's key
+// (`startAdd` records `blockKey`), shows it while `modelAdding == block.key` and counts it as an Escape owner only
+// while that key is on the page (`modelAddingShown`). ProviderModelsSection keeps isAdding through unrelated writes,
+// keeps it after a refused add (its error shows) and clears it after a successful one (handleAdd's setIsAdding(false)).
+test('an open "Add custom model" field survives other writes and a refused add, and closes for good after a successful add', async () => {
+  const server = new FakeServer();
+  const op = (name: string, id: string, key: string, value = '') => runProviderOp(server, native, name, id, JSON.stringify({ key, value }));
+  const page = (selection = 'exact_fixture') => providerPage(server, selection, 0);
+  const blockKey = () => page().editors[0]!.modelBlocks[0]!.key;
+  // The window's derive: the field is there (and may own Escape) while the shown editor has that block.
+  const shown = (adding: string, selection?: string) => adding !== '' && page(selection).editors.some(editor => editor.modelBlocks.some(block => block.key === adding));
+  const adding = blockKey(); // Add custom model
+  expect(shown(adding)).toBe(true);
+  await op('provider-accent', 'exact_fixture', '', '#ff0000');
+  await op('provider-field', 'exact_fixture', 'launchArgs', '--verbose');
+  await op('provider-env-add', 'exact_fixture', '');
+  expect(shown(adding)).toBe(true);
+  await expect(op('provider-model-add', 'exact_fixture', 'gpt-5.6-luna')).rejects.toThrow('already saved');
+  await expect(op('provider-model-add', 'exact_fixture', '')).rejects.toThrow('Enter a model slug.');
+  expect(shown(adding)).toBe(true);
+  expect(shown(adding, 'codex')).toBe(false); // another provider: the section unmounts
+  await op('provider-model-add', 'exact_fixture', 'gpt-fixture-mini');
+  const added = blockKey();
+  expect(added).not.toBe(adding);
+  expect(shown(adding)).toBe(false); // the field closed: Escape is Back's again
+  // Removing the model it added restores the stored list, not the key: the closed field does not come back.
+  await op('provider-model-remove', 'exact_fixture', 'gpt-fixture-mini');
+  expect(obj(obj(obj(server.settings.providerInstances).exact_fixture).config).customModels).toEqual([{ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna' }]);
+  expect([adding, added]).not.toContain(blockKey());
+  expect(shown(adding)).toBe(false);
+  expect(shown(added)).toBe(false);
+  // A removed instance takes its field with it.
+  const reopened = blockKey();
+  await op('provider-remove', 'exact_fixture', '');
+  expect(shown(reopened)).toBe(false);
+});
+
 test('enable, delete, refresh and the health interval use the documented server writes', async () => {
   const server = new FakeServer();
   await runProviderOp(server, native, 'provider-add', '', JSON.stringify({ driver: 'codex', label: 'Disposable', fields: { binaryPath: '/fixture/codex' } }));

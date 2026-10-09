@@ -14,11 +14,16 @@ export interface ThreadState {
   latestLocalTurnOrdinal: number | null;
 }
 export interface Activity { id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
-  detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string }
+  detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
+  /** timeline-work-rows: V2ItemInspector's search results and file change (TH-5), a subagent's avatar and live start (TH-6). */
+  results?: import('./timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
+  startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string }
 export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
+  /** An answer the reference offers Fork from this response on (timeline-work-rows TH-1). */
+  canFork?: boolean;
   /** A row only this client shows (a `/feedback` exchange, composer-feedback.ts): never forked. */
   local?: boolean;
   code?: { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[];

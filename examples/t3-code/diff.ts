@@ -81,6 +81,11 @@ export function selectCheckpoint(client: T3Client, ordinal: number, filePath = '
   if (!turn) throw new ClientError('No completed checkpoint is available for this thread.');
   select(client, { kind: 'turn', runId: turn.runId, filePath });
 }
+/** onOpenTurnDiff(runId, filePath): a file change's Open diff in the work-log inspector (timeline-work-rows TH-5). */
+export function selectTurn(client: T3Client, runId: string, filePath = ''): void {
+  if (!runId) throw new ClientError('That turn is no longer available.');
+  select(client, { kind: 'turn', runId, filePath });
+}
 export function selectScope(client: T3Client, value: string): void {
   client.diffState.menu = '';
   if (value === 'unstaged' || value === 'branch') return select(client, { kind: value, runId: '', filePath: '' });
