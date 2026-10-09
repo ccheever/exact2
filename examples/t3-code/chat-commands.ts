@@ -3,6 +3,7 @@ import { obj, str } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
 import { retryWorkspacePreparation } from './r11-upstream-retry';
 import { settle } from './sidebar-commands';
+import { adoptCommandTime } from './sidebar-state';
 
 /**
  * Sidebar row actions (SidebarThreadRow's Settle and Un-settle). Each targets
@@ -12,7 +13,7 @@ import { settle } from './sidebar-commands';
  * sidebar's settle, whose "Settled 1 thread" notice ⌘Z undoes
  * (shell-sidebar-palette-keys SH-2).
  */
-export async function chatCommand(client: T3Client, native: Native, storage: Files, op: string, threadId: string, value = ''): Promise<string> {
+export async function chatCommand(client: T3Client, native: Native, storage: Files, op: string, threadId: string, value = '', at = 0): Promise<string> {
   if (op === 'retry-preparation') return retryWorkspacePreparation(client, native, storage, value); // lane r11-upstream (737993303d)
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
   if (!thread) throw new ClientError('That thread is no longer available.');
@@ -20,7 +21,8 @@ export async function chatCommand(client: T3Client, native: Native, storage: Fil
   if (capabilities[op.endsWith('snooze') ? 'threadSnooze' : 'threadSettlement'] === false) {
     throw new ClientError(op.endsWith('snooze') ? 'This server does not support snoozing threads.' : 'This server does not support settling threads.');
   }
-  if (op === 'settle') { await settle(client, native, threadId); return ''; }
+  // The window's instant first, as sidebarCommand adopts it: the notice's five seconds are on the window's clock.
+  if (op === 'settle') { adoptCommandTime(client, at); await settle(client, native, threadId); return ''; }
   const access = client.restAccess(native);
   const [commandId] = await access.ids(1);
   if (op === 'unsettle') {

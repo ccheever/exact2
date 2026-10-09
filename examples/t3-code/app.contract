@@ -649,7 +649,9 @@ component T3Code
       else
         if not commandPending
           commandPending = true
-          send changed = command(op, id, value, n)
+          // shell-sidebar-palette-keys (SH-2): a thread command carries the window's instant, as the sidebar's do, so
+          // ⇧⌘S's undo notice is timed on the window's clock (sidebar-state.ts adoptCommandTime).
+          send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + now() : n)
   action editKeybindingQuery(value: string)
     keybindingQuery = value
   action newKeybinding

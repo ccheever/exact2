@@ -39,7 +39,7 @@ export async function laneWrites(this: T3Client, op: string, id: string, value: 
   let resultMessage = '';
   try {
     if (op.startsWith('rest:')) resultMessage = await restCommand(this, native, storage, op.slice(5), id, value);
-    else if (op.startsWith('chat:')) resultMessage = await chatCommand(this, native, storage, op.slice(5), id, value);
+    else if (op.startsWith('chat:')) resultMessage = await chatCommand(this, native, storage, op.slice(5), id, value, n);
     else if (op.startsWith('shell:')) resultMessage = await shellCommand(this, native, storage, op.slice(6), id, value);
     else if (op.startsWith('sidebar:')) resultMessage = await sidebarCommand(this, native, storage, op.slice(8), id, value, n);
     else if (op.startsWith('cc:')) resultMessage = await composerCommand(this, native, storage, op.slice(3), id, value);

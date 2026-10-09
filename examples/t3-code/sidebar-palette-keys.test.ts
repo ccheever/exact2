@@ -67,6 +67,16 @@ describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
     await sidebarCommand(row.client, native, {} as Files, 'settle', 'a', '');
     expect(sidebarSnapshot(row.client, NOW, helpers).sidebar.undoText).toBe('Settled 1 thread,');
   });
+  test('under the agent\'s clock the notice is timed on the window\'s instant, which the chord\'s command carries', async () => {
+    setRuntimeClock(() => 50_000); // the data runtime's clock is the driver's, not the epoch
+    const chord = fake([thread('a')], 'a');
+    await chatCommand(chord.client, native, {} as Files, 'settle', 'a', '', NOW);
+    // The window hides the notice once its own wall time passes undoUntil (app.contract).
+    expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoUntil: NOW + 5000 });
+    const app = await source('app.contract');
+    expect(app).toContain('send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + now() : n)');
+    expect(await source('client-ops-lanes.ts')).toContain("chatCommand(this, native, storage, op.slice(5), id, value, n)");
+  });
 });
 
 describe('SH-3: the New thread in… picks by ⌘1–⌘9', () => {
