@@ -117,6 +117,67 @@ describe('PA-6: the comparison target', () => {
     expect(picker).toMatchObject({ cwd: '/b', local: [{ name: 'b-main', remoteName: null }], reads: 2 });
     expect(baseRefView(picker, '/b', null, null).rows.map(row => row.label)).toEqual(['b-main']);
   });
+
+  // The picker's keys are Contract fns (diff.contract), read from the source and run as JavaScript, as
+  // usage-pooled.test.ts runs usageHit. Expected values are the reference's (T3 Code 1e2ecbd975 over CDP,
+  // lane diff-panel-parity, base Automatic): its static Automatic row keeps keyboard index 0 under a query,
+  // while Base UI counts only the matching refs (the user's rule of 2026-10-09: match it).
+  const keyFns = async () => {
+    const text = await Bun.file(new URL('./diff.contract', import.meta.url)).text();
+    const names = ['dbStep', 'dbKeys', 'dbMove', 'dbReturn'];
+    const decls = names.map(name => {
+      const found = new RegExp(`^fn ${name}\\(([^)]*)\\): [^=]+ = (.+)$`, 'm').exec(text);
+      if (!found) throw new Error(`diff.contract: no fn ${name}`);
+      const params = found[1].split(',').map(param => param.split(':')[0]!.trim());
+      const body = found[2]!.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
+      return `function ${name}(${params.join(', ')}) { return ${body}; }`;
+    });
+    const stdlib = 'const length = x => x.length, indexOf = (x, y) => x.indexOf(y), slice = (x, a, b) => x.slice(a, b), join = (x, s) => x.join(s), concat = (x, y) => x.concat(y), trim = s => s.trim();';
+    return new Function(`${stdlib}\n${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
+      dbKeys: (refIds: string[], query: string) => string[];
+      dbMove: (keys: string[], current: string, down: boolean, query: string) => string;
+      dbReturn: (keys: string[], current: string, query: string) => string;
+    };
+  };
+  const [main, feature, release] = ['local:main', 'remote:origin/feature/audit', 'remote:origin/release/2026-10'];
+  /** The highlight after each ↓/↑ and Return's outcome ("stay" keeps the highlight and the popup), from `start` ("-" is none). */
+  const drive = async (refIds: string[], query: string, ops: string, start = '-') => {
+    const { dbKeys, dbMove, dbReturn } = await keyFns();
+    const keys = dbKeys(refIds, query);
+    let at = start;
+    return ops.split(' ').map(op => op === 'Return' ? dbReturn(keys, at, query) : (at = dbMove(keys, at, op === '↓', query)));
+  };
+
+  test('with a query, ↓ lights Automatic first, Return on it does nothing, and the last matching ref takes no key', async () => {
+    // "rel": ↓ Automatic, Return keeps the popup, ↓ none, ↓ Automatic, ↓ none, ↑ none.
+    expect(await drive([release], 'rel', '↓ Return ↓ ↓ ↓ ↑')).toEqual(['automatic', 'stay', '-', 'automatic', '-', '-']);
+    // "e" (origin/feature/audit, origin/release/2026-10): origin/release/2026-10 is never lit.
+    expect(await drive([feature, release], 'e', '↓ ↓ ↓ ↓ ↓ ↑ ↑ ↑')).toEqual(['automatic', feature, '-', 'automatic', feature, 'automatic', '-', '-']);
+    expect(await drive([feature, release], 'e', '↑ ↑ ↓')).toEqual(['-', '-', 'automatic']);
+    expect(await drive([feature, release], 'e', '↓ ↓ Return')).toEqual(['automatic', feature, 'pick']);
+    // "a" (main, origin/feature/audit, origin/release/2026-10).
+    expect(await drive([main, feature, release], 'a', '↓ ↓ ↓ ↓ ↓ ↑ ↑')).toEqual(['automatic', main, feature, '-', 'automatic', '-', '-']);
+    // "zzz": no matching ref, no key lights a row (Automatic still shows), Return only closes.
+    expect(await drive([], 'zzz', '↓ ↑ Return')).toEqual(['-', '-', 'close']);
+    // The pointer on the last matching ref: Base UI drops that index, so ↓ starts at Automatic and Return only closes.
+    expect(await drive([feature, release], 'e', '↓ ↓', release)).toEqual(['automatic', feature]);
+    expect(await drive([feature, release], 'e', 'Return', release)).toEqual(['close']);
+    // A blank query is no query (trimmed, as filteredBaseRefItems tests it).
+    expect(await drive([main, feature, release], '  ', '↑ ↑ Return', 'automatic')).toEqual(['-', release, 'pick']);
+  });
+
+  test('with no query the keys walk every row and Return picks Automatic too', async () => {
+    // The reference, opened at the selected Automatic: ↑ none, ↑ the last, ↑ ↑, ↓.
+    expect(await drive([main, feature, release], '', '↑ ↑ ↑ ↑ ↓', 'automatic')).toEqual(['-', release, feature, main, feature]);
+    expect(await drive([main, feature, release], '', 'Return', 'automatic')).toEqual(['pick']);
+    expect(await drive([main, feature, release], '', '↓ ↓ ↓ ↓', 'automatic')).toEqual([main, feature, release, '-']);
+    // The picker's search uses them: its keys are dbKeys of the rows, ↓/↑ dbMove, and Return acts only when not "stay".
+    const picker = (await Bun.file(new URL('./diff.contract', import.meta.url)).text()).split('\ncomponent DiffBasePicker\n')[1]!.split('\ncomponent ')[0]!;
+    expect(picker).toContain('derive keys = dbKeys(map(data.diffBaseRefs, (r) => r.id), query)');
+    expect(picker).toContain('let next = dbMove(keys, highlight, k == "ArrowDown", query)');
+    expect(picker).toContain('let outcome = dbReturn(keys, highlight, query)\n    if outcome != "stay"\n      pickedAt = session');
+    expect(picker).toContain('if outcome == "pick" and pickValue != ""\n        command("diff-base", "", pickValue, 0)');
+  });
 });
 
 describe('PA-7: the scope menu', () => {

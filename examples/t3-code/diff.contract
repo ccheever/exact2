@@ -290,16 +290,25 @@ component DiffCompare
 // the last to none; ↑ from no item goes to the last and before the first to none ("-").
 fn dbStep(ids: list<string>, current: string, down: bool): string = length(ids) == 0 ? "-" : (down ? (indexOf(ids, current) < 0 ? join(slice(ids, 0, 1), "") : (indexOf(ids, current) + 1 >= length(ids) ? "-" : join(slice(ids, indexOf(ids, current) + 1, indexOf(ids, current) + 2), ""))) : (indexOf(ids, current) < 0 ? join(slice(ids, length(ids) - 1), "") : (indexOf(ids, current) == 0 ? "-" : join(slice(ids, indexOf(ids, current) - 1, indexOf(ids, current)), ""))))
 
+// The keys' items, as the reference's are. With no query: Automatic and the refs. With a query
+// (filteredBaseRefItems, trimmed) Base UI counts only the matching refs, but the static Automatic row
+// keeps its place in the list: the first N rows (Automatic, then all but the last ref) take the N indices.
+fn dbKeys(refIds: list<string>, query: string): list<string> = trim(query) == "" ? concat(["automatic"], refIds) : slice(concat(["automatic"], refIds), 0, length(refIds))
+// ↓/↑ over those items. With a query, ↑ from no item lands past the counted items and Base UI drops it.
+fn dbMove(keys: list<string>, current: string, down: bool, query: string): string = (trim(query) != "" and not down and indexOf(keys, current) < 0) ? "-" : dbStep(keys, current, down)
+// Return: "pick" the highlighted item, "close" with none, or "stay" on Automatic under a query (its
+// list slot holds no item to click: nothing is picked and the popup stays open).
+fn dbReturn(keys: list<string>, current: string, query: string): string = indexOf(keys, current) < 0 ? "close" : ((trim(query) != "" and current == "automatic") ? "stay" : "pick")
+
 // ComboboxPopup (w-72, align start): the search, the Branch / Remote heading, "No matching refs.",
 // Automatic and the refs. The popup scopes the window's shortcuts while it shows (`aria-modal`), so
 // Escape closes it rather than the right panel, and gives the focus back to the trigger.
 // The highlighted item is Base UI's activeIndex, by id: an opening starts at the selected item, the
 // pointer and ↓/↑ in the search move it, typing clears it, and Return picks it (none: Return only
-// closes). The selected item keeps its own tint (data-selected) under a moving highlight. Automatic is
-// an item only with no query (filteredBaseRefItems); the reference's static Automatic row shifts its
-// keyboard index under a query (↓ lights Automatic and Return on it picks nothing), which the clone does
-// not copy (PR #360, "Decision needed"). A Return empties the popover until the trigger opens it again:
-// a popover cannot be hidden from an action (X66, #319).
+// closes). The selected item keeps its own tint (data-selected) under a moving highlight. Under a query
+// the keys follow the reference's static Automatic row (dbKeys, the user's rule of 2026-10-09, PR #360):
+// ↓ lights Automatic first, Return on it does nothing, and the last matching ref takes no key. A Return
+// empties the popover until the trigger opens it again: a popover cannot be hidden from an action (X66, #319).
 component DiffBasePicker
   props
     data: Snapshot
@@ -313,7 +322,7 @@ component DiffBasePicker
   state focused = true
   derive selectedId = (data.diffBaseAutomatic ? "automatic" : join(map(filter(data.diffBaseRefs, (r) => r.selected), (r) => r.id), ""))
   derive highlight = (cursorAt == session ? cursor : selectedId)
-  derive ids = concat((query == "" ? ["automatic"] : []), map(data.diffBaseRefs, (r) => r.id))
+  derive keys = dbKeys(map(data.diffBaseRefs, (r) => r.id), query)
   derive pickValue = (highlight == "automatic" ? "__automatic_base_ref__" : join(map(filter(data.diffBaseRefs, (r) => r.id == highlight), (r) => r.value), ""))
   action hover(id: string, over: bool)
     cursor = over ? id : (highlight == id ? "-" : highlight)
@@ -325,16 +334,18 @@ component DiffBasePicker
   action searchKey(k: string)
     if k == "ArrowDown" or k == "ArrowUp"
       preventDefault()
-      let next = dbStep(ids, highlight, k == "ArrowDown")
+      let next = dbMove(keys, highlight, k == "ArrowDown", query)
       cursor = next
       cursorAt = session
       if next != "-"
         scrollIntoView(`diff-base-option-${next}`, block="nearest")
   action pick
-    pickedAt = session
-    focus("diff-base")
-    if pickValue != ""
-      command("diff-base", "", pickValue, 0)
+    let outcome = dbReturn(keys, highlight, query)
+    if outcome != "stay"
+      pickedAt = session
+      focus("diff-base")
+      if outcome == "pick" and pickValue != ""
+        command("diff-base", "", pickValue, 0)
   action searchFocus(value: bool)
     focused = value
   action back
