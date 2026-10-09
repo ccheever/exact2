@@ -1,0 +1,41 @@
+#!/bin/zsh
+# browser-surface-capture: drive 6 on the final candidate (the part 2 merge and the Command-Return fix): part 2 chrome beside Annotate/Capture/Float, a screenshot, a new thread's annotation chip, Float and restore, then Command-Return send (agent mode, lane env; ports 16720 server, 16721 fixture). Not committed.
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture
+L=$W/target/capture-lane/lane
+P=${1:-drive}; OUT=$W/target/capture-lane/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$W/examples/t3-code
+export T3_LOCAL_HOME=$L/t3-home T3_LOCAL_PORT=16720 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$L/codex CLAUDE_CONFIG_DIR=$L/claude
+export XDG_CONFIG_HOME=$L/xdg/config XDG_DATA_HOME=$L/xdg/data XDG_STATE_HOME=$L/xdg/state XDG_CACHE_HOME=$L/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $L/t3-home-seed $T3_LOCAL_HOME
+FIXTURE_PORT=16721 $BUN $W/target/capture-lane/fixture.mjs > $OUT/fixture.log 2>&1 &
+FX=$!; echo "fixture pid $FX" > $OUT/pids.txt
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+cd $W
+S=$OUT
+$BUN scripts/agent.mjs macos --json --size 1280x840 \
+  "clock +15000 real" "clock +6000 real" tree state \
+  "tap toggle-right-panel" "clock +1500 real" "tap surface-browser" "clock +3000 real" \
+  "type browser-url 127.0.0.1:16721" "type browser-url key Enter" "clock +4000 real" tree \
+  "type browser-page key Meta+=" "clock +1200 real" tree "type browser-page key Meta+0" "clock +1200 real" \
+  "tap browser-more" "clock +800 real" tree "tap browser-more-device-toolbar" "clock +2000 real" tree "tap browser-viewport-close" "clock +2000 real" tree \
+  "tap browser-capture" "clock +3000 real" logs \
+  "tap browser-annotate" "clock +2000 real" "tap browser-page clicks 1 at 120 220" "clock +1500 real" \
+  "type browser-page Tighten the button spacing" "clock +800 real" "type browser-page key Enter" "clock +4000 real" tree state logs \
+  "tap browser-float" "clock +2500 real" tree \
+  "tap browser-mini-handle hover" "clock +1000 real" "clock +1000 real" "tap browser-mini-restore" "clock +2500 real" tree \
+  "tap browser-annotate" "clock +2000 real" "tap browser-page clicks 1 at 120 220" "clock +1500 real" \
+  "type browser-page Send this one too" "clock +800 real" "type browser-page key Meta+Enter" "clock +6000 real" \
+  tree logs state > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" >> $OUT/pids.txt
+waitline 1
+env -i HOME=$L/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $T3_LOCAL_RUNTIME_DIR/t3 app $L/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+echo "server pid $(ps -axo pid,command | grep -v grep | grep -- "--bootstrap-fd" | grep "$L" | awk '{print $1}' | head -1)" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+kill $FX
+ls $T3_LOCAL_HOME/userdata/browser-artifacts > $OUT/artifacts.txt 2>&1
+echo DRIVE-DONE
