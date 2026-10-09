@@ -1,0 +1,183 @@
+// browser-surface-navigation-v2: a lane-only ACP agent for Charlie's checks on #352 (not committed; uploaded as evidence).
+// Part 5's lane agent (browser-surface-automation/lane-fake-acp-v2.mjs.txt) with other scenarios. The real lane server
+// launches it as an ACP Registry instance (commandPath override) and gives it the thread's MCP credential. A prompt
+// "bsn <scenario> [url]" calls the server's preview_* MCP tools in order, so the server's broker sends each request to
+// the app's previewAutomation host. Every tool result (screenshots elided) goes to results.jsonl beside it, with the
+// scenario's name, and a summary is the reply. The tab ids the agent opened are kept in agent-state.json.
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+
+const here = import.meta.dir;
+const log = join(here, 'results.jsonl');
+const stateFile = join(here, 'agent-state.json');
+const trace = (line) => appendFileSync(join(here, 'fake-acp.log'), `${new Date().toISOString()} ${line}\n`);
+const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+trace(`start pid=${process.pid} mcp=${process.env.T3_ACP_MCP_ENDPOINT ? 'yes' : 'no'}`);
+
+let mcpSession = null, mcpId = 0;
+// The credential also comes in session/new's stdio MCP server entry (its env); kept in memory only, never logged.
+const sessionMcp = {};
+async function mcp(method, params, notification = false) {
+  const endpoint = process.env.T3_ACP_MCP_ENDPOINT ?? sessionMcp.endpoint, authorization = process.env.T3_ACP_MCP_AUTHORIZATION ?? sessionMcp.authorization;
+  if (!endpoint || !authorization) throw new Error('no MCP credential in the environment');
+  const body = notification ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: ++mcpId, method, params };
+  const response = await fetch(endpoint, { method: 'POST', body: JSON.stringify(body), headers: {
+    'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization,
+    ...(mcpSession ? { 'mcp-session-id': mcpSession } : {}), 'mcp-protocol-version': '2025-06-18',
+  } });
+  mcpSession = response.headers.get('mcp-session-id') ?? mcpSession;
+  if (notification) return null;
+  const text = await response.text();
+  if ((response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+    for (const line of text.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const message = JSON.parse(line.slice(5));
+      if (message.id === body.id) return message;
+    }
+    throw new Error(`no reply in the event stream (${response.status})`);
+  }
+  return JSON.parse(text);
+}
+const elide = (value) => JSON.parse(JSON.stringify(value, (key, entry) => (key === 'data' && typeof entry === 'string' && entry.length > 200) ? `<${entry.length} base64 chars>` : entry));
+
+let scenarioName = '';
+async function tool(name, args) {
+  const started = Date.now();
+  let reply;
+  try { reply = await mcp('tools/call', { name, arguments: args }); }
+  catch (error) { reply = { error: { message: String(error) } }; }
+  const result = reply.result ?? {};
+  const structured = result.structuredContent ?? null;
+  const text = (result.content ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('\n');
+  const entry = { scenario: scenarioName, at: new Date().toISOString(), tool: name, args, ms: Date.now() - started, isError: result.isError === true || !!reply.error, structured: elide(structured), text: text.slice(0, 1500), rpcError: reply.error ?? null };
+  appendFileSync(log, JSON.stringify(entry) + '\n');
+  return entry;
+}
+
+// What the page measures: its CSS viewport, dpr, and the visual viewport (the fixture prints the same).
+const VIEWPORT = "({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, href: location.href })";
+const loadState = () => existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : {};
+const saveState = (state) => writeFileSync(stateFile, JSON.stringify(state));
+
+async function run(name, url) {
+  scenarioName = name;
+  mcpSession = null;
+  await mcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'bsn2-fake-acp', version: '1' } });
+  await mcp('notifications/initialized', {}, true);
+  const state = loadState();
+  const tab1 = state.tab1 ? { tabId: state.tab1 } : {}, tab2 = state.tab2 ? { tabId: state.tab2 } : {};
+  const lines = [];
+  const step = async (toolName, args) => {
+    const entry = await tool(toolName, args);
+    const value = entry.structured ?? {};
+    const detail = entry.isError ? `error: ${(entry.text || entry.rpcError?.message || '').split('\n')[0].slice(0, 220)}`
+      : toolName === 'preview_evaluate' ? `ok ${JSON.stringify(value.value)}`
+      : toolName === 'preview_resize' ? `ok setting ${JSON.stringify(value.setting)} viewport ${JSON.stringify(value.viewport)}`
+      : `ok tab ${value.tabId} visible ${value.visible} setting ${JSON.stringify(value.viewportSetting)} viewport ${JSON.stringify(value.viewport)}`;
+    lines.push(`- ${toolName} ${JSON.stringify(args)} → ${detail}`);
+    return entry;
+  };
+  switch (name) {
+    case 'open': { // Check 1: an agent-opened tab takes 1280 × 800.
+      await step('preview_status', {});
+      const opened = await step('preview_open', { url });
+      if (!opened.isError) saveState({ ...state, tab1: opened.structured?.tabId });
+      const tab = opened.structured?.tabId ? { tabId: opened.structured.tabId } : {};
+      await step('preview_evaluate', { ...tab, expression: VIEWPORT });
+      await step('preview_status', tab);
+      break;
+    }
+    case 'resize': { // Check 1: preview_resize, freeform and presets, on the shown tab.
+      for (const args of [{ mode: 'freeform', width: 800, height: 600 }, { mode: 'preset', preset: 'iphone-12-pro' },
+        { mode: 'preset', preset: 'iphone-12-pro', orientation: 'landscape' }, { mode: 'freeform', width: 1024, height: 768 }]) {
+        await step('preview_resize', { ...tab1, ...args });
+        await step('preview_evaluate', { ...tab1, expression: VIEWPORT });
+      }
+      await step('preview_status', tab1);
+      break;
+    }
+    case 'hidden': { // Check 2a: the panel hidden by the person; the shown tab resized (auto-show presents it, as the clone's stand-in for the floating preview).
+      await step('preview_status', tab1);
+      await step('preview_resize', { ...tab1, mode: 'freeform', width: 900, height: 650 });
+      await step('preview_evaluate', { ...tab1, expression: VIEWPORT });
+      await step('preview_status', tab1);
+      break;
+    }
+    case 'suppressed': { // Check 2b: a tab opened with open:false stays unpresented, so its page is in no stage while resized.
+      const opened = await step('preview_open', { url, open: false, reuseExistingTab: false });
+      if (!opened.isError) saveState({ ...state, tab2: opened.structured?.tabId });
+      const tab = opened.structured?.tabId ? { tabId: opened.structured.tabId } : {};
+      await step('preview_evaluate', { ...tab, expression: VIEWPORT });
+      await step('preview_resize', { ...tab, mode: 'freeform', width: 1000, height: 700 });
+      await step('preview_evaluate', { ...tab, expression: VIEWPORT });
+      await step('preview_resize', { ...tab, mode: 'preset', preset: 'ipad-mini' });
+      await step('preview_evaluate', { ...tab, expression: VIEWPORT });
+      await step('preview_status', tab);
+      break;
+    }
+    case 'reject': { // Check 3: resizes the server refuses leave the tab's viewport as it was.
+      await step('preview_status', tab1);
+      await step('preview_resize', { ...tab1, mode: 'freeform', width: 3840, height: 3840 });
+      await step('preview_resize', { ...tab1, mode: 'freeform', width: 120, height: 600 });
+      await step('preview_resize', { ...tab1, mode: 'fill', width: 500, height: 500 });
+      await step('preview_evaluate', { ...tab1, expression: VIEWPORT });
+      await step('preview_status', tab1);
+      break;
+    }
+    case 'timeout': { // Check 3: a size not rendered within timeoutMs goes back to the tab's previous one.
+      await step('preview_status', tab1);
+      // 25 ms: past the host's readiness budget (20 ms; 1 ms would end there, before any resize), short of the
+      // stage's render (about 100 ms here), so the host's own wait ends and it goes back to the previous size.
+      await step('preview_resize', { ...tab1, mode: 'freeform', width: 500, height: 900, timeoutMs: 25 });
+      await sleep(4000); // the broker evicts a host that did not answer in time; the host connects again
+      await step('preview_status', tab1);
+      await step('preview_evaluate', { ...tab1, expression: VIEWPORT });
+      break;
+    }
+    case 'measure': { // Both tabs once more, after the person showed them.
+      await step('preview_status', tab1);
+      await step('preview_evaluate', { ...tab1, expression: VIEWPORT });
+      await step('preview_status', tab2);
+      await step('preview_evaluate', { ...tab2, expression: VIEWPORT });
+      break;
+    }
+    default: lines.push(`unknown scenario ${name}`);
+  }
+  return lines.join('\n');
+}
+
+const lines = createInterface({ input: process.stdin });
+lines.on('line', async (line) => {
+  if (!line.trim()) return;
+  let message;
+  try { message = JSON.parse(line); } catch { return; }
+  trace(`<- ${message.method ?? 'reply'} ${message.id ?? ''}`);
+  if (message.method === undefined) return;
+  const reply = (result) => message.id !== undefined && send({ id: message.id, result });
+  switch (message.method) {
+    case 'initialize':
+      return reply({ protocolVersion: 1, agentCapabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, mcpCapabilities: { http: false, sse: false } }, authMethods: [], agentInfo: { name: 'bsn2-fake-acp', version: '1.0.0' } });
+    case 'session/new': {
+      for (const server of message.params?.mcpServers ?? []) for (const entry of server.env ?? []) {
+        if (entry.name === 'T3_ACP_MCP_ENDPOINT') sessionMcp.endpoint = entry.value;
+        if (entry.name === 'T3_ACP_MCP_AUTHORIZATION') sessionMcp.authorization = entry.value;
+      }
+      trace(`session/new credential=${sessionMcp.endpoint || process.env.T3_ACP_MCP_ENDPOINT ? 'yes' : 'no'}`);
+      return reply({ sessionId: `bsn2-${Date.now()}` });
+    }
+    case 'session/prompt': {
+      const text = (message.params?.prompt ?? []).filter((part) => part.type === 'text').map((part) => part.text).join(' ');
+      const match = /bsn\s+(\w+)(?:\s+(\S+))?/.exec(text);
+      let answer;
+      try { answer = match ? `Scenario ${match[1]}:\n${await run(match[1], match[2])}` : 'Send "bsn <scenario> [url]".'; }
+      catch (error) { answer = `The scenario failed: ${error}`; trace(String(error?.stack ?? error)); }
+      send({ method: 'session/update', params: { sessionId: message.params?.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer } } } });
+      return reply({ stopReason: 'end_turn' });
+    }
+    case 'session/cancel': return;
+    default:
+      if (message.id !== undefined) send({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } });
+  }
+});
