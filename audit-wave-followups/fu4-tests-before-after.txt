@@ -1,0 +1,21 @@
+audit-wave-followups: examples/t3-code/audit-wave-followups.test.ts (bun test v1.4.2)
+
+BEFORE: the test file run against the feature tip's sources (eba445c44; every changed source file checked out from it):
+(fail) FU-1: a server thread with no messages docks the composer over the timeline's placeholder > only a draft with an empty timeline is the hero (isDraftHeroState); the placeholder waits for the thread's detail [0.52ms]
+(fail) FU-1: a server thread with no messages docks the composer over the timeline's placeholder > threadLoading is true from a server thread's selection until its detail arrives, never on a draft [7.34ms]
+(fail) FU-2: the right panel's open state is the thread's (rightPanelStore byThreadKey) > the launcher opened on a thread stays that thread's: a fresh draft and another thread open closed, and it comes back [4.03ms]
+(fail) FU-2: the right panel's open state is the thread's (rightPanelStore byThreadKey) > the window holds its open state for the panel key it was opened on, and adds the thread's launcher [0.40ms]
+(fail) FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff) > while the draft's textarea holds the focus the composer's Send declares no chord [2.56ms]
+(fail) FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff) > a draft that left the tree without a blur holds nothing: another file, another thread, the editor, a cancel [0.58ms]
+(fail) FU-4: a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key) > A → B → A closes the field A opened; a link to the page's own target keeps it [0.24ms]
+(fail) FU-4: a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key) > the root counts the links, and Settings reads the field through the count [0.32ms]
+(fail) FU-5: Escape in the command palette over Settings closes only the palette > the open palette owns Escape, so Settings' Back gives up its shortcut [0.18ms]
+ 1 pass
+ 9 fail
+
+AFTER: the same file on this branch:
+ 10 pass
+ 0 fail
+
+FU-4 rows (Bun test of the route change): 'A → B → A closes the field A opened; a link to the page's own target keeps it'
+  and 'the root counts the links, and Settings reads the field through the count': fail before, pass after.
