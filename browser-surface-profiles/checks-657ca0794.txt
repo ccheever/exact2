@@ -1,0 +1,48 @@
+# browser-surface-profiles: final checks at 657ca0794b64232b6bea128b5158357adcba58e0 (clean tree at start; git status --short was empty)
+
+bun rc=0
+tsc rc=0
+contract rc=0
+t3-macos-lib rc=0
+appkit rc=0
+caps rc=0
+build rc=0
+test rc=0
+clippy rc=0
+fmt rc=0
+boot rc=0
+CHECKS-DONE
+
+== bun test examples/t3-code --timeout 60000
+
+ 4156 pass
+ 1 skip
+ 0 fail
+ 40566 expect() calls
+Ran 4157 tests across 285 files. [6.42s]
+
+== strict tsc (README command): 0 bytes of output
+
+== contract build
+examples/t3-code/app.contract: 6159 slots, 13 derives, 48 resources, 7442 actions, 106245 nodes, 40048 regions, 26115725 bytes
+
+== cargo test -p t3-code-macos --lib
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.44s
+
+== AppKit browser, browser-profiles, browser-automation
+Executed 29 tests, with 0 failures
+Executed 16 tests, with 0 failures
+Executed 25 tests, with 0 failures
+
+== caps
+  source files: 3961 scanned, 4 skipped as generated, 526 skipped as vendored
+
+All budgets within cap. 6 categories inspected.
+
+== cargo test --lib --bins --tests --no-fail-fast (summed)
+3521 passed, 0 failed, 34 ignored
+
+== boot (tail)
+  host/web/glue.js: 121581 B; sha256 2eb7e00100e652c7c194b091212d460ecd99117b3d48e2c0775b668b0ad6e27a
+  host/web/navigation.js: 83190 B; sha256 4e5f2ff6a5d1bed1ce2991c57b99279d85fa3fbd0a6f384e757c038894fdcaf8
+Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.
