@@ -587,7 +587,25 @@ world.
   that came to rest on the 12 pt handle showed its grab cursor but no pill until it moved again (realinput-1010d RD-1, 3
   of 3; the handle's own tracking area heard no enter, which an agent drive cannot reproduce: the agent's hover is a
   hit-test, not the window server's tracking). The player's box has heard the pointer since it crossed the page, so the
-  arrival is a move there. The buttons' tooltips follow the pointer's place in the pill's box.
+  arrival is a move there. The buttons' tooltips follow the pointer's place in the pill's box. One-file repro for the next
+  real-input session (an app from `bun scripts/exact.mjs new <dir>`, its `app.contract`): post 8 mouse moves 20 ms apart
+  from the window's middle onto the small box's centre (the session's `move x y 8`), rest, and read `log`: the miss shows
+  as no `S+` at rest (`S+` comes with the next move). If `S+` comes at once, the miss needs what lies under the clone's
+  handle (the floating page's `WKWebView`), which this plain box does not have.
+
+  ```text
+  component SmallHover
+    state log = ""
+    state n = 0
+    action ev(name: string, over: bool)
+      n = n + 1
+      log = `${n}${name}${over ? "+" : "-"} ${log}`
+    view
+      main width="100%" height="100%" position="relative" background-color="#ffffff" color="#111111"
+        text `log: ${log}` font-size=13 testId="log"
+        box position="absolute" left=200 top=120 width=480 height=320 background-color="#e4e4e7" testId="big"
+          box position="absolute" top=8 right=8 width=12 height=12 border-radius=6 background-color="#71717a" hover=ev("S") testId="small"
+  ```
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
   (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
   the person's clipboard.
