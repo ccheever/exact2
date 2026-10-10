@@ -64,6 +64,8 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
   const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
+    // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
+    if (message.kind === 'checkpoint') continue;
     const item = raw.get(message.id), user = message.kind === 'user';
     // Shared desktop renders '(empty response)'; mobile deliberately skips blank assistant rows.
     const body = message.kind === 'assistant' && item ? str(item.text) : message.body;

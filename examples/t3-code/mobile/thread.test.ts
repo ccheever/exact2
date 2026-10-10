@@ -2,7 +2,7 @@ import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-sta
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { arr, type Obj } from './shared/domain';
-import { chatLocal } from './shared/timeline-presentation';
+import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import type { Native } from './shared/protocol';
 import { mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadBlocks } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
@@ -30,6 +30,45 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('mobile V2 transcript presentation', () => {
+  for (const files of [[], [{ path: 'src/app.ts', additions: 2, deletions: 1 }]]) {
+    test(`omits ${files.length ? 'populated' : 'empty'} checkpoints before row boundaries and retains reconnect projection`, () => {
+      const checkpoint = (id: string) => item(id, 'checkpoint', { checkpointId: id, scopeId: 'workspace', files });
+      const client = fixture([checkpoint('before'), user('Hello'), answer('Done'), checkpoint('after')]);
+      const before = structuredClone(client.projection);
+      const shared = transcriptRows(client);
+      expect(shared.filter(row => row.kind === 'checkpoint')).toHaveLength(2);
+      const expected = [
+        { id: JSON.stringify(['t1', 'user']), kind: 'user', first: true, last: false, showMeta: true },
+        { id: JSON.stringify(['t1', 'answer']), kind: 'assistant', first: false, last: true, showMeta: true },
+      ];
+      expect(mobileThreadRows(client, now)).toMatchObject(expected);
+      client.connection = 'reconnecting';
+      expect(mobileThread(now, false, client)).toMatchObject({ loaded: true, loading: false, rows: expected });
+      expect(client.projection).toEqual(before);
+      expect(transcriptRows(client)).toEqual(shared);
+    });
+  }
+
+  test('retains genuine file-change work and disclosure while omitting its checkpoint', async () => {
+    const files = [{ path: 'src/app.ts', additions: 2, deletions: 1 }];
+    const items = [user('Update the app'), item('edit', 'file_change', {
+      fileName: '/repo/src/app.ts', changes: [{ operation: 'update', path: '/repo/src/app.ts' }],
+    }), answer('Updated')];
+    const client = fixture([...items, item('checkpoint', 'checkpoint', { checkpointId: 'cp1', scopeId: 'workspace', files })]);
+    const withoutCheckpoint = fixture(items);
+    expect(mobileThreadRows(client, now)).toEqual(mobileThreadRows(withoutCheckpoint, now));
+    expect(mobileThreadRows(client, now).map(row => row.kind)).toEqual(['user', 'work', 'assistant']);
+    expect(mobileThreadRows(client, now)[1]).toMatchObject({ toggleOp: 'chatlocal:fold', toggleId: 'r1', expanded: false });
+    await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
+    await chatLocal(withoutCheckpoint, { available: true } as Native, 'fold', 'r1', '');
+    const rows = mobileThreadRows(client, now);
+    expect(rows).toEqual(mobileThreadRows(withoutCheckpoint, now));
+    const edit = rows.flatMap(row => row.activities).find(activity => activity.id === JSON.stringify(['t1', 'edit']));
+    expect(edit?.body).toContain('src/app.ts');
+    expect(rows.some(row => row.kind === 'checkpoint')).toBe(false);
+    expect(rows.at(-1)).toMatchObject({ kind: 'assistant', last: true, showMeta: true });
+  });
+
   test('keeps scoped shared ids, hides mobile blank answers, and retains reconnect cache', () => {
     const client = fixture([user('Hello'), answer('')]);
     expect(mobileThreadRows(client, now).map(row => row.id)).toEqual([JSON.stringify(['t1', 'user'])]);
