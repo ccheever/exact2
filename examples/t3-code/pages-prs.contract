@@ -506,7 +506,8 @@ component PrFiltersMenu
   // `blur()` left the window itself the first responder, and the host's popover Escape (MenusMac `key`) closes a
   // popover only while the focus is in the window's content, so a real second Escape closed nothing (an agent's
   // `type <row> key Escape` focuses the row first, which is why the drive passed). The rest box lies outside both
-  // KeyMenus and the submenu's row, so ↓ there still moves nothing, and it draws no ring (not pressable).
+  // KeyMenus and the submenu's row, so ↓ there still moves nothing, and it draws no ring (not pressable). EXACT2-GAPS
+  // X73: the box goes when the host closes an auto popover on Escape at any focus.
   state subLeft = false
   action rowLeft(name: string)
     if sub == name

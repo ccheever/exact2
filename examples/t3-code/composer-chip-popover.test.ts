@@ -88,7 +88,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   });
   test('a press outside the popover closes it; View instructions closes it with the file', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('when chipShown\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true), dismiss=chipClose(false), escape=(not (paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")))');
+    expect(window).toContain('when chipShown\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
   });
@@ -97,7 +97,14 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   // Settings' Back took it first over the prompt sample (Escape left Settings too).
   test('Escape closes the details from any focus, before Settings\' Back, and not while the palette or a menu owns it (RC-4)', async () => {
     const layer = await source('composer-chip-popover.contract');
-    expect(layer).toContain('button press=dismiss aria-keyshortcuts=(escape ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape"');
+    expect(layer).toContain('button press=dismiss aria-keyshortcuts=(held ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape"');
+    // The host gives an Escape to the oldest shortcut button (the lowest node id), so the details' Escape is the window's
+    // first node: the right panel's toggle, made before the chip opened, took the key while a panel showed.
+    const window = await source('app-window.contract');
+    const view = window.slice(window.indexOf('\n  view\n    main testId="t3-code"'));
+    const firstChild = view.split('\n').slice(3).find(row => !row.trimStart().startsWith('//')) ?? '';
+    expect(firstChild).toBe('      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipClose(false))');
+    expect(window).not.toContain('dismiss=chipClose(false), escape=');
     const settings = await source('app-settings.contract');
     expect(settings).toContain('derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or ');
     expect(await source('app-window.contract')).toContain('paletteOpen=paletteOpen, chipOpen=chipShown, ');

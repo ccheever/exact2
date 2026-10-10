@@ -38,13 +38,6 @@ component ChipPopoverLayer
     viewportHeight: number
     // View instructions: the skill's file opens in the right panel (rightPanelStore.openFile).
     instructions: action
-    // Escape (realinput-1010c-fixes RC-4): Base UI's Popover dismisses on an Escape anywhere in the document, wherever
-    // the focus is. The native editor's own cancelOperation only heard it while its text view had the focus, so a
-    // real Escape after a click elsewhere (the heading, then the chip) left the details open.
-    dismiss: action
-    // False while a palette, menu or dialog opened over it from the keyboard holds Escape (the palette's Escape closes
-    // only the palette, as T3 Code's Dialog over the popover does): the host gives an Escape to the oldest shortcut.
-    escape: bool
   derive width = min(24 * rem, viewportWidth - 2 * rem)
   derive estimate = chipPopoverEstimate(chip, width)
   derive above = chip.y - 9 >= estimate or chip.y >= viewportHeight - chip.y - chip.height
@@ -56,7 +49,23 @@ component ChipPopoverLayer
         when chip.path != ""
           button press=instructions testId="chip-popover-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
             text "View instructions" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap"
-      // The window's Escape, as the palette's and the diff menus' hidden Escape buttons: a shortcut reaches it from any focus
-      // in the window before a field or the text view hears the key.
-      button press=dismiss aria-keyshortcuts=(escape ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
+
+// The details' Escape (realinput-1010c-fixes RC-4): Base UI's Popover dismisses on an Escape anywhere in the document,
+// wherever the focus is. The native editor's own cancelOperation only heard it while its text view had the focus, so a
+// real Escape after a click elsewhere (the heading, then the chip) left the details open. A hidden shortcut button, as
+// the palette's and the diff menus': a shortcut reaches it from any focus in the window before a field or the text
+// view hears the key. The host gives an Escape to the oldest shortcut button that declares it (ShortcutsMac `nodes()`,
+// the lowest node id), so this one is the window's first node, mounted with the window: a holder made before the chip
+// opened (the right panel's toggle while a panel shows, the notice stack's "Hide other notices", a surface menu's
+// backdrop beside the composer) would otherwise take the key and leave the details open; T3 Code binds none of them to
+// Escape over the popover (the right panel closes on mod+w). `held` is false while nothing shows, and while a palette,
+// menu or dialog opened over the details holds Escape (the palette's Escape closes only the palette, as T3 Code's
+// Dialog over the popover does).
+component ChipPopoverEscape
+  props
+    held: bool
+    dismiss: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="chip-popover-keys"
+      button press=dismiss aria-keyshortcuts=(held ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape" width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000"
         text "Close" font-size=1

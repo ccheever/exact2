@@ -212,7 +212,9 @@ component ModelTrigger
           // realinput-1010c-fixes RC-2: the label names its own text node (X64, #316): on macOS a label that shrinks below
           // the text-raster size ("Claude Fable 5.1, Claude Sonnet 5.5" to "Claude Sonnet 5.5" after a Shift+click) kept
           // painting its old raster in the window, clipped to the new box, while the tree and the capture had the new one.
-          each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=shown
+          // The key holds the size too: a resting composer (`xs`) draws the same text at 12/400 instead of 14/500, which
+          // shrinks a two-model label (about 18,560 to 12,700 device px) below the raster size as well.
+          each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=`${xs}:${shown}`
             text shown font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
           TipBubble(label=data.composer.modelTip, side="top", align="center", offset=(xs ? 20 : 24), inset=0, shown=over)
       box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=(xs ? 0.5 : 1)

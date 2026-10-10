@@ -9,7 +9,9 @@ const line = (text: string, start: string) => text.split('\n').find(row => row.t
 describe('RC-2: the model picker trigger after a Shift+click removes a model', () => {
   test('its label is a new text node per label, so a shrinking label never keeps its old raster (X64)', async () => {
     const controls = await source('composer-controls.contract');
-    expect(controls).toContain('each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=shown\n            text shown ');
+    // Keyed on the size as well: a resting composer draws the same text smaller (12/400 for 14/500), which shrinks a
+    // two-model label below the raster size too.
+    expect(controls).toContain('each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=`${xs}:${shown}`\n            text shown font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) ');
     expect(line(controls, 'text shown ')).toContain('line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"');
     // The trigger's accessible name was already right (the tree had it); only the painted text was stale.
     expect(controls).toContain('aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel)');

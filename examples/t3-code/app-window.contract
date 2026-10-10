@@ -46,7 +46,7 @@ use TerminalDrawerView, TerminalDrawer from "./terminal.contract"
 use HoverTip, HoverLayer, HoverText, HoverScopes, noHoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract" // fix-hover-cards
 use PaFreshnessCard from "./pages-pr-actions.contract"
 use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-routing
-use ChipPopover, ChipPopoverLayer from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
+use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
 component T3Window
   props
     data: Snapshot
@@ -593,6 +593,10 @@ component T3Window
       dragDy = 0
   view
     main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
+      // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
+      // (composer-chip-popover.contract ChipPopoverEscape, realinput-1010c-fixes RC-4); outside the SSH prompt's inert
+      // background, so it gives the key up while the prompt shows, as the details under it did.
+      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipClose(false))
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
         row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup)
           when data.sidebarOpen
@@ -627,7 +631,7 @@ component T3Window
         WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, resting=resting, commandPending=commandPending, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, detailsOpen=detailsOpen, details=details, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, sidebarWidth=sidebarWidth, conversationWidth=conversationWidth, detailsEditors=detailsEditors, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
         when chipShown
-          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true), dismiss=chipClose(false), escape=(not (paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")))
+          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
         // fix-hover-cards: the window's hover layer (hover-layer.contract), above every page and panel, below the SSH prompt.
         // The Usage page draws its own segment card in its scroll content (pages-usage.contract).
         when hoverShown and hoverTip.kind != "usage"
