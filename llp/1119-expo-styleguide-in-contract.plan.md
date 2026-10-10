@@ -105,7 +105,7 @@ A generator reads the styleguide's sources and writes Contract. It keeps the sty
 2. **LLP 1118** (class lists): Contract only.
 3. **LLP 1095 D10 r4** (relative colour), with D11 (the role and theme sheets).
 4. **LLP 1069.011.001 D7 r4 and D18**, then **LLP 1053 G4's `slashed-zero`**.
-5. **The generator and the library (§4)**, and a lab app that draws every token, style and button variant in light, dark and a `color-scheme` subtree. Every screen is checked three ways:
+5. **The generator and the library (§4), outside this repo (§6 Q1)**, and a test app that draws every token, style and button variant in light, dark and a `color-scheme` subtree. Every screen is checked three ways:
    - against the styleguide's own `example-web` in Chrome (the web oracle for the theme)
    - against a hand-configured `UIButton` for each variant on iOS (the native oracle, LLP 1069.011.001 §4)
    - with the agent's `layout` chain report, which must name each token
@@ -113,7 +113,7 @@ A generator reads the styleguide's sources and writes Contract. It keeps the sty
 
 ## 6. Open questions
 
-1. **Where do the generator and library live?** Recommendation: the generator in `expo/styleguide`, as a package beside `styleguide-native`, so it regenerates with every styleguide release. The lab app goes in this repo, consuming the generated files by path, as an app outside the repo would (LLP 1036.001).
+1. **Where do the generator and library live?** *Decided (James, 2026-10-09):* not in this repo. Expo's styleguide is not committed to Exact. For now it is only a dependency of Exact's test apps. The generator and its output live outside `exact2` (with `expo/styleguide`, or beside the test apps). A test app consumes the generated `.contract` files by path, as an app outside the repo does (LLP 1036.001), or generates them at build time into an ignored directory. What this repo gains is only the general features in §3; nothing in it names Expo's tokens.
 2. **Radix's P3 values.** `@radix-ui/colors` ships `color(display-p3 …)` variants for wide-gamut displays. Exact keeps a wide colour's space (LLP 1100). Recommendation: generate the P3 values, with sRGB as the fallback LLP 1100 already computes. Measure on an iPhone first.
 3. **Breakpoints.** `xs`–`xl` and `compact-height` are media queries. In Exact they are `when` conditions over `exactViewport()`, and their numbers are logic, not CSS (LLP 1117 §4). Options: the lab app restates the five numbers; Contract gains named constants; or `styleguide-base`'s numbers come in through a data source. Recommendation: restate them until a second app needs them.
 4. **Hover on links and rows.** The styleguide's `hocus:` colours links and list rows. Per LLP 1115, iPad and Mac pointer feedback is the platform's (`hover-effect`, LLP 1077 §5). Recommendation: don't carry the hover colours to native at all, and keep them on the web through a `hover` handler only where Expo's web pages need them.
