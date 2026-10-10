@@ -14,7 +14,7 @@ export interface ThreadAnswerFile { id: string; name: string; image: boolean; ur
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkDetail: boolean }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -29,12 +29,16 @@ function workDisplayItem(item: Obj): Obj {
   const source = obj(item.source), sourceFields = source.type === 'run' ? ['type', 'threadId', 'runId']
     : source.type === 'node' ? ['type', 'nodeId'] : ['type', 'providerThreadId', 'providerTurnId'];
   const failure = obj(item.failure), retry = obj(item.retry);
-  return ordered({ ...item, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}),
+  const display = { ...item };
+  // Pinned toolItemForDisplay omits command output even after the detail fetch.
+  if (item.type === 'command_execution') delete display.output;
+  return ordered({ ...display, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}),
+    ...(item.nativeItemRef ? { nativeItemRef: ordered(obj(item.nativeItemRef), ['driver', 'nativeId', 'strength']) } : {}),
     ...(Object.hasOwn(item, 'failure') ? { failure: ordered(failure, ['class', 'message', 'code', 'retryable', 'resetAt']) } : {}),
     ...(item.retry && typeof item.retry === 'object' ? { retry: ordered(retry, ['attempt', 'maxAttempts', 'retryDelayMs']) } : {}) }, [
     'toolNonExecutionKind', 'toolSurface', 'toolIcon', 'toolSource', 'id', 'threadId', 'runId', 'nodeId', 'providerThreadId',
     'providerTurnId', 'nativeItemRef', 'parentItemId', 'ordinal', 'status', 'title', 'startedAt', 'completedAt', 'updatedAt',
-    'type', 'source', 'targetThreadId', 'failure', 'retry',
+    'type', 'source', 'targetThreadId', 'failure', 'retry', 'input', 'outputOmitted', 'outputIndicatesFailure', 'exitCode',
   ]);
 }
 
@@ -47,12 +51,12 @@ export function mobileForkLifecycleActivity(row: Obj, client: T3Client, now: num
     body: expanded ? fullDetail : '',
     output: '', result: '', failed: item.status === 'failed', expandable: true, detailOpen: expanded }, row, client, now, dark, '');
   return { ...shown, nativeWorkRow: nativeWorkConfiguration(client, id, routeKey, expanded, label,
-    [summary, label, fullDetail], dark) };
+    [summary, label, fullDetail], dark, 'bolt', true), nativeWorkDetail: true };
 }
 
 function nativeWorkConfiguration(client: T3Client, id: string, routeKey: string, expanded: boolean,
-  label: string, parts: string[], dark: boolean): string {
-  return JSON.stringify({ id, routeKey, expanded, label,
+  label: string, parts: string[], dark: boolean, symbol: string, expandable: boolean): string {
+  return JSON.stringify({ id, routeKey, expanded, label, symbol, expandable,
     owner: JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch, routeKey, id]),
     copyText: parts.filter((text, index, values) => !!text && values.indexOf(text) === index).join('\n'),
     copiedColor: dark ? '#00d492' : '#009966' });
@@ -90,11 +94,16 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     ? detail?.state === 'missing' ? 'Output is no longer available.' : detail?.text ?? '' : detail?.text || activity.output;
   const fetched = detail !== null && detail.item !== original;
   const answer = original.type === 'user_input_request' && original.questionAnswer ? obj(original.questionAnswer) : null;
+  const commandCopy = original.type === 'command_execution' && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+    activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Command', str(original.input),
+      JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
+        item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'terminal', activity.expandable === true) : '';
   return {
     id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
-        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark) : '', reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
+        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy,
+    nativeWorkDetail: false, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
     body: activity.reasoning ? '' : call ? callBody : readPaths || activity.body,

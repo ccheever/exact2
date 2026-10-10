@@ -59,7 +59,7 @@ component ThreadToolRow
                           when file.image and file.url != ""
                             image file.url width=160 height=96 object-fit="contain" aria-label=file.name
                           text file.name font-family="DM Sans" font-size=14 line-height="19px" color=colors.foreground text-decoration-line="underline"
-            when activity.nativeWorkRow != ""
+            when activity.nativeWorkDetail
               t3-work-detail configuration=activity.nativeWorkRow detail-text=activity.body detail-muted=colors.muted height=210 min-width=0 testId=`thread-work-detail-${activity.id}`
             else
               scroll max-height=210 overflow-y="auto"
