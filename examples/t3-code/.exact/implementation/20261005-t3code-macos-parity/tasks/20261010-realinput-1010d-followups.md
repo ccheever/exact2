@@ -80,8 +80,15 @@ Excluded:
   (`DesktopWindow.ts` `installContextMenu`). `T3TextContextMenu.swift` takes the right-click in a local monitor wherever
   ExactKit would show its text menu (its menu carries Look Up) and pops the shell's on the same text node: Cut (disabled),
   Copy (the node's `copy:`, its `copy` event first), Paste (disabled), Select All (the node's `selectAll:`), with the
-  accelerators Electron shows. Under the agent it logs the items (`t3.textmenu:`) instead of tracking a menu.
-  `EXACT2-GAPS.md` "Text context menu" says why a monitor and what stays out (below).
+  accelerators Electron shows. The monitor ends the click there, so ExactKit's menu does not follow; under the agent it
+  logs the items (`t3.textmenu:`) and tracks no menu. `EXACT2-GAPS.md` "Text context menu" says why a monitor and what
+  stays out (below). Review round (`1f25f2645`): the first round's monitor did not end the click. Its closure
+  `self?.handle(event) ?? event` flattened `handle`'s `NSEvent?`, so `handle`'s nil ("taken") became the event again and
+  the click went on to `NodeView.rightMouseDown`, whose `super` call pops ExactKit's Look Up menu: under real input the
+  shell's menu and then ExactKit's on the same click, and under the agent the log line and then ExactKit's menu tracking
+  (the first after drive's 120 s hang, below). The closure now returns `handle`'s result
+  (`guard let self else { return event }; return self.handle(event)`); two AppKit rows send the click through
+  `NSApp.sendEvent` to the installed monitor and fail on the previous closure.
 - **RD-5 (built).** The snooze menu had a fixed `width="10.8rem"`; MenuPopup sizes to its content from one minimum
   (`min-w-[min(10rem,…)]`, 192 px in the reference on a weekday). It is now `min-width="10rem"` and sizes to its rows.
 
@@ -93,19 +100,22 @@ Found while building, outside this record's rows: the reference also shows the s
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| RD-1 | Built. Agent: the pill on the dot, a pill button's tooltip, the pill hidden over the page (the agent's hover reaches the player's `pointermove` first, then its hover). The real pointer's arrival is a real-input row (open). | [image](https://raw.githubusercontent.com/ccheever/exact2/6cb2717c941ab788220c360d2540de0bf2997bdc/realinput-1010d-followups/rd1-pill-agent.png); Bun `browser-capture.test.ts` "realinput-1010d RD-1" |
+| RD-1 | Built. Agent: the pill on the dot, a pill button's tooltip, the pill hidden over the page (the agent's hover reaches the player's `pointermove` first, then its hover). Bun: the row evaluates `bcPlayerZone` (`contractFn`) on both sides of each edge of the 12 pt handle and the pill's box, recording and a larger inset included; four mutated inequalities or insets each fail it. The real pointer's arrival is a real-input row (open). | [image](https://raw.githubusercontent.com/ccheever/exact2/6cb2717c941ab788220c360d2540de0bf2997bdc/realinput-1010d-followups/rd1-pill-agent.png); Bun `browser-capture.test.ts` "realinput-1010d RD-1" ([zone test](https://raw.githubusercontent.com/ccheever/exact2/6389f57e929332b39c61a723350a9fbaf92ec683/realinput-1010d-followups/rd1-zone-test.txt)) |
 | RD-2 | Matches the reference: the same frames after Toggle right panel twice before and after this branch and in the reference; no change. Real-input re-check (open). | [image](https://raw.githubusercontent.com/ccheever/exact2/028aa1b03e52baef437f91c49dbea7134995b525/realinput-1010d-followups/rd2-refloat.png), [frames](https://raw.githubusercontent.com/ccheever/exact2/ca48e573bd42dc0583df9b910cec9181f78f9490/realinput-1010d-followups/rd2-frames.txt) |
 | RD-3 | Built. AppKit: the tip on #go and #name in a flipped host scaled 0.5, arrow up; fails on the branch tip (y 84 against 375, the arrow upside down). The fake-agent drive is a real-input row (open). | [test output](https://raw.githubusercontent.com/ccheever/exact2/5bcce7d8f9c36a2ecc2cf3474fcf1a33203177b8/realinput-1010d-followups/rd3-agent-cursor-test.txt) |
-| RD-4 | Built. Agent: a double-click selects "status" in the provider banner, a right-click there logs `t3.textmenu: Cut (disabled) \| Copy \| Paste (disabled) \| Select All`; AppKit: 3 rows. The drawn menu is a real-input row (open). | [image](https://raw.githubusercontent.com/ccheever/exact2/bc9b78cda526bc7ecb6c96ce86c1dc78f1d72434/realinput-1010d-followups/rd4-text-menu.png) |
+| RD-4 | Built (fixed in the review round). AppKit: 5 rows; the 2 that send the right-click through `NSApp.sendEvent` to the installed monitor (normal and agent) find the host view's `rightMouseDown` never reached, and fail on the first round's monitor (reached once each). Agent drive of this round's bundle: a double-click selects "status" in the provider banner, `tap … contextmenu` there answers in 21 ms (the first round's: no answer within 120 s), the app logs `t3.textmenu: Cut (disabled) \| Copy \| Paste (disabled) \| Select All` once, and the next ops answer. The drawn menu, and that ExactKit's does not follow it, is a real-input row (open). | [text before/after](https://raw.githubusercontent.com/ccheever/exact2/5759b827d67ee61460603f0a2f9ec24a2b96d4fa/realinput-1010d-followups/rd4-monitor-fix.txt); [image](https://raw.githubusercontent.com/ccheever/exact2/bc9b78cda526bc7ecb6c96ce86c1dc78f1d72434/realinput-1010d-followups/rd4-text-menu.png) (its After panel is the agent's log line only, no proof that the click was replaced) |
 | RD-5 | Pass. Agent: the menu sizes to its rows and "Mon 9:00 AM" sits inside, as the reference's. | [image](https://raw.githubusercontent.com/ccheever/exact2/c9eb38bd228eae91de038ff9df60bb7b37ae6a35/realinput-1010d-followups/rd5-snooze-menu.png) |
 
 Drive: one agent-mode session of this branch's bundle (`8a33343ef` code) and the same steps on the branch tip's bundle
 (`7195f10b6`, built in this worktree before any change), lane base 16560, provider CLIs pinned to a missing path on both
 sides ([drive](https://raw.githubusercontent.com/ccheever/exact2/4d89d8d01ddcf79a499810aa054d82fcbd67cf2d/realinput-1010d-followups/drive.sh.txt), [reference driver](https://raw.githubusercontent.com/ccheever/exact2/0d82d4ee4ef066f82c4659668f17981c2d4f0e22/realinput-1010d-followups/ref-drive.mjs.txt),
-[compositing](https://raw.githubusercontent.com/ccheever/exact2/37c4c2fce293fbc41a209ca9ac084ae23e7838f0/realinput-1010d-followups/refcomp.py.txt), [compose](https://raw.githubusercontent.com/ccheever/exact2/a61e0ffda108515a1d9cba00bbd0552bcb130a05/realinput-1010d-followups/compose.py.txt)). In the after drive the agent's `tap … contextmenu`
+[compositing](https://raw.githubusercontent.com/ccheever/exact2/37c4c2fce293fbc41a209ca9ac084ae23e7838f0/realinput-1010d-followups/refcomp.py.txt), [compose](https://raw.githubusercontent.com/ccheever/exact2/a61e0ffda108515a1d9cba00bbd0552bcb130a05/realinput-1010d-followups/compose.py.txt)). In that after drive the agent's `tap … contextmenu`
 on the selected text did not answer within 120 s after the module had logged the shell's menu (the drive's last op; the
-images were taken before it). The branch tip pops ExactKit's NSMenu at the same op, which tracks until real input under the
-agent (`T3ContextMenu.perform`'s note), so this is no new limit for agent drives; the real-input row checks the menu.
+images were taken before it). The first round put that down to the branch tip's limit. That was wrong: the module's
+monitor let the click through, and ExactKit's menu tracked after the log (RD-4's cause above). The review round's drive
+(one agent session of this round's bundle, code `1f25f2645` merged as `275e7849e`, same lane and provider pinning; only
+RD-4's ops, [drive](https://raw.githubusercontent.com/ccheever/exact2/2030b0ac28c2d50e4ff7c55c1c44c9d963606391/realinput-1010d-followups/drive-r2.sh.txt)) answers that op in 21 ms and exits 0
+([text](https://raw.githubusercontent.com/ccheever/exact2/5759b827d67ee61460603f0a2f9ec24a2b96d4fa/realinput-1010d-followups/rd4-monitor-fix.txt)). The other rows' images did not change in this round.
 
 ## Real-input batch steps
 
@@ -125,21 +135,26 @@ fixture), floated with the chrome's Float preview over chat. Move the pointer wi
    "cursor" scenario: the arrow's tip glides to Go, the Name field and Page B and pings on each (no offset below them).
 4. **RD-4, text menu.** In a thread's timeline, drag-select part of a message (or the provider banner's text) and
    right-click inside the selection: the menu is Cut (dimmed), Copy, Paste (dimmed), Select All, with ⌘X, ⌘C, ⌘V, ⌘A shown,
-   and no Look Up, Speech or Services. Copy, then paste in the composer: the selected text. Right-click again, Select All:
+   and no Look Up, Speech or Services. Close it with Escape: no second menu (ExactKit's Look Up, Copy, Speech) pops on
+   the same click. Copy, then paste in the composer: the selected text. Right-click again, Select All:
    the window's text is selected. Right-click a link, a sidebar row and the composer: their own menus, unchanged.
 
 ## Tests
 
-- Bun: `browser-capture.test.ts` (RD-1 row; the pill and handle rows updated: the hover is the player's),
+- Bun: `browser-capture.test.ts` (RD-1 row: `bcPlayerZone` and `bcPillWidth` evaluated through `contractFn`, now in
+  `contract-fn-fixture.ts` and shared with `usage-pr-pages.test.ts`; the pill and handle rows updated: the hover is the
+  player's),
   `menu-keys.test.ts` (RD-5 row), `usage-pooled.test.ts` (the pointer takers: `browser-mini-player`).
 - AppKit: `macos/tests/browser-automation` `testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost` (RD-3; 4 failures
-  on the branch tip's module), `macos/tests/contextmenu/text-menu.swift` (RD-4, 3 rows).
+  on the branch tip's module), `macos/tests/contextmenu/text-menu.swift` (RD-4, 5 rows; the 2 through `install()` and
+  `NSApp.sendEvent` fail on the first round's monitor).
 
-Checks on the code head `7749bf954` (all exit 0): `bun test examples/t3-code` 4357 pass, 1 skip, 0 fail; strict `tsc`;
-`contract build` of `app.contract` (1341 lines); `cargo test -p t3-code-macos --lib` 17 pass; AppKit `browser-automation`
-26 and `contextmenu` 22 pass; `caps`; `cargo build --all-targets`, `cargo test` (3675 pass), `clippy -D warnings`,
+Checks on the code head `2a45229d0` (review round, after the base merge `275e7849e`; all exit 0): `bun test
+examples/t3-code` 4360 pass, 1 skip, 0 fail (295 files); strict `tsc`; `contract build` of `app.contract` (1341 lines);
+`cargo test -p t3-code-macos --lib` 17 pass; AppKit `contextmenu` 24 run, 0 failed (`browser-automation` 26 pass in the
+first round, unchanged since); `caps`; `cargo build --all-targets`, `cargo test` (3675 pass), `clippy -D warnings`,
 `fmt --check`, `boot`.
 
 ## Next action
 
-Coordinator: review the draft PR ([#400](https://github.com/ccheever/exact2/pull/400)). Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 join the next session.
+Coordinator: review the draft PR ([#400](https://github.com/ccheever/exact2/pull/400)); the review round's blocking RD-4 fix and its three should-fix items are in. Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 (with the new check that no second menu follows) join the next session.
