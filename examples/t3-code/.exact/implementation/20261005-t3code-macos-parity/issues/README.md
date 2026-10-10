@@ -62,6 +62,7 @@ in bold are open (in `../tasks/`); the rest are closed and carry the workaround.
 | [X74](closed/20261010-x74-macos-heading-inside-button.md) | [20261010-macos-a-heading-inside-a-button.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-a-heading-inside-a-button.md) (main #405) | [settings-headings](../tasks/closed/20261010-settings-headings.md) | Legacy features' level-2 heading is an sr-only heading right before its button (`SettingsSrHeading`, `settings-kit.contract`; `settings-rows.contract` `CoreSections`), not inside it (#404) |
 | [X76](closed/20261010-x76-macos-right-click-selects-no-word.md) | [20261010-macos-right-click-selects-no-word.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-right-click-selects-no-word.md) (main #410) | [realinput-1010d-followups](../tasks/closed/20261010-realinput-1010d-followups.md) (RD-4), **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | None: over unselected page text the shell menu's Copy stays disabled, where the reference enables it (#407) |
 | [X77](closed/20261010-x77-macos-inline-run-contextmenu.md) | [20261010-macos-inline-run-contextmenu.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-inline-run-contextmenu.md) (main #410) | **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | Paragraph links are laid out word by word (`FlowRuns`), so their link menu opens; a Markdown table cell's web link opens the shell's Copy Link menu instead of the link menu (#407) |
+| [X78](closed/20261010-x78-macos-link-url-accessibility.md) | [20261010-macos-link-url-accessibility.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-link-url-accessibility.md) (main #412) | [shell-context-menu](../tasks/closed/20261010-shell-context-menu.md) (S3) | None: on macOS a Markdown table cell's links (inline runs) are invalid accessibility elements outside the app, and the clone's `link` nodes have no accessibility URL |
 | [X79](closed/20261010-x79-macos-tab-from-a-focused-box.md) | [20261010-macos-tab-from-a-focused-box.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-tab-from-a-focused-box.md) (main #411) | **[import-wizard-initial-focus](../tasks/20261010-import-wizard-initial-focus.md)** | While the import wizard's popup itself holds the focus, its own `key` handler sends Tab to the first stop and Shift+Tab to the last (`popupKeys`, `browser-profiles.contract`; stops from `wizardTabStops`); no visible difference (#409) |
 | X67 (no record) | [20261009-compiler-small-stack-depth.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-compiler-small-stack-depth.md) ([#320](https://github.com/ccheever/exact2/issues/320)) | [view-depth-under-test-stack](../tasks/closed/20261009-view-depth-under-test-stack.md), **[clone-on-exact2-main](../tasks/20261005-clone-on-exact2-main.md)** | The clone's views were flattened under main's 2 MiB test-thread stack (#382) |
 | X68 (no record) | [20261009-elements-from-point-read.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-elements-from-point-read.md) ([#321](https://github.com/ccheever/exact2/issues/321)) | [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) (U18) | The theme editor's Inspect is not built (U18) |
@@ -294,3 +295,16 @@ was `EXACT2-GAPS.md`'s X79 row, declared from the host's source after import-wiz
 | Gap | Main issue | Title |
 | --- | --- | --- |
 | X79 | `issues/20261010-macos-tab-from-a-focused-box.md` | macOS: Tab from a focused box that is no Tab stop (tabindex=-1) goes nowhere |
+
+### Filed on main, 2026-10-10, seventh round
+
+Main PR [#412](https://github.com/ccheever/exact2/pull/412) (merged as `efeb92cd2`) filed this as a main `issues/` file.
+It was reproduced on main `474999b9f` in one one-file app. The macOS tree was read from another process through
+`AXUIElement`, against Chrome's tree for the Exact web build (CDP, and headed Chrome's macOS AX) and a hand-built
+`NSTextView`, SwiftUI `Link` and `WKWebView` (a `swiftc` oracle). VoiceOver itself was not turned on. Until then it
+was a side observation in `EXACT2-GAPS.md`'s "Text context menu" S3, from main PR #410's check. Open main PR #327 does
+not change it.
+
+| Gap | Main issue | Title |
+| --- | --- | --- |
+| X78 | `issues/20261010-macos-link-url-accessibility.md` | macOS: a link's URL is not in the accessibility tree, and an inline link run's element is invalid outside the app |
