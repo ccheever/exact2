@@ -1,0 +1,17 @@
+FX-1 Restore defaults list per settings scope (bun target/awf4/fx1-list.ts <worktree>; scenario as set on the reference)
+
+before (feature tip build 950e8e2e5):
+All projects (environment scope)   This will reset: Snooze limited threads.
+work (project scope)               This will reset: Snooze limited threads.
+work (checkout p1)                 This will reset: Snooze limited threads.
++ Delete confirmation, Code font size This will reset: Delete confirmation, Code font size, Snooze limited threads.
+
+after:
+All projects (environment scope)   This will reset: Snooze limited threads.
+work (project scope)               This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.
+work (checkout p1)                 This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.
++ Delete confirmation, Code font size This will reset: Snooze limited threads, Code font, Delete confirmation.
+
+reference (T3 Code 1e2ecbd975 over CDP, the same settings):
+All projects (environment scope)   This will reset: Snooze limited threads.
+work (project scope)               This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.
