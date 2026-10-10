@@ -3,37 +3,28 @@ package com.exact.android
 import android.content.Context
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Typeface
+import android.graphics.Paint
+import android.text.TextPaint
+import android.text.SpannableString
+import android.text.style.MetricAffectingSpan
+import androidx.compose.runtime.State
+import kotlin.math.roundToInt
 import android.os.Handler
 import android.os.Looper
 import android.util.SparseArray
-import androidx.compose.ui.graphics.CanvasHolder
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.Paragraph
-import androidx.compose.ui.text.ParagraphIntrinsics
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.createFontFamilyResolver
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDirection
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.lang.ref.WeakReference
 import kotlin.math.ceil
 
-/** The public, imperative Compose paragraph API; no composition or second layout tree. */
+/** Public Android Layouts, owned by the imperative Views host. */
 internal class TextEngine(private val context: Context, private val onWake: () -> Unit) {
     private val handler = Handler(Looper.getMainLooper())
     private val scale = context.resources.displayMetrics.density
@@ -41,13 +32,12 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     private val density = Density(scale, fontScale = 1f)
     private val resolver = createFontFamilyResolver(context)
     private val metrics = ByteBuffer.allocateDirect(12).order(ByteOrder.LITTLE_ENDIAN)
-    private val canvasHolder = CanvasHolder()
     private val families = HashMap<Int, FontFamily>()
     // Drawing visits every retained text node. Primitive keys avoid a boxed
     // Integer allocation for each lookup outside Integer.valueOf's cache.
     private val sources = SparseArray<Source>()
-    private val paragraphs = object : LinkedHashMap<Key, Paragraph>(128, .75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, Paragraph>): Boolean {
+    private val paragraphs = object : LinkedHashMap<Key, NativeParagraph>(128, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, NativeParagraph>): Boolean {
             if (size <= 512) return false
             eldest.key.source.forgetParagraphKey(eldest.key)
             return true
@@ -55,7 +45,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     }
     // Exact content identity is separate from the view/incarnation owner. Weak
     // leases share only still-live shaping work; the index cannot keep native
-    // Paragraph objects alive after source/offer retirement.
+    // NativeParagraph objects alive after source/offer retirement.
     private val sharedTexts = object : LinkedHashMap<WeakTextKey, WeakReference<SharedText>>(128, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<WeakTextKey, WeakReference<SharedText>>) = size > 512
     }
@@ -86,10 +76,10 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     }
     private class Metrics(val width: Int, val ellipsis: Boolean,
         val inkWidth: Float, val height: Float, val baseline: Float)
-    private class SharedText(val key: TextKey, val intrinsic: ParagraphIntrinsics) {
+    private class SharedText(val key: TextKey, val intrinsic: NativeText) {
         // Answers remain valid for this exact public shaping lease even when a
-        // transient Paragraph offer leaves the existing bounded layout LRU.
-        // These slots hold only scalars, never a Paragraph or a Source owner.
+        // transient NativeParagraph offer leaves the existing bounded layout LRU.
+        // These slots hold only scalars, never a NativeParagraph or a Source owner.
         private var answers: Array<Metrics?>? = null
         private var nextAnswer = 0
         fun answer(width: Int, ellipsis: Boolean): Metrics? {
@@ -107,10 +97,10 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         }
         // One weak offer costs no extra strong layout residency. Each source's
         // drawn lease and the existing 512-entry offer LRU still own layouts.
-        var paragraph: WeakReference<Paragraph>? = null
+        var paragraph: WeakReference<NativeParagraph>? = null
         var width = -1
         var ellipsis = false
-        fun layout(width: Int, ellipsis: Boolean, create: () -> Paragraph): Paragraph {
+        fun layout(width: Int, ellipsis: Boolean, create: () -> NativeParagraph): NativeParagraph {
             if (this.width == width && this.ellipsis == ellipsis) paragraph?.get()?.let { return it }
             return create().also {
                 paragraph = WeakReference(it)
@@ -124,7 +114,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val strut: Style, val runs: List<Run>, val align: Int, val clamp: Int,
         val wrap: Int, val whiteSpace: Int, val direction: Int
     ) {
-        // Paragraph keys use this retained object's identity. Parsing a new
+        // NativeParagraph keys use this retained object's identity. Parsing a new
         // offer compares its content explicitly, so a cache lookup does not
         // repeatedly hash every run/string in an unchanged paragraph.
         fun sameContent(other: Source) = view == other.view && index == other.index &&
@@ -147,22 +137,16 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         // These derived objects are not part of content matching. Each live node
         // retains its shaped text and one painted width independently of the
         // bounded cache of transient layout offers.
-        var intrinsic: ParagraphIntrinsics? = null
+        var intrinsic: NativeText? = null
         var sharedText: SharedText? = null
-        var drawn: Paragraph? = null
+        var drawn: NativeParagraph? = null
         var drawnWidth = -1
         var drawnEllipsis = false
         var richPaint: RichParagraph? = null
     }
     private data class Key(val source: Source, val width: Int, val ellipsis: Boolean)
-    private class RichParagraph(
-        val model: InlinePaintModel?, val decoration: Int, val dark: Boolean,
-        val configuration: Long, val intrinsic: ParagraphIntrinsics
-    ) {
-        var paragraph: Paragraph? = null
-        var width = -1
-        var ellipsis = false
-    }
+    private class RichParagraph(val model: InlinePaintModel?, val decoration: Int, val dark: Boolean,
+        val configuration: Long, val ranges: List<InlinePaintRange>)
 
     private fun ByteBuffer.bodyWord(offset: Int, count: Int): Long {
         if (count == 8) return getLong(offset)
@@ -323,44 +307,39 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         else -> error("Android font stack $id was not installed")
     }
 
-    private fun Style.span() = SpanStyle(
-        fontSize = size.sp, fontWeight = FontWeight(weight.coerceIn(1, 1000)),
-        fontFamily = family(family),
-        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-        letterSpacing = spacing.sp,
-        fontFeatureSettings = if (numeric and 1 != 0) "tnum" else null
-    )
-    private fun Source.text(): Pair<String, List<AnnotatedString.Range<SpanStyle>>> {
-        // A uniform paragraph belongs in TextPaint. Adding an identical span
-        // turns every plain label into a SpannableString and prevents the
-        // platform BoringLayout from drawing its direct String path.
-        if (runs.size == 1 && runs[0].style == strut && strut.numeric and 1 == 0) {
-            return runs[0].text to emptyList()
+    private fun Style.paint(fonts: MutableList<Pair<State<Any>, Any>>, base: Boolean = false): TextPaint {
+        val resolved = resolver.resolve(family(family), FontWeight(weight.coerceIn(1, 1000)),
+            if (italic) FontStyle.Italic else FontStyle.Normal)
+        val face = resolved.value
+        fonts.add(resolved to face)
+        return TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            density = scale; textSize = size * scale; typeface = face as Typeface
+            textLocales = context.resources.configuration.locales
+            letterSpacing = if (textSize == 0f) 0f else spacing * scale / textSize
+            fontFeatureSettings = if (!base && numeric and 1 != 0) "tnum" else null
         }
-        val text = StringBuilder()
-        val spans = ArrayList<AnnotatedString.Range<SpanStyle>>(runs.size)
-        for (run in runs) {
-            val start = text.length
-            text.append(run.text)
-            // Numeric features still use their explicit run span: the base
-            // paragraph style does not carry them, including mixed runs.
-            if (start != text.length && (run.style != strut || run.style.numeric and 1 != 0)) {
-                spans.add(AnnotatedString.Range(run.style.span(), start, text.length))
-            }
-        }
-        return text.toString() to spans
     }
-    private fun Source.style() = TextStyle(
-        fontSize = strut.size.sp, fontWeight = FontWeight(strut.weight.coerceIn(1, 1000)),
-        fontFamily = family(strut.family),
-        fontStyle = if (strut.italic) FontStyle.Italic else FontStyle.Normal,
-        letterSpacing = strut.spacing.sp,
-        lineHeight = strut.lineHeight?.sp ?: TextUnit.Unspecified,
-        textAlign = when (align) { 1 -> TextAlign.Center; 2 -> TextAlign.End; 3 -> TextAlign.Justify; else -> TextAlign.Start },
-        textDirection = if (direction == 1) TextDirection.Rtl else TextDirection.Ltr,
-        platformStyle = PlatformTextStyle(includeFontPadding = false)
-    )
-    private fun intrinsics(source: Source): ParagraphIntrinsics {
+    private class RunSpan(private val style: TextPaint) : MetricAffectingSpan() {
+        override fun updateMeasureState(paint: TextPaint) {
+            paint.textSize = style.textSize.roundToInt().toFloat(); paint.typeface = style.typeface
+            paint.letterSpacing = if (paint.textSize == 0f) 0f else style.letterSpacing * style.textSize / paint.textSize
+            paint.fontFeatureSettings = style.fontFeatureSettings
+        }
+        override fun updateDrawState(paint: TextPaint) = updateMeasureState(paint)
+    }
+    private fun Source.prepare(): NativeText {
+        val fonts = ArrayList<Pair<State<Any>, Any>>()
+        val text = SpannableString(runs.joinToString("") { it.text })
+        var start = 0
+        for (run in runs) {
+            val end = start + run.text.length
+            if (end > start && (run.style != strut || run.style.numeric and 1 != 0)) text.setSpan(RunSpan(run.style.paint(fonts)), start, end, 33)
+            start = end
+        }
+        return NativeText(text, strut.paint(fonts, base = true), direction, align, strut.lineHeight?.times(scale),
+            runs.any { it.style.spacing != 0f }) { fonts.any { it.first.value !== it.second } }
+    }
+    private fun intrinsics(source: Source): NativeText {
         val cached = source.intrinsic
         if (cached != null && !cached.hasStaleResolvedFonts) return cached
         if (cached != null) {
@@ -372,11 +351,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
             source.whiteSpace, source.direction, density.density, density.fontScale, configurationVersion)
         val lookup = WeakTextKey(key)
         val shared = sharedTexts[lookup]?.get()?.takeIf { it.key == key && !it.intrinsic.hasStaleResolvedFonts } ?: run {
-            val (text, spans) = source.text()
-            val shaped = ParagraphIntrinsics(
-                text = text, style = source.style(), spanStyles = spans, placeholders = emptyList(),
-                density = density, fontFamilyResolver = resolver
-            )
+            val shaped = source.prepare()
             SharedText(key, shaped).also {
                 // Replace the weak key too: a stale lease's key may die while
                 // the new lease remains owned by a different source.
@@ -389,9 +364,9 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         return shared.intrinsic
     }
     private fun Source.wraps() = whiteSpace != 2 && whiteSpace != 4
-    private fun normalizedWidth(source: Source, shaped: ParagraphIntrinsics, width: Int, ellipsis: Boolean): Int? {
+    private fun normalizedWidth(source: Source, shaped: NativeText, width: Int, ellipsis: Boolean): Int? {
         if (ellipsis || source.align != 0 || source.direction != 0 || !source.wraps()) return null
-        // A clamped Paragraph clips glyph ink to its own width when lines are
+        // A clamped NativeParagraph clips glyph ink to its own width when lines are
         // omitted, so even left-aligned text must retain the complete offer.
         if (source.clamp != 0) return null
         val intrinsic = shaped.maxIntrinsicWidth
@@ -402,18 +377,15 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         return unwrapped.takeIf { width >= it }
     }
     private fun paragraph(source: Source, width: Int, ellipsis: Boolean = false, retain: Boolean = false,
-        shaped: ParagraphIntrinsics = intrinsics(source)): Paragraph {
+        shaped: NativeText = intrinsics(source)): NativeParagraph {
         val normalized = normalizedWidth(source, shaped, width, ellipsis)
         val used = normalized ?: width
         val cached = source.drawn
         if (cached != null && source.drawnWidth == used && source.drawnEllipsis == ellipsis) return cached
         val key = Key(source, used, ellipsis)
         val laidOut = paragraphs[key] ?: checkNotNull(source.sharedText).layout(used, ellipsis) {
-            Paragraph(
-                paragraphIntrinsics = shaped, constraints = Constraints(maxWidth = used),
-                maxLines = if (ellipsis) 1 else if (source.clamp == 0) Int.MAX_VALUE else source.clamp,
-                overflow = if (ellipsis) TextOverflow.Ellipsis else TextOverflow.Clip
-            )
+            shaped.pure { NativeParagraph(shaped, used,
+                if (ellipsis) 1 else if (source.clamp == 0) Int.MAX_VALUE else source.clamp, ellipsis) }
         }.also { source.rememberParagraphKey(key); paragraphs[key] = it }
         // One current paragraph per live source survives the bounded offer LRU.
         // Narrow intrinsic offers never displace a reusable wide paragraph.
@@ -427,53 +399,25 @@ internal class TextEngine(private val context: Context, private val onWake: () -
     private fun drawnParagraph(source: Source, width: Int, ellipsis: Boolean = false) =
         paragraph(source, width, ellipsis, retain = true)
 
-    private fun decoration(flags: Int): TextDecoration = when (flags) {
-        1 -> TextDecoration.Underline
-        2 -> TextDecoration.LineThrough
-        3 -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
-        else -> TextDecoration.None
-    }
-
-    private fun paintedParagraph(source: Source, width: Int, ellipsis: Boolean = false): Paragraph {
+    private fun paintedParagraph(source: Source, width: Int, ellipsis: Boolean = false): NativeParagraph {
+        val measured = intrinsics(source)
         val model = inlinePaint[source.view]
         val ownDecoration = decorations[source.view] ?: 0
-        if (model == null && ownDecoration == 0) return drawnParagraph(source, width, ellipsis)
-        // Check font leases on the existing measurement path first. The paint
-        // projection uses its exact string, metric spans and width offer.
-        val measured = intrinsics(source)
         var rich = source.richPaint
         if (rich == null || rich.model !== model || rich.decoration != ownDecoration ||
-            rich.dark != paintDark || rich.configuration != configurationVersion || rich.intrinsic.hasStaleResolvedFonts) {
-            val (text, metricSpans) = source.text()
+            rich.dark != paintDark || rich.configuration != configurationVersion) {
             val painted = model?.ranges(source.whiteSpace, paintDark, ownDecoration)
-            require(painted == null || painted.text == text) { "Android inline paint text differs from measured paragraph" }
-            val spans = ArrayList<AnnotatedString.Range<SpanStyle>>(metricSpans.size + (painted?.ranges?.size ?: 1))
-            spans.addAll(metricSpans)
-            if (painted == null) {
-                if (text.isNotEmpty()) spans.add(AnnotatedString.Range(SpanStyle(textDecoration = decoration(ownDecoration)), 0, text.length))
-            } else for (range in painted.ranges) {
-                spans.add(AnnotatedString.Range(SpanStyle(
-                    color = range.color?.let { Color(it) } ?: Color.Unspecified,
-                    background = range.background?.let { Color(it) } ?: Color.Unspecified,
-                    textDecoration = decoration(range.decoration)
-                ), range.start, range.end))
+            require(painted == null || painted.text == measured.text.toString()) {
+                "Android inline paint text differs from measured paragraph"
             }
-            rich = RichParagraph(model, ownDecoration, paintDark, configurationVersion, ParagraphIntrinsics(
-                text = text, style = source.style(), spanStyles = spans, placeholders = emptyList(),
-                density = density, fontFamilyResolver = resolver
-            ))
+            val ranges = painted?.ranges ?: if (ownDecoration != 0 && measured.text.isNotEmpty())
+                listOf(InlinePaintRange(0, measured.text.length, null, null, ownDecoration)) else emptyList()
+            rich = RichParagraph(model, ownDecoration, paintDark, configurationVersion, ranges)
             source.richPaint = rich
         }
-        val used = normalizedWidth(source, measured, width, ellipsis) ?: width
-        if (rich.paragraph == null || rich.width != used || rich.ellipsis != ellipsis) {
-            rich.paragraph = Paragraph(
-                paragraphIntrinsics = rich.intrinsic, constraints = Constraints(maxWidth = used),
-                maxLines = if (ellipsis) 1 else if (source.clamp == 0) Int.MAX_VALUE else source.clamp,
-                overflow = if (ellipsis) TextOverflow.Ellipsis else TextOverflow.Clip
-            )
-            rich.width = used; rich.ellipsis = ellipsis
-        }
-        return checkNotNull(rich.paragraph)
+        val layout = drawnParagraph(source, width, ellipsis)
+        measured.setPaint(rich.ranges)
+        return layout
     }
 
     /** One callback per complete paragraph cache miss, never one per run or glyph. */
@@ -534,8 +478,11 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val used = normalizedWidth(source, shaped, px, false) ?: px
         val answer = shared.answer(used, false) ?: run {
             val laidOut = paragraph(source, px, shaped = shaped)
-            var inkWidth = 0f
-            repeat(laidOut.lineCount) { inkWidth = maxOf(inkWidth, laidOut.getLineWidth(it)) }
+            val inkWidth = shaped.pure {
+                var result = 0f
+                repeat(laidOut.lineCount) { result = maxOf(result, laidOut.getLineWidth(it)) }
+                result
+            }
             Metrics(used, false, inkWidth / scale, laidOut.height / scale, laidOut.firstBaseline / scale)
                 .also { shared.remember(it) }
         }
@@ -554,7 +501,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val source = sources[view] ?: return
         if (ellipsis && !source.wraps()) {
             val laidOut = paintedParagraph(source, width.coerceIn(0, 32767), true)
-            canvasHolder.drawInto(canvas) { laidOut.paint(this, Color(color)) }
+            laidOut.paint(canvas, color)
             return
         }
         val used = if (source.wraps()) width else ceil(intrinsics(source).maxIntrinsicWidth.toDouble()).toInt()
@@ -566,7 +513,7 @@ internal class TextEngine(private val context: Context, private val onWake: () -
         val checkpoint = canvas.save()
         canvas.translate(offset, 0f)
         val laidOut = paintedParagraph(source, used.coerceIn(0, 32767))
-        canvasHolder.drawInto(canvas) { laidOut.paint(this, Color(color)) }
+        laidOut.paint(canvas, color)
         canvas.restoreToCount(checkpoint)
     }
 }
