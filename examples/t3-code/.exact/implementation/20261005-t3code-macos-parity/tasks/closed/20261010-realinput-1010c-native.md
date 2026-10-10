@@ -1,14 +1,14 @@
 ---
 name: 20261010-realinput-1010c-native
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+implementation: done
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010c-native
 pr_url: https://github.com/ccheever/exact2/pull/398
-verified_commit: null
+verified_commit: 9cb5d33153e670a26abb2523523c627aa1d87d82
 ---
 
 # Failures of the attended real-input session of 2026-10-10 (realinput-1010c): native and app-level rows
@@ -146,3 +146,18 @@ Coordinator: review draft PR [#398](https://github.com/ccheever/exact2/pull/398)
 read-back; step 3 is the reference's first click). Decision needed (in #398): keep the one-press reveal from System
 Settings that RC-1 asks for (a declared difference) or match the reference's documented first click, which only
 activates (`acceptsFirstMouse` false on the row and the close button: two presses).
+
+## Delivery
+
+Merged on 2026-10-10 as `9cb5d3315` (#398, squash) after an independent review and its repair round. RC-7 and RC-9
+closed by check in the PR. RC-1's real-input steps ran in `realinput-1010e` on the bundle of `a1ade42f9` (lane
+ri1010e-3). Step 1 passed: one click on the helper's row brought Finder front with the lane bundle selected, and the
+helper hid. The main window was not raised. A click on System Settings brought the helper back, docked
+([helper back](https://raw.githubusercontent.com/ccheever/exact2/e380f2f5333e68d9f76f3201629f392c70401350/realinput-1010e/E3-398-rc1-back-redacted.png)).
+Step 2 was partial: the drag starts on the first press and nothing was added or revealed, but T3 Code became front only
+on release, and after the next click on System Settings the helper closed and did not come back (step 2 expects it to
+stay docked). It moved to [realinput-1010e-followups](../20261010-realinput-1010e-followups.md) as RE-2
+([notes](https://raw.githubusercontent.com/ccheever/exact2/d2a861e62ae350a3dffff37583c00397edf95c72/realinput-1010e/E3-398-notes.txt)).
+Step 3 (the reference's first click) did not run: the reference shows its helper only when packaged (`app.isPackaged`).
+It moved there as RE-1, with the first-click question of "Cause and fix"
+([step 3](https://raw.githubusercontent.com/ccheever/exact2/5113cc7d755271906d63b7efc8c8472eacbbd96d/realinput-1010e/E1-398-rc1-step3-reference.txt)).
