@@ -5,7 +5,9 @@
 // whose end follows the pointer. The release ends the gesture: the Code tab opens its draft on what it ended on
 // (PullRequestCodeTab's onLineSelectionEnd and onGutterUtilityClick), the thread's Diff panel only on the "+"'s range
 // (AnnotatableCodeView's onGutterUtilityClick). DiffCell (diff-rows.contract) reads the line under the pointer with
-// `elementFromPoint` over the cells' ids (`lineCellId`); the two panels keep the selection and the drag.
+// `elementFromPoint` over the cells' ids (`lineCellId`); the two panels keep the selection and the drag. Where the "+" sits
+// is placeUtility's: on the selection's bottom line while the file has a selection, the hovered line otherwise
+// (`utilityPlacement`), so during a drag it follows the selection, and a "+" click comments on what its press would.
 import type { SelectedLineRange, SelectionSide } from './diff-comments';
 
 export type LinePoint = { line: number; side: SelectionSide };
@@ -31,7 +33,7 @@ export function parseLineCellId(id: string): { path: string; at: LinePoint } | n
 }
 
 /** The selection's top and bottom by row (selectionEnds). */
-function ends(range: SelectedLineRange, index: RowIndex): { top: LinePoint; bottom: LinePoint } | null {
+export function selectionEnds(range: SelectedLineRange, index: RowIndex): { top: LinePoint; bottom: LinePoint } | null {
   const start = { line: range.start, side: range.side }, end = { line: range.end, side: range.endSide ?? range.side };
   const from = index(start), to = index(end);
   if (from === null || to === null) return null;
@@ -55,9 +57,29 @@ export function pressLine(selection: FileSelection, path: string, at: LinePoint,
 
 /** A primary press on the gutter's "+": from the selection's top to its bottom when the file has one, else its own line. */
 export function pressGutter(selection: FileSelection, path: string, at: LinePoint, index: RowIndex): DragStep {
-  const both = selection?.path === path ? ends(selection.range, index) : null;
+  const both = selection?.path === path ? selectionEnds(selection.range, index) : null;
   const anchor = both?.top ?? at, current = both?.bottom ?? at;
   return { drag: { path, mode: 'gutter', anchor, current }, selection: { path, range: rangeOf(anchor, current) } };
+}
+
+/**
+ * A "+" press that no pointer gesture carried (a keyboard or accessibility press): the range its press and release would
+ * comment on, the selection's top to bottom when the file has one, else its own line (pressGutter, then releaseDrag).
+ */
+export function gutterClick(selection: FileSelection, path: string, at: LinePoint, index: RowIndex): SelectedLineRange {
+  const step = pressGutter(selection, path, at, index);
+  return rangeOf(step.drag!.anchor, step.drag!.current);
+}
+
+/**
+ * placeUtility: where a file's "+" sits. While the file has a selection it is pinned to the selection's bottom line
+ * (placeUtilityFromSelection; nowhere when that line is not drawn) and the pointer does not move it; otherwise it follows
+ * the hovered line. `holds` names the one cell that draws it: the bottom's row, and in split rows its side.
+ */
+export function utilityPlacement(range: SelectedLineRange | null, index: RowIndex): { pinned: boolean; holds: (side: string, line: number, split: boolean) => boolean } {
+  if (!range) return { pinned: false, holds: () => false };
+  const bottom = selectionEnds(range, index)?.bottom ?? null, row = bottom ? index(bottom) : null;
+  return { pinned: true, holds: (side, line, split) => bottom !== null && row !== null && line > 0 && index({ line, side: sideOf(side) }) === row && (!split || sideOf(side) === bottom.side) };
 }
 
 /** The pointer over a line while the button is down; a line of another file changes nothing. */

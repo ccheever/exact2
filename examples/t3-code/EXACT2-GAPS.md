@@ -893,8 +893,7 @@ Task `20261010-realinput-1010f-followups`.
   page covers the thread and the pull request page), except a skill chip's details in the composer beside the thread's
   Diff panel: a press on that panel's gutter leaves them open, where the reference's outside press closes them. Handing
   the press on as the theme editor's picker does (injecting `outsidePressDown`) grew the plan by 777 KB for that one case,
-  and with a drag's send it is two sends of one press (`analyze-send-twice`), so it is not done. During the drag the "+" stays on the pressed line under
-  a real pointer, where the reference's follows the pointer (`placeUtility`): the host's hover tracking areas
-  (`NodeViewMac.syncHoverTracking`) have no `.enabledDuringMouseDrag`, so no other line hears an enter while the button
-  is down (the session's "the gutter's hover stays on line 3"). The selection the drag paints is the one to read; not
-  filed.
+  and with a drag's send it is two sends of one press (`analyze-send-twice`), so it is not done. Where the "+" sits is no
+  difference: as the reference's `placeUtility` → `placeUtilityFromSelection`, a file with a selection draws its "+" on
+  the selection's bottom line only, so during a drag it follows the selection the drag paints, not the hover (the
+  session's "the gutter's hover stays on line 3" was the clone placing it by hover, which needs no host change).

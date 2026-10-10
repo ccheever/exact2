@@ -11,7 +11,7 @@ import type { Obj } from './domain';
 import { ancestorDirectories } from './diff-tree';
 import { createGitDiffFileContentsLoader, changeType, expandRange, loadFileContents, loadFilePatches, loadNextFiles, requestFiles, retryFile, settledFileCount } from './diff-lazy';
 import { buildDiffReviewComment, findDiffReviewLineIndex, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
-import { dragTo, parseLineCellId, pressGutter, pressLine, releaseDrag, type RowIndex } from './diff-line-drag';
+import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type RowIndex } from './diff-line-drag';
 import { contentsKey, currentSelection, diffFiles, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
 import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from './composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
@@ -92,18 +92,16 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   if (action === 'comment') {
-    // The gutter's "+": the selection when the line is in it, else that line alone.
+    // The "+"'s press. Its pointer gesture (`gutter`, then `end`, on the same queued send) owns the click: a press that
+    // comes while that gesture is in flight is its release, one after it finds the draft open. A press no gesture carried
+    // (a keyboard or accessibility press) comments on what the gesture would: the selection's top to bottom, else its line.
+    if (state.drag?.mode === 'gutter') return lineDrag(client, state, scope, 'end', '');
     const target = file(at.path);
-    if (!target) return '';
-    const selected = state.selection?.scope === scope && state.selection.path === at.path ? state.selection.range : null;
+    if (!target || !(at.line > 0)) return '';
     const lines = reviewLinesOf(state, target);
-    const inside = selected && (() => {
-      const comment = buildDiffReviewComment({ id: 'probe', sectionId: '', sectionTitle: '', filePath: at.path, lines, range: selected, text: '' });
-      const probe = buildDiffReviewComment({ id: 'probe', sectionId: '', sectionTitle: '', filePath: at.path, lines, range: { start: at.line, side: at.side, end: at.line, endSide: at.side }, text: '' });
-      return !!comment && !!probe && probe.startIndex >= comment.startIndex && probe.startIndex <= comment.endIndex;
-    })();
-    const range: SelectedLineRange = inside && selected ? selected : { start: at.line, side: at.side, end: at.line, endSide: at.side };
-    return openDraft(client, state, scope, at.path, range);
+    const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+    const selection = state.selection?.scope === scope ? { path: state.selection.path, range: state.selection.range } : null;
+    return openDraft(client, state, scope, at.path, gutterClick(selection, at.path, { line: at.line, side: at.side }, index));
   }
   if (action === 'cite') return citeSelection(client, native, op.slice('cite:'.length), value);
   if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself

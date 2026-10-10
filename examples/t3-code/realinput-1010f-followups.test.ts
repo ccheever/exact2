@@ -20,11 +20,20 @@ describe('RF-3: the gutter hears the pointer', () => {
   test('a drag\'s press, moves and release go out in turn on their own queued send, in both panels', () => {
     const app = source('app.contract');
     expect(app).toContain('mutation lineDragChanged as shape Change queue refreshes data');
-    expect(app).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end")\n');
+    // The "+"'s press (`comment:` in the Diff panel, `pr-code-begin` in the Code tab) queues behind its drag's sends.
+    expect(app).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end")\n');
     expect(app).toContain('      send lineDragChanged = command(op, id, value, n)');
-    expect(app).toContain('    else if op == "pr-code-drag"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0)');
+    expect(app).toContain('    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0)');
     const code = source('pages-pr-code.contract');
     expect(code).toContain('    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end"\n      local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)');
+  });
+  test('a file with a selection draws its "+" on the selection\'s bottom line only; a cell whose drag is in flight keeps it mounted', () => {
+    expect(cell).toContain('when line > 0 and not open and (pin or not pinned or dragging)\n        button press=comment');
+    expect(cell).toContain('opacity=(pin or (hovering and not pinned) ? 1 : 0)');
+    const row = component(source('diff-rows.contract'), 'DiffRow');
+    expect(row).toContain('selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin,');
+    expect(row).toContain('selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin,');
+    expect(row).toContain('selected=item.selected, pinned=item.pinned, pin=item.pin,');
   });
   test('each cell carries the id elementFromPoint names it by, as the panels parse it', () => {
     expect(cell).toContain('row id=`dl:${side}:${line}:${path}`');

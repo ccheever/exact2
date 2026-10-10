@@ -2,7 +2,7 @@
 // 1e2ecbd975 drives it (over CDP in the reference: a drag on the numbers from line 3 to line 5 paints 3–5 and, in the Code
 // tab, opens the draft; the same from the "+"; a click on a number opens the draft on that line).
 import { describe, expect, test } from 'bun:test';
-import { dragTo, lineCellId, parseLineCellId, pressGutter, pressLine, releaseDrag, type FileSelection, type LinePoint, type RowIndex } from './diff-line-drag';
+import { dragTo, gutterClick, lineCellId, parseLineCellId, pressGutter, pressLine, releaseDrag, utilityPlacement, type FileSelection, type LinePoint, type RowIndex } from './diff-line-drag';
 
 // A stacked file: context 2, 3, 4, deleted 5, added 5, context 6 (rows 0..5), as docs/usage.md in #168.
 const rows: LinePoint[] = [
@@ -63,6 +63,35 @@ describe('the "+" drag (startGutterSelectionFromPointerDown)', () => {
     const upward: FileSelection = { path, range: { start: 6, side: 'additions', end: 3, endSide: 'additions' } };
     const step = pressGutter(upward, path, add(4), index);
     expect(releaseDrag(step.drag, step.selection).gutter).toEqual({ start: 3, side: 'additions', end: 6, endSide: 'additions' });
+  });
+});
+
+describe('where the "+" sits (placeUtility, placeUtilityFromSelection)', () => {
+  test('no selection: it follows the hover; a selection pins it to its bottom line, which moves as a drag moves the end', () => {
+    expect(utilityPlacement(null, index).pinned).toBe(false);
+    let step = pressLine(null, path, add(3), false, index);
+    let placed = utilityPlacement(step.selection!.range, index);
+    expect([placed.pinned, rows.filter(row => placed.holds(row.side, row.line, false)).map(row => `${row.side}:${row.line}`)]).toEqual([true, ['additions:3']]);
+    step = dragTo(step.drag, step.selection, path, add(5));
+    placed = utilityPlacement(step.selection!.range, index);
+    expect(rows.filter(row => placed.holds(row.side, row.line, false))).toEqual([add(5)]);
+    // Dragged upward from 5 to 3, the bottom is still 5.
+    placed = utilityPlacement({ start: 5, side: 'additions', end: 3, endSide: 'additions' }, index);
+    expect(rows.filter(row => placed.holds(row.side, row.line, false))).toEqual([add(5)]);
+  });
+  test('stacked rows match by row, split rows by row and side; a bottom the file does not draw hides it', () => {
+    // A context line's row is the same from either side: stacked, its one cell holds the "+" whichever side the range ends on.
+    const shared: RowIndex = point => (point.line === 4 && point.side === 'deletions') || (point.line === 4 && point.side === 'additions') ? 2 : index(point);
+    const placed = utilityPlacement({ start: 3, side: 'additions', end: 4, endSide: 'deletions' }, shared);
+    expect([placed.holds('additions', 4, false), placed.holds('additions', 4, true), placed.holds('deletions', 4, true)]).toEqual([true, false, true]);
+    const gone = utilityPlacement({ start: 3, side: 'additions', end: 40, endSide: 'additions' }, index);
+    expect([gone.pinned, rows.some(row => gone.holds(row.side, row.line, false))]).toEqual([true, false]);
+  });
+  test('a "+" press no gesture carried comments on what its press and release would: the selection, else its own line', () => {
+    expect(gutterClick(null, path, add(4), index)).toEqual({ start: 4, side: 'additions', end: 4, endSide: 'additions' });
+    const upward: FileSelection = { path, range: { start: 5, side: 'additions', end: 3, endSide: 'additions' } };
+    expect(gutterClick(upward, path, add(6), index)).toEqual({ start: 3, side: 'additions', end: 5, endSide: 'additions' });
+    expect(gutterClick(upward, 'docs/catalog.md', add(6), index)).toEqual({ start: 6, side: 'additions', end: 6, endSide: 'additions' });
   });
 });
 

@@ -280,7 +280,7 @@ describe('line comments into the review (PullRequestCodeTab beginComment, Add to
   });
 });
 
-// The drags come on their own queued send (`chatlocal:pr-code-drag`, app.contract lineDragChanged).
+// The drags and the "+"'s press come on their own queued send (`chatlocal:pr-code-drag`, `chatlocal:pr-code-begin`, app.contract lineDragChanged).
 describe('the gutter\'s drags (realinput-1010f RF-3: onLineSelectionEnd and onGutterUtilityClick are both beginComment)', () => {
   const row = (op: string, line: number, value: string) => `diffreview|${op}|${line}|${value}`;
   const marks = (view: Awaited<ReturnType<ReturnType<typeof fixture>['settle']>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind === 'line').map(item => `${item.side}:${item.line}${item.selected ? '*' : ''}`);
@@ -331,6 +331,39 @@ describe('the gutter\'s drags (realinput-1010f RF-3: onLineSelectionEnd and onGu
     await f.press('drag', row('drag:additions', 1, 'src/catalog.js')); await f.press('drag', row('end', 1, 'src/catalog.js'));
     view = await f.settle();
     expect(view.codeTab.draftOpen).toBe(false);
+  });
+  test('the "+" sits on the selection\'s bottom line while a drag moves it (placeUtilityFromSelection), on the hover before', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    const pins = (view: Awaited<ReturnType<typeof f.settle>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind === 'line').map(item => `${item.pinned ? 'P' : '-'}${item.pin ? `${item.side}:${item.line}` : ''}`).join(' ');
+    expect(pins(await f.settle())).toBe('- - - - -');
+    await f.press('drag', row('drag:additions', 1, 'src/catalog.js'));
+    expect(pins(await f.settle())).toBe('Padditions:1 P P P P');
+    await f.press('drag', row('to', 0, 'dl:additions:3:src/catalog.js'));
+    expect(pins(await f.settle())).toBe('P P P Padditions:3 P');
+  });
+  test('a click on the "+" opens one draft, whichever of its press and release runs first; a press that ends a "+" drag ends it there', async () => {
+    for (const order of [['gutter', 'end', 'begin'], ['gutter', 'begin', 'end'], ['begin']]) {
+      const f = fixture();
+      await walk(f);
+      await f.press('fold', 'src/catalog.js');
+      for (const step of order) {
+        if (step === 'gutter') await f.press('drag', row('gutter:additions', 2, 'src/catalog.js'));
+        if (step === 'end') await f.press('drag', row('end', 2, 'src/catalog.js'));
+        if (step === 'begin') await f.press('begin', 'additions|2|src/catalog.js');
+      }
+      const view = await f.settle();
+      expect([order.join(','), view.codeTab.items.filter(item => item.kind === 'pr-draft').map(item => item.label)]).toEqual([order.join(','), ['src/catalog.js:2']]);
+    }
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('drag', row('gutter:additions', 2, 'src/catalog.js'));
+    await f.press('drag', row('to', 0, 'dl:additions:4:src/catalog.js'));
+    await f.press('begin', 'additions|2|src/catalog.js');
+    await f.press('drag', row('end', 2, 'src/catalog.js'));
+    expect((await f.settle()).codeTab.items.filter(item => item.kind === 'pr-draft').map(item => item.label)).toEqual(['src/catalog.js:4']);
   });
 });
 

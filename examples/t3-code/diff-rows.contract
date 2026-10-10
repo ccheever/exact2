@@ -66,11 +66,11 @@ component DiffRow
         DiffDraftCard(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
       when item.kind == "split"
         row width="100%" align-items="stretch"
-          DiffCell(tone=item.leftTone, number=item.leftNumber, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, open=commentOpen, command=command, begin=beginComment)
-          DiffCell(tone=item.rightTone, number=item.rightNumber, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, open=commentOpen, command=command, begin=beginComment)
+          DiffCell(tone=item.leftTone, number=item.leftNumber, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
+          DiffCell(tone=item.rightTone, number=item.rightNumber, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin, open=commentOpen, command=command, begin=beginComment)
       when item.kind == "line"
         row width="100%" align-items="stretch"
-          DiffCell(tone=item.tone, number=item.number, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, open=commentOpen, command=command, begin=beginComment)
+          DiffCell(tone=item.tone, number=item.number, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, pinned=item.pinned, pin=item.pin, open=commentOpen, command=command, begin=beginComment)
 
 // "N unmodified lines": a press opens them from the file's contents (git sources; Pierre's hunk expansion).
 component DiffGap
@@ -132,7 +132,10 @@ component DiffFileHeader
 // selection); a press on the gutter's "+" starts a range from the selection's top whose end follows
 // the pointer (Pierre's line selection and gutter utility, off while a draft is open; realinput-1010f
 // RF-3, diff-line-drag.ts). The pressed node holds the pointer, so its moves name the line under it
-// by the cell's `id` (`elementFromPoint`); the release ends the drag.
+// by the cell's `id` (`elementFromPoint`); the release ends the drag. While the file has a selection
+// the "+" sits on its bottom line only (`pin`; Pierre's placeUtilityFromSelection), so during a drag it
+// follows the selection; otherwise on the hovered line. A cell whose own drag is in flight keeps its
+// "+" mounted (hidden when the selection moved it), as the pressed node holds the pointer.
 component DiffCell
   props
     tone: string
@@ -146,6 +149,8 @@ component DiffCell
     side: string
     line: number
     selected: bool
+    pinned: bool
+    pin: bool
     open: bool
     command: action
     begin: action
@@ -193,6 +198,6 @@ component DiffCell
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
-      when line > 0 and not open
-        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+      when line > 0 and not open and (pin or not pinned or dragging)
+        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(pin or (hovering and not pinned) ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           DiffGlyph(name="plus", size=12, color="#ffffff")

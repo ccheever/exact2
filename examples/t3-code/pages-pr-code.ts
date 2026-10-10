@@ -17,7 +17,7 @@ import { ClientError, type Native } from './protocol';
 import { letGo } from './let-go';
 import { pushToast } from './toast';
 import { buildDiffReviewComment, diffReviewLines, findDiffReviewLineIndex, type SelectedLineRange, type SelectionSide } from './diff-comments';
-import { dragTo, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from './diff-line-drag';
+import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from './diff-line-drag';
 import { changeType, expandRange, type Expansion, type FileContents } from './diff-lazy';
 import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, type DiffTreeRow } from './diff-tree';
 import { decodeClientPrefs } from './settings-core';
@@ -351,7 +351,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       if (action === 'drag' || action === 'gutter' || action === 'to' || action === 'end') return lineDrag(ctx, code, action, side, shift === 'shift', Number(n), path);
       return '';
     }
-    case 'begin': return beginComment(client, code, ctx.detail, value);
+    case 'begin': return beginComment(ctx, code, value);
     case 'cancel': code.draft = null; code.selection = null; return '';
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
@@ -371,20 +371,21 @@ function linesOpen(code: CodeState, detail: Obj | null): boolean {
   return !code.draft && code.commit === null && review.inlineComment === true && permissions.comment === true;
 }
 const loadedContents = (code: CodeState, path: string) => { const contents = code.contents[contentsKeyOf(code, path)]; return contents?.state === 'loaded' ? contents : null; };
-/** beginComment: the gutter's "+" (or a selection's end) opens the draft on the line it ends on, on the whole change only. */
-function beginComment(client: T3Client, code: CodeState, detail: Obj | null, value: string): string {
-  if (!linesOpen(code, detail)) return '';
-  const [side = '', line = '', path = ''] = fields(value, 3), at = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
+/**
+ * beginComment from the gutter's "+" press (`chatlocal:pr-code-begin`, on the drags' queued send). Its pointer gesture owns
+ * the click: a press while that gesture is in flight is its release, one after it finds the draft open. A press no gesture
+ * carried (a keyboard or accessibility press) comments on what the gesture would: the selection's top to bottom, else its
+ * line (diff-line-drag.ts gutterClick); the draft goes on the range's last line, on the whole change only.
+ */
+function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): string {
+  if (code.drag?.mode === 'gutter') return lineDrag(ctx, code, 'end', '', false, 0, '');
+  if (!linesOpen(code, ctx.detail)) return '';
+  const [side = '', line = '', path = ''] = fields(value, 3), at: LinePoint = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !(at.line > 0)) return '';
-  // The gutter's button comments on the selection when its line is in it, else on that line alone.
-  const selected = code.selection?.path === path ? code.selection.range : null;
   const lines = diffReviewLines(target, loadedContents(code, path));
-  const probe = (range: SelectedLineRange) => buildDiffReviewComment({ id: 'probe', sectionId: '', sectionTitle: '', filePath: path, lines, range, text: '' });
-  const inside = selected && (() => { const whole = probe(selected), one = probe({ start: at.line, side: at.side, end: at.line, endSide: at.side }); return !!whole && !!one && one.startIndex >= whole.startIndex && one.startIndex <= whole.endIndex; })();
-  const range: SelectedLineRange = inside && selected ? selected : { start: at.line, side: at.side, end: at.line, endSide: at.side };
-  void client;
-  return beginRange(code, detail, path, range);
+  const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+  return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index));
 }
 /** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
 function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange): string {
