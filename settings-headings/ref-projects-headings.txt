@@ -1,0 +1,14 @@
+Reference (T3 Code 1e2ecbd975, running, lane settings-headings, 1280x840): Settings > Project in project scope "work"
+(the scope picker set ?project=ad12c9d1-...:<lane>/projects/work; the earlier read had no project chosen, so the page showed only its scope notice).
+Headings from the ARIA snapshot (toasts left out):
+  h2 Project
+  h3 Name
+  h3 Project icon
+  h2 New threads
+  h3 Model
+  h3 Workspace
+  h2 Actions
+  h3 Actions
+  h2 Danger
+  h3 Remove project
+Against the list compare.py used for the Project page (ProjectSettingsPanel.tsx, ProjectDefaultsSettings.tsx, ProjectActionsSettings.tsx): MATCH
