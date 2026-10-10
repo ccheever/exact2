@@ -69,22 +69,25 @@ final class T3SettingsWindowWatcher {
     }
 }
 
-/// Reference shell.showItemInFolder, run while T3 Code is the active app: the reference's helper is an ordinary window,
-/// so the click that reveals makes T3 Code active first, and a reveal asked by the active app brings Finder's window to
-/// the front (the helper then hides, System Settings being covered). The clone's panel is non-activating (System Settings
-/// stays frontmost during a drag), and a reveal asked by an app that is not active opened Finder's window behind System
-/// Settings (realinput-1010 RI-2). So the click activates T3 Code as the reference's click does, then T3 Code yields
-/// activation to Finder, asks for the reveal and asks Finder to activate. Nothing waits for Finder's window: the reveal
-/// reaches Finder as a request, and the activation request follows it at once.
+/// Reference shell.showItemInFolder, asked by the active app: the reference's helper is an ordinary window, so the click
+/// that reveals finds T3 Code active (the window server activates an app on a click in its window; there the first
+/// click only activates), and a reveal asked by the active app brings Finder's window to the front (the helper then
+/// hides, System Settings being covered). The panel activates too (T3PermissionPanel), so a click reaches here with
+/// T3 Code active, and T3 Code yields activation to Finder, asks for the reveal and asks Finder to activate. A request
+/// to activate itself from an inactive app is refused under real input (realinput-1010c RC-1: two clicks left Finder
+/// behind System Settings with T3 Code inactive), so it is only a fallback for a press that is no click (VoiceOver's
+/// press). Nothing waits for Finder's window: the reveal reaches Finder as a request, and the activation request
+/// follows it at once.
 struct T3FinderReveal {
     static let finder = "com.apple.finder"
     // Seams for the AppKit test; the defaults are the real system.
-    var activateSelf: () -> Void = { if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) } }
+    var isActive: () -> Bool = { NSApp.isActive }
+    var activateSelf: () -> Void = { NSApp.activate(ignoringOtherApps: true) }
     var yield: (String) -> Void = { NSApp.yieldActivation(toApplicationWithBundleIdentifier: $0) }
     var select: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     var activate: (String) -> Void = { _ = NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.activate(options: []) }
     func reveal(_ url: URL) {
-        activateSelf()
+        if !isActive() { activateSelf() }
         yield(Self.finder)
         select(url)
         activate(Self.finder)
@@ -176,17 +179,21 @@ final class T3PermissionHelper {
     }
 }
 
-/// Reference helper window: frameless, transparent, shadowless, always on top,
-/// out of the window cycle. Showing it or dragging from it never activates T3 Code, so
-/// System Settings stays frontmost while the person drags; a click that reveals the app
-/// in Finder does (T3FinderReveal), as the reference's click does.
+/// Reference helper window (an ordinary focusable BrowserWindow): frameless, transparent,
+/// shadowless, always on top, out of the window cycle. Showing it never activates T3 Code
+/// (orderFrontRegardless, the reference's showInactive); a click in it does, as in any
+/// window without .nonactivatingPanel. The row takes that activating click (acceptsFirstMouse,
+/// a declared difference: the reference's first click only activates), so a click on the
+/// row reveals the app from the active app (T3FinderReveal) and a press that starts a drag
+/// makes the panel key, which keeps it shown while System Settings is not frontmost (sync,
+/// the reference's `!frontmost && !isFocused`).
 final class T3PermissionPanel: NSPanel {
     let content: T3PermissionHelperView
     var onEscape: () -> Void = {}
     var onBlur: () -> Void = {}
     init(permission: T3MacPermission, bundle: URL, icon: NSImage) {
         content = T3PermissionHelperView(frame: NSRect(x: 0, y: 0, width: 560, height: 140), bundle: bundle, icon: icon)
-        super.init(contentRect: content.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        super.init(contentRect: content.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         title = "Set up \(permission.title)"
         isOpaque = false; backgroundColor = .clear; hasShadow = false
         level = .floating; hidesOnDeactivate = false; isReleasedWhenClosed = false
@@ -308,6 +315,9 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         icon.draw(in: NSRect(x: 12, y: (bounds.height - 32) / 2, width: 32, height: 32), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+    // Declared difference (realinput-1010c RC-1): the reference's window keeps Electron's macOS default
+    // acceptFirstMouse false, so its first click from System Settings only activates T3 Code; here the activating
+    // click also reaches the row (a click reveals, a press drags), as RC-1 asks. The close button does the same.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
