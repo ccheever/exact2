@@ -1,0 +1,54 @@
+import-wizard-initial-focus, review round (2026-10-10): the focus after a step change moves to the popup only when the element that held it was removed.
+
+== Reference (T3 Code 1e2ecbd975 over CDP, lane fixture: Brave held by a foreign-host SingletonLock), ref-keep.mjs, run twice, the same each time
+  Brave: open on Quit: BUTTON "Cancel" (dialog: Quit Brave to import; focus-visible True)
+  Brave: I’ve quit it, then Tab at once (Checking): BUTTON[aria-label=Close] "" (dialog: Checking Brave; focus-visible True)
+  Brave: after the recheck (Quit again), the X held the focus through the change: BUTTON[aria-label=Close] "" (dialog: Quit Brave to import; focus-visible True)
+  Control: I’ve quit it, no key: DIV[role=dialog] (the popup itself) (dialog: Checking Brave; focus-visible False)
+  Control: after the recheck (Quit again): DIV[role=dialog] (the popup itself) (dialog: Quit Brave to import; focus-visible False)
+
+== Clone, agent mode, drive2.sh (the first drive's ops plus scenario (a): tap I've quit it, then focus the X with a key on it, then the recheck)
+-- before (evidence base c03d7e908, before PR #409)
+  after tap browser-import-source-chrome: focus #2168 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+  after tap browser-import-cancel: focus none (the window) frame None
+  after tap browser-import-source-brave: focus #2168 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+  after tap browser-import-quit: focus #2741 Pressable testId='browser-import-quit' frame {'x': 782.41, 'y': 464.5, 'w': 88.59, 'h': 32}
+  after type browser-import-step-quit key Tab: focus #2723 Pressable testId='browser-import-x' label='Close' frame {'x': 855, 'y': 335.5, 'w': 32, 'h': 32}
+  after type browser-import-x key Shift: focus #2753 Pressable testId='browser-import-x' label='Close' frame {'x': 855, 'y': 335.5, 'w': 32, 'h': 32}
+  after tap browser-import-source-safari: focus #2168 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+  after tap browser-import-source-firefox: focus #2168 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+  after tap browser-import-run: focus #2860 Pressable testId='browser-import-close' frame {'x': 717.22, 'y': 454.5, 'w': 61.2, 'h': 32}
+  after type browser-import-step-blocked key Tab: focus #2649 Pressable testId='device-hosts-add' frame {'x': 1076.39, 'y': 1251, 'w': 99.11, 'h': 28}
+  after tap browser-import-retry: focus #2880 Pressable testId='browser-import-close' frame {'x': 717.22, 'y': 454.5, 'w': 61.2, 'h': 32}
+  after tap browser-import-run: focus #2973 Pressable testId='browser-import-done' frame {'x': 812.41, 'y': 454.5, 'w': 58.59, 'h': 32}
+  after tap Remove profile and data: focus #2946 Pressable testId='browser-profile-options-profile-6cb591ac-1bb3-4970-aa5b-21d853f91264' label='Firefox options' frame {'x': 1138.5, 'y': 437, 'w': 24, 'h': 24}
+  after tap browser-profile-remove-cancel: focus none (the window) frame None
+  after tap browser-profile-remove-confirm: focus none (the window) frame None
+-- after (this branch)
+  after tap browser-import-source-chrome: focus #2685 Pressable testId='browser-import-tile-Default' frame {'x': 409, 'y': 383.5, 'w': 207, 'h': 54}
+  after tap browser-import-cancel: focus #2173 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+  after tap browser-import-source-brave: focus #2729 Pressable testId='browser-import-cancel' frame {'x': 705.05, 'y': 464.5, 'w': 69.36, 'h': 32}
+  after tap browser-import-quit: focus #2724 View testId='browser-import-step-quit' label='Quit Brave to import' frame {'x': 384, 'y': 326.5, 'w': 512, 'h': 187}
+  after type browser-import-step-quit key Tab: focus #2749 Pressable testId='browser-import-cancel' frame {'x': 705.05, 'y': 464.5, 'w': 69.36, 'h': 32}
+  after type browser-import-x key Shift: focus #2763 Pressable testId='browser-import-x' label='Close' frame {'x': 855, 'y': 335.5, 'w': 32, 'h': 32}
+  after tap browser-import-source-safari: focus #2798 Pressable testId='browser-import-fda-allow' frame {'x': 808.72, 'y': 415.5, 'w': 49.28, 'h': 24}
+  after tap browser-import-source-firefox: focus #2819 Pressable testId='browser-import-tile-Profiles/lane.default-release' frame {'x': 409, 'y': 391.5, 'w': 207, 'h': 54}
+  after tap browser-import-run: focus #2811 View testId='browser-import-step-blocked' label='Couldn’t import from Firefox' frame {'x': 384, 'y': 336.5, 'w': 512, 'h': 167}
+  after type browser-import-step-blocked key Shift+Tab: focus #2874 Pressable testId='browser-import-x' label='Close' frame {'x': 855, 'y': 345.5, 'w': 32, 'h': 32}
+  after tap browser-import-retry: focus #2811 View testId='browser-import-step-blocked' label='Couldn’t import from Firefox' frame {'x': 384, 'y': 336.5, 'w': 512, 'h': 167}
+  after tap browser-import-run: focus #2899 View testId='browser-import-step-done' label='Imported 1 cookie' frame {'x': 384, 'y': 336.5, 'w': 512, 'h': 167}
+  after tap Remove profile and data: focus #2995 Pressable testId='browser-profile-remove-cancel' frame {'x': 671.13, 'y': 464.5, 'w': 69.36, 'h': 32}
+  after tap browser-profile-remove-cancel: focus #2956 Pressable testId='browser-profile-options-profile-6cb591ac-1bb3-4970-aa5b-21d853f91264' label='Firefox options' frame {'x': 1138.5, 'y': 437, 'w': 24, 'h': 24}
+  after tap browser-profile-remove-confirm: focus #2173 Pressable testId='browser-profiles-add' label='Add profile' frame {'x': 1061.16, 'y': 328, 'w': 114.34, 'h': 28}
+
+Scenario (a): before and after keep the X, as the reference. The evidence base predates PR #409 (its buttons' autofocus never
+takes a focus that is held). PR #409 before this round (from its code, not driven: `else if focusKey != ""` focused the
+popup at every change of focusKey) would have taken the focus off the X here; the rule now moves it only when the
+element that held it is gone (app.contract importWizardStep).
+Scenario (b), a Full Disk Access grant by the poll while Cancel or the X holds the focus, cannot be reached on the lane
+(TCC's EPERM); import-wizard-initial-focus.test.ts drives it through the ops with a fake module (Allow gone, Cancel,
+Continue and the X kept).
+
+Every other row of the after drive equals the first after drive (focus-record.txt, f009dac06): opening on the first
+tile, Cancel, Allow; the popup after I've quit it, Import, Try again and Done; Shift+Tab from the popup to the X;
+the confirm's Cancel, its Cancel back to Firefox options, Remove back to Add profile.
