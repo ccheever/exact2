@@ -1,0 +1,17 @@
+realinput-1010d-followups RD-3: testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost (macos/tests/browser-automation)
+The page in T3BrowserView.Host (flipped, fit-scale 0.5, a 1280 x 800 page drawn at 640 x 400 at (40, 30)); the agent clicks #go and #name.
+Points are the window content layer's (y up); 'against' is AppKit's own conversion of the target's centre.
+
+== Before: the test against the branch tip's module (7195f10b6) ==
+examples/t3-code/macos/tests/browser-automation/main.swift:303: error: -[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost] : XCTAssertEqualWithAccuracy failed: ("84.4375") is not equal to ("375.5625") +/- ("1.0") - Go: the tip's y ((173.3828125, 84.4375) against (173.3828125, 375.5625))
+examples/t3-code/macos/tests/browser-automation/main.swift:310: error: -[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost] : XCTAssertGreaterThan failed: ("84.4375") is not greater than ("92.4375") - Go: the arrow points up, its tip above its foot
+examples/t3-code/macos/tests/browser-automation/main.swift:303: error: -[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost] : XCTAssertEqualWithAccuracy failed: ("84.1875") is not equal to ("375.8125") +/- ("1.0") - the Name field: the tip's y ((102.3203125, 84.1875) against (102.3203125, 375.8125))
+examples/t3-code/macos/tests/browser-automation/main.swift:310: error: -[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost] : XCTAssertGreaterThan failed: ("84.1875") is not greater than ("92.1875") - the Name field: the arrow points up, its tip above its foot
+	 Executed 26 tests, with 4 failures (0 unexpected) in 23.028 (23.032) seconds
+Executed 26 tests, with 4 failures
+
+== After: the test against this branch's module ==
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost]' started.
+Test Case '-[T3browserautomationTests.BrowserAutomationTests testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost]' passed (0.857 seconds).
+	 Executed 26 tests, with 0 failures (0 unexpected) in 23.137 (23.141) seconds
+Executed 26 tests, with 0 failures
