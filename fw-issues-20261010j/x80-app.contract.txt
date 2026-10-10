@@ -1,0 +1,60 @@
+component X80app
+  state log = ""
+  state n = 0
+  state a1 = false
+  state a2 = false
+  state a3 = false
+  state a4 = false
+  state a5 = false
+  state b1 = false
+  state b2 = false
+  state b3 = false
+  state b4 = false
+  state b5 = false
+  action ev(name: string, over: bool)
+    n = n + 1
+    log = `${n}${name}${over ? "+" : "-"} ${log}`
+    a1 = name == "A1" ? over : a1
+    a2 = name == "A2" ? over : a2
+    a3 = name == "A3" ? over : a3
+    a4 = name == "A4" ? over : a4
+    a5 = name == "A5" ? over : a5
+    b1 = name == "B1" ? over : b1
+    b2 = name == "B2" ? over : b2
+    b3 = name == "B3" ? over : b3
+    b4 = name == "B4" ? over : b4
+    b5 = name == "B5" ? over : b5
+  action pd(name: string)
+    n = n + 1
+    log = `${n}${name}v ${log}`
+  action pu(name: string)
+    n = n + 1
+    log = `${n}${name}^ ${log}`
+  view
+    main testId="root" width="100%" height="100%" padding=24 box-sizing="border-box" background-color="#ffffff" color="#111111" display="flex" flex-direction="column" gap=16
+      text `log: ${log}` font-size=13 testId="log"
+      row gap=40 user-select="none"
+        column width=200 gap=0
+          text "A: hover only" font-size=13 margin-bottom=6
+          box testId="a1" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("A1") background-color=(a1 ? "#3b82f6" : "#e5e7eb") color=(a1 ? "#ffffff" : "#111111")
+            text "A1" font-size=15
+          box testId="a2" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("A2") background-color=(a2 ? "#3b82f6" : "#e5e7eb") color=(a2 ? "#ffffff" : "#111111")
+            text "A2" font-size=15
+          box testId="a3" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("A3") background-color=(a3 ? "#3b82f6" : "#e5e7eb") color=(a3 ? "#ffffff" : "#111111")
+            text "A3" font-size=15
+          box testId="a4" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("A4") background-color=(a4 ? "#3b82f6" : "#e5e7eb") color=(a4 ? "#ffffff" : "#111111")
+            text "A4" font-size=15
+          box testId="a5" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("A5") background-color=(a5 ? "#3b82f6" : "#e5e7eb") color=(a5 ? "#ffffff" : "#111111")
+            text "A5" font-size=15
+        column width=200 gap=0
+          text "B: hover + pointerdown" font-size=13 margin-bottom=6
+          box testId="b1" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("B1") pointerdown=pd("B1") pointerup=pu("B1") background-color=(b1 ? "#3b82f6" : "#e5e7eb") color=(b1 ? "#ffffff" : "#111111")
+            text "B1" font-size=15
+          box testId="b2" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("B2") pointerdown=pd("B2") pointerup=pu("B2") background-color=(b2 ? "#3b82f6" : "#e5e7eb") color=(b2 ? "#ffffff" : "#111111")
+            text "B2" font-size=15
+          box testId="b3" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("B3") pointerdown=pd("B3") pointerup=pu("B3") background-color=(b3 ? "#3b82f6" : "#e5e7eb") color=(b3 ? "#ffffff" : "#111111")
+            text "B3" font-size=15
+          box testId="b4" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("B4") pointerdown=pd("B4") pointerup=pu("B4") background-color=(b4 ? "#3b82f6" : "#e5e7eb") color=(b4 ? "#ffffff" : "#111111")
+            text "B4" font-size=15
+          box testId="b5" height=40 display="flex" align-items="center" padding-left=12 border-bottom-width=1 border-bottom-style="solid" border-bottom-color="#ffffff" hover=ev("B5") pointerdown=pd("B5") pointerup=pu("B5") background-color=(b5 ? "#3b82f6" : "#e5e7eb") color=(b5 ? "#ffffff" : "#111111")
+            text "B5" font-size=15
