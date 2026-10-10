@@ -3,8 +3,10 @@ import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { fleet } from './shared/settings-b-fleet';
-import { mobileComposerQueryDemand as demand, mobileComposerQueryPrepare as prepare,
+import { mobileComposerProvider as projectProvider, mobileComposerQueryDemand as demand, mobileComposerQueryPrepare as prepare,
   mobileComposerQuerySnapshot as snapshot, type ComposerQueryInput, type ComposerQueryLane } from './composer-command-query';
+import { mobileComposerCommandRows, resolveProviderSkillsForCwd, resolveProviderSlashCommandsForCwd,
+  hasCompleteProviderWorkspaceSnapshot } from './composer-command-model';
 let sequence = 0;
 const provider = { instanceId: 'codex1', driver: 'codex', skills: [], slashCommands: [], workspaceSnapshots: [{ cwd: '/repo', skills: [], slashCommands: [] }] };
 function fixture(kind: 'path' | 'pull-request' | 'slash-command' = 'path', query = 'src') {
@@ -193,4 +195,75 @@ test('discovery cancellation propagates unchanged and retries without a failure 
   f.control.reply = () => { throw cancelled; }; await expect(f.run('discovery')).rejects.toBe(cancelled);
   expect(f.view().discovery.delayMs).toBe(0); f.control.reply = () => ({ providers: [provider] }); await f.run('discovery');
   expect(f.calls.length).toBe(2); expect(f.view().discovery.key).toBe('');
+});
+
+test('provider projection preserves command behavior and missing versus empty workspace overrides', () => {
+  const skill = { name: 'deploy', enabled: true, userInvocable: true, displayName: 'Ship It', shortDescription: 'Release',
+    description: 'Build release', path: '/repo/.codex/skills/deploy', scope: 'repo' };
+  const full = { ...provider, showInteractionModeToggle: false, skills: [skill], slashCommands: [{ name: 'compact', description: 'Summarize' }],
+    workspaceSnapshots: [{ cwd: '/repo', slashCommandsPending: true }, { cwd: '/empty', skills: [], slashCommands: [], slashCommandsPending: false }],
+    models: [{ slug: 'model', catalog: 'catalog'.repeat(300_000) }], auth: { status: 'ready' } };
+  const projected = projectProvider(full)!;
+  for (const cwd of ['/repo', '/empty', '/other']) {
+    expect(resolveProviderSkillsForCwd(projected, cwd)).toEqual(resolveProviderSkillsForCwd(full, cwd));
+    expect(resolveProviderSlashCommandsForCwd(projected, cwd)).toEqual(resolveProviderSlashCommandsForCwd(full, cwd));
+    expect(hasCompleteProviderWorkspaceSnapshot(projected, cwd)).toBe(hasCompleteProviderWorkspaceSnapshot(full, cwd));
+    for (const kind of ['slash-command', 'skill'] as const) {
+      const input = { trigger: { kind, query: '', rangeStart: 0, rangeEnd: 1 }, projectCwd: cwd, hasThread: true,
+        hasCompactableConversation: true, offersUsageLimits: false, allowInteractionMode: true, environmentId: 'env',
+        currentThreadId: 't', threadShells: [], pathEntries: [], pullRequestEntries: [] };
+      expect(mobileComposerCommandRows({ ...input, selectedProviderStatus: projected }))
+        .toEqual(mobileComposerCommandRows({ ...input, selectedProviderStatus: full }));
+    }
+  }
+  expect(Object.hasOwn(projected.workspaceSnapshots![0]!, 'skills')).toBe(false);
+  expect(projected.workspaceSnapshots![1]!.skills).toEqual([]);
+  expect(JSON.stringify(projected).length).toBeLessThan(JSON.stringify(full).length / 1000);
+  projected.skills[0]!.description = 'Changed'; expect(full.skills[0]!.description).toBe('Build release');
+  expect(full.models[0]!.catalog.length).toBe(2_100_000);
+});
+test('demand, fingerprints, discovery and returned snapshots never read the model catalog', async () => {
+  const f = fixture('slash-command', '/'), source = { ...provider, skills: [{ name: 'global', enabled: true, path: '/skills/global' }],
+    workspaceSnapshots: [] as Obj[], get models(): never { throw new Error('Command queries must not copy models'); } };
+  f.client.config.providers = [source]; f.input.provider = source;
+  const initial = f.view(); expect(initial.discovery.key).not.toBe('');
+  f.control.reply = () => ({ providers: [{ ...provider, skills: source.skills,
+    workspaceSnapshots: [{ cwd: '/repo', skills: source.skills, slashCommands: [] }],
+    get models(): never { throw new Error('Discovery must not copy models'); } }] });
+  await f.run('discovery', initial); expect(f.view().discovery.key).toBe('');
+  const returned = f.read().provider!; expect(returned.workspaceSnapshots![0]!.skills![0]!.name).toBe('global');
+  returned.workspaceSnapshots![0]!.skills![0]!.name = 'mutated';
+  expect(f.read().provider!.workspaceSnapshots![0]!.skills![0]!.name).toBe('global');
+  expect(Object.hasOwn(returned, 'models')).toBe(false); expect(f.calls).toHaveLength(1);
+});
+test('held command-query replies remain owned across model-only catalog refreshes', async () => {
+  for (const lane of ['path', 'pullRequests', 'discovery'] as const) {
+    const f = fixture(lane === 'path' ? 'path' : lane === 'pullRequests' ? 'pull-request' : 'slash-command', lane === 'path' ? 'src' : ''), wait = held<Obj>();
+    const before = { ...provider, models: [{ slug: 'old' }], ...(lane === 'discovery' ? { workspaceSnapshots: [] } : {}) };
+    f.client.config.providers = [before]; f.input.provider = before;
+    f.control.reply = r => r.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] } : wait.promise;
+    const old = f.view(), running = f.run(lane, old); await until(() => f.calls.length === (lane === 'path' ? 2 : 1));
+    const after = { ...before, models: [{ slug: 'new', catalog: 'large'.repeat(100_000) }], auth: { status: 'changed' } };
+    f.client.config.providers = [after]; f.input.provider = after; expect(f.view().admission).toBe(old.admission);
+    wait.resolve(lane === 'path' ? { entries: [{ path: 'owned', kind: 'file' }] } : lane === 'pullRequests'
+      ? { entries: [pr(7)] } : { providers: [provider] });
+    await running; const view = snapshot(f.client, old.admission, f.now());
+    if (lane === 'path') expect(view.pathEntries).toEqual([{ path: 'owned', kind: 'file' }]);
+    else if (lane === 'pullRequests') expect(view.pullRequests.map(row => row.number)).toEqual([7]);
+    else expect(view.provider?.workspaceSnapshots?.[0]?.cwd).toBe('/repo');
+    expect(f.calls).toHaveLength(lane === 'path' ? 2 : 1);
+  }
+});
+test('relevant provider changes still invalidate a held command query before publication', async () => {
+  for (const patch of [{ driver: 'other' }, { instanceId: 'other' }, { showInteractionModeToggle: false },
+    { skills: [{ name: 'new', enabled: true, path: '/skills/new', description: 'Changed' }] },
+    { slashCommands: [{ name: 'new', description: 'Changed' }] },
+    { workspaceSnapshots: [{ cwd: '/repo', skills: [], slashCommands: [], slashCommandsPending: true }] }]) {
+    const f = fixture(), wait = held<Obj>(); f.client.config.providers = [structuredClone(provider)];
+    f.control.reply = r => r.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] } : wait.promise;
+    const old = f.view(), running = f.run('path', old); await until(() => f.calls.length === 2);
+    f.client.config.providers = [{ ...provider, ...patch }]; wait.resolve({ entries: [{ path: 'stale', kind: 'file' }] });
+    await expect(running).rejects.toBeInstanceOf(ClientError);
+    expect(snapshot(f.client, old.admission, f.now()).pathEntries).toEqual([]); expect(f.calls).toHaveLength(2);
+  }
 });

@@ -38,6 +38,14 @@ test('ready handshake supports offline drafts and source /model pick inserts tex
  const item=view.menu.rows.find(r=>r.id==='cmd:model')!;expect(item.label).toBe('/model');
  await f.send('pick',JSON.stringify({admission:view.admission,menuRevision:view.menuRevision,id:item.id}));expect(f.client.draft).toBe('/model ');expect(f.calls.map(r=>r.op)).toEqual(['composerEditorApply']);expect(f.view().effect).toBeNull();
 });
+test('ordinary composer renders and picks commands without copying the owned model catalog',async()=>{
+ const f=fixture(),selected=(f.client.config.providers as Obj[])[0]!,models=[{slug:'kept',catalog:'large'.repeat(400_000)}];let reads=0;
+ Object.defineProperty(selected,'models',{enumerable:true,get(){reads++;return models}});
+ const view=await f.ready();expect(view.menu.rows.some(row=>row.id==='cmd:model')).toBe(true);expect(reads).toBe(0);
+ await f.send('pick',JSON.stringify({admission:view.admission,menuRevision:view.menuRevision,id:'cmd:model'}));
+ expect(f.client.draft).toBe('/model ');expect(reads).toBe(0);expect(f.client.config.providers).toEqual([selected]);
+ expect(selected.models).toBe(models);expect(models[0]!.catalog.length).toBe(2_000_000);
+});
 test('pure observation precedes persistence and two actual synchronous native writes count ABA',async()=>{
  const f=fixture('A');await f.ready();const hold=deferred<void>();f.holdWrite(()=>hold.promise);
  const b=f.event('text','B');f.view(b);expect(f.client.draft).toBe('A');expect(JSON.parse(f.view().configuration).document.value).toBe('B');
