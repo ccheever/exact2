@@ -1,0 +1,33 @@
+RC-1 read-back v2 (realinput-1010c-native, review round 1). before = feat(example)/t3-code f0aaaa56d T3PermissionHelper.swift; after = this branch.
+Public AppKit API only (no private keys). What a real click does is not read here: real-input batch steps 1-3.
+
+== before
+panel styleMask contains .nonactivatingPanel: true
+=> expected: a click in the panel activates T3 Code: false (unverified until real-input step 1)
+row acceptsFirstMouse (a click on an inactive panel also reaches the row): true
+reveal calls after a click (the panel is non-activating, so T3 Code is not activated by the click):
+  - NSApp.activate (a request from an inactive app; refused under real input, realinput-1010c B2)
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
+
+== after
+panel styleMask contains .nonactivatingPanel: false
+=> expected: a click in the panel activates T3 Code: true (unverified until real-input step 1)
+row acceptsFirstMouse (a click on an inactive panel also reaches the row): true
+reveal calls after a click (T3 Code active, if the click activated it):
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
+reveal calls after VoiceOver's press (T3 Code inactive):
+  - NSApp.activate (a request from an inactive app; refused under real input, realinput-1010c B2)
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
+
+== reference (T3 Code 1e2ecbd975, read from source, not driven)
+MacPermissionHelper.ts:100-117: new Electron.BrowserWindow({ ... }) without acceptFirstMouse; shown with showInactive() (:180).
+Electron 44.4.2 electron.d.ts:3824-3828: acceptFirstMouse, "Whether clicking an inactive window will also click through to the web contents. Default is false on macOS."
+=> expected: the reference's first click on its helper while System Settings is front only activates T3 Code and focuses the helper;
+   the click/dragstart that sends finder/drag needs a second press (real-input step 3 checks this).
+=> the clone's row accepts the first mouse (since #359): its activating click also reveals or drags. A declared difference (Decision needed in #398).
