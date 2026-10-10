@@ -1,0 +1,22 @@
+#!/bin/zsh
+# shell-context-menu round 2: the rendered docs/links.md (a paragraph's web link, a mailto link, a table cell's link) and C3.
+# Usage: drive2.sh before|after. Lane base 16660 (embedded server 16662).
+MODE=${1:?before|after}
+S0=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-context-menu
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+OUT=$S0/runs2/$MODE; rm -rf $OUT; mkdir -p $OUT/shots; S=$OUT/shots
+if [ $MODE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=shell-context-menu-before
+else ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-shell-context-menu; LANE=shell-context-menu; fi
+rc() { OPS+=("tap $1 contextmenu" "clock +800 real" "logs"); }
+OPS=("clock +20000 real" "clock +3000 real" "tap Dismiss" "clock +800 real"
+     "tap toggle-right-panel" "clock +1500 real" "type surface-chooser key f" "clock +1500 real" "tap files-expand-all" "clock +1000 real"
+     "tap links.md" "clock +2500 real" "tap file-toggle-render" "clock +2500 real" "screenshot $S/01-links.png window" "logs")
+rc manualpage   # a paragraph's web link (FlowRuns): the app's link menu
+rc mailword     # a mailto link: the shell's menu
+OPS+=("tap t3-code contextmenu at 906 270" "clock +800 real" "logs")   # a table cell's web link "tablelink" (ChatRuns, S2): the shell's menu with Copy Link
+OPS+=("tap thread-verify-timeline" "clock +3000 real" "screenshot $S/02-thread.png window"
+      "tap t3-code contextmenu at 780 125" "clock +800 real" "logs")   # C3 "linked $verify"
+OPS+=("logs" "state")
+cd $OUT
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16660 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" >> $OUT/agent.err
