@@ -252,7 +252,7 @@ component ThisMachineSection
                 PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
               KeyMenuOpen(menuId="this-machine-menu-popup", armed=keyArmed, opened=keyOpened)
               CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0, items=[KmItem(id=`environment-icon-${machine.environment.environmentId}`, label="Icon")], keyed=keyed)
-                EnvironmentIconMenu(environment=machine.environment, op=op)
+                EnvironmentIconMenu(keysId="this-machine-menu-popup-keys", environment=machine.environment, op=op)
       PvGroupOpen()
         PvRow(title="Local environment", description=machine.description, status="", policy="", wide=wide, divided=false)
           button id="local-environment-switch" press=toggle role="switch" aria-checked=machine.enabled aria-label="Local environment" disabled=busy testId="local-environment-switch" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(machine.enabled ? "flex-end" : "flex-start") flex-shrink=0 opacity=(busy ? 0.64 : 1) background-color=(machine.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
@@ -356,12 +356,12 @@ component EnvironmentRow
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)
-              EnvironmentIconMenu(environment=environment, op=op)
-              RouteMenuItem(label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
+              EnvironmentIconMenu(keysId=`environment-menu-${environment.environmentId}-popup-keys`, environment=environment, op=op)
+              RouteMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
               when environment.traceId != ""
-                CnMenuItem(label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
+                CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Copy trace ID", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-trace-${environment.environmentId}`, destructive=false, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=op("environment-trace", environment.key, environment.traceId))
               CnSeparator()
-              CnMenuItem(label="Remove from this device…", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=(environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`), destructive=true, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=remove(environment.key))
+              CnMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label="Remove from this device…", menuId=`environment-menu-${environment.environmentId}-popup`, itemId=(environment.active ? "forget-server" : `environment-remove-${environment.environmentId}`), destructive=true, disabled=busy, radio=false, highlighted=false, note="", icon="", submenu="", choose=remove(environment.key))
       // EnvironmentRow `detail`: the routes, aligned with the label, inside the row's padding.
       when routesOpen
         column width="100%" box-sizing="border-box" padding-left="2.75rem" padding-right="1rem" padding-bottom="0.625rem" opacity=(environment.dimmed ? 0.6 : 1)
@@ -373,14 +373,18 @@ component EnvironmentIconMenu
   inject
     rem: number
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     environment: SavedEnvironment
     op: action
-  state hovered = false
   state lit = false
   // fix-keyboard-focus: Enter or Space on "Icon" opens its submenu with the focus on its first kind.
   state keyed = 0
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`environment-icon-${environment.environmentId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   action triggerKey(k: string)
@@ -388,7 +392,7 @@ component EnvironmentIconMenu
       keyed = keyed + 1
   view
     column width="100%" position="relative"
-      button id=`environment-icon-${environment.environmentId}` popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover focus=focused(true) blur=focused(false) key=triggerKey role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button id=`environment-icon-${environment.environmentId}` popovertarget=`environment-icon-${environment.environmentId}-popup` hover=hover focus=focused(true) blur=focused(false) key=triggerKey role="menuitem" testId=`environment-icon-${environment.environmentId}` display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#27272a, #f5f5f5)")
         text "Icon" font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 text-align="left" color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
@@ -397,7 +401,7 @@ component EnvironmentIconMenu
           text environment.iconLock font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
           CnSeparator()
         each choice in environment.icons key=choice.kind
-          CnMenuItem(label=choice.label, menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-icon-${environment.environmentId}-${choice.kind}`, destructive=false, disabled=(environment.iconLock != ""), radio=true, highlighted=choice.selected, note=choice.note, icon=choice.kind, submenu="", choose=op("environment-icon", environment.key, choice.kind))
+          CnMenuItem(keysId=`environment-icon-${environment.environmentId}-popup-keys`, label=choice.label, menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-icon-${environment.environmentId}-${choice.kind}`, destructive=false, disabled=(environment.iconLock != ""), radio=true, highlighted=choice.selected, note=choice.note, icon=choice.kind, submenu="", choose=op("environment-icon", environment.key, choice.kind))
 
 // One EnvironmentRow in a folded list: icon, name, transport, a control.
 component MachineRow

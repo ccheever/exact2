@@ -199,9 +199,10 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     expect(row).toContain('[KmItem(id=`snooze-${t.id}-custom`, label="Custom…")]');
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
-    expect(item).toContain('background-color=(over or lit ?');
+    // FX-2: highlighted by its focus alone, which the pointer gives it (menu-keys.contract's doors).
+    expect(item).toContain('background-color=(lit ?');
     // A real click's press takes the focus from the popup before its release: the pointer on a row keeps the pin.
-    expect(item).toContain('action hover(value: bool)\n    over = value\n    pointer(value)');
+    expect(item).toContain('action hover(value: bool)\n    if value\n      focus(`${itemId}-km`)\n    else if lit\n      focus(keysId)\n    pointer(value)');
     expect(row).toContain('inside=snoozeInside, pointer=snoozePointer)');
     const actions = await component('sidebar-row.contract', 'SidebarCardActions');
     expect(actions).toContain('press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}`');
@@ -242,10 +243,10 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     // menu focused the row by id and the hidden Check out menu's row with that id came first.
     const more = await component('pages-pr-actions.contract', 'PrdActionsMenu');
     expect(more).toContain('KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label)');
-    expect(more).toContain('PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")');
+    expect(more).toContain('PrdActOnItems(keysId="pr-more-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")');
     const checkout = await source('pages-pr-handoffs.contract');
     expect(checkout).toContain('KmItem(id=`pr-act-on-${item.key}`, label=item.label)');
-    expect(checkout).toContain('PrdActOnItems(items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")');
+    expect(checkout).toContain('PrdActOnItems(keysId="pr-checkout-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-act-on-")');
     expect(await component('pages-pr-links.contract', 'PrdActOnItem')).toContain('button id=`${idPrefix}${item.key}`');
   });
 
@@ -282,7 +283,7 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     for (const row of ['state', 'involvement', 'author', 'labels', 'draft', 'review', 'checks', 'project']) {
       expect(menu).toContain(`press=open("${row}"), keys=subKey("${row}"), leave=rowLeft("${row}"),`);
     }
-    expect(await component('pages-prs.contract', 'PrSubTrigger')).toContain('action hover(value: bool)\n    over = value\n    if not value\n      leave()');
+    expect(await component('pages-prs.contract', 'PrSubTrigger')).toContain('action hover(value: bool)\n    if value\n      focus(`${testId}-km`)\n    else if lit\n      focus(keysId)\n    if not value\n      leave()');
     // On the row that holds the submenu and the Filters rows, so an Escape from either reaches it; the author search
     // stops its Escape and closes the submenu the same way.
     expect(menu).toContain('row align-items="flex-start" key=subEscape');
@@ -304,5 +305,147 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     const author = await component('pages-prs.contract', 'PrAuthorItem');
     expect(author).not.toContain('name="check"');
     expect(author).toContain('person.selected ? "light-dark(#27272a14, #f2f2f214)"');
+  });
+});
+
+// The behaviour (a hovered row takes the focus, ↓ goes on from it, leaving hands the keys back) is
+// menu-one-highlight.test.contract, which the agent runs against the app on a KeyMenu (Sort) and an owner-drawn menu (scope).
+describe('one highlight: the pointer and the keys move one focus (audit-wave-followups-4 FX-2; Base UI highlightedIndex)', () => {
+  test('a row\'s door makes it the menu\'s current row and hands it the focus, so the keys go on from the row the pointer rests on', async () => {
+    for (const name of ['KeyMenu', 'KeyMenuWatched']) {
+      const body = await component('menu-keys.contract', name);
+      expect(body).toContain('  action pointed(id: string)\n    current = id\n    focus(id)');
+      expect(body).toContain('      each item in items key=item.id\n        KmDoor(id=item.id, enter=pointed(item.id))');
+      // The popup hears no pointer and no hover of its own: a press inside it still reaches the window's light dismiss
+      // (popover-escape-parity), and the macOS host hovers one node at a time (#322).
+      expect(body).not.toMatch(/\b(hover|pointerdown|pointerup|pointermove)=/);
+    }
+    // A node the host focuses has a size (PresenterMac.focusElement); the door is invisible, hidden from VoiceOver and no Tab stop.
+    expect(await component('menu-keys.contract', 'KmDoor')).toContain('box id=`${id}-km` tabindex=-1 focus=enter aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"');
+  });
+
+  const door = (id: string) => id.startsWith('`') || id.startsWith('"') ? `${id.slice(0, -1)}-km${id.slice(-1)}` : `\`\${${id}}-km\``;
+  const quote = (text: string) => text.replace(/[\\^$.*+?()[\]{}|]/g, ch => `\\${ch}`);
+  // [file, row component, the row's own id]: every painted menu row in a KeyMenu (the title menu keeps ContextMenu's DOM
+  // fallback, whose rows highlight on hover or focus).
+  const rows: [string, string, string][] = [
+    ['pages-prs.contract', 'PrMenuItem', 'testId'], ['pages-prs.contract', 'PrHostItem', '`pr-host-${host.label}`'], ['pages-prs.contract', 'PrSubTrigger', 'testId'],
+    ['pages-prs.contract', 'PrAuthorItem', '`pr-author-${person.key}`'], ['pages-prs.contract', 'PrLabelItem', '`pr-label-${label.key}`'],
+    ['browser-surface.contract', 'BsMenuItem', 'id'], ['browser-surface.contract', 'BrowserAppearanceItem', '"browser-more-appearance"'],
+    ['browser-surface.contract', 'BrowserLauncherProfileItem', '`launcher-browser-profile-${profile.id}`'], ['browser-surface.contract', 'BrowserAddItem', '"add-surface-browser"'],
+    ['diff.contract', 'DiffMenuItem', 'testId'], ['legacy-sidebar.contract', 'LegacyRadio', 'testId'], ['pages-pr-actions.contract', 'PaMenuItem', 'testId'],
+    ['pages-pr-actions.contract', 'PaRadioItem', 'testId'], ['pages-pr-code.contract', 'PrdScopeCommit', '`pull-request-code-scope-${commit.short}`'],
+    ['pages-pr-code.contract', 'PrdScopeMore', '"pull-request-code-scope-more"'], ['pages-pr-handoffs.contract', 'PrdHandoffItem', 'testId'],
+    ['pages-pr-links.contract', 'PrdActOnItem', '`${idPrefix}${item.key}`'], ['pages-pr-quick.contract', 'PqStackItem', 'testId'], ['pages-pr-stack.contract', 'PsMenuItem', 'testId'],
+    ['pages-usage.contract', 'CheckRow', 'testId'], ['pages-usage.contract', 'UsageMenuItem', 'testId'], ['settings-kit.contract', 'SkMenuItem', 'itemId'],
+    ['settings-b-kit.contract', 'CnMenuItem', 'itemId'], ['r6-device.contract', 'R6MenuItem', 'testId'], ['timeline-plan.contract', 'PlanMenuItem', 'itemId'],
+    ['sidebar-row.contract', 'SnoozeMenuItem', 'itemId'], ['shell-details.contract', 'EditorOption', '`details-editor-${editor.id}`'],
+    ['settings-scheduled.contract', 'TaskMenuItem', 'itemId'], ['settings-projects.contract', 'ImportScriptItem', '`import-script-${script.name}`'],
+    ['r4-surfaces.contract', 'R4MenuItem', '`linked-pr-menu-${test}`'], ['r4-surfaces.contract', 'R4AddItem', '`add-surface-${surface.id}`'],
+    ['r4-surfaces-files.contract', 'R4CrumbItem', 'test'], ['markdown.contract', 'TableMenuItem', 'testId'], ['connections-routes.contract', 'RouteMenuItem', 'itemId'],
+    ['connections.contract', 'EnvironmentIconMenu', '`environment-icon-${environment.environmentId}`'],
+    ['browser-defaults.contract', 'BdViewportItem', '`browser-default-viewport-option-${option.value}`'], ['r4-git.contract', 'R4GitMenuRow', '`details-git-menu-${item.id}`'],
+  ];
+  test.each(rows)('%s %s: its focus alone highlights it; the pointer entering focuses its door, leaving hands the focus to the popup', async (file, name, id) => {
+    const body = await component(file, name);
+    expect(body).toContain('    keysId: string');
+    expect(body).toMatch(new RegExp(`    if (value|over|on)\\n      focus\\(${quote(door(id))}\\)\\n    else if lit\\n      focus\\(keysId\\)`));
+    expect(body).not.toMatch(/\b(over|hovered|hovering) or lit\b|\blit or (over|hovered|hovering)\b/);
+    // Every use passes the popup it sits in (the next test checks which).
+    for (const f of readdirSync(dir).filter(n => n.endsWith('.contract'))) {
+      for (const line of (await source(f)).split('\n').filter(l => new RegExp(`^\\s*${name}\\(`).test(l))) expect(line).toContain(`${name}(keysId=`);
+    }
+  });
+
+  test('every keysId names the KeyMenu popup the row sits in', async () => {
+    const files = new Map<string, string[]>();
+    for (const f of readdirSync(dir).filter(n => n.endsWith('.contract') && !n.endsWith('.test.contract'))) files.set(f, (await source(f)).split('\n'));
+    const indent = (line: string) => line.length - line.trimStart().length;
+    // The popup a line opens: KeyMenu's own `menuId`, or the `-keys` KeyMenu of a wrapper (SkPopup, CnMenu) by its `menuId`.
+    const popupOf = (line: string): string | null => {
+      const own = line.match(/^\s*KeyMenu(?:Watched)?\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
+      if (own) return own[1]!;
+      const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
+      if (!wrapped) return null;
+      return /^[`"]/.test(wrapped) ? `${wrapped.slice(0, -1)}-keys${wrapped.slice(-1)}` : `\`\${${wrapped}}-keys\``;
+    };
+    // The popups around a line: the nearest one among its ancestors in its component, else those around each use of the
+    // component. `beside`: no ancestor opens one, but a KeyMenu precedes an ancestor at its own depth (the rows sit beside it).
+    type Around = { popup: string; beside: boolean };
+    const around = (file: string, at: number, seen: Set<string>): Around[] => {
+      const lines = files.get(file)!;
+      let depth = indent(lines[at]!), beside: string | null = null;
+      for (let i = at - 1; i >= 0; i--) {
+        const line = lines[i]!;
+        const owner = line.match(/^component (\w+)$/)?.[1];
+        if (owner) {
+          if (beside) return [{ popup: beside, beside: true }];
+          if (seen.has(owner)) return [];
+          seen.add(owner);
+          return [...files].flatMap(([f, ls]) => ls.flatMap((l, j) => new RegExp(`^\\s+${owner}\\(`).test(l) ? around(f, j, seen) : []));
+        }
+        if (!line.trim() || line.trimStart().startsWith('//') || indent(line) > depth) continue;
+        if (indent(line) === depth) { beside ??= popupOf(line); continue; }
+        depth = indent(line);
+        const popup = popupOf(line);
+        if (popup) return [{ popup, beside: false }];
+      }
+      return [];
+    };
+    const wrong: string[] = [], besides = new Set<string>();
+    let checked = 0;
+    for (const [file, lines] of files) lines.forEach((line, at) => {
+      const keys = line.match(/^\s*\w+\(keysId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
+      // A component that hands its own `keysId` on is checked at its uses.
+      if (!keys || keys === 'keysId') return;
+      const popups = around(file, at, new Set());
+      checked++;
+      if (popups.length === 0 || popups.some(entry => entry.popup !== keys)) wrong.push(`${file}:${at + 1} keysId=${keys} in ${popups.map(entry => entry.popup).join(', ') || 'no KeyMenu'}`);
+      for (const entry of popups) if (entry.beside) besides.add(file);
+    });
+    expect(wrong).toEqual([]);
+    // A floor, so a pattern that stops matching the uses fails here (146 at audit-wave-followups-4).
+    expect(checked).toBeGreaterThan(140);
+    // Only the device rail draws its rows beside their KeyMenu (a key at a focused row reaches no menu; the record's "Found, not changed").
+    expect([...besides]).toEqual(['r6-device.contract']);
+  });
+
+  test('the menus whose rows their owner draws: one focused row, the door on entering, the popup on leaving', async () => {
+    const cases: [string, string, string[]][] = [
+      ['pages-hero.contract', 'HeroMenu', ['action hover(id: string, rowId: string, over: bool)\n    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus("hero-project-keys")', 'background-color=(lit == project.id ?']],
+      ['r6-polish.contract', 'R6ScriptMenu', ['action hover(id: string, rowId: string, value: bool)\n    if value\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus("details-scripts-keys")', 'background-color=(lit == script.id ?', 'background-color=(lit == "add" ?']],
+      ['settings-rows.contract', 'ScopeMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == choice.id or choice.selected ?']],
+      ['settings-rows.contract', 'CoreMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == option.id or option.selected ?']],
+      ['settings-rows.contract', 'TraitsMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(option.selected or lit == option.id ?']],
+      ['r4-surfaces-files.contract', 'R4FilesSurface', ['  action editorHover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}-km`)\n    else if editorLit == id\n      focus("file-editors-keys")', 'background-color=(editorLit == editor.id ?']],
+      ['snapshot.contract', 'SnapshotPanel', ['  action soundHover(id: string, over: bool)\n    if over\n      focus(`${id}-km`)\n    else if soundLit == id\n      focus("snapshot-sound-keys")', 'background-color=(soundLit == "snapshot-sound-off" ?']],
+      ['r4-surfaces.contract', 'R4LinkedMenu', ['    if on\n      focus("linked-pr-menu-open-km")\n    else if openLit\n      focus("linked-pr-menu-keys")', 'background-color=(openLit ?']],
+      ['pages-pr-actions.contract', 'PrdActionsMenu', ['    if on\n      focus("pr-more-open-host-km")\n    else if hostLit\n      focus("pr-more-keys")', 'background-color=(hostLit ?']],
+      ['requests.contract', 'MenuChoice', ['    if over\n      focus(`${testId}-km`)\n    else if focused\n      focus(keysId)', 'background-color=(focused ?', 'color=(focused ? "light-dark(#18181b, #f5f5f5)"']],
+    ];
+    for (const [file, name, wanted] of cases) {
+      const body = await component(file, name);
+      for (const text of wanted) expect(body).toContain(text);
+      expect(body).not.toMatch(/hovered == \w+(\.\w+)? or lit|over == "add"|hovering or focused \?/);
+    }
+  });
+
+  test('no painted menu row paints from its own hover', async () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
+      const text = await source(file);
+      if (!/\bKeyMenu(Watched)?\(/.test(text)) continue;
+      text.split('\n').forEach((line, index) => {
+        // The rows the keys reach (they carry an id); a list with no keyboard of its own (a branch picker's cursor, a
+        // workspace select) has one highlight already.
+        if (!/^\s*(button|link) id=/.test(line) || !/role=(?:"(menuitem|option)|\(.*(menuitem|option))/.test(line)) return;
+        // The title menu draws ContextMenu's DOM fallback (its own hover or focus); the sidebar's and a panel tab's context
+        // menus are AppKit menus on macOS.
+        // The "+" menu's profile list opens from its chevron and has no keyboard (X66), so it has one highlight already.
+        if (/testId=`title-menu-|testId=`(thread|draft|tab)-menu-|testId=`browser-profile-/.test(line)) return;
+        if (/background-color=\([^"]*\b(over|hovered|hovering)\b/.test(line)) offenders.push(`${file}:${index + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

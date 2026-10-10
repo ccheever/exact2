@@ -1,0 +1,106 @@
+// audit-wave-followups-4 FX-2, one highlight (menu-keys.contract): the pointer and the keys move one focus, as Base UI's
+// `highlightedIndex` serves both. A row the pointer enters takes the focus and becomes the menu's current row, so ↓ goes on
+// from it; the pointer leaving the row that holds the focus hands it back to the popup, so ↓ starts again at the first row.
+// Pull Requests › Sort is a `KeyMenu` of row components (PrMenuItem); the settings scope menu is a menu whose owner draws
+// its rows (ScopeMenu). The keys go to a node that takes no focus (the popup's own box), so they reach whatever holds the
+// focus, as a person's keyboard does; Enter then presses the one row that holds it, and the state says which row that was.
+// menu-keys.test.ts checks the wiring of every painted menu. Each test relaunches the app on a fresh store. It needs the
+// audit lane's T3 home (the projects "Verification fixture" and "work", "All projects" the scope at launch) and its nightly
+// runtime, whose "Nightly needs the beta mobile app" notice covers the Sort menu until it is dismissed:
+//   EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh <lane> <port> --test examples/t3-code/menu-one-highlight.test.contract
+// The `clock +N real` steps let the embedded server start and answer, as a person waits for it.
+
+test "Sort: the pointer on Blocked on me, ↓ goes on to Recently updated, and Enter picks it"
+  clock +20000 real
+  clock +3000 real
+  tap "toast-dismiss-1"
+  clock +500 real
+  tap "open-pull-requests"
+  clock +2500 real
+  expect state prList.sort == "ready"
+  tap "pull-requests-sort"
+  clock +600 real
+  tap "pr-sort-blocked" hover
+  clock +400 real
+  type "pr-sort-layer" key "ArrowDown"
+  clock +400 real
+  type "pr-sort-layer" key "Enter"
+  clock +1500 real
+  expect state prList.sort == "updated"
+
+test "Sort: the highlight follows the pointer from row to row; ↓ goes on from the last one"
+  clock +20000 real
+  clock +3000 real
+  tap "toast-dismiss-1"
+  clock +500 real
+  tap "open-pull-requests"
+  clock +2500 real
+  tap "pull-requests-sort"
+  clock +600 real
+  tap "pr-sort-blocked" hover
+  clock +400 real
+  tap "pr-sort-oldest" hover
+  clock +400 real
+  type "pr-sort-layer" key "ArrowDown"
+  clock +400 real
+  type "pr-sort-layer" key "Enter"
+  clock +1500 real
+  expect state prList.sort == "largest"
+
+test "Sort: the pointer leaving the menu hands the keys back to the popup; ↓ starts at the first row"
+  clock +20000 real
+  clock +3000 real
+  tap "toast-dismiss-1"
+  clock +500 real
+  tap "open-pull-requests"
+  clock +2500 real
+  tap "pull-requests-sort"
+  clock +600 real
+  tap "pr-sort-oldest" hover
+  clock +400 real
+  tap "pull-requests-sort" hover
+  clock +400 real
+  // From the popup: Merge readiness, then Blocked on me (from Oldest shown it would be Largest, then Smallest).
+  type "pr-sort-layer" key "ArrowDown"
+  clock +300 real
+  type "pr-sort-layer" key "ArrowDown"
+  clock +300 real
+  type "pr-sort-layer" key "Enter"
+  clock +1500 real
+  expect state prList.sort == "blocked"
+
+test "Settings scope: the pointer on All projects, ↓ goes on to Verification fixture, and Enter picks it"
+  clock +20000 real
+  clock +3000 real
+  tap "connection-settings"
+  clock +2500 real
+  expect state settingsCore.projectLabel == "All projects"
+  tap "settings-scope-project"
+  clock +800 real
+  tap "settings-scope-choice-project-all" hover
+  clock +400 real
+  type "settings-scope-project-menu" key "ArrowDown"
+  clock +400 real
+  type "settings-scope-project-menu" key "Enter"
+  clock +2500 real
+  expect state settingsCore.projectLabel == "Verification fixture"
+
+test "Settings scope: the pointer leaving the menu hands the keys back to the popup; ↓ starts at All projects"
+  clock +20000 real
+  clock +3000 real
+  tap "connection-settings"
+  clock +2500 real
+  tap "settings-scope-project"
+  clock +800 real
+  tap "settings-scope-choice-project-all" hover
+  clock +400 real
+  tap "settings-scope-project" hover
+  clock +400 real
+  // From the popup: All projects, then Verification fixture (from All projects it would be Verification fixture, then work).
+  type "settings-scope-project-menu" key "ArrowDown"
+  clock +300 real
+  type "settings-scope-project-menu" key "ArrowDown"
+  clock +300 real
+  type "settings-scope-project-menu" key "Enter"
+  clock +2500 real
+  expect state settingsCore.projectLabel == "Verification fixture"

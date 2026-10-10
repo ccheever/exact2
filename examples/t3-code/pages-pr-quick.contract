@@ -182,16 +182,18 @@ component PrRowStack
               when popover.message != ""
                 text popover.message padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-message`
               when popover.retry
-                PqStackItem(icon="", label="Retry stack refresh", detail="", state="", current=false, popId=popId, press=control("quick-stack-retry", rowRef), testId=`${popId}-retry`)
+                PqStackItem(keysId=`${popId}-keys`, icon="", label="Retry stack refresh", detail="", state="", current=false, popId=popId, press=control("quick-stack-retry", rowRef), testId=`${popId}-retry`)
               when length(popover.layers) > 0
                 column width="100%" max-height="20rem" overflow-y="auto"
                   each layer in popover.layers key=layer.key
-                    PqStackItem(icon=pqIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, popId=popId, press=select(layer.ref), testId=`${popId}-layer-${layer.number}`)
+                    PqStackItem(keysId=`${popId}-keys`, icon=pqIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, popId=popId, press=select(layer.ref), testId=`${popId}-layer-${layer.number}`)
                   text popover.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-base`
 
 // MenuItem: a layer (state glyph, title over "#n · branch · State", a check on this row's) or Retry.
 component PqStackItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     icon: string
     label: string
     detail: string
@@ -200,14 +202,16 @@ component PqStackItem
     popId: string
     press: action
     testId: string
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       when icon != ""
         PgIcon(name=icon, size=16, color=pqTone(state))
       column flex=1 min-width=0 align-items="flex-start"

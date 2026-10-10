@@ -199,8 +199,8 @@ component HostRowView
           LucideEllipsisVertical(size=16, color="light-dark(#71717b, #818181)")
         KeyMenuOpen(menuId=host.menuId, armed=keyArmed, opened=keyOpened)
         SkPopup(menuId=host.menuId, label=`${host.label} options`, width=160, list=false, endAlign=28, items=[KmItem(id=`device-host-edit-${host.id}`, label="Edit"), KmItem(id=`device-host-remove-${host.id}`, label="Remove")], keyed=keyed)
-          SkMenuItem(label="Edit", menuId=host.menuId, itemId=`device-host-edit-${host.id}`, selected=false, check=false, destructive=false, disabled=false, choose=rest("hosts-edit", `id=${host.id}`))
-          SkMenuItem(label="Remove", menuId=host.menuId, itemId=`device-host-remove-${host.id}`, selected=false, check=false, destructive=true, disabled=false, choose=rest("hosts-remove", `id=${host.id}`))
+          SkMenuItem(keysId=`${host.menuId}-keys`, label="Edit", menuId=host.menuId, itemId=`device-host-edit-${host.id}`, selected=false, check=false, destructive=false, disabled=false, choose=rest("hosts-edit", `id=${host.id}`))
+          SkMenuItem(keysId=`${host.menuId}-keys`, label="Remove", menuId=host.menuId, itemId=`device-host-remove-${host.id}`, selected=false, check=false, destructive=true, disabled=false, choose=rest("hosts-remove", `id=${host.id}`))
       when host.retry
         HostButton(label=(host.retrying ? "Retrying…" : "Retry"), disabled=(busy or host.retrying), press=rest("hosts-retry", `id=${host.id}`), buttonId=`device-host-retry-${host.id}`, plus=false)
       else

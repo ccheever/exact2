@@ -225,24 +225,30 @@ component R4GitMenu
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Git actions" testId="details-git-options"
         KeyMenu(menuId="details-git-options-keys", items=map(filter(git.menu, (item) => not item.disabled), (item) => KmItem(id=`details-git-menu-${item.id}`, label=item.label)), keyed=keyed, gap="0px", modal=true)
           each item in git.menu key=item.id
-            R4GitMenuRow(item=item, cwd=cwd, act=act)
+            R4GitMenuRow(keysId="details-git-options-keys", item=item, cwd=cwd, act=act)
         each note in git.notes key=note.id
           text note.text padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" color=(note.tone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#bb4d00, #fdc700)")
 
 component R4GitMenuRow
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     item: R4GitMenuItem
     cwd: string
     act: action
   state over = false
   state lit = false
   action hover(value: bool)
+    if value
+      focus(`details-git-menu-${item.id}-km`)
+    else if lit
+      focus(keysId)
     over = value
   action focused(on: bool)
     lit = on
   view
     box position="relative" width="100%" hover=hover
-      button id=`details-git-menu-${item.id}` press=act("shell:git-menu", cwd, item.id) popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=((over or lit) and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      button id=`details-git-menu-${item.id}` press=act("shell:git-menu", cwd, item.id) popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=(lit and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=0.8
           R4Glyph(name=item.icon, size=16, color="light-dark(#71717b, #818181)")
         text item.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"

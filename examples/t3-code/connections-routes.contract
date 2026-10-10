@@ -70,19 +70,23 @@ component RouteCount
 // The row menu's "Routes" / "Hide routes" item (RouteIcon).
 component RouteMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     menuId: string
     itemId: string
     disabled: bool
     choose: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${itemId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       RtGlyph(name="route", size=16, color="light-dark(#27272a, #f5f5f5)")
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
 

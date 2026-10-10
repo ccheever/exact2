@@ -194,28 +194,32 @@ component TaskRow
             LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
           KeyMenuOpen(menuId=`task-menu-${item.id}`, armed=keyArmed, opened=keyOpened)
           SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
-            TaskMenuItem(label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
-            TaskMenuItem(label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
+            TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
+            TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
             box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-            TaskMenuItem(label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
+            TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Delete", icon="delete", menuId=`task-menu-${item.id}`, itemId=`task-delete-${item.id}`, destructive=false, choose=rest("task", `action=delete&${target}`))
 
 // A task row's menu item with its icon (Edit / Run now / Delete).
 component TaskMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     icon: string
     menuId: string
     itemId: string
     destructive: bool
     choose: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${itemId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
       when icon == "edit"
         LucidePencil(size=16, color="light-dark(#71717b, #818181)")
       when icon == "run"
@@ -372,7 +376,7 @@ component ScheduledEditor
                 KeyMenuOpen(menuId="task-environment-menu", armed=environmentArmed, opened=environmentOpened)
                 SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0, items=map(data.environments, (option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
                   each option in data.environments key=option.value
-                    SkMenuItem(label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
+                    SkMenuItem(keysId="task-environment-menu-keys", label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
               input value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title"

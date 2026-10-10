@@ -167,6 +167,7 @@ fn noActOn(): list<PrActOnItem> = []
 // two menus are mounted together, and a key menu that focuses a row by id found the hidden menu's row first.
 component PrdActOnItems
   props
+    keysId: string
     items: list<PrActOnItem>
     disabled: bool
     act: action
@@ -176,20 +177,24 @@ component PrdActOnItems
       box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
       column width="100%" role="group" aria-label="Act on"
         each item in items key=item.key
-          PrdActOnItem(item=item, disabled=disabled, press=act("act-on", item.key), idPrefix=idPrefix)
+          PrdActOnItem(keysId=keysId, item=item, disabled=disabled, press=act("act-on", item.key), idPrefix=idPrefix)
 component PrdActOnItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     item: PrActOnItem
     disabled: bool
     press: action
     idPrefix: string
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`${idPrefix}${item.key}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=`${idPrefix}${item.key}` press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=item.selected testId=`${idPrefix}${item.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=((over or lit) and not disabled ? plAccent() : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button id=`${idPrefix}${item.key}` press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=item.selected testId=`${idPrefix}${item.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? plAccent() : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       CnMachineIcon(kind=item.machine, size=14, color=plInk())
       text item.label font-size="0.875rem" line-height="1.25rem" color=plInk() flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
