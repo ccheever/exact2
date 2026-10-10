@@ -343,3 +343,48 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
     assert!(grouped.has(Capability::GroupedLists));
     assert_eq!(grouped.to_string(), "grouped_lists");
 }
+
+#[test]
+fn svg_image_module_is_needed_only_for_svg_literals_and_computed_sources() {
+    let images =
+        |s: &str| exact_runner::svg_images(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")));
+    assert!(!images(
+        "component A\n  view\n    image \"symbol:sf/star\"\n"
+    ));
+    assert!(!images("component A\n  view\n    text \"hello\"\n"));
+    assert!(images("component A\n  view\n    image \"icon.svg\"\n"));
+    for source in [
+        "photo.png",
+        "https://example.com/photo.JPEG?format=svg#icon.svg",
+        "https://example.com/icon.svg/photo.webp",
+        "symbol:sf/icon.svg",
+        "data:image/png;base64,iVBORw0KGgo=",
+        "data:image/jpeg;base64,/9j/",
+        "data:image/png,name.svg",
+        "data:image/svg+xml",
+        "",
+    ] {
+        assert!(
+            !images(&format!("component A\n  view\n    image {source:?}\n")),
+            "literal {source:?} cannot select an SVG"
+        );
+    }
+    for source in [
+        "icon.SVG",
+        "https://example.com/icon.SvG?v=1#art",
+        "icon.svg#shape?ignored",
+        "data:image/svg+xml,%3Csvg%2F%3E",
+        "data:IMAGE/SVG+XML;CHARSET=UTF-8;BASE64,PHN2Zy8+",
+        "data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E",
+    ] {
+        assert!(
+            images(&format!("component A\n  view\n    image {source:?}\n")),
+            "literal {source:?} selects an SVG"
+        );
+    }
+    for source in ["icon.svg", "photo.png", "symbol:sf/star"] {
+        assert!(images(&format!(
+            "component A\n  state source = {source:?}\n  view\n    image source\n"
+        )));
+    }
+}

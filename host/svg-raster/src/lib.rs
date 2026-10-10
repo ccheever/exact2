@@ -10,6 +10,7 @@
 //! separately loaded module (`abi`); on Linux a plain dependency.
 
 pub mod abi;
+pub mod document;
 pub mod filter;
 
 /// CSS Masking 1 §7.1's luminance coefficients (sRGB), applied once to

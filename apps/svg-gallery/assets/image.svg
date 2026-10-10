@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="-5 -5 20 20">
+  <defs>
+    <linearGradient id="ink"><stop stop-color="#f97316"/><stop offset="1" stop-color="#a855f7"/></linearGradient>
+    <clipPath id="edge"><circle cx="5" cy="5" r="9"/></clipPath>
+  </defs>
+  <g clip-path="url(#edge)" fill="url(#ink)">
+    <path d="M-5-5H15V15H-5Z"/>
+    <path d="M0 8L5 0L10 8Z" fill="white" opacity=".8"/>
+  </g>
+</svg>

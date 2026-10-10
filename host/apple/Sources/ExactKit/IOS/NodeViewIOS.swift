@@ -1432,8 +1432,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
                 top: number("border_width_top", uniform) + number("padding_top"),
                 right: number("border_width_right", uniform) + number("padding_right"),
                 bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
-            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let rect = bitmap.displayRect(object)
             ctx.saveGState()
+            ctx.clip(to: object)
             path.addClip()
             UIBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)

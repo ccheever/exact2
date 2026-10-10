@@ -12,31 +12,15 @@
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
 //   bun host/apple/build.mjs [crate] --bundle --distribution                 macOS, the bundle `exact release` signs
-// Add --url <http(s) app URL> to connect any of these clients to the same
-// address as the browser (LLP 1030.000 §7): with --run it is the launch
-// locator, and a development client (--bundle, --ios, --device) registers
-// its opening link for that server's origin alone, with a per-build token.
-// --ios builds the same archive for the simulator's Rust target, the UIKit
-// presenter for the simulator triple, assembles the .app here (its
-// Info.plist written, never committed), installs it on a simulator — --sim
-// or EXACT_SIM names one; else a booted iPhone; else the iPhone Pro on the
-// newest iOS — and with --run shows it in Simulator.app. --device is the
-// same for a phone: the aarch64-apple-ios target and the iphoneos SDK, the
-// bundle signed with a development identity and a provisioning profile on
-// this Mac that covers the phone and the bundle id (EXACT_IDENTITY, a
-// SHA-1, and EXACT_PROFILE, a path, override the automatic choice), then
-// devicectl to install and, with --run, launch — the phone connected,
-// unlocked, paired, Developer Mode on. --archive is the same device build
-// with no phone: it signs with EXACT_IDENTITY and EXACT_PROFILE (both
-// required: an ad hoc or App Store profile and its distribution identity,
-// as a build service such as EAS supplies them), takes get-task-allow from
-// that profile, and writes the signed bundle as an .ipa instead of
-// installing it. With --unsigned it needs neither: the bundle is ad-hoc
-// signed with no profile and no team, for a consumer that re-signs it with
-// its own (AppDrop, a store's resigner). The simulator and phone helpers live
-// in devices.mjs, shared with scripts/agent.mjs, which launches the same bundle.
-// These developer builds explicitly allow unsigned updates. Set
-// EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
+// --url names the launch locator and registers development opening links for
+// that origin with a per-build token (LLP 1030.000 §7). --sim or EXACT_SIM
+// selects the simulator; otherwise prefer a booted iPhone, then the newest Pro.
+// --device signs and installs on a paired phone in Developer Mode; EXACT_IDENTITY
+// and EXACT_PROFILE override automatic identity/profile selection (devices.mjs).
+// --archive requires those variables and writes an .ipa without installing it;
+// --unsigned instead makes an ad-hoc bundle for a service that re-signs it.
+// Developer builds allow unsigned updates; EXACT_UPDATE_TRUST=production requires
+// authenticated updates. scripts/agent.mjs launches these same bundles.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -61,10 +45,8 @@ const run = (cmd, args, opts = {}) => {
   return r;
 };
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
-// Every Apple toolchain invocation goes through here — cargo, swift build, and
-// the webarm swiftc alike: a mixed deployment target or an incompatible sysroot
-// is a warning the toolchain prints and then links anyway, so the build fails on
-// it here instead. @ref LLP 1008
+// Reject deployment-target and sysroot warnings that Apple tools otherwise link
+// through (LLP 1008), across Cargo, SwiftPM and the web arm's swiftc.
 const runApple = (cmd, args, opts = {}) => {
   const { cargoMessages = false, ...spawnOptions } = opts;
   const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
@@ -80,12 +62,9 @@ const refuseMixedTargets = (cmd, args, output) => {
     throw new Error('Apple deployment target mismatch');
   }
 };
-/** A toolchain step started beside the build's own, which block: the Swift
- * host's compile under the app's Rust, the host's Rust modules under the
- * Swift link. Its output goes to `log` (nothing reads a pipe meanwhile);
- * `done` waits for it, says what it said, and refuses what runApple refuses.
- * `repeated` is a step the build runs again in the foreground, which then
- * says its own failure. A build that ends early stops it. */
+/** Compile beside another build step, keeping output in `log` until `done`.
+ * Apply runApple's refusals; `repeated` lets the foreground retry report its
+ * failure. A build that ends early stops only this child. */
 function startApple(cmd, args, log, opts = {}) {
   const out = openSync(log, 'w');
   const child = spawn(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] });
@@ -163,13 +142,11 @@ export function appleArtifacts(app, { destination = 'macos', composition, trust 
   const product = destination === 'macos' ? (host ? 'ExactHostMac' : 'ExactMac') : (host ? 'ExactHostIOS' : 'ExactIOS');
   const executable = host ? product : executableName(app);
   const products = resolve(namespace, host ? 'host' : 'standalone');
-  // The Swift host is the same code for every app, so its compile is shared:
-  // one SwiftPM scratch per destination and deployment target, whatever the
-  // app, its composition or its trust (a per-app scratch recompiled ExactKit
-  // for each app: 45–56 s on an M4, 100 s under load). Only the link is the
-  // app's, made under `swiftLock` and copied out to the app's private stage
-  // before the lock is released. `scratch` keeps what is the app's alone.
+  // Share SwiftPM compilation per destination/deployment target; only the link
+  // is app-owned, under `swiftLock`, then copied to its private stage. `scratch`
+  // keeps the app's link inputs (LLP 1036.000 §2).
   const swift = resolve(app.target, 'apple-swift', `${destination}-${deploymentTargets(app)[platform]}${optimize === 'size' ? '-size' : ''}`);
+
   return { owner, namespace, target, product, executable, products, composition, scratch: resolve(namespace, 'link'), swift, swiftLock: `${swift}.lock`,
     lock: resolve(owner, '.apple-build.lock'), capture: resolve(namespace, 'capture'),
     binary: resolve(products, executable), bundle: destination === 'macos'
@@ -832,18 +809,10 @@ async function main(args) {
   const hostCompile = embedOnly || early ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
     { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
   if (hostCompile) beside.push(hostCompile);
-  // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
-  // same for every app too, and start with it, in the app's profile: at
-  // `release` the kernel went through one codegen unit and thin LTO, 27 of
-  // the 35 s a touched kernel line cost (LLP 1036.000 §5, §7). Their build
-  // directory is their own, since Cargo runs one build at a time in a
-  // directory and they would wait for the whole bake; the kernel is compiled
-  // for both at once. Unstripped: Xcode 27's strip leaves the SVG dylib with
-  // a mis-aligned LINKEDIT string pool that dyld refuses (as Cargo.toml says
-  // of build scripts) and the iOS canvas module unloadable the same way
-  // (2026-09-30); that crate's build.rs omits its local symbols (-Wl,-x).
-  // The canvas module's shaders are Metal libraries compiled at build time:
-  // without Xcode's Metal toolchain there is none, and Core Graphics draws.
+  // SVG islands and GPU Canvas 2D compile beside the bake in a private target
+  // (LLP 1036.000 §5, §7). Keep them unstripped: Xcode 27's strip makes their
+  // LINKEDIT string pool unloadable; the canvas build omits local symbols itself.
+  // Without the Metal toolchain, Canvas 2D draws with Core Graphics.
   const moduleTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
   const moduleLibDir = resolve(moduleTarget, target, cargoProfile);
   mkdirSync(moduleTarget, { recursive: true });
@@ -1442,6 +1411,11 @@ async function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
+    // SVG image decoding uses the same loaded module in tests and app bundles.
+    run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-svg-raster', '--manifest-path', resolve(root, 'Cargo.toml'),
+      ...(ios ? ['--target', iosTarget] : [])], { env: cargoEnv });
+    env.EXACT_SVG_DYLIB = resolve(libDir, 'libexact_svg_raster.dylib');
+    if (ios) env.TEST_RUNNER_EXACT_SVG_DYLIB = env.EXACT_SVG_DYLIB;
     // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
@@ -1474,7 +1448,7 @@ async function test(args) {
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     env.TEST_RUNNER_EXACT_BUTTONS_PLAN = resolve(fixtureDir, 'native-buttons.plan'); run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--', 'build', resolve(root, 'scripts/fixtures/native-buttons.contract'), '-o', env.TEST_RUNNER_EXACT_BUTTONS_PLAN]);
-    const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
+    const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift') || f === 'RasterImageTests.swift').map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();

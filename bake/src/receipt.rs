@@ -562,7 +562,7 @@ fn artifact_graph(
     // The host's loaded modules the plan can reach (LLP 1047 D1's loaded
     // tier), deferred templates and branches included, each by the rule its
     // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
-    // island module where `svg_islands` holds, the video arm for a `Video`,
+    // module for SVG islands or SVG image sources, the video arm for a `Video`,
     // the web arm for a `WebView`, and the sound arm for a declared sound
     // (LLP 1096 D8: a `sound` declaration is not a node). A build whose plan
     // is fixed leaves out the rest.
@@ -573,7 +573,11 @@ fn artifact_graph(
     };
     let loads: Vec<&str> = [
         ("canvas", makes(exact_kernel::NodeType::Canvas)),
-        ("svg", exact_runner::svg_islands(plan)),
+        // Literal SVG URLs and computed image sources can select a document.
+        (
+            "svg",
+            exact_runner::svg_islands(plan) || exact_runner::svg_images(plan),
+        ),
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
@@ -735,6 +739,20 @@ mod tests {
         for (plan, loads) in [(without, json!([])), (with, json!(["sound"]))] {
             let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
             assert_eq!(graph["loads"], loads);
+        }
+    }
+
+    #[test]
+    fn a_plan_loads_svg_only_for_document_sources_or_vector_islands() {
+        for (source, needed) in [
+            ("component A\n  view\n    image \"photo.png\"\n", false),
+            ("component A\n  view\n    image \"icon.SVG?v=1#art\"\n", true),
+            ("component A\n  state source = \"photo.png\"\n  view\n    image source\n", true),
+            ("component A\n  view\n    svg viewBox=\"0 0 10 10\"\n      rect width=10 height=10 filter=\"blur(1px)\"\n", true),
+        ] {
+            let plan = contract::compile(source).unwrap_or_else(|error| panic!("{error}"));
+            let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
+            assert_eq!(graph["loads"], if needed { json!(["svg"]) } else { json!([]) });
         }
     }
 

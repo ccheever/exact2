@@ -1301,8 +1301,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 right: number("border_width_right", uniform) + number("padding_right"),
                 bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let object = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            let rect = bitmap.displayRect(object)
             ctx.saveGState()
+            ctx.clip(to: object)
             path.addClip()
             NSBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)

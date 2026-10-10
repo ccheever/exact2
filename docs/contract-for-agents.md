@@ -1062,10 +1062,18 @@ not load`. A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
 `Referer`, follow redirects to any host (within App Transport Security), take any
 2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
-the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
-draws on the web only; on Apple it is an `error`. A tinted remote image on the web
+the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). A tinted remote image on the web
 needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
 real`; `clock settle` can return just before them.
+
+On Apple, an `image` can also load a self-contained SVG document (up to 256 KiB
+and 10,000 XML nodes). It keeps its natural viewport and is decoded at the size
+the image pipeline admits; `object-fit` and `-exact-tint-color` work as for raster images.
+SVG documents containing `image`, `filter`, or `foreignObject` fire `error` with
+`unsupported SVG image feature`. A document without both absolute root dimensions
+needs a valid `viewBox` and must not set `preserveAspectRatio="none"`; otherwise it
+is refused as `unsupported SVG image intrinsic sizing`. Inline Contract SVG keeps
+its existing renderer.
 
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the

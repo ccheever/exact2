@@ -8,6 +8,7 @@
 // never linked into ExactKit. A pattern needs no pixel work: Core Graphics
 // tiles its rendered tile, so a pattern never loads the module.
 import CoreGraphics
+import CoreText
 import Foundation
 import QuartzCore
 
@@ -20,17 +21,101 @@ final class SvgRasterModule {
     typealias Abi = @convention(c) () -> UInt32
     typealias Mask = @convention(c) (UnsafeMutablePointer<UInt8>?, Int, UInt8) -> Void
     typealias Filter = @convention(c) (UnsafePointer<Float>?, Int, UnsafeMutablePointer<UInt8>?, Int, Int, Float, Float, Float, Float) -> Int32
+    typealias DocumentSize = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<Float>?, UnsafeMutablePointer<Float>?) -> Int32
+    typealias DocumentRender = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt8>?, UInt32, UInt32, Int, Float, Float, Float, Float) -> Int32
+    typealias FontCallback = @convention(c) (UnsafePointer<UInt8>?, Int, UInt16, UInt8, UInt16, UInt32, UnsafeMutablePointer<UInt8>?, Int) -> Int
+    typealias DocumentFonts = @convention(c) (FontCallback) -> Int32
+    typealias DocumentFontBudget = @convention(c) (UnsafePointer<UInt8>?, Int) -> Int
     /// The ABI this host speaks (`exact_svg_raster_abi`).
-    static let abi: UInt32 = 1
+    static let abi: UInt32 = 4
     let mask: Mask
     let filter: Filter
+    let documentSize: DocumentSize
+    let documentRender: DocumentRender
+    let documentFontBudget: DocumentFontBudget
     /// Milliseconds the load took.
     let loadMs: Double
 
-    private init(_ library: UnsafeMutableRawPointer, ms: Double) {
+    private init?(_ library: UnsafeMutableRawPointer, ms: Double) {
         mask = unsafeBitCast(dlsym(library, "exact_svg_raster_mask")!, to: Mask.self)
         filter = unsafeBitCast(dlsym(library, "exact_svg_raster_filter")!, to: Filter.self)
+        documentSize = unsafeBitCast(dlsym(library, "exact_svg_document_size")!, to: DocumentSize.self)
+        documentRender = unsafeBitCast(dlsym(library, "exact_svg_document_render")!, to: DocumentRender.self)
+        documentFontBudget = unsafeBitCast(dlsym(library, "exact_svg_document_font_budget")!, to: DocumentFontBudget.self)
         loadMs = ms
+        let register = unsafeBitCast(dlsym(library, "exact_svg_document_fonts")!, to: DocumentFonts.self)
+        guard register(Self.fontCallback) == 0 else {
+            FileHandle.standardError.write(Data("exact svg: the SVG document font resolver could not register\n".utf8))
+            dlclose(library)
+            return nil
+        }
+    }
+
+    /// Resolve on the raster worker through Core Text, including device font
+    /// locations. Only the selected local file and face cross into the decoder.
+    private static let fontCallback: FontCallback = { family, count, weight, style, stretch, character, reply, capacity in
+        guard let family, count > 0, count <= 1024, let reply, capacity > 0, capacity <= 4096,
+              let name = String(bytes: UnsafeBufferPointer(start: family, count: count), encoding: .utf8),
+              let font = documentFont(name, weight: weight, style: style, stretch: stretch, character: character),
+              let url = CTFontCopyAttribute(font, kCTFontURLAttribute) as? URL, url.isFileURL else { return 0 }
+        let path = Array(url.path.utf8), face = Array((CTFontCopyPostScriptName(font) as String).utf8)
+        guard !path.isEmpty, !face.isEmpty, !path.contains(0), !face.contains(0) else { return 0 }
+        let bytes = path + [0] + face + [0]
+        guard bytes.count <= capacity else { return 0 }
+        bytes.withUnsafeBufferPointer { reply.update(from: $0.baseAddress!, count: bytes.count) }
+        return bytes.count
+    }
+
+    private static func documentFont(_ family: String, weight: UInt16, style: UInt8, stretch: UInt16, character: UInt32) -> CTFont? {
+        if character != 0 {
+            guard let scalar = UnicodeScalar(character) else { return nil }
+            let text = String(scalar) as CFString
+            let base = CTFontCreateWithName(family as CFString, 16, nil)
+            return CTFontCreateForString(base, text, CFRange(location: 0, length: CFStringGetLength(text)))
+        }
+        let generic: String?
+        switch family.lowercased() {
+        case "serif", "ui-serif": generic = "Times New Roman"
+        case "sans-serif", "ui-sans-serif": generic = "Arial"
+        case "monospace", "ui-monospace": generic = "Courier New"
+        case "cursive": generic = "Snell Roundhand"
+        case "fantasy": generic = "Papyrus"
+        default: generic = nil
+        }
+        let normalizedWeight: Double
+        switch weight {
+        case ..<200: normalizedWeight = -0.8
+        case 200..<300: normalizedWeight = -0.6
+        case 300..<400: normalizedWeight = -0.4
+        case 400..<500: normalizedWeight = 0
+        case 500..<600: normalizedWeight = 0.23
+        case 600..<700: normalizedWeight = 0.3
+        case 700..<800: normalizedWeight = 0.4
+        case 800..<900: normalizedWeight = 0.56
+        default: normalizedWeight = 0.62
+        }
+        var symbolic: CTFontSymbolicTraits = []
+        if style != 0 { symbolic.insert(.traitItalic) }
+        if stretch < 100 { symbolic.insert(.traitCondensed) }
+        if stretch > 100 { symbolic.insert(.traitExpanded) }
+        let traits: [CFString: Any] = [kCTFontWeightTrait: normalizedWeight,
+            kCTFontWidthTrait: (Double(stretch) - 100) / 100,
+            kCTFontSlantTrait: style == 0 ? 0.0 : 0.4,
+            kCTFontSymbolicTrait: symbolic.rawValue]
+        let requested = generic ?? family
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: requested,
+            kCTFontTraitsAttribute: traits] as CFDictionary)
+        let font: CTFont
+        if family.lowercased() == "system-ui", let system = CTFontCreateUIFontForLanguage(.system, 16, nil) {
+            let styled = CTFontDescriptorCreateWithAttributes([kCTFontTraitsAttribute: traits] as CFDictionary)
+            font = CTFontCreateCopyWithAttributes(system, 16, nil, styled)
+        } else {
+            font = CTFontCreateWithFontDescriptor(descriptor, 16, nil)
+        }
+        if generic == nil, family.lowercased() != "system-ui",
+           (CTFontCopyFamilyName(font) as String).caseInsensitiveCompare(family) != .orderedSame,
+           (CTFontCopyPostScriptName(font) as String).caseInsensitiveCompare(family) != .orderedSame { return nil }
+        return font
     }
 
     private static let path: String = {
@@ -46,8 +131,6 @@ final class SvgRasterModule {
     private static var prewarming = false
     private static let prewarmed = DispatchSemaphore(value: 0)
     private static var waited = false
-    /// Milliseconds the prewarm's check of the file took (before `dlopen`).
-    private static var checkMs = 0.0
 
     /// Open the module on a background queue, once. The first open of a
     /// freshly installed file waits for the system's one-time check of it
@@ -60,15 +143,7 @@ final class SvgRasterModule {
     static func prewarm() {
         guard !prewarming else { return }
         prewarming = true
-        let path = path
         DispatchQueue.global(qos: .userInitiated).async {
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let fd = open(path, O_RDONLY)
-            if fd >= 0 {
-                if let p = mmap(nil, 16384, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0), p != MAP_FAILED { munmap(p, 16384) }
-                close(fd)
-            }
-            checkMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
             _ = shared
             prewarmed.signal()
         }
@@ -87,15 +162,29 @@ final class SvgRasterModule {
         return shared
     }
 
+    /// The raster workers open it on first SVG image use, never on the UI thread.
+    static var imageDecoder: SvgRasterModule? { shared }
+
     /// The module, or `nil` (reported once, by name) when it cannot load.
     private static let shared: SvgRasterModule? = {
+        // Images can be the first consumer without an island prewarm. Keep
+        // the signature check outside dyld's lock on that worker path too.
+        let checkStart = CFAbsoluteTimeGetCurrent()
+        let fd = open(path, O_RDONLY)
+        if fd >= 0 {
+            if let p = mmap(nil, 16384, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0), p != MAP_FAILED { munmap(p, 16384) }
+            close(fd)
+        }
+        let checkMs = (CFAbsoluteTimeGetCurrent() - checkStart) * 1000
         let t0 = CFAbsoluteTimeGetCurrent()
         let off = !Thread.isMainThread
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
-            FileHandle.standardError.write(Data("exact svg: the island module is not loaded (\(String(cString: dlerror()))); masks and filters draw nothing\n".utf8))
+            FileHandle.standardError.write(Data("exact svg: the raster module is not loaded (\(String(cString: dlerror()))); SVG images, masks and filters cannot render\n".utf8))
             return nil
         }
         guard let abi = dlsym(library, "exact_svg_raster_abi"), dlsym(library, "exact_svg_raster_mask") != nil, dlsym(library, "exact_svg_raster_filter") != nil,
+              dlsym(library, "exact_svg_document_size") != nil, dlsym(library, "exact_svg_document_render") != nil,
+              dlsym(library, "exact_svg_document_fonts") != nil, dlsym(library, "exact_svg_document_font_budget") != nil,
               unsafeBitCast(abi, to: Abi.self)() == SvgRasterModule.abi else {
             FileHandle.standardError.write(Data("exact svg: \(path) is not an exact SVG island module of ABI \(SvgRasterModule.abi)\n".utf8))
             dlclose(library)
