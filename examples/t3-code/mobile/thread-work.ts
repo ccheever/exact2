@@ -14,7 +14,7 @@ export interface ThreadAnswerFile { id: string; name: string; image: boolean; ur
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkDetail: boolean }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -103,7 +103,7 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
         sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy,
-    nativeWorkDetail: false, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
+    nativeWorkDetail: false, nativeCommandDetail: commandCopy !== '' && call !== null, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
     body: activity.reasoning ? '' : call ? callBody : readPaths || activity.body,
