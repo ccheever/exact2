@@ -1,10 +1,13 @@
 # Contract: a complete working guide for agents
 
+> **Lookup reference; start at [start-here.md](start-here.md).** Building an app needs
+> only that page. Open this guide at the section its last table names, or grep it;
+> don't read it front to back.
+
 Use this guide to author, change, inspect, and verify a current Exact application.
-It covers the language implemented on `main` on 2026-10-02. Start here for an
-implementation task; use the [human guide](contract-for-humans.md) for explanations
-and complete examples, and the [grammar reference](contract-grammar.md) for exact
-forms, built-in functions, tags, and event payloads.
+It covers the language implemented on `main` on 2026-10-02. Use the [human guide](contract-for-humans.md)
+for explanations and complete examples, and the [grammar reference](contract-grammar.md)
+for exact forms, built-in functions, tags, and event payloads.
 
 The compiler and executable fixtures are authoritative. Read the repository's
 `AGENTS.md`, `rules/RULES.md`, and `rules/DEFERRED.md` before making changes here.
