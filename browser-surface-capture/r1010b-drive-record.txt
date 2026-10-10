@@ -1,0 +1,275 @@
+browser-surface-capture, review round of 2026-10-10 (second): a drag that starts on a pill button (agent mode, window
+images, 1280 x 840; the audit lane's data, no provider on either side; fixture on 127.0.0.1:16703).
+  before-c: the bundle of this PR's previous drive (after2: the code of 85ea13fbe, built before the #384 merge), run with
+            EXACT_MAC_BIN; the pan on the handle that holds the pill's buttons.
+  after3:   this round's bundle (42e43621a + the base merge b6ca2cbc4); the pan on a box behind the pill.
+  after4:   the retry, the same build and steps plus C2 (the dot itself, the pill hidden).
+  reference: T3 Code 0.0.45 (1e2ecbd975), A/ref-app.sh browser-surface-capture 16700, ref-drive.mjs over CDP (one session
+            at 1280 x 840).
+Steps (drive.sh): Float; A: rest on the dot, press on "Open preview in right panel", drag (-200, -100) in four moves, up;
+B: rest on the dot, press in the pill's bottom padding (28, 30 from the handle's top left), drag (-100, -40); C: press at
+the handle's middle (meant as the dot, but the focused pill button keeps the pill shown, focus-within, so the press met
+"Pop into separate window"), drag (+50, +50); C2 (after4): a click in the page, the pill hides, the dot dragged (+50, +50);
+D: the pill from the dot onto Pop into separate window; E: a press on Open in right panel.
+
+== before-c: 75 answers; agent pid 35922; t3 app exit 0; agent exit 0; 
+    0 clock   15000
+    1 clock   21000
+    2 tap     toggle-right-panel at [1253, 26]
+    3 clock   22500
+    4 tap     surface-browser at [1010.5, 334]
+    5 clock   25500
+    6 type    browser-url 127.0.0.1:16703
+    7 type    browser-url Enter
+    8 clock   29500
+    9 tap     toast-dismiss-1 at [1241, 91]
+   10 clock   30300
+   11 tap     browser-url hover at [981.5, 71.5]
+   12 clock   30900
+   13 tap     browser-float at [1232, 71.5]
+   14 clock   33400
+   15 layout  player (1028, 495, 240, 333)  handle (1248, 503, 12, 12)  grab None  pill (1178, 503, 82, 32)
+   16 shot    01-float.png
+   17 tap     browser-mini-handle hover at [1254, 509]
+   18 clock   34200
+   19 shot    02-pill.png
+   20 contact down at [1193, 519] on browser-mini-restore
+   21 contact move at [1143, 494]
+   22 clock   34216
+   23 contact move at [1093, 469]
+   24 clock   34232
+   25 contact move at [1043, 444]
+   26 clock   34248
+   27 contact move at [993, 419]
+   28 clock   34264
+   29 contact up at [993, 419]
+   30 clock   35764
+   31 layout  player (928, 395, 240, 333)  handle (1078, 403, 82, 32)  grab None  pill (1078, 403, 82, 32)
+   32 tree    player, no right panel, focused ['browser-mini-restore']
+   33 shot    03-button-drag.png
+   34 tap     browser-mini-page hover at [1048, 561.5]
+   35 clock   36364
+   36 tap     browser-mini-handle hover at [1119, 419]
+   37 clock   37164
+   38 contact down at [1106, 433] on browser-mini-handle
+   39 contact move at [1081, 423]
+   40 clock   37180
+   41 contact move at [1056, 413]
+   42 clock   37196
+   43 contact move at [1031, 403]
+   44 clock   37212
+   45 contact move at [1006, 393]
+   46 clock   37228
+   47 contact up at [1006, 393]
+   48 clock   38728
+   49 layout  player (928, 355, 240, 333)  handle (1078, 363, 82, 32)  grab None  pill (1078, 363, 82, 32)
+   50 shot    04-padding-drag.png
+   51 tap     browser-mini-page hover at [1048, 521.5]
+   52 clock   39528
+   53 contact down at [1119, 379] on browser-mini-handle
+   54 contact move at [1144, 404]
+   55 clock   39544
+   56 contact move at [1169, 429]
+   57 clock   39560
+   58 contact up at [1169, 429]
+   59 clock   41060
+   60 layout  player (978, 405, 240, 333)  handle (1128, 413, 82, 32)  grab None  pill (1128, 413, 82, 32)
+   61 shot    05-dot-drag.png
+   62 tap     browser-mini-page hover at [1098, 571.5]
+   63 clock   41660
+   64 tap     browser-mini-handle hover at [1169, 429]
+   65 clock   42460
+   66 tap     browser-mini-window hover at [1169, 429]
+   67 clock   43260
+   68 tree    player, no right panel, focused ['browser-mini-window']
+   69 shot    06-pill-tooltip.png
+   70 tap     browser-mini-restore at [1143, 429]
+   71 clock   45760
+   72 tree    no player, right-panel, focused []
+   73 logs    t=25555.741958 native t3-browser #1512: loading | t=25555.741958 native t3-browser #1512: ready | t=30900.000250000005 native t3-browser #1512: destroyed | t=30900.000250000005 native t3-browser #1533: loading | t=30900.000250000005 native t3-browser #1533: ready | t=43260.000125 native t3-browser #1533: destroyed | t=43260.000125 native t3-browser #1936: loading | t=43260.000125 native t3-browser #1936: ready
+   74 shot    07-restored.png
+== after3: 75 answers; agent pid 39377; t3 app exit 0; agent exit 0; 
+    0 clock   15000
+    1 clock   21000
+    2 tap     toggle-right-panel at [1253, 26]
+    3 clock   22500
+    4 tap     surface-browser at [1010.5, 334]
+    5 clock   25500
+    6 type    browser-url 127.0.0.1:16703
+    7 type    browser-url Enter
+    8 clock   29500
+    9 tap     toast-dismiss-1 at [1241, 91]
+   10 clock   30300
+   11 tap     browser-url hover at [981.5, 71.5]
+   12 clock   30900
+   13 tap     browser-float at [1232, 71.5]
+   14 clock   33400
+   15 layout  player (1028, 495, 240, 333)  handle (1248, 503, 12, 12)  grab (1248, 503, 12, 12)  pill (1178, 503, 82, 32)
+   16 shot    01-float.png
+   17 tap     browser-mini-handle hover at [1254, 509]
+   18 clock   34200
+   19 shot    02-pill.png
+   20 contact down at [1193, 519] on browser-mini-restore
+   21 contact move at [1143, 494]
+   22 clock   34216
+   23 contact move at [1093, 469]
+   24 clock   34232
+   25 contact move at [1043, 444]
+   26 clock   34248
+   27 contact move at [993, 419]
+   28 clock   34264
+   29 contact up at [993, 419]
+   30 clock   35764
+   31 layout  player (1028, 495, 240, 333)  handle (1178, 503, 82, 32)  grab (1178, 503, 82, 32)  pill (1178, 503, 82, 32)
+   32 tree    player, no right panel, focused ['browser-mini-restore']
+   33 shot    03-button-drag.png
+   34 tap     browser-mini-page hover at [1148, 661.5]
+   35 clock   36364
+   36 tap     browser-mini-handle hover at [1219, 519]
+   37 clock   37164
+   38 contact down at [1206, 533] on browser-mini-handle
+   39 contact move at [1181, 523]
+   40 clock   37180
+   41 contact move at [1156, 513]
+   42 clock   37196
+   43 contact move at [1131, 503]
+   44 clock   37212
+   45 contact move at [1106, 493]
+   46 clock   37228
+   47 contact up at [1106, 493]
+   48 clock   38728
+   49 layout  player (928, 455, 240, 333)  handle (1078, 463, 82, 32)  grab (1078, 463, 82, 32)  pill (1078, 463, 82, 32)
+   50 shot    04-padding-drag.png
+   51 tap     browser-mini-page hover at [1048, 621.5]
+   52 clock   39528
+   53 contact down at [1119, 479] on browser-mini-handle
+   54 contact move at [1144, 504]
+   55 clock   39544
+   56 contact move at [1169, 529]
+   57 clock   39560
+   58 contact up at [1169, 529]
+   59 clock   41060
+   60 layout  player (928, 455, 240, 333)  handle (1078, 463, 82, 32)  grab (1078, 463, 82, 32)  pill (1078, 463, 82, 32)
+   61 shot    05-dot-drag.png
+   62 tap     browser-mini-page hover at [1048, 621.5]
+   63 clock   41660
+   64 tap     browser-mini-handle hover at [1119, 479]
+   65 clock   42460
+   66 tap     browser-mini-window hover at [1119, 479]
+   67 clock   43260
+   68 tree    player, no right panel, focused ['browser-mini-window']
+   69 shot    06-pill-tooltip.png
+   70 tap     browser-mini-restore at [1093, 479]
+   71 clock   45760
+   72 tree    no player, right-panel, focused []
+   73 logs    t=25555.949833 native t3-browser #1512: loading | t=25555.949833 native t3-browser #1512: ready | t=30900.000250000005 native t3-browser #1512: destroyed | t=30900.000250000005 native t3-browser #1533: loading | t=30900.000250000005 native t3-browser #1533: ready | t=43260.000042 native t3-browser #1533: destroyed | t=43260.000042 native t3-browser #1937: loading | t=43260.000042 native t3-browser #1937: ready
+   74 shot    07-restored.png
+== after4: 89 answers; agent pid 46873; t3 app exit 0; agent exit 0; 
+    0 clock   15000
+    1 clock   21000
+    2 tap     toggle-right-panel at [1253, 26]
+    3 clock   22500
+    4 tap     surface-browser at [1010.5, 334]
+    5 clock   25500
+    6 type    browser-url 127.0.0.1:16703
+    7 type    browser-url Enter
+    8 clock   29500
+    9 tap     toast-dismiss-1 at [1241, 91]
+   10 clock   30300
+   11 tap     browser-url hover at [981.5, 71.5]
+   12 clock   30900
+   13 tap     browser-float at [1232, 71.5]
+   14 clock   33400
+   15 layout  player (1028, 495, 240, 333)  handle (1248, 503, 12, 12)  grab (1248, 503, 12, 12)  pill (1178, 503, 82, 32)
+   16 shot    01-float.png
+   17 tap     browser-mini-handle hover at [1254, 509]
+   18 clock   34200
+   19 shot    02-pill.png
+   20 contact down at [1193, 519] on browser-mini-restore
+   21 contact move at [1143, 494]
+   22 clock   34216
+   23 contact move at [1093, 469]
+   24 clock   34232
+   25 contact move at [1043, 444]
+   26 clock   34248
+   27 contact move at [993, 419]
+   28 clock   34264
+   29 contact up at [993, 419]
+   30 clock   35764
+   31 layout  player (1028, 495, 240, 333)  handle (1178, 503, 82, 32)  grab (1178, 503, 82, 32)  pill (1178, 503, 82, 32)
+   32 tree    player, no right panel, focused ['browser-mini-restore']
+   33 shot    03-button-drag.png
+   34 tap     browser-mini-page hover at [1148, 661.5]
+   35 clock   36364
+   36 tap     browser-mini-handle hover at [1219, 519]
+   37 clock   37164
+   38 contact down at [1206, 533] on browser-mini-handle
+   39 contact move at [1181, 523]
+   40 clock   37180
+   41 contact move at [1156, 513]
+   42 clock   37196
+   43 contact move at [1131, 503]
+   44 clock   37212
+   45 contact move at [1106, 493]
+   46 clock   37228
+   47 contact up at [1106, 493]
+   48 clock   38728
+   49 layout  player (928, 455, 240, 333)  handle (1078, 463, 82, 32)  grab (1078, 463, 82, 32)  pill (1078, 463, 82, 32)
+   50 shot    04-padding-drag.png
+   51 tap     browser-mini-page hover at [1048, 621.5]
+   52 clock   39528
+   53 contact down at [1119, 479] on browser-mini-handle
+   54 contact move at [1144, 504]
+   55 clock   39544
+   56 contact move at [1169, 529]
+   57 clock   39560
+   58 contact up at [1169, 529]
+   59 clock   41060
+   60 layout  player (928, 455, 240, 333)  handle (1078, 463, 82, 32)  grab (1078, 463, 82, 32)  pill (1078, 463, 82, 32)
+   61 shot    05-dot-drag.png
+   62 tap     browser-mini-page at [20, 150]
+   63 clock   41860
+   64 tap     browser-mini-page hover at [1048, 621.5]
+   65 clock   42660
+   66 layout  player (928, 455, 240, 333)  handle (1148, 463, 12, 12)  grab (1148, 463, 12, 12)  pill (1078, 463, 82, 32)
+   67 contact down at [1154, 469] on browser-mini-handle
+   68 contact move at [1179, 494]
+   69 clock   42676
+   70 contact move at [1204, 519]
+   71 clock   42692
+   72 contact up at [1204, 519]
+   73 clock   44192
+   74 layout  player (978, 495, 240, 333)  handle (1198, 503, 12, 12)  grab (1198, 503, 12, 12)  pill (1128, 503, 82, 32)
+   75 shot    05b-dot-drag.png
+   76 tap     browser-mini-page hover at [1098, 661.5]
+   77 clock   44792
+   78 tap     browser-mini-handle hover at [1204, 509]
+   79 clock   45592
+   80 tap     browser-mini-window hover at [1169, 519]
+   81 clock   46392
+   82 tree    player, no right panel, focused ['browser-mini-page']
+   83 shot    06-pill-tooltip.png
+   84 tap     browser-mini-restore at [1143, 519]
+   85 clock   48892
+   86 tree    no player, right-panel, focused []
+   87 logs    t=25555.452541 native t3-browser #1512: loading | t=25555.452541 native t3-browser #1512: ready | t=30900.000416000003 native t3-browser #1512: destroyed | t=30900.000416000003 native t3-browser #1533: loading | t=30900.000416000003 native t3-browser #1533: ready | t=46392.000166000005 native t3-browser #1533: destroyed | t=46392.000166000005 native t3-browser #1937: loading | t=46392.000166000005 native t3-browser #1937: ready
+   88 shot    07-restored.png
+== reference (ref-drive.mjs, one CDP session)
+  {"op":"size","w":1280,"h":840}
+  {"op":"mmove","x":600,"y":300}
+  {"op":"role","role":"button","name":"Float preview over chat"}
+  {"op":"rect","sel":"[data-preview-mini-player]","rect":{"x":1028,"y":495,"width":240,"height":333}}
+  {"op":"shot","base":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010d/ref/r01-float","slots":1,"guests":1}
+  {"op":"bdrag","label":"Open preview in right panel","hit":"Open preview in right panel","dx":-200,"dy":-100,"from":[1193,519],"before":{"x":1028,"y":495,"width":240,"height":333},"after":{"x":1028,"y":495,"width":240,"height":333},"moved":[0,0],"floating":true}
+  {"op":"mmove","x":400,"y":300}
+  {"op":"shot","base":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010d/ref/r02-button-drag","slots":1,"guests":1}
+  {"op":"aria","file":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010d/ref/a08.aria"}
+  {"op":"pdrag","dir":null,"dx":-100,"dy":-40,"from":[1206,533],"before":{"x":1028,"y":495,"width":240,"height":333},"after":{"x":928,"y":455,"width":240,"height":333},"moved":[-100,-40],"size":[240,333]}
+  {"op":"mmove","x":400,"y":300}
+  {"op":"shot","base":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010d/ref/r03-padding-drag","slots":1,"guests":1}
+
+Result. A: before moved the player (-100, -100) from a drag that started on Open in right panel (the handle's pan took the
+button's contact past the slop, LLP 1057.001 rule 3); after and reference: unmoved (1028, 495), still floating, the button
+focused (the pill stays shown by focus-within in both). B: after and reference moved (-100, -40) from the pill's padding.
+C: before moved (+50, +50) again from Pop into separate window; after unmoved. C2 (after4): the dot drags, (928, 455) to
+(978, 495) (y stops at the canvas's bottom). D: the pill stays with "Pop into separate window" in all. E: restore acts.
