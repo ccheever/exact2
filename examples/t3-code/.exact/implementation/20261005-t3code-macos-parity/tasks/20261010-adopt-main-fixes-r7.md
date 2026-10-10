@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r7'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/384
 verified_commit: null
 ---
 
@@ -182,5 +182,5 @@ Normal launch of this branch's bundle (lane copy), real keyboard and pointer:
 
 ## Next action
 
-The coordinator reviews the draft PR, syncs `STATUS.md`, `plan.md` and `issues/README.md` from the lists above,
+The coordinator reviews the draft PR [#384](https://github.com/ccheever/exact2/pull/384), syncs `STATUS.md`, `plan.md` and `issues/README.md` from the lists above,
 merges it, and runs the real-input steps in the next batch. Round 8 starts with `git merge -s ours bc357d03c`.
