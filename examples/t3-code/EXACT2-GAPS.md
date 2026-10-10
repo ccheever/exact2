@@ -727,8 +727,9 @@ menu an NSTextView shows for read-only text (Look Up, Copy, Speech, Services; LL
 menu short of a `contextmenu` on every text node, and an action has no command that copies the window's text selection.
 So the clone's module (`T3TextContextMenu.swift`) takes the right-click in a local monitor wherever ExactKit would show its
 text menu (the menu that carries Look Up) and pops the shell's in its place, on the same text node: Cut and Paste disabled,
-Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). Under the agent it logs the
-items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
+Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). The monitor ends the click
+there, so ExactKit's menu does not follow (the `contextmenu` AppKit rows send the click through `NSApp.sendEvent`, as the
+agent does). Under the agent it logs the items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
 ExactKit shows none (a right-click on text without a selection or on an empty area, which the reference answers with Cut,
 Copy and Paste disabled and Select All) and Copy Link over a link; a `contextmenu` on the window's root could carry them.
 
