@@ -14,8 +14,18 @@ use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
-/// The largest kept answer, encoded: a session, a list of names — never a feed.
-pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
+/// The largest kept answer: its identifying arguments' and its value's canonical bytes, 4 KiB together (a session,
+/// a list of names — never a feed), whatever encoding stores them
+const KEPT_DATA_BYTES: usize = 4096;
+/// The longest kept entry, encoded: hex doubles the data and the arguments' list header, beside the separator
+pub(super) const MAX_KEPT_BYTES: usize = 2 * (KEPT_DATA_BYTES + 5) + 1;
+
+/// Whether answers are kept, and the resources an answer too big to keep was said of, once each
+#[derive(Debug, Default)]
+pub(super) struct Keeping {
+    pub(super) on: bool,
+    pub(super) too_big: Vec<usize>,
+}
 
 /// The store name a resource's kept answer lives under.
 /// The kept entries in `snapshot` no declared reader of `plan` seeds. A
@@ -63,7 +73,7 @@ pub(super) fn encode(args: &[Value], value: &Value) -> String {
 // Count canonical bytes only as far as the hex-text budget permits. Iterators
 // borrow children: even an enormous list never allocates a traversal-sized stack.
 fn fits(args: &[Value], value: &Value) -> bool {
-    let mut remaining = (MAX_KEPT_BYTES - 1) / 2 - 5; // separator and args-list header
+    let mut remaining = KEPT_DATA_BYTES;
     let mut stack = vec![std::slice::from_ref(value).iter(), args.iter()];
     while let Some(items) = stack.last_mut() {
         let Some(item) = items.next() else {
@@ -145,7 +155,7 @@ impl<D: DataSource> Runner<D> {
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeps_answers || !self.store_readers[i] {
+        if !self.keeping.on || !self.store_readers[i] {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
@@ -163,11 +173,22 @@ impl<D: DataSource> Runner<D> {
         // are the exact same arguments and encoding as before.
         let row = &self.plan.resources[i];
         let args = &args[..row.args.len as usize - usize::from(row.context)];
+        let name = kept_name(self.plan.str(row.name));
         if !fits(args, value) {
+            // An older answer kept for it would show stale at the next launch: forget it (with the commit), and
+            // say so once
+            self.store.forget_kept(&name);
+            if !self.keeping.too_big.contains(&i) {
+                self.keeping.too_big.push(i);
+                let line = format!(
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes (4 KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under 4 KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
+                    self.plan.str(row.name)
+                );
+                self.log(line);
+            }
             return;
         }
         let encoded = encode(args, value);
-        let name = kept_name(self.plan.str(self.plan.resources[i].name));
         self.store.keep(&name, &encoded);
     }
 
@@ -370,8 +391,8 @@ mod tests {
                 );
             }
         }
-        // Hex plus its separator is always odd: 8191 fits, 8193 does not.
-        for size in [4084, 4085, 4086, 10000] {
+        // The data budget's edge: with no arguments, a string of 4091 bytes fits (its header is 5), 4092 does not.
+        for size in [4090, 4091, 4092, 10000] {
             let value = Value::str(&"x".repeat(size));
             for args in [&[][..], &values[..]] {
                 assert_eq!(

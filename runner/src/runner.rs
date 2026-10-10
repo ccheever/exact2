@@ -462,7 +462,7 @@ pub struct Runner<D: DataSource> {
     awaiting: Vec<bool>,
     /// Whether fresh answers of store-reading resources are kept for the
     /// next boot: only for a source that may not be ready at boot.
-    keeps_answers: bool,
+    keeping: kept::Keeping,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -609,7 +609,7 @@ impl<D: DataSource> Runner<D> {
         Carried {
             router: self.carry_router(),
             data_revision: self.data.revision().map(str::to_owned),
-            keeps_answers: self.keeps_answers,
+            keeps_answers: self.keeping.on,
             slots: self
                 .plan
                 .slots
@@ -856,7 +856,7 @@ impl<D: DataSource> Runner<D> {
             store_readers,
             stale: Vec::new(),
             awaiting: Vec::new(),
-            keeps_answers: false,
+            keeping: Default::default(),
             delivery,
             viewport,
             page: Default::default(),
@@ -928,7 +928,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
+        runner.keeping.on = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
