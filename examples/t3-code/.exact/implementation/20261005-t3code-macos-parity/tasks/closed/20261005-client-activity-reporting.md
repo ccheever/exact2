@@ -93,7 +93,7 @@ Checked sources and time: {{at prepare}}; draft records in `../issues/` only (no
 | --- | --- | --- | --- | --- |
 | [X19](../../issues/20261005-x19-data-source-timers.md) | Timers/clock in data sources (A10 10 s retry) | `EXACT2-GAPS.md` X19 | nonblocking (workaround: root `every` task that advances `now` only while a refresh is pending; the 25 s timer is a Swift timer) | Prove the retry on the agent clock |
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket (sending the report) | `EXACT2-GAPS.md` X21 | nonblocking (workaround: Swift transport) | none |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` line cap | 1,327 of 1,500 lines | nonblocking until the cap | Keep A10 state in `composer-editor.ts`; add no root state if possible |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` line cap | 1,327 of 1,500 lines | nonblocking until the cap | Keep A10 state in `composer-editor.ts`; add no root state if possible |
 | [X28](../../issues/20261005-x28-notification-actions-badges.md) | Window-focus fact for TypeScript (key window, occlusion, hidden app are read in Swift here) | `EXACT2-GAPS.md` X28 lists the window-focus fact with the notification need | nonblocking (workaround: Swift reads them and sends the report itself; TypeScript needs none) | none |
 
 ## Implementation notes

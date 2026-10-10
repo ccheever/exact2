@@ -50,7 +50,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X30](../../issues/20261005-x30-ts-announce-readback-picker.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md), [X22](../../issues/20261005-x22-reactive-layout-facts.md), [X11](../../issues/20261005-x11-shadow-blur-parity.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md), [X21](../../issues/20261005-x21-two-way-websocket.md), [X43](../../issues/closed/20261005-x43-tristate-switch-mixed.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X30](../../issues/20261005-x30-ts-announce-readback-picker.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md), [X22](../../issues/20261005-x22-reactive-layout-facts.md), [X11](../../issues/20261005-x11-shadow-blur-parity.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md), [X21](../../issues/20261005-x21-two-way-websocket.md), [X43](../../issues/closed/20261005-x43-tristate-switch-mixed.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

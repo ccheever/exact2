@@ -80,7 +80,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Mouse selection, link clicks, right-click and the popup are attended; chip, store, menu-command and script paths run through the agent |
 | [X26](../../issues/20261005-x26-app-menu-control.md) | Menu at the pointer / selection end | `EXACT2-GAPS.md` X26 | nonblocking (workaround: `T3ContextMenu.swift`) | Use the native menu at the reported position |
 | [X20](../../issues/20261005-x20-rich-text-editing.md) | Rich-text composer with atomic inline nodes | `EXACT2-GAPS.md` X20 | nonblocking (workaround: native `NSTextView` composer) | Reuse the clone's context-chip insertion |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components | Line cap | nonblocking until the cap | New state in `terminal-*.ts`, not `app.contract` |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components | Line cap | nonblocking until the cap | New state in `terminal-*.ts`, not `app.contract` |
 
 ## Implementation notes
 

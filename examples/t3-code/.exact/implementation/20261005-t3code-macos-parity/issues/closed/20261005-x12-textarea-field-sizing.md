@@ -1,7 +1,7 @@
 ---
 name: 20261005-x12-textarea-field-sizing
 plan: 20261005-t3code-macos-parity
-status: published
+status: closed-by-decision
 kind: framework-gap
 blocks: [20261005-composer-fidelity]
 upstream_url: https://github.com/ccheever/exact2/issues/130
@@ -110,3 +110,7 @@ not add a generic reportHeight channel."
   chips draw wider than their plain text (narrow widths). The clone has no workaround; EXACT2-GAPS's old
   "measured height" cell was wrong and now says so.
 - [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred; no generic reportHeight.
+
+## Closed (2026-10-10)
+
+#130 closed upstream, not planned (2026-10-09): a permanent declared difference (the native composer keeps its own height). The record closes in the records cleanup after the 2026-10-10 check against main's `issues/` folder.

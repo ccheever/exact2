@@ -90,7 +90,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | [X15](../../issues/closed/20261005-x15-non-latin-key-equivalents.md) | Chords under Korean 2-Set | `R10Connect.swift` | nonblocking | Check ⌘D, ⌘N, ⌘W, ⌃L in the terminal under Korean 2-Set 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | [X26](../../issues/20261005-x26-app-menu-control.md) | App menu items and key equivalents | `EXACT2-GAPS.md` X26 | nonblocking | ⌘W and ⌘N must not trigger the menu while a terminal has focus |
 | [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan | `EXACT2-GAPS.md` X13 | nonblocking | None expected here |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components | Line cap | nonblocking until the cap | New state in `terminal-*.ts`, not `app.contract` |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components | Line cap | nonblocking until the cap | New state in `terminal-*.ts`, not `app.contract` |
 
 ## Implementation notes
 
