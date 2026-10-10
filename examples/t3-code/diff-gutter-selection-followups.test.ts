@@ -2,7 +2,7 @@
 // take the reference's blue (GS-2), as T3 Code (1e2ecbd975) draws them over @pierre/diffs (computed styles read over CDP,
 // light and dark). #413's drags and #416's colours run in realinput-1010f-followups.test.ts and diff-gutter-visuals.test.ts.
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const source = (file: string) => readFileSync(join(import.meta.dir, file), 'utf8');
@@ -24,14 +24,14 @@ const REFERENCE = {
 
 describe('GS-1: a drag that starts on the gutter selects no text', () => {
   test('the number is DiffNumber\'s: no pointer (the press is the gutter\'s), no text selection, as [data-column-number]', () => {
-    expect(REFERENCE.diff.numberUserSelect).toBe('none');
     expect(number).toContain('text number position="absolute" left=left top=0');
-    expect(number).toContain('pointer-events="none" user-select="none" aria-hidden=true');
-    // The cell keeps one paragraph, the code (its runs are inline), which a drag still selects (`user-select` stays auto).
+    expect(number).toContain(`pointer-events="none" user-select="${REFERENCE.diff.numberUserSelect}" aria-hidden=true`);
+    // The cell keeps one paragraph, the code (its runs are inline), which a drag still selects: the cell authors no
+    // `user-select`, so it is the reference row's `auto`.
     expect(cell.match(/\n {6}text /g)?.length).toBe(1);
     expect(cell).toContain('\n          text segment.text color=synColor(segment.syntax)');
     expect(cell).toContain('text flex=1 min-width=0');
-    expect(cell).not.toContain('user-select=');
+    expect(/user-select="([a-z]+)"/.exec(cell)?.[1] ?? 'auto').toBe(REFERENCE.diff.lineUserSelect);
     expect(cell).not.toContain('text number');
   });
   test('the number sits where it did: the gutter cell\'s width and inset, its colours unchanged', () => {
@@ -78,9 +78,13 @@ describe('GS-2: the Files surface\'s selected lines in the reference\'s blue', (
     expect(code).not.toContain('diffSel("bar")');
     expect(files).toContain('DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false,');
   });
-  test('no amber selection is left in the clone', () => {
-    for (const file of readdirSync(import.meta.dir).filter((name) => name.endsWith('.contract'))) {
-      expect([file, /#fef3c7|#fde68a|#3a3112|#4a3d14/.test(source(file))]).toEqual([file, false]);
+  test('no amber is left where a selected line is painted', () => {
+    // The sites that painted a selected line amber before #416 and this task: the diff's row, gutter and number
+    // (diffSel, DiffCell, DiffNumber) and the Files surface's row (R4CodeRow). Amber elsewhere (a warning) is not this.
+    const sites = { diffSel: /\nfn diffSel\(.*/.exec(rows)?.[0] ?? '', DiffCell: cell, DiffNumber: number, R4CodeRow: code };
+    for (const [site, text] of Object.entries(sites)) {
+      expect(text.length).toBeGreaterThan(0);
+      expect([site, /#fef3c7|#fde68a|#3a3112|#4a3d14/.test(text)]).toEqual([site, false]);
     }
   });
 });
