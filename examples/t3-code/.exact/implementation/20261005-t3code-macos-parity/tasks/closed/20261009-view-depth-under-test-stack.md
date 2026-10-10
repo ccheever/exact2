@@ -3,12 +3,12 @@ name: 20261009-view-depth-under-test-stack
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-view-depth-under-test-stack
 pr_url: https://github.com/ccheever/exact2/pull/382
-verified_commit: null
+verified_commit: 309e493440f62fd3826147788540e6c25b136d0c
 ---
 
 # The clone's views nest fewer than 100 sites deep after inlining, so main's examples sweep compiles it on a test thread
@@ -143,3 +143,7 @@ Final head: see the PR's checks.
 ## Next action
 
 The coordinator reviews the draft PR [#382](https://github.com/ccheever/exact2/pull/382), merges it, then starts [adopt-main-fixes-r7](20261010-adopt-main-fixes-r7.md).
+
+## Delivery
+
+Merged on 2026-10-10 as `309e49344` (#382, squash) after an independent review and its repair round (the guard test `view-depth.test.ts`). Main adoption round 7 runs next.
