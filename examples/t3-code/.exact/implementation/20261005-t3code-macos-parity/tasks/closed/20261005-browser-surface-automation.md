@@ -62,7 +62,7 @@ Swift transport behind one seam, which #126's runner-owned streams replace (issu
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
-| framework issue | [X21](../issues/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `previewAutomation.connect` and `subscribePreviewEvents` are streams on the Swift transport until #126 | — |
+| framework issue | [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `previewAutomation.connect` and `subscribePreviewEvents` are streams on the Swift transport until #126 | — |
 | scheduling preference | `20261005-terminal-integrations` (link routing hook), `20261005-right-panel-tab-menu` (Mute slot) | none | Not prerequisites | — |
 
 ## Acceptance and reproduction

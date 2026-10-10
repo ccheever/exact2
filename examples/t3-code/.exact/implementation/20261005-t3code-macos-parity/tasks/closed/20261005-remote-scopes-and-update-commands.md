@@ -84,7 +84,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Native transport carries the exchange | existing | nonblocking | none |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Native transport carries the exchange | existing | nonblocking | none |
 
 ## Implementation notes
 

@@ -66,11 +66,11 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | ⌘↵ and Escape in a textarea; composition guard (`isComposing`/229) | macOS Korean 2-Set | nonblocking (workaround: `R9Input`/`T3KeyRecorder` pattern) | Prove in an attended session |
+| [X25](../../issues/closed/20261005-x25-keyboard-keyup-code-capture.md) | ⌘↵ and Escape in a textarea; composition guard (`isComposing`/229) | macOS Korean 2-Set | nonblocking (workaround: `R9Input`/`T3KeyRecorder` pattern) | Prove in an attended session |
 | [X16](../../issues/closed/20261005-x16-smart-substitutions-off.md) | Exact bytes typed in a textarea | `t3-plain-text` hook | nonblocking (workaround exists) | Use the hook on every editor 2026-10-07: adopted (#111, main #160): `autocorrect="off"` on every textarea; the `t3-plain-text` hook is gone (adopt-main-fixes-input). |
-| [X17](../../issues/20261005-x17-popover-position-try.md) | Composer popover opens above, end-aligned; picker popups flip | fixed placement | nonblocking (workaround: fixed placement) | Declare near-edge difference |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md) | Composer popover opens above, end-aligned; picker popups flip | fixed placement | nonblocking (workaround: fixed placement) | Declare near-edge difference |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Preview needs a root resource argument (`app.contract:101`) | +3 lines | nonblocking | Keep the addition minimal |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
 | [X16](../../issues/closed/20261005-x16-smart-substitutions-off.md) | Exact typed bytes in the PR title, description, comment and review textareas | X16 | nonblocking (workaround: the `t3-plain-text` hook on these textareas) | remove the hook when X16 is adopted 2026-10-07: adopted (#111, main #160): `autocorrect="off"` on every textarea; the `t3-plain-text` hook is gone (adopt-main-fixes-input). |
 
 ## Implementation notes

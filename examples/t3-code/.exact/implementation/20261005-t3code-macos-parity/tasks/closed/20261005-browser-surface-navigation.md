@@ -95,8 +95,8 @@ How part 2 is built (2026-10-09):
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | merge order (coordinator) | [20261005-browser-surface-automation](20261005-browser-surface-automation.md) (part 5) | [#346](https://github.com/ccheever/exact2/pull/346) | Merges first; this PR then wires its `_resize` hook and the agent default | merged as `5f0ae7dca` (2026-10-09), merged in |
-| framework issue | [X21](../issues/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `subscribeDiscoveredLocalServers` is a stream; the Swift transport carries it until #126 | — |
-| framework issue | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | #140 | nonblocking: the preview keys are native monitors while the page has focus | — |
+| framework issue | [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | #126 | nonblocking: `subscribeDiscoveredLocalServers` is a stream; the Swift transport carries it until #126 | — |
+| framework issue | [X25](../../issues/closed/20261005-x25-keyboard-keyup-code-capture.md) | #140 | nonblocking: the preview keys are native monitors while the page has focus | — |
 
 ## Acceptance and reproduction
 

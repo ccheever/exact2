@@ -81,8 +81,8 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | The route walk reuses the Swift transport | nonblocking (workaround: `T3Transport.swift`) | none |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers in data sources | 60 s check, 5 min cooldown, 2.5 s check run in Swift | nonblocking (workaround: native timers) | agent-only interval override for tests |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | The route walk reuses the Swift transport | nonblocking (workaround: `T3Transport.swift`) | none |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | Timers in data sources | 60 s check, 5 min cooldown, 2.5 s check run in Swift | nonblocking (workaround: native timers) | agent-only interval override for tests |
 
 ## Implementation notes
 

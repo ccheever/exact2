@@ -91,7 +91,7 @@ use the settled captures cited by the individual tasks.
 | [Editable prompt preview](../tasks/closed/20261007-editable-font-prompt-preview.md) | Reference Appearance sample accepts typing and undo; Exact's clicked sample remains static text/chips | New app behavior task, separate from preview cosmetics |
 | [Title-menu Custom snooze](../tasks/closed/20261007-title-custom-snooze.md) | Reference title action opens the dialog; Exact closes the menu without it, while its sidebar route works | New app behavior task |
 | [Desktop visual parity](../tasks/closed/20261007-desktop-visual-parity.md) | Typography preview icons/highlighting, selector alignment, and clipped Markdown table text | One grouped cosmetic task, as requested |
-| [X48: runtime font family](../issues/20261007-x48-runtime-font-family.md) | Contract rejects state/data-bound font families; literal and finite literal-choice controls compile | Reproduced local framework draft; no external publication |
+| [X48: runtime font family](../issues/closed/20261007-x48-runtime-font-family.md) | Contract rejects state/data-bound font families; literal and finite literal-choice controls compile | Reproduced local framework draft; no external publication |
 
 Each task includes baseline revisions, live reproduction, local evidence paths, source
 guidance, deduplication and acceptance criteria. Their unverified status concerns a future
