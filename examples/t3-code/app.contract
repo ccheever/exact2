@@ -1257,10 +1257,12 @@ component T3Code
       if op == "select-thread" or op == "new-thread"
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
+  // right-panel-escape: the launcher's other keys come here as "key", Escape among them; it hides nothing (T3 Code's launcher
+  // binds no Escape). A sheet closes on Escape by its toggle's shortcut (r4-surfaces.contract, shell-panels.contract).
   action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
     let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
-    rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape") ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""
-    if what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape")
+    rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""
+    if what == "toggle" or what == "close" or what == "tab-close"
       send localChanged = command(what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open ? "shelllocal:surface-show" : "shelllocal:surface-hide"), id, "", 0)
       if what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open
         focus("surface-chooser")
