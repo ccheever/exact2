@@ -193,7 +193,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -217,6 +217,19 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
+      if (name === 'timeline-presentation.ts') expected = "// Mobile365aa87982: pass the first-assistant fold policy through the existing pure row derivation.\n" + expected
+        .replace('export function transcriptRows(client: T3Client): Message[] {', 'export function transcriptRows(client: T3Client, keepFirstAssistant = false): Message[] {')
+        .replace('root, rollback: provider?.supportsConversationRollback !== false });', 'root, rollback: provider?.supportsConversationRollback !== false, keepFirstAssistant });');
+      if (name === 'timeline-rows.ts') expected = "// Mobile365aa87982: keep the first assistant visible and anchor its fold at the first hidden entry.\n" + expected
+        .replace('  root: string; rollback: boolean;', '  root: string; rollback: boolean;\n  keepFirstAssistant?: boolean;')
+        .replace('new Set([...activeRuns, ...failedRuns]), runlessWorkActive);', 'new Set([...activeRuns, ...failedRuns]), runlessWorkActive, input.keepFirstAssistant === true);')
+        .replace('unfolded: Set<string>, runlessWorkActive: boolean): Map<string, Fold>', 'unfolded: Set<string>, runlessWorkActive: boolean, keepFirstAssistant: boolean): Map<string, Fold>')
+        .replace('interface Group { entries: Entry[]; terminal:', 'interface Group { entries: Entry[]; firstAssistant: Entry | null; terminal:')
+        .replace('group = { entries: [], terminal:', 'group = { entries: [], firstAssistant: null, terminal:')
+        .replace("    if (entry.kind === 'message') {", "    if (entry.kind === 'message') {\n      group.firstAssistant ??= entry;")
+        .replace('if (entry === group.terminal) return;', 'if (entry === group.terminal || keepFirstAssistant && entry === group.firstAssistant) return;')
+        .replace('    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden, label });',
+          '    const firstHidden = group.entries.find(entry => hidden.has(entry.id))!;\n    result.set(keepFirstAssistant ? firstHidden.id : group.anchor,\n      { runId, createdAt: keepFirstAssistant ? firstHidden.createdAt : group.start ?? first.createdAt, hidden, label });');
       if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n" + expected
         .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',")
         .replace("  private finishPending(", "  protected finishPending(");

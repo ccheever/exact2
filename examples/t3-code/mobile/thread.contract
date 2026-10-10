@@ -104,11 +104,12 @@ component ThreadMessage
       else
         column
           when length(row.toggleOp) > 0
-            button press=action(row.toggleOp, row.toggleId, "") padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=28 text-align="left"
+            button press=action(row.toggleOp, row.toggleId, "") box-sizing="border-box" padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=(row.kind == "work" ? 38.5 : 28) text-align="left"
+              border-bottom-width=(row.kind == "work" ? 1 : 0) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
               aria-expanded=row.expanded aria-label=row.title
               row align-items="center" gap=7
-                text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=(row.failed ? colors.dangerForeground : colors.muted)
-                t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+                text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 font-variant-numeric=(row.kind == "work" ? "tabular-nums" : "normal") color=(row.failed ? colors.dangerForeground : colors.muted)
+                t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=(row.kind == "work" ? 15 : 10) symbol-weight="regular" symbol-tint=colors.iconSubtle width=(row.kind == "work" ? 15 : 10) height=(row.kind == "work" ? 15 : 10)
           else when length(row.title) > 0
             text row.title min-height=28 padding-left=7 font-size=14 line-height="19px" color=(row.failed ? colors.dangerForeground : colors.muted)
           when length(row.body) > 0

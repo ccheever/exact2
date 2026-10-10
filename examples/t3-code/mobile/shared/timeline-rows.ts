@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/timeline-rows.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/timeline-rows.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile365aa87982: keep the first assistant visible and anchor its fold at the first hidden entry.
 // Timeline rows adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/session-logic.ts deriveTimelineEntriesFromVisibleTurnItems and
 // apps/web/src/components/chat/MessagesTimeline.logic.ts deriveMessagesTimelineRows
@@ -46,6 +47,7 @@ export interface RowInput {
   worktreeSetup?: Obj | null;
   expandedRuns: ReadonlySet<string>; expandedAttempts: ReadonlySet<string>; expandedGroups: ReadonlySet<string>;
   root: string; rollback: boolean;
+  keepFirstAssistant?: boolean;
 }
 
 const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent']);
@@ -140,7 +142,7 @@ export function deriveRows(input: RowInput): Row[] {
     if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
   }
   const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
-  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive);
+  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, input.keepFirstAssistant === true);
   const collapsed = new Set<string>();
   for (const fold of folds.values()) if (!input.expandedRuns.has(fold.runId)) fold.hidden.forEach(id => collapsed.add(id));
   const collapsedAttempts = new Set<string>();
@@ -307,10 +309,10 @@ interface Fold { runId: string; createdAt: string; hidden: Set<string>; label: s
  * turn imported from V1) lends its response a key of its own, decided per
  * prompt so a V1 thread's first V2 run does not unfold every imported turn.
  */
-function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | null, unfolded: Set<string>, runlessWorkActive: boolean): Map<string, Fold> {
+function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | null, unfolded: Set<string>, runlessWorkActive: boolean, keepFirstAssistant: boolean): Map<string, Fold> {
   const interrupted = new Set(entries.flatMap(entry => entry.kind === 'event' && entry.item.runId
     && (entry.item.type === 'run_interrupt_request' || entry.item.type === 'run_interrupt_result') ? [str(entry.item.runId)] : []));
-  interface Group { entries: Entry[]; terminal: Entry | null; streaming: boolean; start: string | null; anchor: string }
+  interface Group { entries: Entry[]; firstAssistant: Entry | null; terminal: Entry | null; streaming: boolean; start: string | null; anchor: string }
   const groups = new Map<string, Group>(), runlessFailed = new Set<string>();
   let runless: string | null = null, pending: { createdAt: string; anchor: string } | null = null;
   entries.forEach((entry, index) => {
@@ -330,11 +332,12 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     let group = groups.get(runId);
     if (!group) {
       const start: { createdAt: string; anchor: string } | null = pending;
-      group = { entries: [], terminal: null, streaming: false, start: start?.createdAt ?? null, anchor: start?.anchor ?? entry.id };
+      group = { entries: [], firstAssistant: null, terminal: null, streaming: false, start: start?.createdAt ?? null, anchor: start?.anchor ?? entry.id };
       pending = null; groups.set(runId, group);
     }
     group.entries.push(entry);
     if (entry.kind === 'message') {
+      group.firstAssistant ??= entry;
       if (terminalIds.has(entry.id)) group.terminal = entry;
       if (entry.item.streaming === true) group.streaming = true;
     }
@@ -345,7 +348,7 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     const terminalIndex = group.terminal ? group.entries.indexOf(group.terminal) : group.entries.length;
     const hidden = new Set<string>();
     group.entries.forEach((entry, index) => {
-      if (entry === group.terminal) return;
+      if (entry === group.terminal || keepFirstAssistant && entry === group.firstAssistant) return;
       const compaction = entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction';
       const trailing = entry.kind === 'work' && entry.entry.status !== 'inProgress' && !displayFailed(entry.entry);
       if (!compaction && index > terminalIndex && !trailing) return;
@@ -363,7 +366,9 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     const duration = Number.isFinite(elapsed) ? formatDuration(Math.max(0, elapsed)) : null;
     const label = interruptedLatest ? duration ? `You stopped after ${duration}` : 'You stopped this response'
       : duration ? `Worked for ${duration}` : 'Worked';
-    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden, label });
+    const firstHidden = group.entries.find(entry => hidden.has(entry.id))!;
+    result.set(keepFirstAssistant ? firstHidden.id : group.anchor,
+      { runId, createdAt: keepFirstAssistant ? firstHidden.createdAt : group.start ?? first.createdAt, hidden, label });
   }
   return result;
 }

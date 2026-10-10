@@ -62,7 +62,7 @@ export function mobileThreadBlocks(body: string, dark: boolean): ThreadBlock[] {
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
 export function mobileThreadRows(client: T3Client, now: number, dark = false, routeKey = ''): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
-  const source = transcriptRows(client), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
+  const source = transcriptRows(client, true), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
   const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
