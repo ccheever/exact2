@@ -1,0 +1,12 @@
+realinput-1010f-followups, review round: one agent drive per side (scripts/agent.mjs macos via target/t3-audit/clone-drive.sh, 1280x840, --epoch 2026-10-10T09:00:00Z --time-zone Asia/Seoul; script drive.sh.txt).
+before: feature tip 596672b62 (worktree t3-code-realinput-1010f-before, never edited), lane realinput-1010f-followups-before; after: this branch's code 06113041e merged with the feature tip (bundle built from it), lane realinput-1010f-followups.
+Both paired the GitHub lane primary server 127.0.0.1:16703 (link redacted), opened PR #168 > Code, unfolded docs/usage.md and pressed new line 3's number, dragged to added line 5's and took 2-during-drag.png inside the hold (the button still down), then released.
+The before drive ran twice: the first stopped at the drag (added line 5 was below the window: the unfolded file had not been brought to the top again); the second, with that step added, is the one shown. The after drive ran once.
+
+== before
+{"target": "diff-line-docs/usage.md-additions-3", "at": [661.55, 289], "drag": {"dx": 0, "dy": 134, "press": 0, "over": 400, "hold": 0, "mouse": true, "to": "diff-line-docs/usage.md-additions-5"}, "lifted": [661.55, 423], "delivery": "platform", "carrier": "macos"}
+
+== after
+{"target": "diff-line-docs/usage.md-additions-3", "at": [661.55, 289], "drag": {"dx": 0, "dy": 134, "press": 0, "over": 400, "hold": 0, "mouse": true, "to": "diff-line-docs/usage.md-additions-5"}, "lifted": [661.55, 423], "delivery": "platform", "carrier": "macos"}
+
+Reference: T3 Code 1e2ecbd975 on lane realinput-1010f-followups (CDP 16701) paired with the same GitHub lane, the same drag on the numbers (ref-drag.mjs, page.mouse down on new 3, eight moves to added 5), screenshot before page.mouse.up: ref-b-drag-numbers-during.png, taken in this task's first round (2026-10-10 22:23); the "+" sits on added line 5, the selection's bottom.
