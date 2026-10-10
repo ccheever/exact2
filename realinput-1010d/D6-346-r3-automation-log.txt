@@ -1,0 +1,19 @@
+t3.browser: automation open preview-0 tab=-
+t3.browser: automation opened tab_1 for preview-0
+t3.browser: automation open preview-0 ok
+t3.browser: automation click preview-1 tab=tab_1
+t3.browser: automation click preview-1 ok
+t3.browser: automation status preview-2 tab=tab_1
+t3.browser: automation status preview-2 ok
+t3.browser: automation click preview-3 tab=tab_1
+t3.browser: automation click preview-3 ok
+t3.browser: automation status preview-4 tab=tab_1
+t3.browser: automation status preview-4 ok
+t3.browser: automation type preview-5 tab=tab_1
+t3.browser: automation type preview-5 ok
+t3.browser: automation status preview-6 tab=tab_1
+t3.browser: automation status preview-6 ok
+t3.browser: automation click preview-7 tab=tab_1
+t3.browser: automation click preview-7 ok
+t3.browser: automation status preview-8 tab=tab_1
+t3.browser: automation status preview-8 ok
