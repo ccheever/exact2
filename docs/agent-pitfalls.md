@@ -149,6 +149,14 @@ guide's rules don't make obvious.
   `after`'s action runs at its deadline exactly, `now()` equal to it. An action
   that re-tests `now() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **Replacing a retained route can leave its new data unprepared.** A one-shot
+  preparation task keyed only by route id and scope does not rearm when
+  `replace` retains both and changes a file path. The resource can show the
+  new title and clear its rows while preparation never runs. Include the
+  changing data identity (`params.filePath`) in the task key; retain the
+  existing owner, permission and cancellation checks. (T3 Code iPad, normal
+  native build: sample→wide had a blank body; path-key correction passes both
+  directions. LLP 1109.006, 2026-10-10.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
