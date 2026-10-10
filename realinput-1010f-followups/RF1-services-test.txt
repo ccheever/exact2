@@ -1,0 +1,11 @@
+== before (feature tip T3TextContextMenu.swift, 596672b62)
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' started.
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010f-followups/examples/t3-code/macos/tests/contextmenu/text-menu.swift:149: error: -[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices] : XCTAssertFalse failed - no context-menu plug-ins (Services) on the shell's menu
+/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010f-followups/examples/t3-code/macos/tests/contextmenu/text-menu.swift:150: error: -[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices] : XCTAssertEqual failed: ("73") is not equal to ("0") - AppKit built no Services item for the text node
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' failed (0.287 seconds).
+context menu tests: 25 run, 2 failed
+
+== after (this branch)
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' started.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' passed (0.223 seconds).
+context menu tests: 25 run, 0 failed
