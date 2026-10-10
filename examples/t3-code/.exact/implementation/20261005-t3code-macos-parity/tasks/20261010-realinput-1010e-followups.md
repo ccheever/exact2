@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010e-followups
-pr_url: @@PR@@
+pr_url: https://github.com/ccheever/exact2/pull/406
 verified_commit: null
 ---
 
@@ -200,4 +200,4 @@ for the live drives (`427c80fb1`, `bf86e902a`).
 
 ## Next action
 
-Coordinator: review the draft PR; the real-input batch steps 1-6 close RE-1 to RE-6, then #308's step 2.
+Coordinator: review draft PR [#406](https://github.com/ccheever/exact2/pull/406); the real-input batch steps 1-6 close RE-1 to RE-6, then #308's step 2.
