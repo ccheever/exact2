@@ -1,0 +1,127 @@
+shell-context-menu: the desktop shell's context menu, per case. Before | after | reference.
+
+Reference: T3 Code 1e2ecbd975 (Electron, ref-app on lane base 16660). The renderer driven over CDP (Playwright mouse right
+button, which raises Chromium's real contextmenu); the main process's own menu read back through its Node inspector
+(Menu.prototype.popup recorded instead of popped; webContents 'context-menu' params logged). Browser page cases: the
+<webview> guest given right mouse events in its own coordinates (sendInputEvent). Clipboard empty throughout.
+Clone: agent mode, 1280 x 840, the same lane fixture. "logs" host lines: t3.textmenu (the shell's menu) and
+t3.contextmenu (the app's own module menu), both written only under the agent. Before = the evidence base c03d7e908
+(feature tip as built for evidence); after = this branch, bundle of ecaf19388 Merge origin/feat(example)/t3-code into feat(example)/t3-code-shell-context-menu.
+The before build has no shell menu: a click it does not answer shows nothing (nothing logged, the op answers). Its text
+inputs and Browser pages pop AppKit's / WebKit's own menu, which tracks in the agent's never-key window (an op that
+never answers), so those cases ran on the after build only; their before is AppKit's editing menu (Look Up, Translate,
+Cut, Copy, Paste, Paste and Match Style, Share, Spelling and Grammar, Substitutions, Transformations, Speech) and
+WebKit's (e.g. a link: Open Link, Open Link in New Window, Download Linked File, Copy Link, Share; a text field: Look Up,
+Translate, Search with Google, Cut, Copy, Paste, Spelling and Grammar, Substitutions, Transformations, Font, Speech, ...),
+read back from those menus in the AppKit probe of this task.
+
+Case                                   | Before (clone)          | After (clone)                                                              | Reference
+---------------------------------------+-------------------------+----------------------------------------------------------------------------+-------------------------------------------------------------
+C1 empty timeline area                 | nothing                 | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | same
+C2 unselected text ("Known")           | nothing                 | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | Cut (disabled) | Copy | Paste (disabled) | Select All ("Known" selected: S1)
+C3 a reply's web link ("linked")       | nothing                 | app menu: Open in integrated browser | Open in system browser | Copy Link | same (app menu, no shell menu)
+C4 "parser" (an <a> with no href)      | nothing                 | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | Cut (disabled) | Copy | Paste (disabled) | Select All ("parser" selected: S1)
+C5 the work group's tool icon (<img>)  | nothing                 | Cut (disabled) | Copy (disabled) | ... in the drive; Copy Image after the     | Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+                                       |                         | drive's fix (T3ShellImageView, AppKit test)                                |
+C6 sidebar empty area                  | nothing                 | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | same
+C7 a thread row (app menu)             | thread menu popover     | thread menu popover (no shell menu)                                        | thread menu (app menu)
+C8 selected text (RD-4)                | (ExactKit Look Up menu) | Cut (disabled) | Copy | Paste (disabled) | Select All                     | same
+C9 empty composer                      | (AppKit menu)           | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | same
+C10 composer, misspelled "chek"        | (AppKit menu)           | check | chef | chew | chez | cheek | — | Cut | Copy | Paste (disabled) | Select All | same
+C11 composer, word "today"             | (AppKit menu)           | Cut | Copy | Paste (disabled) | Select All                                | same ("today" selected)
+C12 Browser page: text                 | (WebKit menu)           | Cut (disabled) | Copy | Paste (disabled) | Select All                     | same ("Plain" selected)
+C13 Browser page: link                 | (WebKit menu)           | Copy Link | — | Cut (disabled) | Copy | Paste (disabled) | Select All      | same
+C14 Browser page: image                | (WebKit menu)           | Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All | same
+C15 Browser page: a word in a field    | (WebKit menu)           | Cut | Copy | Paste (disabled) | Select All                                | same ("Field" selected)
+C16 Browser page: an empty field       | (WebKit menu)           | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled) | same
+C17 Browser page: its own contextmenu  | (none)                  | nothing                                                                    | nothing
+C18 Browser page: empty area           | (WebKit menu)           | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All          | same
+C19 Settings search, empty             | (AppKit menu)           | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled) | same
+C20 Settings search, a word ("theme")  | (AppKit menu)           | Cut | Copy | Paste (disabled) | Select All                                | same ("theme" selected)
+
+S1 (EXACT2-GAPS.md "Text context menu"): ExactKit selects no word on a secondary click, so Copy stays disabled there.
+
+== Raw drive lines (host log lines and the runner's contextmenu journal per op)
+-- before
+  tap thread-verify-timeline contextmenu at [127.5, 141]
+  tap t3-code contextmenu at [600, 450]
+  tap t3-code contextmenu at [300, 125]
+  tap t3-code contextmenu at [780, 125]
+  tap t3-code contextmenu at [349, 159]
+  tap t3-code contextmenu at [289, 90]
+  tap t3-code contextmenu at [120, 400]
+  tap thread-verify-timeline contextmenu at [127.5, 141]
+     journal: t=29600 contextmenu view 317 (threadMenu#78) → epoch 25 (+55 −0 ~2)
+  tap composer
+-- after
+  tap thread-verify-timeline contextmenu at [127.5, 141]
+  tap t3-code contextmenu at [600, 450]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap t3-code contextmenu at [300, 125]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap t3-code contextmenu at [780, 125]
+     app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+     journal: t=27200 contextmenu view 738 (linkMenu#1) → epoch 24 (+0 −0 ~0)
+  tap t3-code contextmenu at [349, 159]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap t3-code contextmenu at [289, 90]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap t3-code contextmenu at [120, 400]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap thread-verify-timeline contextmenu at [127.5, 141]
+     journal: t=29600 contextmenu view 320 (threadMenu#79) → epoch 25 (+55 −0 ~2)
+  tap t3-code contextmenu at [300, 125]
+  tap t3-code contextmenu at [300, 125]
+     app: t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+  tap composer contextmenu at [616, 724]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap t3-code contextmenu at [348, 705]
+     app: t3.textmenu: check | chef | chew | chez | cheek | — | Cut | Copy | Paste (disabled) | Select All
+  tap t3-code contextmenu at [448, 705]
+     app: t3.textmenu: Cut | Copy | Paste (disabled) | Select All
+  tap browser-url
+  tap browser-page contextmenu at [40, 52]
+     app: t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+  tap browser-page contextmenu at [80, 157]
+     app: t3.textmenu: Copy Link | — | Cut (disabled) | Copy | Paste (disabled) | Select All
+  tap browser-page contextmenu at [270, 261]
+     app: t3.textmenu: Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap browser-page contextmenu at [60, 366]
+     app: t3.textmenu: Cut | Copy | Paste (disabled) | Select All
+  tap browser-page contextmenu at [270, 471]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled)
+  tap browser-page contextmenu at [60, 576]
+  tap browser-page contextmenu at [270, 700]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+  tap settings-search contextmenu at [126, 76]
+     app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled)
+  tap settings-search contextmenu at [14, 10]
+     app: t3.textmenu: Cut | Copy | Paste (disabled) | Select All
+  tap settings-search contextmenu at [14, 10]
+
+== Reference raw (main-process menu per case; window cases at window points, Browser cases at guest points)
+{"x":40,"y":52,"target":"text sel=\"Plain\" active=","menu":["Cut (disabled)","Copy","Paste (disabled)","Select All"],"misspelled":"","suggestions":[],"link":"","media":"none"}
+{"x":80,"y":157,"target":"link sel=\"Example link\" active=link","menu":["Copy Link","—","Cut (disabled)","Copy","Paste (disabled)","Select All"],"misspelled":"","suggestions":[],"link":"https://example.com/docs","media":"none"}
+{"x":270,"y":261,"target":"img sel=\"\" active=","menu":["Copy Image","—","Cut (disabled)","Copy (disabled)","Paste (disabled)","Select All"],"misspelled":"","suggestions":[],"link":"","media":"image"}
+{"x":60,"y":366,"target":"field sel=\"Field\" active=field","menu":["Cut","Copy","Paste (disabled)","Select All"],"misspelled":"","suggestions":[],"link":"","media":"none"}
+{"x":270,"y":471,"target":"empty sel=\"\" active=empty","menu":["Cut (disabled)","Copy (disabled)","Paste (disabled)","Select All (disabled)"],"misspelled":"","suggestions":[],"link":"","media":"none"}
+{"x":60,"y":576,"target":"own sel=\"\" active="}
+{"x":270,"y":700,"target":"BODY sel=\"\" active=","menu":["Cut (disabled)","Copy (disabled)","Paste (disabled)","Select All"],"misspelled":"","suggestions":[],"link":"","media":"none"}
+Window cases (ref-rc.mjs, 2026-10-10; selection after the click, then the popped menu):
+  rc 600,450 empty timeline     sel ""          Cut(dis) Copy(dis) Paste(dis) Select All      editFlags canSelectAll only
+  rc 300,117 "Known"            sel "Known"     Cut(dis) Copy Paste(dis) Select All
+  rc 349,150 "parser" (<a>, no href) sel "parser" Cut(dis) Copy Paste(dis) Select All         linkURL ""
+  rc 760,117 "linked $verify"   (no context-menu event: the page took it)  app menu: Open in integrated browser | Open in system browser | Copy Link
+  rc 420,152 fixture.txt chip   app menu: Open in Cursor | Reveal in Finder | Copy relative path | Copy full path
+  rc 290,82  tool icon <img>    Copy Image | — | Cut(dis) Copy(dis) Paste(dis) Select All     mediaType image
+  rc 120,400 sidebar empty      Cut(dis) Copy(dis) Paste(dis) Select All
+  rc 600,26  chat header        app menu (thread menu: Pin thread, Settle thread, Snooze ▸, …, Archive thread, Delete)
+  composer empty                Cut(dis) Copy(dis) Paste(dis) Select All                     isEditable, canPaste false (empty clipboard)
+  composer "chek"               check | chef | chew | chez | cheek | — | Cut | Copy | Paste(dis) | Select All   misspelledWord "chek"
+  composer "parsr"              parse | Parsi | pars | parser | parer | — | Cut | Copy | Paste(dis) | Select All
+  composer "today"              Cut | Copy | Paste(dis) | Select All                         sel "today"
+  composer all selected (⌘A)    Cut | Copy | Paste(dis) | Select All                         selection kept
+  composer below the text       Cut(dis) Copy(dis) Paste(dis) Select All
+  Settings search, empty        Cut(dis) Copy(dis) Paste(dis) Select All(dis)                canSelectAll false
+  Settings search "theme"       Cut | Copy | Paste(dis) | Select All                         sel "theme"
+  Settings search past the text Cut(dis) Copy(dis) Paste(dis) Select All
