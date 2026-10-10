@@ -888,9 +888,12 @@ Task `20261010-realinput-1010f-followups`.
 - **RF-3, the diff gutter's drag (clone, built).** A press on a line number or on the "+" now starts a drag
   (`diff-line-drag.ts`, `DiffCell` in `diff-rows.contract`): the pressed node holds the pointer and names the line under it
   with `elementFromPoint` over the cells' ids. A node that hears `pointerdown` keeps the press from its ancestors (X71,
-  main `issues/20261010-pointer-events-reach-ancestors.md`), so a press on the diff gutter no longer counts as an outside
-  press for the window root's light dismiss (`outsidePressDown`, which closes a skill chip's details); the reference's
-  outside press would. The gutter's own popovers are unaffected. During the drag the "+" stays on the pressed line under
+  main `issues/20261010-pointer-events-reach-ancestors.md`), so a press on the gutter no longer reaches the window
+  root's `outsidePressDown`. What that count dismisses is never on screen with the gutter (the Usage page's popover: the
+  page covers the thread and the pull request page), except a skill chip's details in the composer beside the thread's
+  Diff panel: a press on that panel's gutter leaves them open, where the reference's outside press closes them. Handing
+  the press on as the theme editor's picker does (injecting `outsidePressDown`) grew the plan by 777 KB for that one case,
+  and with a drag's send it is two sends of one press (`analyze-send-twice`), so it is not done. During the drag the "+" stays on the pressed line under
   a real pointer, where the reference's follows the pointer (`placeUtility`): the host's hover tracking areas
   (`NodeViewMac.syncHoverTracking`) have no `.enabledDuringMouseDrag`, so no other line hears an enter while the button
   is down (the session's "the gutter's hover stays on line 3"). The selection the drag paints is the one to read; not
