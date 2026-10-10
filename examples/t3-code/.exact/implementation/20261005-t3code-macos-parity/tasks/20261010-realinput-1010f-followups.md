@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010f-followups
-pr_url: PR_URL_PLACEHOLDER
+pr_url: https://github.com/ccheever/exact2/pull/413
 verified_commit: null
 ---
 
