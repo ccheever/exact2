@@ -142,7 +142,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -192,7 +192,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
     const drags = !device && ['ios', 'host-ios'].includes(host) && t.steps.some((st) => st.op === 'drag');
     const fingers = touch !== 'agent' ? touch : drags ? 'drag' : 'agent';
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -215,7 +215,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
@@ -228,7 +228,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
     let current = null;
-    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
