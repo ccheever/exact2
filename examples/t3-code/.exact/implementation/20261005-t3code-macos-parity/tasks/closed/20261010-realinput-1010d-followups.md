@@ -162,7 +162,7 @@ returned the event it meant to take, so ExactKit's menu followed the shell's) an
 on the base after that round's checks; the coordinator merged the base and ran again what it could reach: the Bun suite
 (4,362 pass, 0 fail), caps, the bundle build (exit 0) and the AppKit `contextmenu` (24) and `browser-automation` (26)
 binaries, 0 failures. The record stayed open for the real-input rows. The wider shell menu (unselected text, empty
-areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu](../20261010-shell-context-menu.md).
+areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu](20261010-shell-context-menu.md).
 
 **Real-input results (realinput-1010f).** The steps ran in `realinput-1010f` on the bundle of `d057787cb` (lane
 ri1010f-1, the lane's fake ACP agent) ([notes](https://raw.githubusercontent.com/ccheever/exact2/2f3a80555ea176b202a0e652e92c2dcbf790b352/realinput-1010f/F0-1010f-notes.txt)). New rows went to
@@ -182,7 +182,7 @@ ri1010f-1, the lane's fake ACP agent) ([notes](https://raw.githubusercontent.com
   second menu after Escape; Copy and paste, and Select All, work; the sidebar row and the composer keep their own menus
   ([selection menu](https://raw.githubusercontent.com/ccheever/exact2/cf9b2f18bc6058fd2cd62da1ec049be981492bd1/realinput-1010f/F1-RD4-1-selection-menu.png)).
   Failed: the menu also has "Services ›". Moved to RF-1. A right-click on a link shows no menu at all; that is
-  [shell-context-menu](../20261010-shell-context-menu.md) (#407).
+  [shell-context-menu](20261010-shell-context-menu.md) (#407).
 - RD-5 needed no real input.
 
 ## Next action
