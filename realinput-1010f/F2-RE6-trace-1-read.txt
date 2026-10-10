@@ -1,0 +1,1032 @@
+trace · macos · ri1010f-2 · development · commit ? · Version 26.6.2 (Build 25G83) <device>
+proxies · interval: the sampler's display-link callback gap · loaf: none on this host · period: target: the sampler's own display link, targetTimestamp − timestamp · covers: batches, frame-source, turns · overrun: a main run-loop turn that began before the frame's targetTimestamp and went to sleep after it (after Core Animation's commit)
+
+period 8.33 ms (target) · presented 80320 · late 2681 · missed 1561 · overruns 2555 · segments 3 · covers batches, frame-source, turns
+window t=773181.01..778205.97 · 600 samples (79720 dropped) · p50 8.33 ms · p95 8.33 ms · p99 8.33 ms · max 20.88 ms
+  late at 754997.75: 1 missed (13.94 ms) · 0 transactions · 0 journal lines before it
+  late at 755006.08: 0 missed (8.33 ms) · main 1.72 ms past the target · 5 transactions (seq 7781..7785) · 1 journal line before it
+    t=755001.0491251014 advance → 5 timers fired, epoch 426
+  late at 755322.75: 1 missed (16.67 ms) · main 7.51 ms past the target · 0 transactions · 1 journal line before it
+    t=755312.8629582934 pointerdown view 1 (outsidePressDown#1) → epoch 426 (+0 −0 ~0)
+  late at 755469.27: 11 missed (96.53 ms) · main 88.2 ms past the target · 2 transactions (seq 7791..7792) · apply 2.54 · 5 journal lines before it
+    t=755455.8642499615 continuation 2639 (prMarkdown): executor token 7
+    t=755455.8642499615 store exact.kept.prDetail
+    t=755455.8642499615 fulfil 2638 (prDetail) [HTTP 200, 37 bytes; wall 80 ms] → epoch 428 (+0 −0 ~0)
+    t=755455.8642499615 store exact.kept.prMarkdown
+    t=755455.8642499615 fulfil 2639 (prMarkdown) [HTTP 200, 81 bytes; wall 0 ms] → epoch 428 (+0 −0 ~0)
+  late at 755481.08: 0 missed (11.81 ms) · main 2.47 ms past the target · 0 transactions · apply 1.76 · 0 journal lines before it
+  late at 756022.75: 0 missed (8.33 ms) · main 1.43 ms past the target · 1 transaction (seq 7799..7799) · apply 1.69 · 5 journal lines before it
+    t=756008.3558333572 advance → 5 timers fired, epoch 428
+    t=756008.3558333572 query data: snapshot
+    t=756008.3558333572 query workspaceDiscovery: composerWorkspace
+    t=756008.3558333572 request 2641 (data): POST exact-native:
+    t=756008.3558333572 fulfil 2640 (workspaceRefreshed) [HTTP 200, 13439 bytes; wall 9 ms] → epoch 428 (+0 −0 ~0)
+  late at 756031.08: 0 missed (8.33 ms) · main 0.93 ms past the target · 3 transactions (seq 7800..7802) · apply 4.43 · 5 journal lines before it
+    t=756025.3533334471 request 2642 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2641 (data) [HTTP 200, 37 bytes; wall 5 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 data: the reply asks for one more request
+    t=756025.3533334471 request 2643 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2642 (data) [HTTP 200, 3865 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756039.42: 0 missed (8.33 ms) · main 0.74 ms past the target · 3 transactions (seq 7803..7805) · apply 5.12 · 5 journal lines before it
+    t=756025.3533334471 request 2645 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2644 (data) [HTTP 200, 450 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 data: the reply asks for one more request
+    t=756025.3533334471 request 2646 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2645 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756047.75: 0 missed (8.33 ms) · main 0.49 ms past the target · 3 transactions (seq 7806..7808) · apply 5.09 · 5 journal lines before it
+    t=756025.3533334471 request 2648 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2647 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 data: the reply asks for one more request
+    t=756025.3533334471 request 2649 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2648 (data) [HTTP 200, 3865 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756065.61: 1 missed (17.87 ms) · main 8.66 ms past the target · 3 transactions (seq 7809..7811) · apply 5.9 · 5 journal lines before it
+    t=756025.3533334471 store exact.kept.snapshotSettings
+    t=756025.3533334471 store exact.kept.settings
+    t=756025.3533334471 store exact.kept.settingsNavigation
+    t=756025.3533334471 store exact.kept.details
+    t=756025.3533334471 fulfil 2651 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756072.75: 0 missed (7.13 ms) · main 0.52 ms past the target · 3 transactions (seq 7812..7814) · apply 3.21 · 5 journal lines before it
+    t=756025.3533334471 fulfil 2652 (home) [HTTP 200, 450 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 store exact.kept.welcome
+    t=756025.3533334471 fulfil 2653 (welcome) [HTTP 200, 450 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 store exact.kept.editor
+    t=756025.3533334471 fulfil 2654 (editor) [HTTP 200, 277 bytes; wall 3 ms] → epoch 428 (+0 −0 ~0)
+  late at 756081.08: 0 missed (8.33 ms) · main 1.34 ms past the target · 4 transactions (seq 7815..7818) · apply 3.83 · 5 journal lines before it
+    t=756025.3533334471 request 2658 (shell): POST exact-native:
+    t=756025.3533334471 fulfil 2656 (shell) [HTTP 200, 124 bytes; wall 4 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 store exact.kept.canvas
+    t=756025.3533334471 fulfil 2657 (canvas) [HTTP 200, 3865 bytes; wall 6 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 fulfil 2658 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 428 (+0 −0 ~0)
+  late at 756231.08: 0 missed (8.33 ms) · main 0.84 ms past the target · 3 transactions (seq 7820..7822) · apply 3.76 · 5 journal lines before it
+    t=756025.3533334471 request 2661 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2660 (data) [HTTP 200, 3865 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 data: the reply asks for one more request
+    t=756025.3533334471 request 2662 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2661 (data) [HTTP 200, 829 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756239.42: 0 missed (8.33 ms) · main 0.28 ms past the target · 3 transactions (seq 7823..7825) · apply 4.16 · 5 journal lines before it
+    t=756025.3533334471 request 2664 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2663 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 data: the reply asks for one more request
+    t=756025.3533334471 request 2665 (data): POST exact-native:
+    t=756025.3533334471 fulfil 2664 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 756264.42: 0 missed (8.33 ms) · main 0.59 ms past the target · 5 transactions (seq 7831..7835) · apply 3.72 · 5 journal lines before it
+    t=756025.3533334471 store exact.kept.chip
+    t=756025.3533334471 fulfil 2673 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 shell: the reply asks for one more request
+    t=756025.3533334471 request 2676 (shell): POST exact-native:
+    t=756025.3533334471 fulfil 2674 (shell) [HTTP 200, 124 bytes; wall 1 ms] → epoch 428 (+0 −0 ~0)
+  late at 757006.08: 0 missed (8.33 ms) · main 3.04 ms past the target · 5 transactions (seq 7839..7843) · 5 journal lines before it
+    t=756025.3533334471 store exact.kept.canvas
+    t=756025.3533334471 fulfil 2675 (canvas) [HTTP 200, 3865 bytes; wall 3 ms] → epoch 428 (+0 −0 ~0)
+    t=756025.3533334471 fulfil 2676 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 428 (+0 −0 ~0)
+    t=756501.0248750914 advance → 1 timer fired, epoch 428
+    t=757001.0327084456 advance → 5 timers fired, epoch 428
+  late at 757239.42: 1 missed (16.67 ms) · main 2.53 ms past the target · 0 transactions · 1 journal line before it
+    t=757230.8464583475 pointerdown view 1 (outsidePressDown#1) → epoch 428 (+0 −0 ~0)
+  late at 757328.31: 4 missed (38.89 ms) · main 30.58 ms past the target · 3 transactions (seq 7847..7849) · apply 2.82 · 5 journal lines before it
+    t=757319.8274166789 request 2679 (canvas): POST exact-native:
+    t=757319.8274166789 changed (2 asked again) → epoch 429 (+0 −0 ~0)
+    t=757319.8274166789 usage: the reply asks for one more request
+    t=757319.8274166789 request 2680 (usage): POST exact-native:
+    t=757319.8274166789 fulfil 2677 (usage) [HTTP 200, 75 bytes; wall 26 ms] → epoch 429 (+0 −0 ~0)
+  late at 757339.42: 0 missed (11.11 ms) · main 0.48 ms past the target · 5 transactions (seq 7850..7854) · apply 4.49 · 5 journal lines before it
+    t=757319.8274166789 request 2683 (usage): POST exact-native:
+    t=757319.8274166789 fulfil 2682 (usage) [HTTP 200, 75 bytes; wall 2 ms] → epoch 429 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2684 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2681 (data) [HTTP 200, 3978 bytes; wall 4 ms] → epoch 429 (+0 −0 ~0)
+  late at 757347.75: 0 missed (8.33 ms) · main 1.02 ms past the target · 6 transactions (seq 7855..7860) · apply 5.28 · 5 journal lines before it
+    t=757319.8274166789 request 2689 (usage): POST exact-native:
+    t=757319.8274166789 fulfil 2687 (usage) [HTTP 200, 48 bytes; wall 1 ms] → epoch 429 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2690 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2688 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 429 (+0 −0 ~0)
+  late at 757356.08: 0 missed (8.33 ms) · main 1.83 ms past the target · 4 transactions (seq 7861..7864) · apply 5.43 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2690 (data) [HTTP 200, 74 bytes; wall 2 ms] → epoch 429 (+0 −0 ~0)
+    t=757319.8274166789 fulfil 2691 (usage) [HTTP 200, 48 bytes; wall 2 ms] → epoch 430 (+8 −0 ~2)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2693 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2692 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757364.42: 0 missed (8.33 ms) · main 0.21 ms past the target · 2 transactions (seq 7865..7866) · apply 3.91 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2693 (data) [HTTP 200, 3983 bytes; wall 4 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 changed t3.events: request 2694 (data) lands first, then it is asked again
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2695 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2694 (data) [HTTP 200, 13243 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757381.46: 1 missed (17.04 ms) · main 8.71 ms past the target · 2 transactions (seq 7867..7868) · apply 4.08 · 5 journal lines before it
+    t=757319.8274166789 store exact.kept.snapshotSettings
+    t=757319.8274166789 store exact.kept.settings
+    t=757319.8274166789 store exact.kept.settingsNavigation
+    t=757319.8274166789 store exact.kept.details
+    t=757319.8274166789 fulfil 2696 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757389.42: 0 missed (7.96 ms) · main 1.17 ms past the target · 5 transactions (seq 7869..7873) · apply 3.61 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2698 (home) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.editor
+    t=757319.8274166789 fulfil 2700 (editor) [HTTP 200, 277 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.chip
+    t=757319.8274166789 fulfil 2701 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757397.75: 0 missed (8.33 ms) · main 0.23 ms past the target · 5 transactions (seq 7874..7878) · apply 3.72 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2704 (data) [HTTP 200, 3980 bytes; wall 6 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 fulfil 2705 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2707 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2706 (data) [HTTP 200, 829 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+  late at 757406.08: 0 missed (8.33 ms) · main 0.68 ms past the target · 3 transactions (seq 7879..7881) · apply 5.23 · 5 journal lines before it
+    t=757319.8274166789 request 2709 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2708 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2710 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2709 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757414.42: 0 missed (8.33 ms) · main 0.16 ms past the target · 5 transactions (seq 7882..7886) · apply 5.89 · 5 journal lines before it
+    t=757319.8274166789 store exact.kept.snapshotSettings
+    t=757319.8274166789 store exact.kept.settings
+    t=757319.8274166789 store exact.kept.settingsNavigation
+    t=757319.8274166789 store exact.kept.details
+    t=757319.8274166789 fulfil 2714 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757431.08: 0 missed (8.33 ms) · main 1.54 ms past the target · 4 transactions (seq 7887..7890) · apply 3.62 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2717 (editor) [HTTP 200, 277 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.welcome
+    t=757319.8274166789 fulfil 2716 (welcome) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.chip
+    t=757319.8274166789 fulfil 2718 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757447.75: 0 missed (8.33 ms) · main 0.35 ms past the target · 3 transactions (seq 7894..7896) · apply 3.66 · 5 journal lines before it
+    t=757319.8274166789 request 2723 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2722 (data) [HTTP 200, 37 bytes; wall 0 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2724 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2723 (data) [HTTP 200, 3980 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757456.08: 0 missed (8.33 ms) · main 0.63 ms past the target · 4 transactions (seq 7897..7900) · apply 5.35 · 5 journal lines before it
+    t=757319.8274166789 request 2727 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2726 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2728 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2727 (data) [HTTP 200, 5088 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757464.42: 0 missed (8.33 ms) · main 0.03 ms past the target · 5 transactions (seq 7901..7905) · apply 6.03 · 5 journal lines before it
+    t=757319.8274166789 store exact.kept.snapshotSettings
+    t=757319.8274166789 store exact.kept.settings
+    t=757319.8274166789 store exact.kept.settingsNavigation
+    t=757319.8274166789 store exact.kept.details
+    t=757319.8274166789 fulfil 2732 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757481.08: 0 missed (8.33 ms) · main 0.15 ms past the target · 5 transactions (seq 7906..7910) · apply 3.96 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2736 (editor) [HTTP 200, 277 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.home
+    t=757319.8274166789 fulfil 2734 (home) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 store exact.kept.chip
+    t=757319.8274166789 fulfil 2737 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757489.42: 0 missed (8.33 ms) · main 0.26 ms past the target · 5 transactions (seq 7911..7915) · apply 3.3 · 5 journal lines before it
+    t=757319.8274166789 fulfil 2740 (data) [HTTP 200, 3980 bytes; wall 4 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 fulfil 2741 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2743 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2742 (data) [HTTP 200, 829 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+  late at 757497.75: 0 missed (8.33 ms) · main 0.7 ms past the target · 4 transactions (seq 7916..7919) · apply 4.86 · 5 journal lines before it
+    t=757319.8274166789 request 2746 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2745 (data) [HTTP 200, 12457 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757319.8274166789 data: the reply asks for one more request
+    t=757319.8274166789 request 2747 (data): POST exact-native:
+    t=757319.8274166789 fulfil 2746 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757515.22: 1 missed (17.47 ms) · main 9.14 ms past the target · 4 transactions (seq 7920..7923) · apply 5.31 · 5 journal lines before it
+    t=757319.8274166789 store exact.kept.snapshotSettings
+    t=757319.8274166789 store exact.kept.settings
+    t=757319.8274166789 store exact.kept.settingsNavigation
+    t=757319.8274166789 store exact.kept.details
+    t=757319.8274166789 fulfil 2750 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757522.75: 0 missed (7.53 ms) · main 0.01 ms past the target · 5 transactions (seq 7924..7928) · apply 3.46 · 5 journal lines before it
+    t=757515.2463333216 fulfil 2751 (home) [HTTP 200, 450 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.editor
+    t=757515.2463333216 fulfil 2753 (editor) [HTTP 200, 277 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.welcome
+    t=757515.2463333216 fulfil 2752 (welcome) [HTTP 200, 450 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+  late at 757531.08: 0 missed (8.33 ms) · main 0.4 ms past the target · 5 transactions (seq 7929..7933) · apply 3.99 · 5 journal lines before it
+    t=757515.2463333216 fulfil 2756 (canvas) [HTTP 200, 3978 bytes; wall 5 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2759 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2757 (data) [HTTP 200, 37 bytes; wall 4 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 fulfil 2758 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 430 (+0 −0 ~0)
+  late at 757539.42: 0 missed (8.33 ms) · main 0.38 ms past the target · 5 transactions (seq 7934..7938) · apply 5.93 · 5 journal lines before it
+    t=757515.2463333216 request 2763 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2762 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2764 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2763 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757547.75: 0 missed (8.33 ms) · main 1 ms past the target · 4 transactions (seq 7939..7942) · apply 5.16 · 5 journal lines before it
+    t=757515.2463333216 request 2767 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2766 (data) [HTTP 200, 9623 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2768 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2767 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757556.08: 0 missed (8.33 ms) · main 3.04 ms past the target · 1 transaction (seq 7943..7943) · apply 1.46 · 5 journal lines before it
+    t=757515.2463333216 store exact.kept.snapshotSettings
+    t=757515.2463333216 store exact.kept.settings
+    t=757515.2463333216 store exact.kept.settingsNavigation
+    t=757515.2463333216 store exact.kept.details
+    t=757515.2463333216 fulfil 2768 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757564.42: 0 missed (8.33 ms) · main 0.81 ms past the target · 3 transactions (seq 7944..7946) · apply 2.8 · 5 journal lines before it
+    t=757515.2463333216 fulfil 2769 (home) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.editor
+    t=757515.2463333216 fulfil 2771 (editor) [HTTP 200, 277 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.chip
+    t=757515.2463333216 fulfil 2772 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757572.75: 0 missed (8.33 ms) · main 1.63 ms past the target · 5 transactions (seq 7947..7951) · apply 4.12 · 5 journal lines before it
+    t=757515.2463333216 fulfil 2774 (canvas) [HTTP 200, 3978 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 fulfil 2775 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 query data: snapshot
+    t=757515.2463333216 request 2776 (data): POST exact-native:
+    t=757515.2463333216 changed (1 asked again) → epoch 430 (+0 −0 ~0)
+  late at 757581.08: 0 missed (8.33 ms) · main 0.42 ms past the target · 4 transactions (seq 7952..7955) · apply 5.24 · 5 journal lines before it
+    t=757515.2463333216 request 2779 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2778 (data) [HTTP 200, 829 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2780 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2779 (data) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757589.42: 0 missed (8.33 ms) · main 0.36 ms past the target · 4 transactions (seq 7956..7959) · apply 5.12 · 5 journal lines before it
+    t=757515.2463333216 request 2783 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2782 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2784 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2783 (data) [HTTP 200, 3978 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757606.08: 1 missed (16.67 ms) · main 7.04 ms past the target · 4 transactions (seq 7960..7963) · apply 4.8 · 5 journal lines before it
+    t=757515.2463333216 store exact.kept.settingsNavigation
+    t=757515.2463333216 store exact.kept.details
+    t=757515.2463333216 fulfil 2786 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.chip
+    t=757515.2463333216 fulfil 2790 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757614.42: 0 missed (8.33 ms) · main 1.26 ms past the target · 5 transactions (seq 7964..7968) · apply 3.42 · 5 journal lines before it
+    t=757515.2463333216 fulfil 2789 (editor) [HTTP 200, 277 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.welcome
+    t=757515.2463333216 fulfil 2788 (welcome) [HTTP 200, 450 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.canvas
+    t=757515.2463333216 fulfil 2792 (canvas) [HTTP 200, 3978 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+  late at 757672.75: 0 missed (8.33 ms) · main 0.32 ms past the target · 4 transactions (seq 7970..7973) · apply 4.77 · 5 journal lines before it
+    t=757515.2463333216 request 2796 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2795 (data) [HTTP 200, 3978 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2797 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2796 (data) [HTTP 200, 829 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757681.08: 0 missed (8.33 ms) · main 0.53 ms past the target · 4 transactions (seq 7974..7977) · apply 5.12 · 5 journal lines before it
+    t=757515.2463333216 request 2800 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2799 (data) [HTTP 200, 12841 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 data: the reply asks for one more request
+    t=757515.2463333216 request 2801 (data): POST exact-native:
+    t=757515.2463333216 fulfil 2800 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757697.79: 1 missed (16.71 ms) · main 8.37 ms past the target · 4 transactions (seq 7978..7981) · apply 5.17 · 5 journal lines before it
+    t=757515.2463333216 store exact.kept.snapshotSettings
+    t=757515.2463333216 store exact.kept.settings
+    t=757515.2463333216 store exact.kept.settingsNavigation
+    t=757515.2463333216 store exact.kept.details
+    t=757515.2463333216 fulfil 2804 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+  late at 757706.08: 0 missed (8.29 ms) · main 1.41 ms past the target · 6 transactions (seq 7982..7987) · apply 3.74 · 5 journal lines before it
+    t=757515.2463333216 shell: the reply asks for one more request
+    t=757515.2463333216 request 2811 (shell): POST exact-native:
+    t=757515.2463333216 fulfil 2809 (shell) [HTTP 200, 124 bytes; wall 1 ms] → epoch 430 (+0 −0 ~0)
+    t=757515.2463333216 store exact.kept.canvas
+    t=757515.2463333216 fulfil 2810 (canvas) [HTTP 200, 3978 bytes; wall 3 ms] → epoch 430 (+0 −0 ~0)
+  late at 758006.08: 0 missed (8.33 ms) · main 2.8 ms past the target · 5 transactions (seq 7989..7993) · 2 journal lines before it
+    t=757515.2463333216 fulfil 2811 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 430 (+0 −0 ~0)
+    t=758001.0433334392 advance → 5 timers fired, epoch 430
+  late at 759006.08: 0 missed (8.33 ms) · main 1.37 ms past the target · 5 transactions (seq 7995..7999) · 2 journal lines before it
+    t=758501.0314167012 advance → 1 timer fired, epoch 430
+    t=759000.1906666439 advance → 5 timers fired, epoch 430
+  late at 759631.05: 0 missed (8.3 ms) · main 0.01 ms past the target · 0 transactions · 1 journal line before it
+    t=759501.0325417388 advance → 1 timer fired, epoch 430
+  late at 760006.05: 0 missed (8.33 ms) · main 1.45 ms past the target · 5 transactions (seq 8001..8005) · 1 journal line before it
+    t=760001.0269167833 advance → 5 timers fired, epoch 430
+  late at 760316.36: 1 missed (18.65 ms) · main 10.31 ms past the target · 0 transactions · 0 journal lines before it
+  late at 761006.05: 0 missed (8.33 ms) · main 3.21 ms past the target · 5 transactions (seq 8007..8011) · 2 journal lines before it
+    t=760501.0315417312 advance → 1 timer fired, epoch 430
+    t=761001.0330001824 advance → 5 timers fired, epoch 430
+  late at 762006.05: 0 missed (8.33 ms) · main 2.44 ms past the target · 5 transactions (seq 8013..8017) · 2 journal lines before it
+    t=761500.1923334785 advance → 1 timer fired, epoch 430
+    t=762000.4705416504 advance → 5 timers fired, epoch 430
+  late at 763006.05: 0 missed (8.33 ms) · main 1.9 ms past the target · 5 transactions (seq 8019..8023) · 2 journal lines before it
+    t=762501.0360416491 advance → 1 timer fired, epoch 430
+    t=763001.0309168138 advance → 5 timers fired, epoch 430
+  late at 764006.05: 0 missed (8.33 ms) · main 3.22 ms past the target · 5 transactions (seq 8025..8029) · 2 journal lines before it
+    t=763501.0301666334 advance → 1 timer fired, epoch 430
+    t=764001.0345000774 advance → 5 timers fired, epoch 430
+  late at 764781.05: 1 missed (16.67 ms) · main 6.82 ms past the target · 0 transactions · 1 journal line before it
+    t=764501.0323750321 advance → 1 timer fired, epoch 430
+  late at 765014.38: 0 missed (8.33 ms) · main 1.33 ms past the target · 5 transactions (seq 8032..8036) · apply 1.51 · 2 journal lines before it
+    t=764982.9462084454 hover in view 13954 (hover#9308) → epoch 431 (+0 −0 ~1)
+    t=765006.5419583116 advance → 5 timers fired, epoch 431
+  late at 765106.05: 0 missed (8.33 ms) · main 0.34 ms past the target · 0 transactions · 1 journal line before it
+    t=765101.294333348 pointerdown view 13891 (pressDown#9291) → epoch 431 (+0 −0 ~0)
+  late at 765210.75: 5 missed (46.37 ms) · main 38.04 ms past the target · 0 transactions · 5 journal lines before it
+    t=765165.6280418392 pointerup view 13891 (pressUp#9291) → epoch 431 (+0 −0 ~0)
+    t=765169.4643751252 query usage: usagePage
+    t=765169.4643751252 request 2812 (localChanged): POST exact-native:
+    t=765169.4643751252 press view 13954 (usageMetricSet) → epoch 432 (+229 −9 ~14)
+    t=765169.4643751252 hatch element t3-anchor #13995: built
+  late at 765222.71: 0 missed (11.96 ms) · main 3.7 ms past the target · 5 transactions (seq 8040..8044) · apply 5.6 · 5 journal lines before it
+    t=765169.4643751252 fulfil 2814 (canvas) [HTTP 200, 4002 bytes; wall 2 ms] → epoch 432 (+0 −0 ~0)
+    t=765169.4643751252 query data: snapshot
+    t=765169.4643751252 forget request 2816 (data)
+    t=765169.4643751252 request 2817 (data): POST exact-native:
+    t=765169.4643751252 fulfil 2815 (localChanged) [HTTP 200, 37 bytes; wall 2 ms] → epoch 432 (+0 −0 ~0)
+  late at 765231.05: 0 missed (8.33 ms) · main 1.73 ms past the target · 4 transactions (seq 8045..8048) · apply 5.54 · 5 journal lines before it
+    t=765169.4643751252 request 2820 (data): POST exact-native:
+    t=765169.4643751252 fulfil 2819 (data) [HTTP 200, 829 bytes; wall 1 ms] → epoch 432 (+0 −0 ~0)
+    t=765169.4643751252 data: the reply asks for one more request
+    t=765169.4643751252 request 2821 (data): POST exact-native:
+    t=765169.4643751252 fulfil 2820 (data) [HTTP 200, 450 bytes; wall 1 ms] → epoch 432 (+0 −0 ~0)
+  late at 765239.38: 0 missed (8.33 ms) · main 0.12 ms past the target · 3 transactions (seq 8049..8051) · apply 5.44 · 5 journal lines before it
+    t=765169.4643751252 request 2823 (data): POST exact-native:
+    t=765169.4643751252 fulfil 2822 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 432 (+0 −0 ~0)
+    t=765169.4643751252 data: the reply asks for one more request
+    t=765169.4643751252 request 2824 (data): POST exact-native:
+    t=765169.4643751252 fulfil 2823 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 432 (+0 −0 ~0)
+  late at 765257.59: 1 missed (18.21 ms) · main 9.87 ms past the target · 4 transactions (seq 8052..8055) · apply 5.53 · 5 journal lines before it
+    t=765169.4643751252 store exact.kept.snapshotSettings
+    t=765169.4643751252 store exact.kept.settings
+    t=765169.4643751252 store exact.kept.settingsNavigation
+    t=765169.4643751252 store exact.kept.details
+    t=765169.4643751252 fulfil 2827 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 433 (+0 −0 ~1)
+  late at 765272.71: 0 missed (8.33 ms) · main 0.18 ms past the target · 3 transactions (seq 8060..8062) · apply 3.29 · 5 journal lines before it
+    t=765169.4643751252 store exact.kept.chip
+    t=765169.4643751252 fulfil 2831 (chip) [HTTP 200, 57 bytes; wall 2 ms] → epoch 433 (+0 −0 ~0)
+    t=765169.4643751252 store exact.kept.canvas
+    t=765169.4643751252 fulfil 2833 (canvas) [HTTP 200, 4002 bytes; wall 4 ms] → epoch 433 (+0 −0 ~0)
+    t=765169.4643751252 fulfil 2834 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 433 (+0 −0 ~0)
+  late at 766006.05: 0 missed (8.33 ms) · main 3.77 ms past the target · 5 transactions (seq 8064..8068) · 2 journal lines before it
+    t=765501.0295000393 advance → 1 timer fired, epoch 433
+    t=766001.0383334011 advance → 5 timers fired, epoch 433
+  late at 766631.01: 0 missed (8.29 ms) · main 0.01 ms past the target · 0 transactions · 1 journal line before it
+    t=766501.0395001154 advance → 1 timer fired, epoch 433
+  late at 767006.01: 0 missed (8.33 ms) · main 1.98 ms past the target · 5 transactions (seq 8070..8074) · 1 journal line before it
+    t=767000.041041756 advance → 5 timers fired, epoch 433
+  late at 768006.01: 0 missed (8.33 ms) · main 2.95 ms past the target · 5 transactions (seq 8076..8080) · 2 journal lines before it
+    t=767501.0287084151 advance → 1 timer fired, epoch 433
+    t=768001.0420833714 advance → 5 timers fired, epoch 433
+  late at 768189.34: 0 missed (8.33 ms) · main 5.02 ms past the target · 0 transactions · 0 journal lines before it
+  late at 768197.67: 0 missed (8.33 ms) · main 0.02 ms past the target · 0 transactions · 0 journal lines before it
+  late at 768231.01: 0 missed (8.33 ms) · main 0.01 ms past the target · 0 transactions · 0 journal lines before it
+  late at 769006.01: 0 missed (8.33 ms) · main 3.1 ms past the target · 5 transactions (seq 8082..8086) · 2 journal lines before it
+    t=768501.040375093 advance → 1 timer fired, epoch 433
+    t=769001.0315834079 advance → 5 timers fired, epoch 433
+  late at 770006.01: 0 missed (8.33 ms) · main 2.74 ms past the target · 5 transactions (seq 8088..8092) · 2 journal lines before it
+    t=769501.0319584981 advance → 1 timer fired, epoch 433
+    t=770000.863000052 advance → 5 timers fired, epoch 433
+  late at 771006.01: 0 missed (8.33 ms) · main 3.24 ms past the target · 5 transactions (seq 8094..8098) · 2 journal lines before it
+    t=770501.0347501375 advance → 1 timer fired, epoch 433
+    t=771001.0364584159 advance → 5 timers fired, epoch 433
+  late at 772006.01: 0 missed (8.33 ms) · main 3.07 ms past the target · 5 transactions (seq 8100..8104) · 2 journal lines before it
+    t=771500.7893333677 advance → 1 timer fired, epoch 433
+    t=772001.0310001671 advance → 5 timers fired, epoch 433
+  late at 773006.01: 0 missed (8.33 ms) · main 3.6 ms past the target · 5 transactions (seq 8106..8110) · 2 journal lines before it
+    t=772501.0351249948 advance → 1 timer fired, epoch 433
+    t=773001.0311249644 advance → 5 timers fired, epoch 433
+  late at 774005.97: 0 missed (8.33 ms) · main 3.86 ms past the target · 5 transactions (seq 8112..8116) · 2 journal lines before it
+    t=773501.0316667613 advance → 1 timer fired, epoch 433
+    t=774001.038083341 advance → 5 timers fired, epoch 433
+  late at 775005.97: 0 missed (8.33 ms) · main 3.74 ms past the target · 5 transactions (seq 8118..8122) · 2 journal lines before it
+    t=774501.0315834079 advance → 1 timer fired, epoch 433
+    t=775001.0335417464 advance → 5 timers fired, epoch 433
+  late at 775268.51: 2 missed (20.88 ms) · main 12.54 ms past the target · 0 transactions · 0 journal lines before it
+  late at 775897.63: 0 missed (8.33 ms) · main 3.6 ms past the target · 1 transaction (seq 8157..8157) · apply 4.33 · 5 journal lines before it
+    t=775848.1386667117 advance → 1 timer fired, epoch 433
+    t=775856.4748750068 advance → 1 timer fired, epoch 433
+    t=775864.8105834145 advance → 1 timer fired, epoch 433
+    t=775881.4817501698 advance → 1 timer fired, epoch 433
+    t=775889.8049166892 advance → 1 timer fired, epoch 434
+  late at 776014.3: 0 missed (8.33 ms) · main 1.26 ms past the target · 5 transactions (seq 8158..8162) · apply 1.12 · 1 journal line before it
+    t=776006.4803333953 advance → 5 timers fired, epoch 434
+  late at 777005.97: 0 missed (8.33 ms) · main 3.23 ms past the target · 5 transactions (seq 8164..8168) · 2 journal lines before it
+    t=776501.0312916711 advance → 1 timer fired, epoch 434
+    t=777001.0297917761 advance → 5 timers fired, epoch 434
+  late at 777434.16: 1 missed (19.86 ms) · main 11.52 ms past the target · 0 transactions · 0 journal lines before it
+  late at 777447.63: 1 missed (13.48 ms) · 0 transactions · 0 journal lines before it
+  late at 777497.63: 0 missed (8.33 ms) · main 4.89 ms past the target · 0 transactions · 0 journal lines before it
+  late at 777755.97: 0 missed (8.33 ms) · main 7.88 ms past the target · 3 transactions (seq 8176..8178) · apply 5.64 · 5 journal lines before it
+    t=777723.1297499966 advance → 1 timer fired, epoch 434
+    t=777731.4653750509 advance → 1 timer fired, epoch 434
+    t=777748.1327084824 advance → 1 timer fired, epoch 435
+    t=777759.8879167344 hover out view 13954 (hover#9308) → epoch 435 (+0 −0 ~0)
+    t=777761.9299166836 hover in view 14006 (enterSeg#9291) → epoch 435 (+0 −0 ~0)
+  late at 777880.97: 0 missed (8.33 ms) · main 5.4 ms past the target · 1 transaction (seq 8189..8189) · apply 1.79 · 5 journal lines before it
+    t=777839.7932916414 advance → 1 timer fired, epoch 435
+    t=777848.1269166805 advance → 1 timer fired, epoch 435
+    t=777856.4620001707 advance → 1 timer fired, epoch 435
+    t=777864.7955833003 advance → 1 timer fired, epoch 435
+    t=777873.1332083698 advance → 1 timer fired, epoch 435
+  late at 777930.97: 0 missed (8.33 ms) · main 0.01 ms past the target · 1 transaction (seq 8194..8194) · apply 0.84 · 5 journal lines before it
+    t=777886.4009585232 advance → 1 timer fired, epoch 435
+    t=777898.1297500432 advance → 1 timer fired, epoch 435
+    t=777906.4663751051 advance → 1 timer fired, epoch 435
+    t=777914.8025417235 advance → 1 timer fired, epoch 435
+    t=777923.1373334769 advance → 1 timer fired, epoch 435
+  late at 777955.97: 0 missed (8.33 ms) · main 6.75 ms past the target · 1 transaction (seq 8196..8196) · apply 0.87 · 2 journal lines before it
+    t=777939.811916789 advance → 1 timer fired, epoch 435
+    t=777948.1400833465 advance → 1 timer fired, epoch 435
+  late at 777964.3: 0 missed (8.33 ms) · main 1.02 ms past the target · 2 transactions (seq 8197..8198) · apply 0.92 · 1 journal line before it
+    t=777962.7397500444 advance → 2 timers fired, epoch 435
+  late at 778155.97: 0 missed (8.33 ms) · main 0.91 ms past the target · 4 transactions (seq 8214..8217) · apply 4.41 · 5 journal lines before it
+    t=778064.8088334128 fulfil 2835 (data) [HTTP 200, 37 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 fulfil 2836 (canvas) [HTTP 200, 4006 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 data: the reply asks for one more request
+    t=778064.8088334128 request 2838 (data): POST exact-native:
+    t=778064.8088334128 fulfil 2837 (data) [HTTP 200, 4006 bytes; wall 3 ms] → epoch 436 (+0 −0 ~0)
+  late at 778164.3: 0 missed (8.33 ms) · main 1.27 ms past the target · 4 transactions (seq 8218..8221) · apply 6.1 · 5 journal lines before it
+    t=778064.8088334128 request 2841 (data): POST exact-native:
+    t=778064.8088334128 fulfil 2840 (data) [HTTP 200, 1557 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 data: the reply asks for one more request
+    t=778064.8088334128 request 2842 (data): POST exact-native:
+    t=778064.8088334128 fulfil 2841 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+  late at 778172.63: 0 missed (8.33 ms) · main 0.21 ms past the target · 4 transactions (seq 8222..8225) · apply 6.01 · 5 journal lines before it
+    t=778064.8088334128 request 2845 (data): POST exact-native:
+    t=778064.8088334128 fulfil 2844 (data) [HTTP 200, 74 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 data: the reply asks for one more request
+    t=778064.8088334128 request 2846 (data): POST exact-native:
+    t=778064.8088334128 fulfil 2845 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+  late at 778180.97: 0 missed (8.33 ms) · main 3.93 ms past the target · 1 transaction (seq 8226..8226) · apply 1.59 · 5 journal lines before it
+    t=778064.8088334128 store exact.kept.snapshotSettings
+    t=778064.8088334128 store exact.kept.settings
+    t=778064.8088334128 store exact.kept.settingsNavigation
+    t=778064.8088334128 store exact.kept.details
+    t=778064.8088334128 fulfil 2846 (data) [HTTP 200, 48 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+  late at 778189.3: 0 missed (8.33 ms) · main 0.6 ms past the target · 2 transactions (seq 8227..8228) · apply 2.53 · 4 journal lines before it
+    t=778064.8088334128 store exact.kept.home
+    t=778064.8088334128 fulfil 2847 (home) [HTTP 200, 450 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 store exact.kept.chip
+    t=778064.8088334128 fulfil 2850 (chip) [HTTP 200, 57 bytes; wall 1 ms] → epoch 436 (+0 −0 ~0)
+  late at 778197.63: 0 missed (8.33 ms) · main 1.36 ms past the target · 5 transactions (seq 8229..8233) · apply 4.01 · 5 journal lines before it
+    t=778064.8088334128 request 2853 (shell): POST exact-native:
+    t=778064.8088334128 fulfil 2851 (shell) [HTTP 200, 124 bytes; wall 2 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 store exact.kept.canvas
+    t=778064.8088334128 fulfil 2852 (canvas) [HTTP 200, 4006 bytes; wall 4 ms] → epoch 436 (+0 −0 ~0)
+    t=778064.8088334128 fulfil 2853 (shell) [HTTP 200, 245 bytes; wall 2 ms] → epoch 436 (+0 −0 ~0)
+
+every root — seq 8233 · clock 778064.81 ms · incarnation 1 · partial: 971 walked · source unavailable: source map exceeds size budget
+  component  site        instances  created  retired  evaluated  unchanged  authored  inherited  moved
+  ?          site 0      1          1        0        48         48         0         2          1
+  ?          site 1      1          1        0        0          0          0         2          1
+  ?          site 2      1          1        0        131        129        2         2          1
+  ?          site 3      1          1        0        0          0          0         0          1
+  ?          site 4      1          1        0        1          1          17        2          1
+  ?          site 5      1          1        0        174        170        4         2          1
+  ?          site 282    1          1        0        635        635        0         2          1
+  ?          site 283    1          1        0        0          0          0         2          1
+  ?          site 284    1          1        0        0          0          0         2          3
+  ?          site 296    1          1        0        0          0          0         2          1
+  ?          site 297    1          1        0        0          0          0         2          3
+  ?          site 309    1          1        0        0          0          0         2          3
+  ?          site 310    1          1        0        0          0          0         2          3
+  ?          site 311    1          1        0        0          0          0         2          1
+  ?          site 312    1          1        0        0          0          0         2          1
+  ?          site 313    1          1        0        0          0          0         2          1
+  ?          site 314    1          1        0        0          0          0         2          1
+  ?          site 315    1          1        0        0          0          0         2          1
+  ?          site 316    1          1        0        0          0          0         2          1
+  ?          site 317    1          1        0        0          0          0         2          1
+  ?          site 318    1          1        0        0          0          0         2          1
+  ?          site 319    1          1        0        0          0          0         2          1
+  ?          site 320    1          1        0        0          0          0         2          1
+  ?          site 321    1          1        0        0          0          0         2          1
+  ?          site 322    1          1        0        0          0          0         2          1
+  ?          site 323    1          1        0        0          0          0         2          1
+  ?          site 324    1          1        0        0          0          0         2          1
+  ?          site 325    1          1        0        0          0          0         2          1
+  ?          site 326    1          1        0        0          0          0         2          1
+  ?          site 327    1          1        0        0          0          0         2          1
+  ?          site 328    1          1        0        0          0          0         2          1
+  ?          site 329    1          1        0        0          0          0         2          1
+  ?          site 330    1          1        0        0          0          0         2          1
+  ?          site 331    1          1        0        0          0          0         2          1
+  ?          site 332    1          1        0        0          0          0         2          1
+  ?          site 333    1          1        0        0          0          0         2          1
+  ?          site 334    1          1        0        0          0          0         2          1
+  ?          site 335    1          1        0        0          0          0         2          1
+  ?          site 336    1          1        0        0          0          0         2          1
+  ?          site 337    1          1        0        0          0          0         2          1
+  ?          site 338    1          1        0        0          0          0         2          1
+  ?          site 339    1          1        0        0          0          0         2          1
+  ?          site 340    1          1        0        0          0          0         2          1
+  ?          site 341    1          1        0        0          0          0         2          1
+  ?          site 342    1          1        0        0          0          0         2          1
+  ?          site 343    1          1        0        0          0          0         2          1
+  ?          site 344    1          1        0        0          0          0         2          1
+  ?          site 345    1          1        0        0          0          0         2          1
+  ?          site 346    1          1        0        0          0          0         2          1
+  ?          site 347    1          1        0        0          0          0         2          1
+  ?          site 348    1          1        0        0          0          0         2          1
+  ?          site 349    1          1        0        0          0          0         2          1
+  ?          site 350    1          1        0        0          0          0         2          1
+  ?          site 351    1          1        0        0          0          0         2          1
+  ?          site 352    1          1        0        127        127        0         2          1
+  ?          site 353    1          1        0        0          0          0         2          3
+  ?          site 354    1          1        0        12         7          5         2          3
+  ?          site 355    1          1        0        127        127        0         2          3
+  ?          site 356    1          1        0        0          0          0         2          3
+  ?          site 360    1          1        0        254        254        0         2          3
+  ?          site 361    1          1        0        0          0          0         2          4
+  ?          site 362    1          1        0        170        169        1         2          4
+  ?          site 363    1          1        0        0          0          0         2          3
+  ?          site 364    1          1        0        0          0          0         2          3
+  ?          site 365    1          1        0        0          0          0         2          3
+  ?          site 366    1          1        0        0          0          0         2          3
+  ?          site 372    1          1        0        0          0          0         2          3
+  ?          site 373    1          1        0        254        254        0         2          4
+  ?          site 374    1          1        0        0          0          0         2          3
+  ?          site 375    1          1        0        0          0          0         2          3
+  ?          site 376    1          1        0        0          0          0         2          3
+  ?          site 377    1          1        0        127        127        0         2          4
+  ?          site 381    1          1        0        0          0          1         2          4
+  ?          site 382    1          1        0        6          0          0         0          1
+  ?          site 383    1          1        0        394        367        0         0          1
+  ?          site 384    1          1        0        138        125        0         0          1
+  ?          site 385    1          1        0        2          0          0         0          1
+  ?          site 393    1          1        0        6          0          0         0          1
+  ?          site 394    1          1        0        273        246        0         0          1
+  ?          site 395    1          1        0        138        125        0         0          1
+  ?          site 396    1          1        0        2          0          0         0          1
+  ?          site 397    1          1        0        0          0          0         2          3
+  ?          site 398    1          1        0        262        257        5         2          3
+  ?          site 399    1          1        0        131        131        0         2          3
+  ?          site 400    1          1        0        0          0          0         2          3
+  ?          site 401    1          1        0        0          0          0         2          3
+  ?          site 402    1          1        0        0          0          1         2          3
+  ?          site 424    1          1        0        0          0          0         2          3
+  ?          site 428    1          1        0        127        127        0         2          3
+  ?          site 674    1          1        0        0          0          0         2          3
+  ?          site 678    1          1        0        127        126        1         2          4
+  ?          site 684    1          1        0        136        130        0         0          1
+  ?          site 685    1          1        0        10         0          0         0          1
+  ?          site 690    1          1        0        23         16         0         0          1
+  ?          site 691    1          1        0        23         16         0         0          1
+  ?          site 724    1          1        0        224        194        0         0          1
+  ?          site 725    1          1        0        7          0          0         0          1
+  ?          site 734    1          1        0        27         16         0         0          1
+  ?          site 735    1          1        0        37         32         0         0          1
+  ?          site 736    1          1        0        46         35         0         0          1
+  ?          site 745    1          1        0        637        625        0         0          1
+  ?          site 769    1          1        0        266        258        0         0          1
+  ?          site 770    1          1        0        5          0          0         0          1
+  ?          site 776    1          1        0        21         16         0         0          1
+  ?          site 777    1          1        0        785        774        0         0          1
+  ?          site 778    1          1        0        3          0          0         0          1
+  ?          site 783    1          1        0        22         16         0         0          1
+  ?          site 784    1          1        0        2          0          0         0          1
+  ?          site 785    1          1        0        64         32         4         0          1
+  ?          site 786    1          1        0        142        129        0         0          1
+  ?          site 787    1          1        0        1          0          0         0          1
+  ?          site 788    1          1        0        7          0          0         0          1
+  ?          site 789    1          1        0        56         32         0         0          1
+  ?          site 790    1          1        0        56         32         0         0          1
+  ?          site 791    1          1        0        22         16         0         0          1
+  ?          site 792    1          1        0        63         32         4         0          1
+  ?          site 793    1          1        0        142        129        0         0          1
+  ?          site 794    1          1        0        1          0          0         0          1
+  ?          site 795    1          1        0        133        129        0         0          1
+  ?          site 800    1          1        0        80         70         0         0          1
+  ?          site 801    1          1        0        8          0          0         0          1
+  ?          site 805    1          1        0        3          0          0         0          1
+  ?          site 825    1          1        0        4          0          0         0          1
+  ?          site 826    1          1        0        1          0          0         0          1
+  ?          site 827    1          1        0        8          0          0         0          1
+  ?          site 828    1          1        0        4          0          0         0          1
+  ?          site 835    1          1        0        49         16         0         0          1
+  ?          site 836    1          1        0        41         32         0         0          1
+  ?          site 837    1          1        0        21         16         0         0          1
+  ?          site 838    1          1        0        23         16         0         0          1
+  ?          site 839    4          4        0        233        192        0         0          4
+  ?          site 840    4          4        0        8          0          0         0          4
+  ?          site 841    4          4        0        39         4          24        0          28
+  ?          site 842    1          1        0        7          0          0         0          1
+  ?          site 843    1          1        0        77         48         0         0          1
+  ?          site 844    1          1        0        5          0          0         0          1
+  ?          site 846    5          5        0        14         0          0         0          5
+  ?          site 924    0          1        1        0          0          0         2          3
+  ?          site 925    0          1        1        5          5          0         2          3
+  ?          site 926    0          1        1        0          0          0         2          3
+  ?          site 927    0          1        1        0          0          0         2          3
+  ?          site 928    0          1        1        0          0          0         2          3
+  ?          site 929    0          1        1        0          0          0         2          3
+  ?          site 930    1          1        0        4          0          0         0          1
+  ?          site 1423   1          1        0        127        121        0         0          1
+  ?          site 1424   1          1        0        149        121        0         0          1
+  ?          site 1425   1          1        0        127        121        0         0          1
+  ?          site 1426   1          1        0        6          0          0         0          1
+  ?          site 1427   1          1        0        13         0          0         0          1
+  ?          site 1428   1          1        0        122        121        0         0          1
+  ?          site 1709   1          1        0        0          0          4         2          3
+  ?          site 1710   0          2        2        0          0          0         2          4
+  ?          site 1711   0          2        2        3          2          0         2          4
+  ?          site 1712   0          2        2        3          2          0         2          4
+  ?          site 1713   0          2        2        0          0          0         2          4
+  ?          site 1714   0          2        2        6          0          0         0          2
+  ?          site 1715   0          2        2        29         1          1         0          2
+  ?          site 1716   0          2        2        16         1          1         0          2
+  ?          site 1717   0          2        2        2          0          0         1          2
+  ?          site 1718   0          2        2        0          0          0         2          5
+  ?          site 1719   0          2        2        3          1          1         2          5
+  ?          site 1720   0          2        2        3          1          1         2          5
+  ?          site 1721   0          2        2        0          0          0         3          5
+  ?          site 1722   1          2        1        29         0          0         0          2
+  ?          site 1723   1          2        1        13         0          0         0          2
+  ?          site 1724   1          2        1        2          0          0         0          2
+  ?          site 1725   1          2        1        5          0          0         0          2
+  ?          site 1726   1          1        0        0          0          0         2          3
+  ?          site 1727   1          1        0        0          0          0         2          3
+  ?          site 1728   1          1        0        0          0          0         2          3
+  ?          site 1729   1          1        0        0          0          0         2          3
+  ?          site 1730   1          1        0        0          0          0         2          3
+  ?          site 3180   1          1        0        0          0          1         2          1
+  ?          site 3181   1          1        0        3          0          11        2          1
+  ?          site 3182   1          1        0        127        127        0         2          1
+  ?          site 3186   1          1        0        297        297        1         2          3
+  ?          site 3187   1          1        0        6          0          0         0          1
+  ?          site 3188   1          1        0        146        121        0         0          1
+  ?          site 3189   1          1        0        132        121        0         0          1
+  ?          site 3190   1          1        0        247        242        0         0          1
+  ?          site 3191   1          1        0        129        121        0         0          1
+  ?          site 3195   1          1        0        251        242        0         0          1
+  ?          site 3196   1          1        0        32         0          0         0          1
+  ?          site 3197   1          1        0        126        121        0         0          1
+  ?          site 3198   1          1        0        5          0          0         0          1
+  ?          site 3213   1          1        0        0          0          0         2          4
+  ?          site 3214   1          1        0        0          0          0         2          4
+  ?          site 3218   1          1        0        254        254        0         2          4
+  ?          site 3219   1          1        0        0          0          0         2          4
+  ?          site 3220   1          1        0        0          0          0         2          4
+  ?          site 3221   1          1        0        0          0          0         2          3
+  ?          site 3222   1          1        0        0          0          0         2          3
+  ?          site 3223   1          1        0        14         4          5         2          3
+  ?          site 3224   1          1        0        0          0          0         2          3
+  ?          site 3225   1          1        0        0          0          0         2          3
+  ?          site 3230   1          1        0        254        254        0         2          3
+  ?          site 3231   1          1        0        21         21         0         2          3
+  ?          site 3232   1          1        0        170        170        0         2          3
+  ?          site 3233   1          1        0        0          0          0         2          3
+  ?          site 3234   1          1        0        680        678        1         2          3
+  ?          site 3235   1          1        0        0          0          0         2          3
+  ?          site 3236   1          1        0        0          0          0         2          3
+  ?          site 3240   1          1        0        254        254        0         2          3
+  ?          site 3241   1          1        0        0          0          0         2          4
+  ?          site 3242   1          1        0        170        169        1         2          4
+  ?          site 3243   1          1        0        0          0          0         2          3
+  ?          site 3244   1          1        0        0          0          0         2          3
+  ?          site 3245   1          1        0        0          0          0         2          3
+  ?          site 3246   1          1        0        0          0          0         2          3
+  ?          site 3250   1          1        0        254        254        0         2          3
+  ?          site 3251   1          1        0        0          0          0         2          4
+  ?          site 3252   1          1        0        170        169        1         2          4
+  ?          site 3324   1          1        0        151        146        5         2          9
+  ?          site 3325   1          1        0        0          0          5         2          12
+  ?          site 3326   1          3        2        547        534        0         0          9
+  ?          site 3327   1          3        2        129        116        0         0          9
+  ?          site 3329   1          3        2        6          0          0         0          9
+  ?          site 3330   1          3        2        6          0          0         0          9
+  ?          site 3331   1          3        2        19         0          0         0          9
+  ?          site 3332   1          3        2        10         0          0         0          9
+  ?          site 3333   1          3        2        7          0          0         0          9
+  ?          site 3334   1          3        2        6          0          0         0          9
+  ?          site 3335   1          3        2        8          0          0         0          9
+  ?          site 3336   1          3        2        7          0          0         0          9
+  ?          site 3337   1          3        2        26         0          0         0          9
+  ?          site 3338   1          3        2        26         0          0         0          9
+  ?          site 3339   1          3        2        11         0          0         0          9
+  ?          site 3340   1          3        2        27         0          0         0          9
+  ?          site 3341   1          3        2        9          0          0         0          9
+  ?          site 3342   1          3        2        5          0          0         0          9
+  ?          site 3343   1          3        2        7          0          0         0          9
+  ?          site 3344   1          3        2        8          0          0         0          9
+  ?          site 3345   1          3        2        4          0          0         0          9
+  ?          site 3346   1          3        2        265        232        0         0          9
+  ?          site 3347   1          3        2        13         0          0         0          9
+  ?          site 3348   1          3        2        2          0          0         0          9
+  ?          site 3349   1          3        2        5          0          0         0          9
+  ?          site 3350   2          6        4        55         0          0         0          18
+  ?          site 3351   2          6        4        16         0          0         0          18
+  ?          site 3352   2          6        4        15         0          0         0          18
+  ?          site 3353   2          6        4        13         0          0         0          18
+  ?          site 3354   1          3        2        7          0          0         0          9
+  ?          site 3355   1          3        2        30         0          0         0          9
+  ?          site 3356   1          3        2        2          0          0         0          9
+  ?          site 3357   1          3        2        13         0          0         0          9
+  ?          site 3358   1          3        2        2          0          0         0          9
+  ?          site 3359   1          3        2        5          0          0         0          9
+  ?          site 3360   4          12       8        21         0          0         0          36
+  ?          site 3361   1          3        2        5          0          0         0          9
+  ?          site 3395   1          3        2        6          0          0         0          9
+  ?          site 3427   1          3        2        24         0          4         0          9
+  ?          site 3428   1          3        2        7          0          0         0          9
+  ?          site 10079  1          1        0        1082       1077       5         2          9
+  ?          site 10080  1          1        0        254        254        0         2          12
+  ?          site 10081  1          1        0        0          0          0         2          12
+  ?          site 10082  1          1        0        159        159        0         2          12
+  ?          site 10083  1          1        0        0          0          0         2          12
+  ?          site 13417  1          1        0        151        151        0         2          12
+  ?          site 13418  1          1        0        127        127        5         2          12
+  ?          site 13503  1          1        0        0          0          0         2          12
+  ?          site 13504  1          1        0        159        158        1         2          12
+  ?          site 13505  1          1        0        0          0          0         0          12
+  ?          site 13506  1          1        0        0          0          0         2          12
+  ?          site 13507  1          1        0        0          0          0         0          12
+  ?          site 13652  1          1        0        1271       1271       0         2          12
+  ?          site 13662  1          1        0        453        453        0         2          12
+  ?          site 13759  1          1        0        0          0          2         2          12
+  ?          site 13760  1          2        1        310        306        1         2          13
+  ?          site 13761  1          1        0        1460       1436       23        2          12
+  ?          site 13769  1          1        0        1963       1963       0         2          12
+  ?          site 13770  1          1        0        0          0          1         2          12
+  ?          site 13771  22         23       1        22         8          0         18         225
+  ?          site 13772  22         23       1        88         32         0         0          225
+  ?          site 13773  1          1        0        0          0          0         2          12
+  ?          site 13774  1          1        0        0          0          0         2          12
+  ?          site 13775  1          1        0        127        126        1         2          12
+  ?          site 13776  1          1        0        0          0          0         2          12
+  ?          site 13777  1          1        0        127        126        1         2          12
+  ?          site 13778  1          1        0        0          0          0         2          12
+  ?          site 13779  1          1        0        127        126        1         2          12
+  ?          site 13780  1          1        0        0          0          0         2          12
+  ?          site 13781  1          1        0        127        126        1         2          12
+  ?          site 13782  1          1        0        0          0          0         2          12
+  ?          site 13783  1          1        0        127        126        1         2          12
+  ?          site 13784  1          1        0        0          0          0         2          12
+  ?          site 13785  1          1        0        127        126        1         2          12
+  ?          site 13786  1          1        0        0          0          0         2          12
+  ?          site 13787  1          1        0        127        127        0         2          12
+  ?          site 13788  1          1        0        0          0          0         2          12
+  ?          site 13789  1          1        0        127        127        0         2          12
+  ?          site 13790  1          1        0        302        302        1         2          12
+  ?          site 13854  1          1        0        1458       1442       9         2          12
+  ?          site 13868  1          1        0        254        254        0         2          12
+  ?          site 13869  1          1        0        302        302        1         2          12
+  ?          site 13872  1          1        0        298        290        0         0          9
+  ?          site 13873  1          1        0        2          0          0         0          9
+  ?          site 13874  0          1        1        15         15         0         2          3
+  ?          site 13875  0          1        1        0          0          0         2          3
+  ?          site 13878  1          1        0        0          0          1         2          12
+  ?          site 13879  1          2        1        605        600        0         2          12
+  ?          site 13880  1          1        0        405        405        0         2          12
+  ?          site 13881  1          1        0        0          0          0         2          12
+  ?          site 13882  1          1        0        127        126        1         2          12
+  ?          site 13886  1          1        0        151        151        0         2          12
+  ?          site 13887  1          1        0        302        302        0         2          12
+  ?          site 13888  1          1        0        0          0          0         2          12
+  ?          site 13948  1          1        0        151        145        0         0          9
+  ?          site 13949  1          1        0        154        145        0         0          9
+  ?          site 13950  1          1        0        1399       1354       4         0          9
+  ?          site 14074  1          1        0        708        701        0         0          9
+  ?          site 14075  1          1        0        150        145        0         0          9
+  ?          site 14076  1          1        0        303        290        0         0          9
+  ?          site 14077  1          1        0        1          0          0         0          9
+  ?          site 14137  1          1        0        396        387        0         0          9
+  ?          site 14138  1          1        0        32         0          0         0          9
+  ?          site 14139  1          1        0        126        121        0         0          9
+  ?          site 14143  1          1        0        151        151        0         2          12
+  ?          site 14144  1          1        0        0          0          0         2          12
+  ?          site 14145  1          1        0        1144       1133       5         2          12
+  ?          site 14146  1          1        0        302        302        0         2          12
+  ?          site 14149  1          1        0        0          0          0         2          12
+  ?          site 14150  1          1        0        127        126        1         2          12
+  ?          site 14207  1          1        0        731        730        1         2          12
+  ?          site 14208  1          1        0        151        151        0         2          12
+  ?          site 14209  1          1        0        302        302        0         2          12
+  ?          site 14210  1          1        0        0          0          0         2          12
+  ?          site 14270  1          1        0        405        405        0         2          12
+  ?          site 14271  1          1        0        0          0          0         2          12
+  ?          site 14272  1          1        0        127        126        1         2          12
+  ?          site 14353  1          1        0        0          0          1         2          12
+  ?          site 14354  1          1        0        5          0          0         0          9
+  ?          site 14355  1          1        0        403        367        4         0          9
+  ?          site 14356  1          1        0        13         0          0         0          9
+  ?          site 14410  1          1        0        1          0          0         0          9
+  ?          site 14417  1          1        0        251        242        0         0          9
+  ?          site 14418  1          1        0        32         0          0         0          9
+  ?          site 14419  1          1        0        5          0          0         0          9
+  ?          site 14684  1          1        0        0          0          0         2          12
+  ?          site 14685  1          1        0        888        881        3         2          12
+  ?          site 14686  1          1        0        0          0          0         2          12
+  ?          site 14687  1          1        0        0          0          0         2          12
+  ?          site 14688  1          1        0        0          0          0         2          12
+  ?          site 14689  1          1        0        0          0          0         2          12
+  ?          site 14690  1          1        0        0          0          0         2          12
+  ?          site 14691  1          1        0        0          0          0         2          12
+  ?          site 14692  1          1        0        0          0          0         2          12
+  ?          site 14693  1          1        0        0          0          0         2          12
+  ?          site 14694  1          1        0        0          0          0         2          12
+  ?          site 14695  1          1        0        0          0          0         2          12
+  ?          site 14696  1          1        0        0          0          0         2          12
+  ?          site 14697  1          1        0        0          0          0         2          12
+  ?          site 14698  1          1        0        0          0          0         2          12
+  ?          site 14699  1          1        0        0          0          0         2          12
+  ?          site 14700  1          1        0        0          0          0         2          12
+  ?          site 14701  1          1        0        0          0          0         2          12
+  ?          site 14702  1          1        0        0          0          0         2          12
+  ?          site 14703  1          1        0        0          0          0         2          12
+  ?          site 14704  1          1        0        0          0          0         2          12
+  ?          site 14705  1          1        0        0          0          0         2          12
+  ?          site 14706  1          1        0        0          0          0         2          12
+  ?          site 14707  1          1        0        0          0          0         2          12
+  ?          site 14708  1          1        0        0          0          0         2          12
+  ?          site 14709  1          1        0        0          0          0         2          12
+  ?          site 14710  1          1        0        0          0          0         2          12
+  ?          site 14711  1          1        0        0          0          0         2          12
+  ?          site 14712  1          1        0        0          0          0         2          12
+  ?          site 14713  1          1        0        0          0          0         2          12
+  ?          site 14776  1          1        0        0          0          0         2          12
+  ?          site 14777  1          1        0        0          0          0         2          12
+  ?          site 14856  1          1        0        453        453        0         2          12
+  ?          site 14857  1          1        0        381        381        0         2          12
+  ?          site 14858  1          1        0        127        126        1         2          12
+  ?          site 15040  1          3        2        30         0          0         0          5
+  ?          site 15316  1          3        2        301        260        4         0          5
+  ?          site 15383  1          3        2        9          1          0         0          5
+  ?          site 15384  1          3        2        15         0          0         0          5
+  ?          site 15425  1          3        2        1          0          0         0          5
+  ?          site 15445  1          3        2        243        230        0         0          5
+  ?          site 15446  1          3        2        38         0          0         0          5
+  ?          site 15447  1          3        2        8          1          0         0          5
+  ?          site 15457  1          3        2        12         1          0         0          5
+  ?          site 15458  1          3        2        5          0          0         0          5
+  ?          site 15459  1          3        2        15         0          0         0          5
+  ?          site 15460  1          3        2        1          0          0         0          5
+  ?          site 15520  1          3        2        4          0          0         0          6
+  ?          site 15545  1          3        2        42         0          5         0          6
+  ?          site 15612  1          3        2        6          0          0         0          6
+  ?          site 15613  1          3        2        15         0          0         0          6
+  ?          site 15661  1          3        2        1          0          0         0          6
+  ?          site 15662  1          3        2        3          0          0         0          6
+  ?          site 15663  1          3        2        3          0          0         0          6
+  ?          site 15686  1          3        2        12         0          1         0          6
+  ?          site 15687  1          3        2        5          0          0         0          5
+  ?          site 15688  1          3        2        15         0          0         0          5
+  ?          site 15689  1          3        2        1          0          0         0          5
+  ?          site 16652  0          1        1        140        128        0         0          1
+  ?          site 16653  0          1        1        5          0          0         0          1
+  ?          site 16654  0          1        1        43         16         0         0          1
+  ?          site 16655  0          1        1        8          0          0         0          1
+  ?          site 16753  0          1        1        10         0          0         0          1
+  ?          site 16754  0          1        1        36         32         0         0          1
+  ?          site 16918  1          1        0        11         1          5         0          6
+  ?          site 16919  1          1        0        127        126        2         2          4
+  ?          site 16920  1          1        0        7          0          0         0          1
+  ?          site 16921  1          1        0        755        726        0         0          1
+  ?          site 16922  1          1        0        8          0          0         0          1
+  ?          site 16923  1          1        0        134        121        0         0          1
+  ?          site 16924  1          1        0        2          0          0         0          1
+  ?          site 16925  1          1        0        7          0          0         0          1
+  ?          site 16926  1          1        0        247        242        0         0          1
+  ?          site 16927  1          1        0        5          0          0         0          1
+  ?          site 16928  1          1        0        247        242        0         0          1
+  ?          site 16931  1          1        0        147        121        0         0          1
+  ?          site 16932  1          1        0        13         0          0         0          1
+  ?          site 16933  1          1        0        2          0          0         0          1
+  ?          site 16983  1          3        2        181        148        0         0          4
+  ?          site 16984  1          3        2        154        148        0         0          4
+  ?          site 16985  1          3        2        6          0          0         0          4
+  ?          site 16986  1          3        2        16         0          0         0          3
+  ?          site 17031  1          3        2        2          0          0         0          3
+  ?          site 17032  1          3        2        28         0          0         0          3
+  ?          site 17033  1          3        2        13         0          0         0          3
+  ?          site 17034  1          3        2        4          1          0         0          3
+  ?          site 17035  1          3        2        9          0          0         0          3
+  ?          site 17036  1          3        2        18         1          0         0          3
+  ?          site 17038  1          3        2        7          0          0         0          3
+  ?          site 17039  1          3        2        6          0          0         0          3
+  ?          site 17040  1          3        2        13         0          0         0          3
+  ?          site 17041  1          3        2        1          0          0         0          3
+  ?          site 17042  1          3        2        8          0          0         0          3
+  ?          site 17043  1          3        2        28         0          0         0          3
+  ?          site 17044  1          3        2        9          0          0         0          3
+  ?          site 17045  1          3        2        34         2          0         0          3
+  ?          site 17046  1          3        2        13         0          0         0          3
+  ?          site 17047  1          3        2        1          0          0         0          3
+  ?          site 17048  1          3        2        13         0          0         0          3
+  ?          site 17049  1          3        2        34         2          0         0          3
+  ?          site 17050  1          3        2        13         0          0         0          3
+  ?          site 17051  1          3        2        1          0          0         0          3
+  ?          site 17052  1          3        2        13         0          0         0          3
+  ?          site 17064  1          3        2        11         0          0         0          3
+  ?          site 17065  1          3        2        34         2          0         0          3
+  ?          site 17066  1          3        2        9          0          0         0          3
+  ?          site 17067  1          3        2        1          0          0         0          3
+  ?          site 17270  1          3        2        17         1          0         0          3
+  ?          site 17271  1          3        2        4          0          0         0          3
+  ?          site 17272  1          3        2        31         0          0         0          3
+  ?          site 17273  1          3        2        13         0          0         0          3
+  ?          site 17274  1          3        2        1          0          0         0          3
+  ?          site 17292  1          3        2        26         0          0         0          3
+  ?          site 17293  1          3        2        6          0          0         0          3
+  ?          site 17294  1          3        2        13         0          0         0          3
+  ?          site 17295  1          3        2        1          0          0         0          3
+  ?          site 17296  1          3        2        10         0          0         0          3
+  ?          site 17297  1          3        2        16         0          1         0          4
+  ?          site 17300  1          3        2        2          0          0         0          3
+  ?          site 17301  1          3        2        40         0          4         0          3
+  ?          site 17302  1          3        2        3          0          0         0          3
+  ?          site 17303  1          3        2        13         0          0         0          3
+  ?          site 17304  1          3        2        1          0          0         0          3
+  ?          site 17305  1          3        2        17         0          0         0          3
+  ?          site 17306  1          3        2        7          0          0         0          3
+  ?          site 17307  1          3        2        6          0          0         0          3
+  ?          site 17308  1          3        2        13         0          0         0          3
+  ?          site 17309  1          3        2        1          0          0         0          3
+  ?          site 17310  1          3        2        121        111        0         0          3
+  ?          site 17311  1          3        2        28         0          0         0          3
+  ?          site 17312  1          3        2        8          0          0         0          3
+  ?          site 17313  1          3        2        21         0          0         0          3
+  ?          site 17314  1          3        2        5          0          0         0          3
+  ?          site 17317  1          3        2        13         0          0         0          3
+  ?          site 17318  1          3        2        1          0          0         0          3
+  ?          site 17321  1          3        2        9          0          0         0          3
+  ?          site 17322  1          3        2        28         0          0         0          3
+  ?          site 17324  1          3        2        5          0          0         0          3
+  ?          site 17325  1          3        2        11         0          0         0          3
+  ?          site 17337  2          6        4        44         0          0         0          6
+  ?          site 17338  2          6        4        15         0          0         0          6
+  ?          site 17339  1          3        2        7          0          0         0          3
+  ?          site 17586  1          3        2        21         5          0         0          4
+  ?          site 17587  1          3        2        33         1          0         0          4
+  ?          site 17588  1          3        2        16         4          0         0          4
+  ?          site 17589  1          3        2        13         0          0         0          4
+  ?          site 17590  1          3        2        1          0          0         0          4
+  ?          site 17591  1          3        2        7          0          0         0          4
+  ?          site 17592  1          3        2        3          0          0         0          4
+  ?          site 17593  1          3        2        7          0          0         0          4
+  ?          site 17594  1          3        2        26         0          0         0          4
+  ?          site 17595  1          3        2        26         0          0         0          4
+  ?          site 17596  1          3        2        126        116        0         0          4
+  ?          site 17597  1          3        2        29         0          0         0          4
+  ?          site 17598  1          3        2        9          0          1         0          4
+  ?          site 17599  1          3        2        5          0          0         0          4
+  ?          site 17600  1          3        2        7          0          1         0          4
+  ?          site 17601  2          6        4        2          0          0         0          6
+  ?          site 17602  2          6        4        55         0          0         0          6
+  ?          site 17603  2          6        4        5          0          0         0          6
+  ?          site 17608  2          6        4        13         0          0         0          6
+  ?          site 17609  2          6        4        6          0          0         0          6
+  ?          site 17610  2          6        4        18         0          0         0          6
+
+perf hatches: seq 8233, plan 48f3d042dc83
+  element t3-composer: 2 calls, 21.39 ms, worst 12.3 ms
+  element t3-send: 1 calls, 0.01 ms, worst 0.01 ms
+  element t3-terminal-key: 87 calls, 0.88 ms, worst 0.03 ms
+  element t3-anchor: 62 calls, 1.34 ms, worst 0.07 ms
+  window: 2 calls, 0.02 ms, worst 0.01 ms
+  element t3-frame: 17 calls, 3.24 ms, worst 2.62 ms
+  app: 4 calls, 0.05 ms, worst 0.02 ms
+  element t3-composer-key: 1 calls, 0.02 ms, worst 0.02 ms
+    element t3-frame site 3181 built: 1 calls, 2.62 ms
+    element t3-frame site 10079 built: 1 calls, 0.04 ms
+    element t3-frame site 10081 built: 1 calls, 0.02 ms
+    element t3-frame site 10082 built: 1 calls, 0.04 ms
+    element t3-frame site 13417 built: 1 calls, 0.02 ms
+    element t3-composer-key site 13506 built: 1 calls, 0.02 ms
+    element t3-frame site 13652 built: 1 calls, 0.02 ms
+    element t3-composer site 13761 built: 1 calls, 12.3 ms
+    element t3-frame site 13769 built: 1 calls, 0.03 ms
+    element t3-anchor site 13771 built: 23 calls, 0.39 ms
+    element t3-anchor site 13774 built: 1 calls, 0.01 ms
+    element t3-anchor site 13776 built: 1 calls, 0.01 ms
+    element t3-anchor site 13778 built: 1 calls, 0.01 ms
+    element t3-anchor site 13780 built: 1 calls, 0.02 ms
+    element t3-anchor site 13782 built: 1 calls, 0.01 ms
+    element t3-anchor site 13784 built: 1 calls, 0.01 ms
+    element t3-anchor site 13786 built: 1 calls, 0.01 ms
+    element t3-anchor site 13788 built: 1 calls, 0.01 ms
+    element t3-anchor site 13790 built: 1 calls, 0.01 ms
+    element t3-anchor site 14144 built: 1 calls, 0.02 ms
+    element t3-anchor site 14353 built: 1 calls, 0.01 ms
+    element t3-send site 14685 built: 1 calls, 0.01 ms
+    element t3-anchor site 16919 built: 1 calls, 0.01 ms
+    element t3-terminal-key site 102780 built: 1 calls, 0.03 ms
+    element t3-anchor site 103585 built: 9 calls, 0.22 ms
+    element t3-anchor site 13771 ended: 1 calls, 0.04 ms
+    element t3-anchor site 13949 built: 1 calls, 0.02 ms
+    element t3-anchor site 16920 built: 1 calls, 0.01 ms
+    element t3-terminal-key site 102768 built: 4 calls, 0.03 ms
+    element t3-terminal-key site 102770 built: 4 calls, 0.02 ms
+    element t3-terminal-key site 102738 built: 6 calls, 0.09 ms
+    element t3-terminal-key site 102740 built: 3 calls, 0.03 ms
+    element t3-terminal-key site 102742 built: 1 calls, 0.01 ms
+    element t3-terminal-key site 102736 built: 9 calls, 0.07 ms
+    element t3-terminal-key site 102774 built: 6 calls, 0.04 ms
+    element t3-terminal-key site 102744 built: 3 calls, 0.03 ms
+    element t3-terminal-key site 102778 built: 6 calls, 0.04 ms
+    element t3-composer site 13761 changed: 1 calls, 9.08 ms
+    element t3-terminal-key site 102758 built: 6 calls, 0.06 ms
+    element t3-frame site 16985 built: 3 calls, 0.15 ms
+    element t3-frame site 15040 built: 3 calls, 0.14 ms
+    element t3-anchor site 17324 built: 3 calls, 0.14 ms
+    element t3-terminal-key site 102738 ended: 4 calls, 0.07 ms
+    element t3-terminal-key site 102740 ended: 2 calls, 0.02 ms
+    element t3-terminal-key site 102736 ended: 6 calls, 0.04 ms
+    element t3-terminal-key site 102774 ended: 4 calls, 0.03 ms
+    element t3-terminal-key site 102744 ended: 2 calls, 0.01 ms
+    element t3-terminal-key site 102778 ended: 4 calls, 0.02 ms
+    element t3-terminal-key site 102758 ended: 4 calls, 0.03 ms
+    element t3-anchor site 103585 ended: 6 calls, 0.13 ms
+    element t3-terminal-key site 102764 built: 2 calls, 0.06 ms
+    element t3-frame site 15040 ended: 2 calls, 0.13 ms
+    element t3-frame site 16985 ended: 2 calls, 0.04 ms
+    element t3-anchor site 17324 ended: 2 calls, 0.05 ms
+    element t3-terminal-key site 102764 ended: 2 calls, 0.06 ms
+    element t3-terminal-key site 102770 ended: 1 calls, 0.01 ms
+    element t3-terminal-key site 102772 built: 2 calls, 0.03 ms
+    element t3-terminal-key site 102782 built: 1 calls, 0.03 ms
+    element t3-terminal-key site 102754 built: 1 calls, 0.01 ms
+    element t3-terminal-key site 102772 ended: 1 calls, 0.03 ms
+    element t3-terminal-key site 102782 ended: 1 calls, 0.01 ms
+    element t3-terminal-key site 102754 ended: 1 calls, 0.01 ms
+    element t3-anchor site 47985 built: 4 calls, 0.19 ms
