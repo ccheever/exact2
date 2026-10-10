@@ -1,0 +1,25 @@
+RC-1 read-back (realinput-1010c-native). before = feat(example)/t3-code f0aaaa56d T3PermissionHelper.swift; after = this branch.
+
+== before
+panel styleMask contains .nonactivatingPanel: true
+panel preventsActivation (AppKit's flag the window server reads on a click): true
+=> a real click on the helper's T3 Code row activates T3 Code: false
+reveal calls after a click (T3 Code stays inactive: the panel prevents activation):
+  - NSApp.activate (a request from an inactive app; refused under real input, realinput-1010c B2)
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
+
+== after
+panel styleMask contains .nonactivatingPanel: false
+panel preventsActivation (AppKit's flag the window server reads on a click): false
+=> a real click on the helper's T3 Code row activates T3 Code: true
+reveal calls after a click (T3 Code active, activated by the click):
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
+reveal calls after VoiceOver's press (T3 Code inactive):
+  - NSApp.activate (a request from an inactive app; refused under real input, realinput-1010c B2)
+  - yieldActivation to com.apple.finder
+  - activateFileViewerSelecting T3 Code (Exact).app
+  - activate com.apple.finder
