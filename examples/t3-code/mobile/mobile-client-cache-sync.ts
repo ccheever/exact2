@@ -88,7 +88,11 @@ export async function mobileCacheSync(client: T3Client, native: Native | null | 
     if (client.connection === 'connected') {
       await persist(key('shell', 'snapshot'), () => client.shellLive && client.shellLoaded && liveSnapshot(client.shell), () => client.shell, () => encodeMobileShellCache(environmentId, client.shell));
       await persist(key('server-config', 'config'), () => client.configLive && liveSnapshot(client.config), () => client.config, () => encodeMobileConfigCache(environmentId, client.config));
-      if (threadId) await persist(key('thread', threadId), () => client.threadLive && !!client.thread && liveSnapshot(client.thread) && obj(client.thread.projection.thread).id === threadId
+      // Pinned shouldPersistThread retains the prior cache during active runs or
+      // load-earlier growth. Only disposable publication is skipped, never data.
+      if (threadId) await persist(key('thread', threadId), () => client.threadLive && !!client.thread && !client.thread.historyExpanded
+        && !arr(client.thread.projection.runs).some(run => ['preparing', 'starting', 'running'].includes(str(run.status)))
+        && liveSnapshot(client.thread) && obj(client.thread.projection.thread).id === threadId
         && !str(obj(client.thread.projection.thread).deletedAt) && !mobileCacheThreadDeleted(client, environmentId, threadId),
         () => client.thread!, () => encodeMobileThreadCache(environmentId, threadId, client.thread!));
       return;

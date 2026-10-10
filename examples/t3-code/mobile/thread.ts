@@ -4,7 +4,7 @@ import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from 
 // @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
 import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
-import { mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
+import { mobileAnswerFilesOwner, mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileProviderIconURL } from './environment-detail';
 import type { T3Client } from './shared/client';
@@ -129,17 +129,18 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
 }
 
 /** Read after mobileSnapshot refresh; supplied time owns all duration labels. */
-export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = ''): ThreadSnapshot {
-  const rows = mobileThreadRows(client, now, dark, routeKey), loaded = !!client.thread;
+export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = '', includeRows = true): ThreadSnapshot {
+  const rows = includeRows ? mobileThreadRows(client, now, dark, routeKey) : [], loaded = !!client.thread;
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
   const requests = requestPresentation(client), view = timelineView(client);
-  const answerFiles = mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now);
+  const answerFiles = includeRows ? mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now)
+    : { owner: mobileAnswerFilesOwner(client), request: '' };
   return { queuedCanSelect: false, queuedFailed: false, queuedCanEdit: false, queued: false, queuedOwner: '', queuedStatus: '', queuedReason: '', queuedCanRetry: false, answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
     title: str(obj(client.projection.thread).title), loaded, loading, rows,
     emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
     emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',
     error: requests.error, uncertain: client.pending?.uncertain === true, hasMore: client.thread?.hasMore === true,
-    historyLoading: client.historyLoading, historyError: view.historyError.get(client.threadId) ?? '', readsNeeded: timelineReadsNeeded(client),
+    historyLoading: client.historyLoading, historyError: view.historyError.get(client.threadId) ?? '', readsNeeded: includeRows && timelineReadsNeeded(client),
     approvals: requests.approvals.map(approval => {
       const item = arr(client.projection.turnItems).slice().reverse().find(item => item.requestId === approval.id);
       const request = arr(client.projection.runtimeRequests).find(request => request.id === approval.id);
