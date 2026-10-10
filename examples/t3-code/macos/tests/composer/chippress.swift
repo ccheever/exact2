@@ -111,6 +111,38 @@ final class ComposerChipPressTests: XCTestCase {
         XCTAssertFalse(press.isOpen, "a press on the text outside the chip")
     }
 
+    /// realinput-1010e-followups RE-3: T3 Code answers a press on the chip with a NodeSelection of it (an atom,
+    /// `selectable: true`): Escape keeps it, and typing replaces the chip (over CDP: `$frontend-design now`, the
+    /// caret after "now", the chip, Escape, "x" gives "x now"). The text view placed a caret before the chip
+    /// instead, so "x" landed in front of it.
+    func testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt() {
+        let fixture = ChipPreviewFixture()
+        let press = fixture.preview.styler.press
+        let chip = fixture.preview.styler.chips[0]
+        let end = (previewSample as NSString).length
+        fixture.view.setSelectedRange(NSRange(location: end, length: 0))
+        fixture.click(fixture.center(chip))
+        XCTAssertTrue(press.isOpen, "the press opens the details")
+        XCTAssertEqual(fixture.view.selectedRange(), chip.range, "the press selects the chip, as ProseMirror's NodeSelection")
+        fixture.base.escape()
+        XCTAssertFalse(press.isOpen, "Escape closes the details")
+        XCTAssertEqual(fixture.view.selectedRange(), chip.range, "and the chip stays selected")
+        fixture.view.insertText("x", replacementRange: fixture.view.selectedRange())
+        fixture.base.tick()
+        XCTAssertEqual(fixture.view.string, previewSample.replacingOccurrences(of: "$frontend-design", with: "x"), "typing replaces the chip")
+        XCTAssertEqual(fixture.view.selectedRange(), NSRange(location: chip.start + 1, length: 0), "with the caret after what was typed")
+        // The press gives the chip's editor the focus, wherever it was.
+        fixture.view.string = previewSample; fixture.view.didChangeText(); fixture.base.tick()
+        fixture.base.window.makeFirstResponder(fixture.base.editor)
+        fixture.click(fixture.center(fixture.preview.styler.chips[0]))
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view && fixture.view.selectedRange() == fixture.preview.styler.chips[0].range, "the pressed chip's editor takes the focus with the chip selected")
+        fixture.base.escape()
+        // A press that is not on a skill chip stays the text view's: it places the caret.
+        let mention = fixture.preview.styler.chips.first { $0.kind != "skill" }!
+        XCTAssertFalse(press.mouseDown(NSEvent.mouseEvent(with: .leftMouseDown, location: fixture.view.convert(fixture.center(mention), to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: fixture.base.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!), "a mention chip's press is not taken")
+    }
+
     func testEscapeAnEditTheAppsCloseAndTheEditorLeavingCloseIt() {
         let fixture = ChipPreviewFixture()
         let press = fixture.preview.styler.press

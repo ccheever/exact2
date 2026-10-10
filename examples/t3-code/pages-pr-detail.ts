@@ -192,7 +192,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   // pr-code-tab: the Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
-  if (display && await readCode({ client, native: native!, reference: writeReference(selection), detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh }) === 'wake') {
+  if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh }) === 'wake') {
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   }
   // pr-links-previews-and-routing: the page's linked threads (every 10 s), and the hovered link's card.
