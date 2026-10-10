@@ -4,6 +4,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.text.Layout
+import android.text.SpannableString
+import android.text.TextPaint
+import android.text.style.StyleSpan
+import android.graphics.Typeface
 import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +63,25 @@ internal object InlineTextPaintTest {
         check(Looper.myLooper() == Looper.getMainLooper())
         val engine = TextEngine(context) {}
         val scale = context.resources.displayMetrics.density
+        // Intrinsic fragment widths must agree with Android for plain text,
+        // metric spans and letter spacing, including after a paint-only update.
+        for (variant in 0..2) {
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 16f * scale
+                if (variant == 2) letterSpacing = .1f
+            }
+            val value = SpannableString("AVATAR office affinity")
+            if (variant == 1) value.setSpan(StyleSpan(Typeface.BOLD), 7, 13, 33)
+            val native = NativeText(value, paint, 0, 0, null, variant == 2) { false }
+            val expected = listOf(0 to 7, 7 to 14, 14 to value.length)
+                .maxOf { Layout.getDesiredWidth(value, it.first, it.second, paint) }
+            native.setPaint(listOf(InlinePaintRange(0, value.length, Color.RED, null, 1)))
+            check(native.minIntrinsicWidth.toRawBits() == expected.toRawBits()) {
+                "intrinsic width differs from public Android Layout (variant $variant)"
+            }
+            native.setPaint(emptyList())
+            check(native.minIntrinsicWidth.toRawBits() == expected.toRawBits())
+        }
         val bitmap = Bitmap.createBitmap(ceil(300 * scale).toInt(), ceil(100 * scale).toInt(), Bitmap.Config.ARGB_8888)
         try {
             val request = request(10, listOf("MMMM ", "MMMM"))
