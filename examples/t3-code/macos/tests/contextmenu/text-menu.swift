@@ -4,11 +4,13 @@ import XCTest
 // realinput-1010d RD-4: a right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
 // installContextMenu: Cut disabled, Copy, Paste disabled, Select All), not ExactKit's NSTextView menu (Look Up, Copy,
 // Speech, Services). `HostParagraph` stands in for an ExactKit text node: its `menu(for:)` is the host's read-only text
-// menu while it has a selection, and its `copy:` and `selectAll:` are the node's.
+// menu while it has a selection, its `copy:` and `selectAll:` are the node's, and its `rightMouseDown` counts where
+// NodeViewMac's calls `super`, which pops the host's menu.
 
 private final class HostParagraph: NSView {
     var selected = true
-    private(set) var copies = 0, selections = 0
+    private(set) var copies = 0, selections = 0, hostMenus = 0
+    override func rightMouseDown(with event: NSEvent) { hostMenus += 1 }
     override func menu(for event: NSEvent) -> NSMenu? {
         guard selected else { return super.menu(for: event) }
         let menu = NSMenu()
@@ -24,7 +26,9 @@ private final class HostParagraph: NSView {
 
 /// A view with a menu of its own that is not the host's text menu (a field's, a web view's).
 private final class OtherMenuView: NSView {
+    private(set) var ownMenus = 0
     override func menu(for event: NSEvent) -> NSMenu? { let menu = NSMenu(); menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: ""); return menu }
+    override func rightMouseDown(with event: NSEvent) { ownMenus += 1 }
 }
 
 final class TextContextMenuTests: XCTestCase {
@@ -78,5 +82,36 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertEqual(menu.lastShown, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"])
         let elsewhere = rightClick(at: NSPoint(x: 280, y: 40))
         XCTAssertTrue(menu.handle(elsewhere) === elsewhere, "a click the host does not answer with its text menu goes on")
+    }
+
+    /// The click as the window server or the agent delivers it (AgentMouseMac.otherClick: `NSApp.sendEvent`), through
+    /// the monitor `install()` registers: the shell's menu pops and the host's never follows.
+    func testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows() {
+        let menu = T3TextContextMenu(agent: false)
+        var popped: [(titles: [String], view: NSView)] = []
+        menu.present = { shown, _, view in popped.append((shown.items.map(\.title), view)) }
+        menu.install()
+        defer { menu.destroy() }
+        NSApp.sendEvent(rightClick(at: NSPoint(x: 60, y: 40)))
+        XCTAssertEqual(popped.map(\.titles), [["Cut", "Copy", "Paste", "Select All"]], "the shell's menu pops once")
+        XCTAssertTrue(popped.first?.view === paragraph, "on the text view the click is on")
+        XCTAssertEqual(paragraph.hostMenus, 0, "the click ends in the monitor: ExactKit's Look Up menu does not pop after it")
+        NSApp.sendEvent(rightClick(at: NSPoint(x: 280, y: 40)))
+        XCTAssertEqual(other.ownMenus, 1, "a view with its own menu still gets its click")
+        XCTAssertEqual(popped.count, 1)
+    }
+
+    func testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks() {
+        let menu = T3TextContextMenu(agent: true)
+        var popped = 0
+        menu.present = { _, _, _ in popped += 1 }
+        menu.install()
+        defer { menu.destroy() }
+        NSApp.sendEvent(rightClick(at: NSPoint(x: 60, y: 40)))
+        XCTAssertEqual(menu.lastShown, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "the items go to the log")
+        XCTAssertEqual(popped, 0, "nothing tracks in the agent's never-key window")
+        XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu (the after drive's 120 s hang)")
+        NSApp.sendEvent(rightClick(at: NSPoint(x: 280, y: 40)))
+        XCTAssertEqual(other.ownMenus, 1)
     }
 }

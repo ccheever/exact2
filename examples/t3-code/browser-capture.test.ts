@@ -24,6 +24,7 @@ import { snapshot } from './presentation';
 import { DEFAULT_SEND_RULES } from './composer-editor-intent';
 import { activeRef } from './terminal-drawer-view';
 import { chatCanvasView } from './chat-canvas-view';
+import { contractFn } from './contract-fn-fixture';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const threadKey = 'local:thread-1';
@@ -506,13 +507,26 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
     for (const id of ['restore', 'window', 'close']) expect(contract).toContain(`align=tipAlign, hot=(tipAt == "${id}"), tipShown=(pill and tipAt == "${id}" and tipShut != "${id}")`);
   });
 
-  it('realinput-1010d RD-1: the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', () => {
+  it('realinput-1010d RD-1: the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', async () => {
     // A real pointer that came to rest on the dot showed the grab hand but no pill until it moved again (3 of 3): the
     // handle's small box heard no enter. The player's box hears the pointer from the moment it crosses the page, so each
     // move places it on the handle ("dot"), the rest of the pill's box ("pill") or the page; the pill shows on the
     // handle and stays on its box while it shows (group-hover), and leaving the player hides it.
+    const zone = await contractFn('browser-capture.contract', 'bcPlayerZone', ['x', 'y', 'width', 'inset', 'pill', 'rem']);
+    const pillWidth = await contractFn('browser-capture.contract', 'bcPillWidth', ['rem', 'items']);
+    // The default float (240 pt wide, radius 12, pillInset 8) at rem 16: the pill's box spans x 150..232, y 8..40, and
+    // the 12 pt handle its top-right corner, x 220..232, y 8..20. Each edge is checked on both sides.
+    const [width, inset, rem] = [240, 8, 16], pill = pillWidth(rem, 3) as number, at = (x: number, y: number, w = pill, i = inset) => zone(x, y, width, i, w, rem);
+    expect(pill).toBe(82);
+    for (const [x, y] of [[226, 14], [220, 8], [232, 8], [220, 20], [232, 20]]) expect(at(x, y), `dot at ${x},${y}`).toBe('dot');
+    for (const [x, y] of [[219, 14], [226, 21], [150, 8], [150, 40], [232, 40], [190, 24]]) expect(at(x, y), `pill at ${x},${y}`).toBe('pill');
+    for (const [x, y] of [[120, 200], [226, 7], [233, 14], [149, 24], [190, 41], [236, 4], [4, 4]]) expect(at(x, y), `page at ${x},${y}`).toBe('');
+    // Recording adds the status item: the box grows left (108 pt) and the handle stays in the corner.
+    const recording = pillWidth(rem, 4) as number;
+    expect([recording, at(130, 24, recording), at(130, 24), at(226, 14, recording)]).toEqual([108, 'pill', '', 'dot']);
+    // A larger radius insets the pill further (resolvePreviewMiniPlayerPillInset): the handle moves with it.
+    expect([at(230, 10), at(230, 10, pill, 13), at(215, 19, pill, 13), at(221, 26, pill, 13), at(226, 12, pill, 13)]).toEqual(['dot', '', 'dot', 'pill', '']);
     const contract = source('browser-capture.contract');
-    expect(line(contract, 'fn bcPlayerZone')).toBe('fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= inset + 0.75 * rem) ? "dot" : "pill")');
     const player = block(contract, 'component BrowserMiniPlayer', '//');
     // The agent's hover moves first and enters second: entering reads the zone the move found.
     expect(player).toContain('  action overPlayer(value: bool)\n    over = value\n    dotOver = value and (zone == "dot" or (zone == "pill" and (pillFocus != "" or dragging != "")))\n    zone = value ? zone : ""');

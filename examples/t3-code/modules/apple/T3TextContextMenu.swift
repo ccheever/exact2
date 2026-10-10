@@ -20,13 +20,18 @@ final class T3TextContextMenu: NSObject {
     private var monitor: Any?
     /// What the last replaced click showed (the agent's log line, and the tests).
     private(set) var lastShown: [String] = []
+    /// Pops the shell's menu (tracks until the menu closes); a test records it instead.
+    var present: (NSMenu, NSEvent, NSView) -> Void = { NSMenu.popUpContextMenu($0, with: $1, for: $2) }
 
     init(agent: Bool) { self.agent = agent }
 
     func install() {
         guard monitor == nil else { return }
+        // Not `self?.handle(event) ?? event`: optional chaining flattens handle's `NSEvent?`, so its nil ("taken") would
+        // turn back into the event and ExactKit's text menu would pop after the shell's.
         monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-            self?.handle(event) ?? event
+            guard let self else { return event }
+            return self.handle(event)
         }
     }
 
@@ -45,7 +50,7 @@ final class T3TextContextMenu: NSObject {
             FileHandle.standardError.write(Data("t3.textmenu: \(lastShown.joined(separator: " | "))\n".utf8))
             return nil
         }
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        present(menu, event, view)
         return nil
     }
 
