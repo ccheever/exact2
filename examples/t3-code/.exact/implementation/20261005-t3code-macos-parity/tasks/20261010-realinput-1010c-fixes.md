@@ -181,7 +181,7 @@ ops ([drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/0685361b82
 - AppKit `macos/tests/composer` `chippress.swift`: the chip's button is enabled (56 tests, 0 failures; 1 failure with the
   tip's `modules/apple`).
 
-Checks: see the PR ("Checks").
+Checks: see the PR ("Checks"); the review round's final checks ran on `7a58514b4`.
 
 ## Real-input batch steps
 
@@ -251,7 +251,7 @@ step 1.
 | Before drive | tip `f0aaaa56d` (worktree `t3-code-ri1010c-before`) | RC-3, RC-4 (composer and Settings) and RC-6 reproduced with keys sent at the focus the clicks left | [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/78e51eceb34715d8a31e4c0056f53eece887f7e5/realinput-1010c-fixes/drive-record.txt) |
 | After drive (the one live drive) | this branch's bundle (`9a7605e02`) | every step passed the first time | the links above |
 | Reference | Electron reference on the lane, CDP | Settings chip Escape, Filters' Escape sequence, Add profile ↓, the unpriced gap | the composed images, [rc5-gap.txt](https://raw.githubusercontent.com/ccheever/exact2/8b03fa528eee611deff7b779febceb6962ecf46e/realinput-1010c-fixes/rc5-gap.txt) |
-| Review round: before and after drives | before: the PR's previous head `c8668fb34` (worktree `t3-code-ri1010c-before`); after: this branch's bundle (`5fa6501bc`) | RC-4 with the Files panel open reproduced before and passes after; the no-panel and Settings chip cases pass in both; the after drive ran twice (the first stopped at a `tree` target, an empty panel holds no Escape, so the drive opens Files) | [drive-record-review.txt](https://raw.githubusercontent.com/ccheever/exact2/480638d7a61a98d21bb7b684e50949c5d07c8f7d/realinput-1010c-fixes/drive-record-review.txt), [drive-review.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/22075885833065b8b32df735820339571ce0942e/realinput-1010c-fixes/drive-review.sh.txt) |
+| Review round: before and after drives | before: the PR's previous head `c8668fb34` (worktree `t3-code-ri1010c-before`); after: this branch's bundle (`5fa6501bc`) | RC-4 with the Files panel open reproduced before and passes after; the no-panel and Settings chip cases pass in both; each drive was re-run once after a first run stopped at a `tree` op (after: an empty right panel holds no Escape, so the script opens Files; before: the op named the new `chip-popover-keys` box, which that build does not have) | [drive-record-review.txt](https://raw.githubusercontent.com/ccheever/exact2/480638d7a61a98d21bb7b684e50949c5d07c8f7d/realinput-1010c-fixes/drive-record-review.txt), [drive-review.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/22075885833065b8b32df735820339571ce0942e/realinput-1010c-fixes/drive-review.sh.txt) |
 
 ## Not done / not verified
 
