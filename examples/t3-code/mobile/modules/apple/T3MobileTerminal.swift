@@ -56,7 +56,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
         }
         surface.onCapture = { [weak self] value in
             let text = value["text"] as? String ?? ""
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self?.systemMessage("There is no visible output to attach.") }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self?.emit(["type": "capture-empty", "message": "There is no visible output to attach."]) }
             else { self?.emit(["type": "capture", "text": text]) }
         }
     }
