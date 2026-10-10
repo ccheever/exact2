@@ -1,0 +1,87 @@
+realinput-1010e-followups agent drives (scripts/agent.mjs macos via target/t3-audit/clone-drive.sh, 1280x840, --epoch 2026-10-10T09:00:00Z --time-zone Asia/Seoul)
+before: feature tip 4c13b440f (worktree t3-code-realinput-1010e-before), lane realinput-1010e-followups-before
+after 1: this branch 427c80fb1; after 2 (the retry): bf86e902a, storage audit-realinput-1010e-followups-r2. The pairing link is redacted.
+
+== before
+   {"target": "composer", "typed": 153, "value": "$frontend-design now"}
+   {"target": "composer", "tapped": 153}
+   {"screenshot": "re3-1-chip-pressed.png"}
+   {"target": "chip-popover", "typed": 683, "key": "Escape", "value": ""}
+   {"target": "composer", "typed": 153, "key": "x", "value": "$frontend-design nowx"}
+   {"screenshot": "re3-2-typed-x.png"}
+  state focus {"pending": null, "logical": 153, "editor": 153, "responder": "TextArea"}
+   {"target": "connection-settings", "tapped": 92}
+   {"target": "settings-integrations", "tapped": 771}
+   {"target": "browser-profiles-add", "tapped": 2204}
+   {"target": "browser-import-source-chrome", "tapped": 2692}
+   {"screenshot": "re4-1-wizard.png"}
+   {"target": "browser-import-cancel", "tapped": 2746}
+  state focus {"responder": null, "editor": null, "pending": null, "logical": null}
+   {"screenshot": "re4-2-after-cancel.png"}
+   {"target": "settings-connections", "tapped": 787}
+   {"target": "manage-connection", "tapped": 2846}
+   {"target": "server-origin", "typed": 2898, "value": "http://127.0.0.1:16643"}
+   {"target": "connect", "tapped": 2903}
+   {"screenshot": "re5-0-paired.png"}
+   {"target": "t3-code", "typed": 1, "key": "Escape", "value": ""}
+   {"target": "open-pull-requests", "tapped": 487}
+   {"target": "pull-requests-search", "typed": 3131, "value": "#168"}
+   {"target": "pr-row-168", "tapped": 5698}
+   {"target": "pull-request-tab-code", "tapped": 6255}
+   {"screenshot": "re5-1-code-tab.png"}
+
+== after-1
+   {"target": "composer", "typed": 153, "value": "$frontend-design now"}
+   {"target": "composer", "tapped": 153}
+   {"screenshot": "re3-1-chip-pressed.png"}
+   {"target": "chip-popover", "typed": 683, "key": "Escape", "value": ""}
+   {"target": "composer", "typed": 153, "key": "x", "value": "x now"}
+   {"screenshot": "re3-2-typed-x.png"}
+  state focus {"editor": 153, "logical": 153, "responder": "TextArea", "pending": null}
+   {"target": "connection-settings", "tapped": 92}
+   {"target": "settings-integrations", "tapped": 771}
+   {"target": "browser-profiles-add", "tapped": 2204}
+   {"target": "browser-import-source-chrome", "tapped": 2692}
+   {"screenshot": "re4-1-wizard.png"}
+   {"target": "browser-import-cancel", "tapped": 2746}
+  state focus {"responder": "NodeView", "editor": null, "logical": 2204, "pending": null}
+   {"screenshot": "re4-2-after-cancel.png"}
+   {"target": "settings-connections", "tapped": 787}
+   {"target": "manage-connection", "tapped": 2846}
+   {"target": "server-origin", "typed": 2898, "value": "http://127.0.0.1:16643"}
+   {"target": "connect", "tapped": 2903}
+   {"screenshot": "re5-0-paired.png"}
+   {"target": "t3-code", "typed": 1, "key": "Escape", "value": ""}
+   {"target": "open-pull-requests", "tapped": 487}
+   {"target": "pull-requests-search", "typed": 3131, "value": "#168"}
+   {"target": "pr-row-168", "tapped": 5698}
+   {"target": "pull-request-tab-code", "tapped": 6255}
+   {"screenshot": "re5-1-code-tab.png"}
+
+== after
+   {"target": "composer", "typed": 153, "value": "$frontend-design now"}
+   {"target": "composer", "tapped": 153}
+   {"screenshot": "re3-1-chip-pressed.png"}
+   {"target": "chip-popover", "typed": 677, "key": "Escape", "value": ""}
+   {"target": "composer", "typed": 153, "key": "x", "value": "x now"}
+   {"screenshot": "re3-2-typed-x.png"}
+  state focus {"pending": null, "editor": 153, "responder": "TextArea", "logical": 153}
+   {"target": "connection-settings", "tapped": 92}
+   {"target": "settings-integrations", "tapped": 765}
+   {"target": "browser-profiles-add", "tapped": 2172}
+   {"target": "browser-import-source-chrome", "tapped": 2660}
+   {"screenshot": "re4-1-wizard.png"}
+   {"target": "browser-import-cancel", "tapped": 2714}
+  state focus {"editor": null, "pending": null, "responder": "NodeView", "logical": 2172}
+   {"screenshot": "re4-2-after-cancel.png"}
+   {"target": "settings-connections", "tapped": 781}
+   {"target": "manage-connection", "tapped": 2814}
+   {"target": "server-origin", "typed": 2866, "value": "http://127.0.0.1:16643"}
+   {"target": "connect", "tapped": 2871}
+   {"screenshot": "re5-0-paired.png"}
+   {"target": "t3-code", "typed": 1, "key": "Escape", "value": ""}
+   {"target": "open-pull-requests", "tapped": 481}
+   {"target": "pull-requests-search", "typed": 3099, "value": "#168"}
+   {"target": "pr-row-168", "tapped": 5666}
+   {"target": "pull-request-tab-code", "tapped": 6223}
+   {"screenshot": "re5-1-code-tab.png"}
