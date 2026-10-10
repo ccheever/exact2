@@ -152,6 +152,10 @@ component NativeFixture
     every(frame, countFrame)
   action unbump
     count = 0
+  // A confirmation raised from an action (LLP 1115 D6): the context menu's
+  // Clear asks first, as a hand-built app's long-press → alert does.
+  action askClear
+    showModal("clear-confirm")
   action fire
     emit = emit + 1
   action toggle
@@ -443,8 +447,20 @@ component NativeFixture
                         image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
                         text "Bump"
                       hr margin-left=0 margin-right=0
-                      button press=unbump destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
+                      button press=askClear destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
                         text "Clear"
+                    // The platform's alert (LLP 1115 D6): a title (its
+                    // aria-label), a message (its text), a destructive action
+                    // and Cancel, centred on iOS; opened by its button or by
+                    // `showModal` from an action (the context menu's Clear).
+                    button commandfor="clear-confirm" command="show-modal" testId="ask-clear" padding=6 background-color="#e5e7eb"
+                      text "Clear count…"
+                    dialog id="clear-confirm" role="alertdialog" aria-label="Clear the count?" padding=16
+                      text "The count goes back to zero."
+                      button press=unbump destructive=true commandfor="clear-confirm" command="close" testId="clear-confirm-clear"
+                        text "Clear"
+                      button commandfor="clear-confirm" command="close" testId="clear-confirm-cancel"
+                        text "Cancel"
                     row gap=6
                       button appearance="none" press=grow testId="grow" padding=6
                         text "Grow content"

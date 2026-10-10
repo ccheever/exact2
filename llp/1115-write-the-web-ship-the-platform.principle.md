@@ -97,7 +97,14 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   `history.back()` would. An authored control is still what the button presses.
 - **D6. Confirmations are the platform's alert** (`issues/20261009-ios-confirmation-shape.md`):
   an `alertdialog` becomes `UIAlertController(.alert)` with its title and Cancel kept; `showModal`
-  is honoured on iOS; the compiler stops requiring `closedby="any"` for it.
+  is honoured on iOS; the compiler stops requiring `closedby="any"` for it. *Landed (wave 2,
+  2026-10-09):* by the HIG, text + one cancel + at most three buttons is the alert (title the
+  `aria-label`, else the first line; message the rest); a chooser with a cancel is an action sheet
+  unanchored on a compact screen (its Cancel drawn; iOS 27 centres it); a shape with no cancel stays the popover, which a tap outside
+  dismisses (an alert has no outside). `showModal(id)`/`close(id)` from an action present and
+  dismiss it on iOS with no invoker, show the `dialog` on the web and macOS; LLP 1021's "no title
+  row" is superseded. macOS keeps its `NSMenu` chooser for invoker-opened alertdialog popovers
+  (no `NSAlert` yet).
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.

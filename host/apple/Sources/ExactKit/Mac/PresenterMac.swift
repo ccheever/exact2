@@ -660,6 +660,17 @@ package final class Presenter {
     /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
     var composedChord: NSEvent?
 
+    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
+    /// `dialog` by its id, in the session's top layer as its invoker's
+    /// `command="show-modal"` puts it (DialogsMac).
+    func dialogCommand(_ name: String, _ id: String) {
+        guard let dialog = carrying("tag:dialog").first(where: { $0.props["id"] == id }) else {
+            if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
+            return
+        }
+        if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,

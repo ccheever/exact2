@@ -1,6 +1,7 @@
 # An iOS confirmation is an arrowed popover that drops its Cancel, and nothing can raise one from an action
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** LLP 1115 D6 landed (wave 2): an alertdialog with text, one cancel and at most three buttons is UIAlertController(.alert) on iOS (aria-label the title, else the first line; Cancel kept); a chooser with a cancel is UIKit's unanchored action sheet with its Cancel on a compact screen; no-cancel shapes keep the light-dismissable popover. showModal(id)/close(id) from an action present/dismiss it on iOS with no invoker (a context-menu item can now ask first), show the dialog on the web and macOS. Recipe in docs/contract-for-agents.md (A confirmation); evidence ConfirmationAlertIOSTests and the native fixture's clear-confirm.
 **Systems:** host/apple iOS, menus (LLP 1021), Contract actions
 **Severity:** P2
 **Author:** Claude (Tuft), for Charlie Cheever

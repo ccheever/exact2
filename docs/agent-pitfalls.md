@@ -266,7 +266,7 @@ guide's rules don't make obvious.
 - **`role="alertdialog"` refuses a dialog laid out in a `column`.**
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
-  1021: iOS's sheet, macOS's menu), whose rows can only be text, buttons that
+  1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
   close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
   aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
   (x2apps onboarding's Delete account?, 2026-10-04.)

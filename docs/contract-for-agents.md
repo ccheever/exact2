@@ -952,6 +952,7 @@ drawn title bar) is a bug. On iOS:
 | `select` of `option`s | a pop-up button with its menu |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
+| `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
@@ -1492,6 +1493,35 @@ lifting and the preview popping into the screen its press pushes; macOS an
 the node. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+
+#### A confirmation
+
+"Remove book?" with a message, Cancel and a destructive Remove (React Native's
+`Alert.alert`) is a `dialog role="alertdialog"`: its `aria-label` is the
+title, a `text` the message, each action a `button` with `press` that closes
+it, and one Cancel, a closing `button` without `press`. Open it from a button
+(`commandfor="<id>" command="show-modal"`) or from any action with
+`showModal("<id>")` — a context-menu row's `press` asks before it deletes:
+
+```
+action askRemove(id: string)
+  pending = id
+  showModal("remove")
+…
+dialog id="remove" role="alertdialog" aria-label="Remove book?"
+  text (title + " will be removed from your library.")
+  button press=remove(pending) destructive=true commandfor="remove" command="close"
+    text "Remove"
+  button commandfor="remove" command="close"
+    text "Cancel"
+```
+
+iOS shows the centred alert, its Cancel kept; the web its modal `dialog`;
+macOS its painted dialog. Text, a cancel and at most three buttons make an
+alert; several actions with no text (an "Open in…" chooser) make an action
+sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
+at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
+`close("<id>")` from an action closes it as its Cancel does.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and

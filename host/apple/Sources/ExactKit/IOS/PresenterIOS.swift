@@ -496,6 +496,12 @@ package final class Presenter {
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
     }
 
+    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
+    /// confirmation by its id, the platform's alert or sheet (MenusIOS).
+    func dialogCommand(_ name: String, _ id: String) {
+        if name == "showModal" { menus.showModal(id) } else { menus.closeModal(id) }
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     /// A focus that cannot be delivered is refused with its reason in the
     /// runner's journal (LLP 1035.001 D3/D6, `NavigationRules.focusRefusal`),
