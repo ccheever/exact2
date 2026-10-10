@@ -1,0 +1,6 @@
+realinput-1010d-followups RD-2: the floating player's frame (window points) after each step, agent drive (clone) and CDP (reference)
+Steps: float the Browser tab (fixture page), drag the pill's padding (-300, -200), NW grip (-80, -80), Toggle right panel, Toggle right panel.
+before (branch tip 7195f10b6): float (1028, 495) 240x333; moved+resized (863, 204) 305x423; after the two toggles (863, 204) 305x423
+after (this branch):           float (1028, 495) 240x333; moved+resized (863, 204) 305x423; after the two toggles (863, 204) 305x423
+reference (T3 Code 0.0.45):    float (1028, 495) 240x333; moved+resized (863, 204) 305x423; after the two toggles (863, 204) 305x423
+reference, Open preview in right panel (the pill) then Toggle right panel: (1028, 495) 240x333 (the default: openInPanel closes the store entry)
