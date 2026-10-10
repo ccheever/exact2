@@ -100,8 +100,16 @@ closes as such.
   environment's prepared connection) and routes `filesViewed`, `setFilesViewed` and `diffFileContents`; paired the same way
   over CDP it shows #168's files, its diff answered by the lane server. Now `CodeContext` carries the listing environment
   (the panel's selection); `prDiff` goes to that server's transport (`environmentCall`), `filesViewed` and
-  `diffFileContents` through the pull request router from it (shared reads, as before: `environmentRequest` `share`),
-  `setFilesViewed` detached on it. The 503's text: `T3RemoteAuth.failureMessage` reads a pull request error's tag as the
+  `diffFileContents` through the pull request router from it (shared reads, as before: `environmentRequest` `share`), and
+  `setFilesViewed` is routed from it as the reference's write is (review of #406; it went unrouted to the focused server
+  before this task, then to the listing server's transport): `PullRequestRouter.dispatch` takes the identity probes and
+  the reference's candidate order, a server that cannot take it before it leaves passing it to the next, and its `send`
+  puts the write on the chosen server detached (composer-replies.ts, usage-replies.ts), so no answer waits on it, as
+  before; the readers' `filesViewedOnly` invalidations (the reference's `finish`) run after the host accepted it, in the
+  panel's next answer (`afterWrite`), before the read that follows. No server that can take it now: the batch waits for
+  the next flush. One declared difference (EXACT2-GAPS, X19 #124): a refusal that comes back in the reply (an alternate's
+  guard that saw another account after its probe) fails the batch where the reference passes it to the next server. The
+  503's text: `T3RemoteAuth.failureMessage` reads a pull request error's tag as the
   RPC path does, so a 503 says "Change requests cannot be browsed for this project's host yet." (or the CLI's requirement)
   instead of "The server returned HTTP 503.". #308's gutter drag can be retried.
 - RE-6: no clone cause found; nothing changed in the hover. The left-edge entry matches the reference: over CDP the
@@ -122,8 +130,8 @@ closes as such.
 | RE-1 | pass by reference comparison, no change: the reference's first click on its always-on-top helper reaches the page (probe inside its Electron: `acceptsFirstMouse:` true at level 3, false at the normal level), as the clone's does; the #398 declared difference is withdrawn. AppKit snapshot check updated. The real click on the probe is real-input step 1 (confirmation only) | [RE1-reference-first-click.txt](https://raw.githubusercontent.com/ccheever/exact2/c1e15cb1c2cd14c7469548fb7f300f464d0fa1b0/realinput-1010e-followups/RE1-reference-first-click.txt), [probe main.js](https://raw.githubusercontent.com/ccheever/exact2/a3ac6ae326ebf85d486cb2a0a583080377beac35/realinput-1010e-followups/re1-probe-main.js.txt), [probe.m](https://raw.githubusercontent.com/ccheever/exact2/037a4cf07a3e2fc1acb8ce32d0a266c170116db2/realinput-1010e-followups/re1-probe.m.txt) |
 | RE-2 | implemented, not verified (real input): the watcher keeps polling during a drag (AppKit check fails with the default-mode timer, passes now); the helper's transitions go to `R9_INPUT_LOG`. Open until step 2 runs | [RE2-helper-after-drag.txt](https://raw.githubusercontent.com/ccheever/exact2/4374fe3f137af2e8be4d2ba94a20a3d5e2a4799d/realinput-1010e-followups/RE2-helper-after-drag.txt) |
 | RE-3 | pass (AppKit test, agent drive): before, the press left the caret and "x" did not replace the chip (`$frontend-design nowx` in the drive); after, the press selects the chip and Escape then "x" gives `x now`, as the reference. The selected chip is painted above the text view's highlight (AppKit render; the live drives ran before that commit, see the attempts). Real keys: step 3 | [RE3 image](https://raw.githubusercontent.com/ccheever/exact2/4095f2b9848f6a1dae2313a2345dc46e9b830b7c/realinput-1010e-followups/RE3-typed-x.png), [RE3-chip-press.txt](https://raw.githubusercontent.com/ccheever/exact2/085ecad0823a4e99b30f2a9fdb110a39e75b6d32/realinput-1010e-followups/RE3-chip-press.txt), [selected chip, AppKit render](https://raw.githubusercontent.com/ccheever/exact2/9aa5eac2965249628d887d1972b5175ce9608f02/realinput-1010e-followups/RE3-selected-chip-appkit.png) |
-| RE-4 | pass (agent drive, reference): after Cancel by the pointer the focus is Add profile (node 2204), before it was none, as the reference's `BUTTON "Add profile"`. Real pointer and ring: step 4 | [RE4-wizard-focus.txt](https://raw.githubusercontent.com/ccheever/exact2/13d05b19133c9ab11bf2a49fc8fb544556e7fc17/realinput-1010e-followups/RE4-wizard-focus.txt) |
-| RE-5 | pass (agent drive with the embedded server focused and the GitHub lane paired, reference over CDP the same way): before "The server returned HTTP 503." (the embedded server's 503), after #168's files from the lane server, as the reference. #308's gutter drag: step 5 | [RE5 image](https://raw.githubusercontent.com/ccheever/exact2/1b97747eaa6402a2c0e0209977bab0f7feed826d/realinput-1010e-followups/RE5-code-tab.png), [RE5-code-tab-503.txt](https://raw.githubusercontent.com/ccheever/exact2/6d92fa93ad475ad0b5d7800024a46b6f4677a2e0/realinput-1010e-followups/RE5-code-tab-503.txt) |
+| RE-4 | pass (agent drive, reference): after Cancel by the pointer the focus is Add profile (node 2172), before it was none, as the reference's `BUTTON "Add profile"`. Real pointer and ring: step 4 | [RE4-wizard-focus.txt](https://raw.githubusercontent.com/ccheever/exact2/13d05b19133c9ab11bf2a49fc8fb544556e7fc17/realinput-1010e-followups/RE4-wizard-focus.txt) |
+| RE-5 | pass (agent drive with the embedded server focused and the GitHub lane paired, reference over CDP the same way): before "The server returned HTTP 503." (the embedded server's 503), after #168's files from the lane server, as the reference. Review of #406: the Viewed write routed as the reference's (tests: the feature tip's sources 1 pass / 5 fail, the PR's previous head 5 / 1, now all pass; not driven live). #308's gutter drag and a Viewed tick: step 5 | [RE5-review-viewed-write.txt](https://raw.githubusercontent.com/ccheever/exact2/4ce356226d75eb2188e5996bb81690c1a2f81d5e/realinput-1010e-followups/RE5-review-viewed-write.txt), [RE5 image](https://raw.githubusercontent.com/ccheever/exact2/1b97747eaa6402a2c0e0209977bab0f7feed826d/realinput-1010e-followups/RE5-code-tab.png), [RE5-code-tab-503.txt](https://raw.githubusercontent.com/ccheever/exact2/6d92fa93ad475ad0b5d7800024a46b6f4677a2e0/realinput-1010e-followups/RE5-code-tab-503.txt) |
 | RE-6 | no clone cause; the left-edge entry matches the reference (CDP); the bad state needs the host's hover events: step 6 takes a trace with ⌥⌘T (kept in development builds; AppKit check). Open until step 6 runs | [RE6-unpriced-hover.txt](https://raw.githubusercontent.com/ccheever/exact2/bafd3cf43a5d19492c4ce8f91176fa7f87ff28e4/realinput-1010e-followups/RE6-unpriced-hover.txt) |
 
 ## Real-input batch steps
@@ -155,7 +163,10 @@ git checkout (RC-7) and `R9_INPUT_LOG=$L/logs/r9-input.log`; read the front app 
    profile focused, ↓ ↓ to Chrome, Return, Escape: the wizard closes and the ring is on Add profile.
 5. **RE-5 and #308's gutter drag.** The lane copy with its embedded server and the GitHub lane's server paired (Settings ›
    Connections › Add environment, a fresh `bun lane.mjs pair primary` link): Pull Requests › #168 › Code: the files load
-   (no "The server returned HTTP 503."). Then #308's step 2 (the gutter drag; `tasks/closed/20261005-pr-code-tab.md`).
+   (no "The server returned HTTP 503."). Tick one file's Viewed box: the count goes up; after about a second press the
+   panel's Refresh: the box stays ticked (the write reached GitHub through the listing server). Untick it again so the
+   lane's state is unchanged. Then #308's step 2 (the gutter drag;
+   `tasks/closed/20261005-pr-code-tab.md`).
 6. **RE-6, the trace.** Usage › Cost › 30 days, the unpriced (i): repeat 1010e's moves; when the bad state shows (a 1-2 pt
    move closes it, or hover stops opening it), press ⌥⌘T at once (development build; the hidden View › Save Trace): an
    alert names the trace file. Read it with `bun scripts/agent.mjs trace <file>` and keep it with the session's evidence
@@ -165,7 +176,15 @@ git checkout (RC-7) and `R9_INPUT_LOG=$L/logs/r9-input.log`; read the front app 
 
 - `realinput-1010e-followups.test.ts` (new): RE-4's focus return in `app.contract` and the Add profile id; RE-5 through the
   panel's resource, a focused server that refuses and a paired one that holds the project (before: the tab ends in
-  `error`; after: the diff and the Viewed read on the paired server, nothing on the focused one).
+  `error`; after: the diff and the Viewed read on the paired server, nothing on the focused one). Added in the review of
+  #406: a hidden range's contents read through the paired server; a Viewed tick sent detached to it (`usage-reply:` key,
+  read again once the reply landed); a tick held while it is not connected (`requeue`), then sent to it; and, with GitHub
+  shared "read and act" on both and a remote listing server, the tick written through the local server with the same
+  account (`expectedAccountId`), the readers told only after the reply. With the feature tip's sources 1 pass / 5 fail;
+  with the PR's previous head 5 / 1 (the write went unrouted); mutation checks in the evidence text.
+- `pages-pr-routing.test.ts` "a routed write sent detached (dispatch, afterWrite)" (review of #406): `dispatch` picks the
+  server the awaited write picks, with the guard, and `afterWrite` sends the invalidations the awaited write sends; a
+  server that cannot take it before it leaves passes it to the next; with nothing to route to, the refusal is the caller's.
 - AppKit `macos/tests/composer` `chippress.swift` `testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt` (5 failures with
   the tip's `T3ComposerChipPress.swift`, 57 tests pass now).
 - AppKit `macos/tests/snapshot` `permission-helper.swift`: a reading reported while the run loop runs in `.eventTracking`
@@ -195,9 +214,20 @@ for the live drives (`427c80fb1`, `bf86e902a`).
 
 - RE-1 (confirmation), RE-2, RE-3, RE-4, RE-5's #308 drag and RE-6 under real input: open until the batch steps above run
   (agent mode cannot be the key window, move the real pointer, drag into System Settings or show a focus ring).
-- Observation, not changed (not a finding of this record): when the wizard opens, the reference focuses its first tile
-  ("Personal 5 cookies", Base UI's initial focus) and the clone its Import button (`autofocus`).
+- The routed Viewed write (review of #406) was not driven live: the task's one drive and its retry ran before it. The
+  RE-5 lane's default sharing ("off") sends it to the listing server's transport, as the live drive's build did; real-input
+  step 5 now ticks a file there.
+- **Follow-up for the coordinator to file** (an observation, not a finding of this record; no task, queue line or gap
+  tracks it yet): the import wizard's initial focus. When the wizard opens on Configure, the reference focuses its first
+  tile ("Personal / 5 cookies", CDP in RE4-wizard-focus.txt): `BrowserImportWizard.tsx:145-146` is a Base UI `Dialog` /
+  `DialogPopup` with no `initialFocus` and no `autoFocus`, so the first tabbable element of the popup takes it, and the
+  close X comes after the step (`ui/dialog.tsx` `DialogPopup`). The clone focuses Import (`browser-profiles.contract`
+  `BiButton(buttonId="browser-import-run", … first=true)`, `autofocus=first`). Its other steps choose a button too
+  (`first=true`: "I’ve quit it", Cancel on Full Disk Access, Done, Close), and `autofocus` applies at each step, where Base
+  UI focuses only when the dialog opens; each step needs the reference compared (CDP) before it changes.
 
 ## Next action
 
-Coordinator: review draft PR [#406](https://github.com/ccheever/exact2/pull/406); the real-input batch steps 1-6 close RE-1 to RE-6, then #308's step 2.
+Coordinator: review draft PR [#406](https://github.com/ccheever/exact2/pull/406) (review fixes on it: the Viewed write
+routed, RE-5's tests, RE-4's node); file the wizard initial-focus follow-up above; the real-input batch steps 1-6 close
+RE-1 to RE-6, then #308's step 2.
