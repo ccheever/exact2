@@ -8,6 +8,7 @@ import { T3Client } from './client';
 import { resetRemoteEditorsForTests } from './remote-open';
 import { toasts } from './toast';
 import { changeChatLink, chatLinkThreadAction } from './pages-pr-links';
+import { activeRef } from './terminal-drawer-view';
 import { chatExternalLinkMenu, externalLinkContextMenuItems, resolveExternalWebLinkHost, resolveExternalWebLinkHref, showExternalLinkContextMenu,
   type ExternalLinkContextMenuAction } from './external-link-menu';
 
@@ -231,6 +232,18 @@ describe("a reply's pull request link over the open thread", () => {
     const bare = linking({ threadId: 't2' });
     await chatExternalLinkMenu(bare.client, bare.native, undefined, PR7);
     expect(bare.menus).toEqual([['Open in integrated browser', 'Open in system browser', 'Copy Link']]);
+  });
+
+  test("a new thread's draft offers the Browser, whose pick gives the draft its thread id first", async () => {
+    const draft = linking({ threadId: '' });
+    draft.choose('open-in-preview');
+    await chatExternalLinkMenu(draft.client, draft.native, files, 'https://example.com/docs');
+    expect(draft.menus).toEqual([['Open in integrated browser', 'Open in system browser', 'Copy Link']]);
+    expect(activeRef(draft.client)).toEqual({ environmentId: 'env', threadId: 'command-1' });
+    // No project (nothing open) has no thread to open beside.
+    const none = linking({ threadId: '', projectId: '' });
+    await chatExternalLinkMenu(none.client, none.native, files, 'https://example.com/docs');
+    expect(none.menus).toEqual([['Open in system browser', 'Copy Link']]);
   });
 
   test("an unlink the thread does not hold does nothing; a refusal is the chat's toast", async () => {

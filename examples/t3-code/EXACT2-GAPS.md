@@ -766,12 +766,15 @@ repros, each a Contract app with one view):
   (`TextSelectionMac.swift` selects a word only on a double click).
 - **S2. An inline run's `contextmenu` is not dispatched.** The reference's Markdown web links have the app's own menu
   (Link or Unlink from thread for a pull request, Open in integrated browser, Open in system browser, Copy Link;
-  `externalLinkContextMenu.ts`), and the clone's link nodes carry it (`markdown.contract`, `external-link-menu.ts`). A
-  paragraph drawn word by word (`FlowRuns`: one with inline code or chips) opens it; a plain paragraph draws its runs
-  inline in one text node (`ChatRuns`), and ExactKit dispatches `contextmenu` per node only (`MouseEventsMac.swift`
-  `dispatchContextMenu`; a run takes `press` and `hover`), so there the link opens the shell's menu (Copy Link from the
-  run's accessibility URL). Repro: `text` holding a run `text "site" href="https://example.com" contextmenu=act`;
-  right-click "site": `act` never runs on macOS.
+  `externalLinkContextMenu.ts`), and the clone's web link nodes carry it (`markdown.contract`, `external-link-menu.ts`).
+  A paragraph, list item, quote or heading that holds any link is drawn word by word (`FlowRuns`: `flow_tokens` in
+  `macos/src/markdown.rs` flows a block on any `href`, so a reply's plain paragraph with one link does too), and there
+  the link opens it. A Markdown table cell draws its runs inline in one text node (`ChatRuns` in `TableCell`, so a long
+  cell ends in one ellipsis at the column's edge), and ExactKit dispatches `contextmenu` per node only
+  (`MouseEventsMac.swift` `dispatchContextMenu`; a run takes `press` and `hover`), so a table cell's web link opens the
+  shell's menu (Copy Link from the run's accessibility URL) where the reference opens the link menu. (A cell's link
+  also looks different: no favicon, and underlined; the reference's has the favicon and no underline.) Repro: `text`
+  holding a run `text "site" href="https://example.com" contextmenu=act`; right-click "site": `act` never runs on macOS.
 - **S3. A node's `href` is not exposed to a module.** An inline run's accessibility element carries its `href` as its URL;
   a node with an `href` (a `link`, or a `text` of its own) does not (`NodeViewMac.swift` `updateRoleAccessibility`), so
   the shell's menu has no Copy Link over the clone's links that have no menu of their own (provider docs, licenses,
