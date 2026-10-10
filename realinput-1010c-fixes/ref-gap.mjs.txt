@@ -1,0 +1,32 @@
+// realinput-1010c-fixes RC-5: the reference's unpriced popover while a pointer rests in the 4 px gap (not committed).
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, shotDir] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://'));
+await page.setViewportSize({ width: 1280, height: 840 });
+await page.evaluate(() => { location.hash = '#/usage'; });
+await page.waitForTimeout(3000);
+for (const name of ['Cost', '30 days']) { const b = page.getByRole('radio', { name }).or(page.getByRole('button', { name })).first(); if (await b.count()) await b.click().catch(() => {}); }
+await page.waitForTimeout(2000);
+const info = page.getByRole('button', { name: 'Unpriced usage details' }).first();
+const box = await info.boundingBox();
+console.log(JSON.stringify({ info: box }));
+const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+await page.mouse.move(cx, cy); await page.waitForTimeout(700);
+const popup = () => page.evaluate(() => { const p = [...document.querySelectorAll('[role=dialog],[data-side]')].find((e) => /unpriced records/.test(e.textContent || '')); if (!p) return null; const r = p.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; });
+const p0 = await popup(); console.log(JSON.stringify({ step: 'on (i)', popup: p0 }));
+await page.screenshot({ path: `${shotDir}/ref-rc5-1-hover.png` });
+// Up 1 px at a time to the middle of the gap between the popup and the (i), then rest there.
+const gapY = p0 ? (p0.bottom + box.y) / 2 : box.y - 2;
+for (let y = cy - 1; y >= gapY; y -= 1) { await page.mouse.move(cx, y); await page.waitForTimeout(16); }
+await page.waitForTimeout(1500);
+console.log(JSON.stringify({ step: `rested 1.5 s at y=${gapY.toFixed(1)} (gap ${p0 ? (box.y - p0.bottom).toFixed(1) : '?'} px)`, popup: await popup() }));
+await page.screenshot({ path: `${shotDir}/ref-rc5-2-gap.png` });
+for (let y = gapY; y >= (p0 ? p0.bottom - 8 : gapY - 10); y -= 1) { await page.mouse.move(cx, y); await page.waitForTimeout(16); }
+await page.waitForTimeout(800);
+console.log(JSON.stringify({ step: 'inside the popup', popup: await popup() }));
+await page.mouse.move(cx, cy + 200); await page.waitForTimeout(800);
+console.log(JSON.stringify({ step: 'away', popup: await popup() }));
+process.exit(0);
