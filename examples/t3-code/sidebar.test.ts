@@ -227,6 +227,19 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
     await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'copy-path');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other']);
   });
+
+  // realinput-1010c (browser-surface-capture): the row showed `[101](t3-context://v1/preview-annotation/…)`; the reference's
+  // SidebarDraftRow reads replaceComposerContextReferences(prompt, label), its first line ("Tighten the button spacing Sen…").
+  test('a draft row reads its context chips by their labels (SidebarDraftRow promptPreview)', () => {
+    const { client } = fake([shell('a')], { threadId: 'a' });
+    const row = () => sidebarSnapshot(client, NOW, helpers).sidebar.drafts.find(entry => entry.id === 'p2')!.preview;
+    client.local.drafts['env:new:p2'] = '[Tighten the button spacing](t3-context://v1/preview-annotation/preview-annotation_annotation_2) [101](t3-context://v1/preview-annotation/preview-annotation_annotation_3) then ship\nsecond line';
+    expect(row()).toBe('Tighten the button spacing 101 then ship');
+    client.local.drafts['env:new:p2'] = '![shot.png](t3-context://v1/image/image_d1) ';
+    expect(row()).toBe('shot.png');
+    client.local.drafts['env:new:p2'] = '[not a chip](https://example.com) and [bad](t3-context://v1/Kind/x)';
+    expect(row()).toBe('[not a chip](https://example.com) and [bad](t3-context://v1/Kind/x)');
+  });
 });
 
 describe('sidebar projection (sidebar-view.ts)', () => {

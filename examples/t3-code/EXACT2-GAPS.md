@@ -558,7 +558,15 @@ world.
   rule that hides them in the reference cannot reach the closed shadow root). ⌘Return sends through the window's Send.
   The window's shortcuts come before the page (Electron's guest page has its keys first), so while Annotate is on in a
   Browser tab of the open thread the send button leaves `Meta+Enter` out and the key reaches the editor; a ⌘Return typed
-  in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`).
+  in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`). For the same reason the
+  right panel's toggle declares Escape only while the shown tab is not annotating, so a person's Escape reaches the page,
+  whose overlay cancels the pick and keeps the panel, as PickPreload's does (realinput-1010c).
+- **Floating player's pill.** The handle's hover box grows to the pill's box while the pill shows, and the pill's buttons
+  hear no hover of their own: on macOS a hover node over another trades the hover with it on every move and a child
+  outside its parent's box hears none (X62, [#322](https://github.com/ccheever/exact2/issues/322)), so the pill hid as a
+  real pointer reached its buttons. The buttons' tooltips follow the pointer's place in that box (`pointermove`). A drag
+  that starts on a pill button moves the player once it passes the slop (a Contract `pan` takes a nested button's contact,
+  LLP 1057.001), where the reference's buttons stop the pointer-down and a press there never drags.
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
   (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
   the person's clipboard.

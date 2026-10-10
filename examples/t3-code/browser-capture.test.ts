@@ -23,6 +23,7 @@ import { annotationSendMarked, markAnnotationSend, takeAnnotationSend } from './
 import { snapshot } from './presentation';
 import { DEFAULT_SEND_RULES } from './composer-editor-intent';
 import { activeRef } from './terminal-drawer-view';
+import { chatCanvasView } from './chat-canvas-view';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
 const threadKey = 'local:thread-1';
@@ -470,5 +471,72 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
   it('a screenshot\'s and a recording\'s buttons keep their toast (toastAct)', () => {
     const rule = line(source('app.contract'), '    toastDismissed = op == "copy"');
     expect(rule).toContain('op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed :');
+  });
+});
+
+// The real-input session of 2026-10-10 (realinput-1010c, row A, bundle d1ae77d7): what a person's keys and pointer did
+// that agent drives could not show. Each row fails without its fix.
+describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag and the resize, the header tooltip', () => {
+  const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
+  const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
+  const block = (text: string, start: string, end: string) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, all.findIndex((candidate, index) => index > at && candidate.startsWith(end))).join('\n'); };
+
+  it('Escape while the shown tab annotates is the page\'s: the panel toggle declares it only otherwise (PickPreload cancels, the panel stays)', () => {
+    // A real Escape met the toggle's aria-keyshortcuts before the page: the panel closed and floated the tab.
+    const toggle = line(source('r4-surfaces.contract'), 'testId="panel-toggle-right"');
+    expect(toggle).toContain('aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused or panel.browser.capture.pickActive) ? "" : "Escape")');
+  });
+
+  it('the handle\'s hover box covers the pill while it shows, and the pill\'s buttons hear no hover of their own (X62)', () => {
+    const contract = source('browser-capture.contract');
+    const handle = line(contract, 'testId="browser-mini-handle"');
+    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) hover=overDot pointermove=movePill pan=pan("move")');
+    expect(line(contract, 'testId="browser-mini-pill"')).toContain('position="absolute" top=0 right=0 width=pillWidth height="2rem"');
+    expect(line(contract, 'derive pillWidth')).toBe('  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)');
+    const button = block(contract, 'component BcPillButton', '//');
+    expect(button).not.toContain('hover=');
+    expect(button).toContain('TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)');
+    // Base UI shifts a tooltip inside the window: near the canvas's right edge the pill's tooltips end at their buttons.
+    expect(line(contract, 'derive tipAlign')).toBe('  derive tipAlign = frame.x + frame.width > canvasWidth - 7.5 * rem ? "end" : "center"');
+    // The tooltip follows the pointer's button, and a press closes it until the pointer moves to another (Base UI).
+    for (const id of ['restore', 'window', 'close']) expect(contract).toContain(`align=tipAlign, hot=(tipAt == "${id}"), tipShown=(pill and tipAt == "${id}" and tipShut != "${id}")`);
+  });
+
+  it('one gesture keeps one serial: the canvas takes the frame at its first pan and moves it by the pan\'s total', () => {
+    // floor(now()) in every pan's serial made each move a new gesture from the frame on screen: a (-200, -100) drag moved
+    // (-100, -188) and an 80 pt north-west resize took 240 × 333 to 416 × 577 (the reference: 305 × 423).
+    const pan = block(source('browser-capture.contract'), '  action pan(direction: string, dx: number, dy: number)', '  action release');
+    expect(pan).toContain('let id = starting ? `${floor(now())}.${count}` : serial');
+    expect(pan).toContain('serial = id');
+    expect(pan).toContain('gesture(`${id}|${mini.sourceKey}|${direction}|${nx}|${ny}`)');
+    expect(pan.match(/now\(\)/g)).toHaveLength(1);
+  });
+
+  it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {
+    // The chat canvas of chat-canvas-view.test.ts (1280 × 840, the panel closed) and the reference's floating page (539 × 748).
+    const frames = { chat: [256, 0, 1024, 840], overlay: [400, 668, 736, 172] };
+    const run = async (gestures: string[]) => {
+      const client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
+      miniStoreOf(client).open('t1', { kind: 'browser', tabId: 'tab-1' });
+      captureHost(client).miniSize = { key: 'browser:tab-1', width: 539, height: 748 };
+      const ask = async (gesture: string) => (await chatCanvasView(client, null as unknown as Native, { width: 1024, viewportHeight: 840, detailsInline: false, chatMax: 736, overlaid: true, gesture })).mini;
+      const start = await ask('');
+      let last = start;
+      for (const gesture of gestures) last = await ask(gesture);
+      return { start, last };
+    };
+    const pans = (serials: string[]) => serials.map((serial, index) => `${serial}|browser:tab-1|northwest|${-20 * (index + 1)}|${-20 * (index + 1)}`);
+    const direct = await run(['1.1|browser:tab-1|northwest|-80|-80']);
+    expect(direct.start).toMatchObject({ width: 240, height: 333 });
+    expect([direct.last.width, direct.last.height]).toEqual([305, 423]); // the reference's NW grip, (-80, -80) from 240 × 333
+    const held = await run(pans(['7.1', '7.1', '7.1', '7.1'])), fresh = await run(pans(['7.1', '8.1', '9.1', '10.1']));
+    expect([held.last.width, held.last.height]).toEqual([305, 423]);
+    expect(fresh.last.width).toBeGreaterThan(305 + 40);
+  });
+
+  it('the header\'s Toggle right panel drops its hover on press: it leaves the header as the panel opens, so no leave comes', () => {
+    const chat = source('chat.contract');
+    expect(line(chat, 'testId="toggle-right-panel"')).toContain('button press=toggleRight hover=hover("right")');
+    expect(block(chat, '  action toggleRight', '  view')).toContain('    hovered = hovered == "right" ? "" : hovered\n    panel("toggle", "")');
   });
 });

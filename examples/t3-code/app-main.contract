@@ -211,7 +211,7 @@ component ChatColumn
         R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
       // browser-surface part 3: a Browser tab floated over the chat (browser-capture.contract).
       when shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
-        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, local=chatLocal, gesture=canvasGesture)
+        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture)
       when hero and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
