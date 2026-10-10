@@ -7,6 +7,7 @@
 use DiffItem from "./shapes.contract"
 use DiffTreeRow from "./shapes.contract"
 use DiffRow from "./diff-rows.contract"
+use diffSel from "./diff-rows.contract"
 use DiffTool from "./diff-rows.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use diffInk from "./settings-appearance-look.contract"
@@ -342,14 +343,19 @@ component PrdCodeRow
     column width="100%"
       when item.kind == "pr-file"
         PrdCodeFileHeader(item=item, scheme=scheme, press=press)
-      when item.kind == "pr-thread"
-        each card in filter(code.threads, (entry) => entry.id == item.entry) key=card.key
-          column width="100%" padding-top="0.25rem" padding-bottom="0.25rem"
-            PrdThreadCard(card=card, surface=surface, handoffs=handoffs, choices=choices, documents=documents, code=highlights, env=env, still=still, local=local, act=act)
-      when item.kind == "pr-pending"
-        PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
-      when item.kind == "pr-draft"
-        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
+      when item.kind == "pr-thread" or item.kind == "pr-pending" or item.kind == "pr-draft"
+        // What sits under a selected line takes the line's colour and the selection's bar (diff-rows.contract diffSel).
+        column width="100%" position="relative" background-color=(item.selected ? diffSel("row") : "#00000000")
+          when item.kind == "pr-thread"
+            each card in filter(code.threads, (entry) => entry.id == item.entry) key=card.key
+              column width="100%" padding-top="0.25rem" padding-bottom="0.25rem"
+                PrdThreadCard(card=card, surface=surface, handoffs=handoffs, choices=choices, documents=documents, code=highlights, env=env, still=still, local=local, act=act)
+          when item.kind == "pr-pending"
+            PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
+          when item.kind == "pr-draft"
+            PrdCodeDraft(rangeLabel=item.label, text=draftText, selected=item.selected, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
+          when item.selected
+            box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
       when item.kind == "pr-footer"
         // The sentinel at the end of the files: "Loading more files...", or the failure and Retry.
         row width="100%" min-height="2rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" testId="pull-request-code-footer"
