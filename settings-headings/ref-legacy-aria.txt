@@ -1,0 +1,5 @@
+Reference (T3 Code 1e2ecbd975, running, lane settings-headings): Settings > General, section #legacy-features.
+DOM path of the heading: section#legacy-features > div[data-slot=collapsible] > button[data-slot=collapsible-trigger] > h2
+ARIA snapshot (Playwright ariaSnapshot of #legacy-features, collapsed):
+- button "Legacy features":
+  - heading "Legacy features" [level=2]
