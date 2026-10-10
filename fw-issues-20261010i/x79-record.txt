@@ -137,6 +137,10 @@ t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
 t=0 focus view 11 (seen) → epoch 4 (+0 −0 ~1)
 t=0 focus view 9 (seen) → epoch 5 (+0 −0 ~1)
 
+== web and macos: "type first key Shift+Tab" tree (the box is no stop on either host) ==
+web:   Text#2 [log] "focus=before" / Control#3 [before] [focused]
+macos: Text#2 [log] "focus=before" / Control#3 [before] [focused]
+
 == Hand-built AppKit oracle (swiftc; source x79-appkit-oracle.swift.txt beside this record) ==
 One window, accessory app: Before (button), Box (a custom NSView that accepts first responder; First and Last buttons inside
 it), After (button). Box is made first responder, then a Tab (or Shift+Tab: U+0019 with Shift) key event goes through
