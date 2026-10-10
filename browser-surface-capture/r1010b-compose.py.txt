@@ -1,0 +1,44 @@
+# browser-surface-capture, review round of 2026-10-10 (second): before | after | reference, one image per scenario (not committed).
+from PIL import Image, ImageDraw, ImageFont
+
+F = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010d'
+B = f'{F}/runs/before-c/shots'   # the bundle of this PR's previous drive (after2, the code of 85ea13fbe), EXACT_MAC_BIN
+A = f'{F}/runs/after4/shots'     # this round's build (42e43621a + the base merge b6ca2cbc4), the retry with the dot drag added
+R = f'{F}/ref'                   # T3 Code 0.0.45 (1e2ecbd975) over CDP, the same lane data, composited (renderer + guest)
+OUT = f'{F}/evidence'
+W, H, BAR, GAP, HEAD = 960, 630, 46, 12, 52
+
+def font(size):
+    for path in ('/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc'):
+        try: return ImageFont.truetype(path, size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+def cell(path, label):
+    image = Image.new('RGB', (W, H + BAR), '#f4f4f5')
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([0, 0, W - 1, BAR - 1], fill='#18181b')
+    draw.text((12, 11), label, fill='white', font=font(20))
+    image.paste(Image.open(path).convert('RGB').resize((W, H), Image.LANCZOS), (0, BAR))
+    return image
+
+def grid(name, title, rows):
+    columns = max(len(row) for row in rows)
+    out = Image.new('RGB', (columns * W + (columns - 1) * GAP, HEAD + len(rows) * (H + BAR) + (len(rows) - 1) * GAP), 'white')
+    ImageDraw.Draw(out).text((12, 12), title, fill='#18181b', font=font(26))
+    for r, row in enumerate(rows):
+        for c, (path, label) in enumerate(row):
+            out.paste(cell(path, label), (c * (W + GAP), HEAD + r * (H + BAR + GAP)))
+    out.save(f'{OUT}/{name}', optimize=True)
+    print(name, out.size)
+
+grid('r1010b-button-drag.png', 'A drag (-200, -100) that starts on the pill\'s Open in right panel (before | after | reference)', [
+    [(f'{B}/03-button-drag.png', 'Before: the player moved (-100, -100) from (1028, 495)'),
+     (f'{A}/03-button-drag.png', 'After: the player stays at (1028, 495), still floating'),
+     (f'{R}/r02-button-drag.png', 'Reference: the player stays at (1028, 495), still floating')],
+])
+grid('r1010b-padding-drag.png', 'A drag (-100, -40) from the pill\'s bottom padding still moves the player (before | after | reference)', [
+    [(f'{B}/04-padding-drag.png', 'Before: moved (0, -40) from (928, 395), x at the chat lane'),
+     (f'{A}/04-padding-drag.png', 'After: (1028, 495) to (928, 455), moved (-100, -40)'),
+     (f'{R}/r03-padding-drag.png', 'Reference: (1028, 495) to (928, 455), moved (-100, -40)')],
+])
