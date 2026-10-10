@@ -22,7 +22,8 @@ describe('a selected line takes the reference\'s blue, not amber', () => {
   test('the row, the number\'s cell and the number take them; the selection\'s bar replaces the change bar', () => {
     expect(cell).toContain('position="relative" background-color=(selected ? diffSel("row") : tone == "deletion"');
     expect(cell).toContain('testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion"');
-    expect(cell).toContain('font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion"');
+    // The number moved out of the cell into DiffNumber (diff-gutter-selection-followups GS-1); its colour is the same.
+    expect(component(rows, 'DiffNumber')).toContain('font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion"');
     expect(cell).toContain('when selected\n          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
     expect(cell).toContain('when tone == "addition" and not selected\n');
     expect(cell).toContain('when tone == "deletion" and not selected\n');

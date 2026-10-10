@@ -17,6 +17,7 @@ use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 use DiffGlyph from "./diff-glyphs.contract"
+use diffSel from "./diff-rows.contract"
 use DiagramBlocks, ChatDocument from "./markdown.contract"
 use FilesMedia from "./media-actions.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
@@ -314,6 +315,9 @@ component R4FilePreview
             textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
+// A selected line paints its number's cell and its number only, as FilePreviewPanel's File over @pierre/diffs does
+// (CDP, 1e2ecbd975: [data-column-number] #d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the
+// code row and the comment card under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
 component R4CodeRow
   props
     line: R4CodeLine
@@ -333,8 +337,8 @@ component R4CodeRow
     if not open
       begin(line.line)
   view
-    row width="100%" align-items="flex-start" hover=hover position="relative" background-color=(line.selected ? "light-dark(#fef3c7, #3a3112)" : "#00000000")
-      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+    row width="100%" align-items="flex-start" hover=hover position="relative"
+      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" align-self="stretch" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000") color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
