@@ -247,6 +247,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   }
   if (op === 'search') { await search(client, native, value); return ''; }
   if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? '', panelKey(client)); // diff-file-comments.ts
+  // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (R4Explorer searchKey).
   if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);

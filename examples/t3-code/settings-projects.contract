@@ -3,6 +3,7 @@
 // group's name, icon, new-thread defaults, checkouts and removal.
 use SelectOption from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
+use SettingsSrHeading from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
 use ScopedRow from "./settings-source-control.contract"
@@ -131,6 +132,8 @@ component ProjectsPanel
         row width="100%" box-sizing="border-box" gap="0.625rem" align-items="center" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="0.875rem" padding-right="0.875rem" border-radius="0.875rem" border-style="solid" border-width=1 border-color="#2c80ff52" background-color="#3380ff0a" role="alert" testId="projects-alert"
           LucideInfo(size=16, color="light-dark(#1b4ed8, #4d8bff)")
           text "Can't find a setting? Keep this project picked above and hop to any other settings page." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" flex=1 min-width=0
+        // settings-headings: ProjectSettingsPanel.tsx's SettingsSection "Project" (hideTitle: an sr-only `<h2>`).
+        SettingsSrHeading(title="Project", level=2)
         Card()
           row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="project-name-row"
             column flex=1 min-width=0 gap="0.25rem"

@@ -547,7 +547,7 @@ component T3Window
   action panelUi(what: string, id: string)
     let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
     titleMenuOpen = false
-    if what == "toggle" or what == "close" or what == "tab-close" or (what == "key" and id == "Escape")
+    if what == "toggle" or what == "close" or what == "tab-close"
       rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
     if what == "maximize"
       rightMaximized = not rightMaximized

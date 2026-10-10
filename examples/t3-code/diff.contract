@@ -91,7 +91,7 @@ component DiffPanelBody
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") testId="diff-panel" role=(sheet ? "dialog" : "region") aria-label="Diff"
       // r4-surfaces: the shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet); DiffPanel already rebuilds per scheme.
-      R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", urlFocused=false)
+      R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", searchFocused=false)
       // A sheet's toolbar sits 6pt lower over the same content top (served reference at 840).
       column margin-top=(sheet ? "0.375rem" : "0px")
         DiffToolbar(data=data, command=command, scopeEnd=setScopeEnd)
