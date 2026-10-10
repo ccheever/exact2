@@ -1,0 +1,88 @@
+realinput-1010g-followups, review round: a web link that starts with a code span (`[`x` docs](https://example.com/c)`)
+keeps its words readable; a link with its link node still hides its other words.
+
+== Fixture: the lane's Verification reply (fixture-markdown) got a third paragraph for this drive (the lane database
+was copied first and put back after). Its text:
+   Known $verify skill. Price $5 stays plain; code `$verify` stays plain; [linked $verify](https://example.test) stays a link.
+   
+   Review [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).
+   
+   Starts with code: [`x` docs](https://example.com/c) stays readable.
+
+== The cause (PR head c9017e40d, read from its markdown.contract, not driven): every later word of a web link and every
+code span after a link's first word were hidden, whether or not the link's first run drew a link node; a link that
+starts with a code span draws none (its first run is a mono 'link-start', which FlowRuns draws as a code box), so
+assistive tech read only "x":
+   box aria-hidden=(run.kind == "link" and webLink(run.href)) height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
+   text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-hidden=true white-space="pre" flex-shrink=0 font-size=size li
+
+== The fix (e36a97748): link_labels (markdown_links.rs) gives every run of a link drawn as a link node the whole link's
+text and every run of a code-first link ""; FlowRuns hides a later word or code span only when its label is set:
+   471:          box aria-hidden=(run.kind == "link" and run.label != "" and webLink(run.href) and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0) height="1.421875rem" padding-top="0.153125rem"
+   500:            text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-hidden=(run.label != "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.we
+
+== Clone, macOS, in-process (agent.mjs macos tree --ax), the reply's two link paragraphs (drive.sh, lane base 16720)
+-- before (evidence worktree c03d7e908, before this PR)
+    AXStaticText "Known "
+    AXStaticText "$verify "
+    AXStaticText "skill. "
+    AXStaticText "Price "
+    AXStaticText "$5 "
+    AXStaticText "stays "
+    AXStaticText "plain; "
+    AXStaticText "code "
+    AXStaticText "$verify"
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "plain; "
+    AXStaticText "linked "
+    AXStaticText "$verify"
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "a "
+    AXStaticText "link."
+    AXStaticText "Starts "
+    AXStaticText "with "
+    AXStaticText "code: "
+    AXStaticText "x"
+    AXStaticText "docs"
+    AXStaticText " "
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "readable."
+-- after (this branch, bundle of e36a97748)
+    AXStaticText "Known "
+    AXStaticText "$verify "
+    AXStaticText "skill. "
+    AXStaticText "Price "
+    AXStaticText "$5 "
+    AXStaticText "stays "
+    AXStaticText "plain; "
+    AXStaticText "code "
+    AXStaticText "$verify"
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "plain; "
+    AXLink "linked $verify"
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "a "
+    AXStaticText "link."
+    AXStaticText "Starts "
+    AXStaticText "with "
+    AXStaticText "code: "
+    AXStaticText "x"
+    AXStaticText "docs"
+    AXStaticText " "
+    AXStaticText " "
+    AXStaticText "stays "
+    AXStaticText "readable."
+
+After: "linked $verify" is one AXLink and its other word is not read again after it (its label is set); the code-first
+link's "x" and "docs" are AXStaticText as before this PR (no link node, label ""). The look is unchanged
+(RG4-code-first-link-look.png).
+
+== Rust: cargo test -p t3-code-macos --lib a_links_runs_are_labelled_with_the_whole_link (runs: text, kind, mono, label)
+   "Was [linked `$verify`](https://example.test/) and [`x` docs](https://example.com/c) today." ->
+   ("linked ", link-start, false, "linked $verify"), ("$verify", link, true, "linked $verify"),
+   ("x", link-start, true, ""), (" ", link, false, ""), ("docs", link, false, ""), ("today.", "", false, "")
