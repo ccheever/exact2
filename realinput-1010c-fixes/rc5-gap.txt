@@ -1,0 +1,27 @@
+realinput-1010c-fixes RC-5: the unpriced popover and the 4 pt gap above the (i) (no clone change; real input stays open)
+
+Geometry, the clone (agent layout, Usage › Cost › 30 days, 1280x840, the lane's transcripts):
+  usage-unpriced (the (i), hover=enterSeg)            window 425.2,122  12 x 12 pt
+  usage-seg-pop-unpriced (the popup's card)           window 288.8,92   284.8 x 26 pt   (bottom 118)
+  its parent, view 1019 (hover=enterPop, padding-bottom 0.25rem = 4 pt)   92 .. 122: the gap 118..122 is inside it
+The reference over CDP (same lane data):
+  (i) 424.6,120.5 12 x 12 px; popup 288.2,90.5 to 573.0,116.5 (gap 4.0 px)
+
+Agent hover, which hit-tests (both builds the same):
+  t=29200 hover in view 808 (enterSeg)       pointer on the (i): the popup opens after 300 ms
+  t=29900 hover out view 808 (enterSeg)
+  t=29900 hover in view 1019 (enterPop)      pointer on the popup: it stays open
+  (the agent's `tap <target> hover` takes no point, so it cannot rest in the gap itself)
+
+The reference, a pointer moved 1 px at a time from the (i) up into the gap, then resting there 1.5 s
+(target/t3-audit/lanes/realinput-1010c-fixes/ref-gap.mjs, playwright mouse.move over CDP):
+  on (i)                         popup shown
+  rested 1.5 s at y=118.5 (gap)  popup shown          (floating-ui safePolygon: the rect between trigger and popup)
+  inside the popup               popup shown
+  away (200 px below)            popup gone
+
+Conclusion: the clone's hit-tested path (what the agent and the host's followPointer use) keeps it open, with the gap
+covered by the popup's own hover box. A real pointer reaches Contract through the host's NSTrackingAreas
+(NodeViewMac syncHoverTracking: one area per hover node, .inVisibleRect), whose differences from the web are X62
+(#322; main #327 replaces them with hit-tested hover). The session's failure is not reproduced here and its missing
+event is unknown; batch step 5 records it with Save Trace (the journal lists every "hover in/out view N").
