@@ -156,7 +156,7 @@ helper hid. The main window was not raised. A click on System Settings brought t
 ([helper back](https://raw.githubusercontent.com/ccheever/exact2/e380f2f5333e68d9f76f3201629f392c70401350/realinput-1010e/E3-398-rc1-back-redacted.png)).
 Step 2 was partial: the drag starts on the first press and nothing was added or revealed, but T3 Code became front only
 on release, and after the next click on System Settings the helper closed and did not come back (step 2 expects it to
-stay docked). It moved to [realinput-1010e-followups](../20261010-realinput-1010e-followups.md) as RE-2
+stay docked). It moved to [realinput-1010e-followups](20261010-realinput-1010e-followups.md) as RE-2
 ([notes](https://raw.githubusercontent.com/ccheever/exact2/d2a861e62ae350a3dffff37583c00397edf95c72/realinput-1010e/E3-398-notes.txt)).
 Step 3 (the reference's first click) did not run: the reference shows its helper only when packaged (`app.isPackaged`).
 It moved there as RE-1, with the first-click question of "Cause and fix"
