@@ -174,7 +174,7 @@ component UsageGhostIcon
     over = value
   view
     box position="relative" display="flex"
-      button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         UsageSchemeIcon(name=icon, size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
       when tip != ""
         TipBubble(label=tip, side="top", align="center", offset=28, inset=0, shown=(over and not disabled))

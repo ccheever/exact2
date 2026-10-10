@@ -128,7 +128,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The scan (D3), after every commit concludes, whether it stood or
-    /// was refused, and on a refused admission's early return: a stalled
+    /// was refused: a stalled
     /// mutation whose basis a standing commit changed is let go, and a
     /// free mutation with a send waiting is due now.
     pub(super) fn arm_next(&mut self, stood: bool) {
@@ -207,8 +207,9 @@ impl<D: DataSource> Runner<D> {
         };
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
-        // A refusal of the commit that tells the view `pending` ended is
-        // the host's to hear, as a failed reply's is (b6 review A4).
+        // The commit that tells the view `pending` ended is the host's to
+        // apply, its refusal the host's to hear, as a failed reply's is (b6
+        // review A4).
         let mut ended = None;
         if let Err(e) = &result {
             if self.poisoned {
@@ -216,12 +217,14 @@ impl<D: DataSource> Runner<D> {
             } else if let Some(NextRefusal::Ask) = refusal {
                 let was = self.pending_mut[m];
                 self.queues.waiting[m].pop_front();
+                let shown = self.end_write(m, None);
                 self.sync_pending_flags();
                 self.log(format!("{name} queued send refused: {e:?}"));
                 // Nothing waits behind it and nothing is in flight: the
-                // view hears `pending` end, as after a failed reply.
-                if was && !self.pending_mut[m] {
-                    ended = self.commit_again(Vec::new(), "a refused queued send").err();
+                // view hears `pending` end, as after a failed reply; and
+                // the resources its write showed in drop it.
+                if (was && !self.pending_mut[m]) || shown {
+                    ended = Some(self.commit_again(Vec::new(), "a refused queued send"));
                 }
             } else {
                 self.queues.stalled[m] = Some(Rc::new(Basis {
@@ -233,10 +236,7 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.arm_next(result.is_ok());
-        match ended {
-            Some(e) => Err(e),
-            None => result,
-        }
+        ended.unwrap_or(result)
     }
 
     fn next_inner(
@@ -266,15 +266,10 @@ impl<D: DataSource> Runner<D> {
         if later.is_some() {
             self.pending_mut[m] = true;
         }
-        // An asked send reads again what its mutation declares it changes,
-        // with the arguments of this commit (D4). Answered at once, it has
-        // landed: what it changes is forced, as an action's or a reply's
-        // landing forces it — a re-read would drop a source that answers
-        // later, and no reply would come to ask again (b6 review A1).
-        if later.is_some() {
-            self.reread_next = self.declared_refreshes(m);
-        } else {
-            self.reread_next.clear();
+        // Answered at once, it has landed: what it changes is asked, as an
+        // action's or a reply's landing asks it. In flight, its write shows
+        // through the overlay.
+        if later.is_none() {
             for r in self.declared_refreshes(m) {
                 self.force_refresh(r);
             }
@@ -369,6 +364,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(self.shape(name(&self.plan), &v, ty));
                 }
                 let slot = self.mutation_slot(m)?;
+                self.land_write(m, None, &v);
                 Ok(Asked::Now(slot, Value::some(v)))
             }
             Answer::Later(request) => Ok(Asked::Later(request)),

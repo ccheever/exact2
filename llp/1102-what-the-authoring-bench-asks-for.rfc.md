@@ -6,7 +6,7 @@
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
 **Implementer:** none yet. Each item that Charlie accepts gets its own lane (and, where marked, its own RFC).
-**Related:** LLP 1087 (the authoring bench; this is its §8.1 step 4, "what needs a human"); LLP 1088 (what the app diaries ask of Contract: D2 deferred numeric parsing with a trigger this bench has now met, §3.1); LLP 1054.000.003 (the formatters); LLP 1092 (gated tasks); LLP 1094 D8 (a drag during the last drop's session); LLP 1035.000 D9 (`autocomplete` at mount); LLP 1001 (`position: fixed` is not a row); LLP 1064 D6 and LLP 1069.001 (the web's control reset); the bench's findings registry, `analysis/findings.md` in `ccheever/authoring-bench`
+**Related:** LLP 1087 (the authoring bench; this is its §8.1 step 4, "what needs a human"); LLP 1088 (what the app diaries ask of Contract: D2 deferred numeric parsing with a trigger this bench has now met, §3.1); LLP 1054.000.003 (the formatters); LLP 1092 (gated tasks); LLP 1094 D8 (a drag during the last drop's session); LLP 1035.000 D9 (`autocomplete` at mount); LLP 1001 (`position: fixed` is not a row); LLP 1007 and LLP 1069.001 (the web's control reset); LLP 1104 (platform controls by default); the bench's findings registry, `analysis/findings.md` in `ccheever/authoring-bench`
 
 ## 0. Charlie's decisions (2026-10-06)
 
@@ -16,7 +16,7 @@
 | §3.2 | Money: `toFixed` or a cents-based function | **Decided (c), built d67ba9c20** (review fixes 2fbc035cc, 31197237a): both. `toFixed(n, digits)` is JavaScript's, binary rounding included, with one declared difference: a non-finite `n` prints `""` (LLP 1054.000.003 D7). `formatDecimal(units, digits)` prints an integer count of a smallest unit exactly, and `""` for a non-integer. Digits are whole-number literals (0–100, 0–20). The guide's money recipe is a count of cents, or `round(price * 100)` for a price of at most two decimals under a trillion. |
 | §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." **Built e6e9ea5e7**: counted as Temporal's `PlainDate.until` counts (a Feb 29 start completes a year on Mar 1 of a common year, a Jan 31 start a month on Mar 1). |
 | §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
-| §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. **Built e97afa5af** (LLP 1104: default rows, not native chrome; focus states deferred). |
+| §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. A button is the platform's control unless LLP 1104 D2 makes it bare or it says `appearance="none"`. The bare box keeps LLP 1007's reset. Fields **built 3af60bc8b** (LLP 1104 steps 1–2); native buttons built in step 3, buttons by default in step 4. |
 | §3.5 | A timeout on a fetch | **Superseded by a feature:** `fetch(url, { exactTimeout })` and `Request::timeout(ms)` landed (f0f7bc865, another session, LLP 1016 D4 amended), ending in a `Timeout` `FetchError` on every host; the agents' guide points at it beside `fail fetch`. |
 | §3.17, §3.19 | Driver silences; the JS target's autofocus at mount | **Accepted** (the "do now" column). **Built ecd3cfdde, 31e93f261, 7fde9cab3:** a drive with no scratch store says so (the Hermes prelude journals the refusal as the web does; the input's reply carries `note`, the CLI writes it on stderr); a reorder lift refused while the last drop holds is journaled on the web, Linux and Apple and noted in the `drag` reply; a touch the browser took from a grip is journaled with the scroll container; a kept answer the fresh one contradicts is journaled; an iOS screenshot names a visible keyboard; the JS target autofocuses a field at mount, after the commit's focus commands, from the body or the control a pointer pressed (`focus.js`, the wasm host's rule). |
 | §3.16 | The editing contract instead of write-back | **Accepted.** Docs and a recipe; no automatic write-back. **Built:** the guide's "Editing a value: the field's contract", its example run on the web (half-typed `-` survives; Enter commits and normalizes). |
@@ -374,7 +374,7 @@ The general form (any mix of percentages, viewport units and `calc()` inside `mi
 
 **What builders hit.** A bare `input` on the web has no border; it looks like plain text. Builders found it only from a screenshot and styled it by hand.
 
-This is deliberate. `host/web/index.html` resets `button, input, textarea` with `all: unset`, so a bare node is a bare box (LLP 1064 D6). The native hosts agree: iOS sets `borderStyle = .none`, and macOS sets `isBezeled = false`. Native buttons opt into chrome with `appearance="auto"` (LLP 1069.011).
+That was the deliberate default when the bench ran. LLP 1104 now makes a field or button the platform's control unless D2 makes it bare or the author writes `appearance="none"`. Native controls draw the platform's chrome; the bare box keeps LLP 1007's reset (`all: unset` on the web).
 
 **How often.** 11 trials. 2–3 minutes each, found only by looking.
 

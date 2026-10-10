@@ -375,7 +375,7 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
     state.picked = op === 'pick-all' ? new Set(candidates.map(candidate => candidate.key)) : op === 'pick-none' ? new Set() : current;
     return '';
   }
-  // The command carries the window's wall time (app.contract: wallTime.epochAtZero + now()). A launch-relative
+  // The command carries the window's wall time (app.contract: wallTime.epochAtZero + performanceNow()). A launch-relative
   // count (the old `now()` value) is not an instant and never replaces the last one: it made 1970-01-01T00:01:37Z.
   if (op === 'finish' || op === 'import') { const instant = Number(value) > 0 ? wallEpoch(Number(value)) : null; if (instant !== null) state.now = instant; }
   if (op === 'finish') return finish(client, '');

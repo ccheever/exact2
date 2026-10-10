@@ -104,8 +104,13 @@ impl DataSource for Module {
             .parked
             .iter_mut()
             .find(|(_, p)| p.call == token && p.ticket == 0 && !p.work_taken)?;
-        let work = self.storage.as_ref()?.continuation();
+        let retired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let work = self
+            .storage
+            .as_ref()?
+            .continuation_for(Some(retired.clone()));
         parked.work_taken = true;
+        self.retired.insert(token, retired);
         Some(work)
     }
 
@@ -149,7 +154,7 @@ impl DataSource for Module {
     }
 
     /// A `Later` answer the runner dropped before handing it out — a refused
-    /// pass, or a re-read whose reply's refresh asks again — is dropped here
+    /// pass, or an ask a later pass of the same settlement replaced — is dropped here
     /// too. Left parked, a call shares its key with the call still in
     /// flight, and `resume`, which finds a call by key, could give it that
     /// call's storage step (files diary F18: a mutation refreshing a
@@ -321,5 +326,15 @@ impl DataSource for Module {
         let answer = self.resume(store, Some(target), source, args, outcome);
         self.refresh_background();
         answer
+    }
+
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        Module::overlay(self, source, args, answer, writes)
     }
 }

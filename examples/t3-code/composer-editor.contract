@@ -282,7 +282,7 @@ component StashMenu
               text entry.snippet font-size="0.75rem" line-height="1rem" color="light-dark(#27272acc, #f5f5f5cc)" line-clamp=1 min-width=0 text-align="left"
             row gap="0.25rem" align-items="center" flex-shrink=0 padding-left="0.25rem"
               text entry.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
-              button press=op("stash-delete", entry.id, "") aria-label="Delete stashed prompt" testId=`composer-stash-delete-${entry.index}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center"
+              button press=op("stash-delete", entry.id, "") aria-label="Delete stashed prompt" testId=`composer-stash-delete-${entry.index}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
                 StashGlyph(name="x", size=14, color="light-dark(#71717a, #818181)")
 
 // Everything the prompt editor attaches above the composer card: ⌘S; the key
@@ -348,8 +348,8 @@ component ImageDraftTile
       box hatch="t3-snapshot-tile" data-snapshot-id=id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${id}`
       row position="absolute" top="0.25rem" right="0.25rem"
         when referenced
-          button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
         else
-          button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")

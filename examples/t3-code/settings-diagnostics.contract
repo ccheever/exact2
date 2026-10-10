@@ -135,7 +135,7 @@ component OpenLogs
     hovered = over
   view
     box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0
-      button press=press hover=hover disabled=(busy or not enabled) aria-label="Open logs folder" testId="open-logs-folder" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(enabled ? 1 : 0.64)
+      button press=press hover=hover disabled=(busy or not enabled) aria-label="Open logs folder" testId="open-logs-folder" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(enabled ? 1 : 0.64) title=""
         LucideFolderOpen(size=14, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
       when hovered
         DxTip(text="Open logs folder", right=0, bottom=30)
@@ -168,7 +168,7 @@ component StatInfo
     focused = on
   view
     box position="relative" width="0.875rem" height="0.875rem" flex-shrink=0
-      button press=focusTip(not focused) hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=`${label} details` testId=`diagnostics-info-${label}` width="0.875rem" height="0.875rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=focusTip(not focused) hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=`${label} details` testId=`diagnostics-info-${label}` width="0.875rem" height="0.875rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         LucideInfo(size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)"))
       when hovered or focused
         text tip position="absolute" left="-0.5rem" bottom="1.25rem" width=(min(320, length(tip) * 6.2 + 18) * rem / 16) z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 4px 12px #0000001f" font-size="0.75rem" line-height="1rem" font-weight=400 letter-spacing=0 text-transform="none" color="light-dark(#27272a, #f5f5f5)" role="tooltip" testId=`diagnostics-tip-${label}`

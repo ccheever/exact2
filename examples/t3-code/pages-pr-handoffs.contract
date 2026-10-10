@@ -50,7 +50,7 @@ component PrdCheckoutMenu
   view
     column position="relative" flex-shrink=0
       Tip(label="Check out this pull request", side="top", align="center", offset=20)
-        button popovertarget="pr-checkout-menu" hover=hover key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        button popovertarget="pr-checkout-menu" hover=hover key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled aria-label=(checking ? "Checking out..." : "Check out") testId="pull-request-checkout" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
           PgIcon(name="git-branch", size=14, color=phInk())
           when not narrow
             text (checking ? "Checking out..." : "Check out") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()

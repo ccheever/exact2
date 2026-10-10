@@ -31,7 +31,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
     /// Runs the loop until `done`, failing with `what` after `timeout` s.
     private func wait(_ what: String, _ timeout: Double = 2, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(timeout)
-        while !done(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         XCTAssertTrue(done(), what)
     }
     private func moving(_ p: Presenter) -> Bool { p.collections.offsetDrivers[1] != nil }

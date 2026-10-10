@@ -154,7 +154,7 @@ component Inheritance
   props
     row: ScopedRow
   view
-    button popovertarget=`inherit-${row.key}` aria-label=`${row.summary}. Show where this value comes from` testId=`inherit-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+    button popovertarget=`inherit-${row.key}` aria-label=`${row.summary}. Show where this value comes from` testId=`inherit-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       LucideLayers(size=12, color=(row.state == "overridden" ? "light-dark(#1b4ed8, #346bf1)" : (row.state == "mixed" ? "#fe9a00" : "light-dark(#71717b, #818181)")))
     column id=`inherit-${row.key}` popover="auto" position="absolute" width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label=row.summary testId=`inherit-popup-${row.key}`
       text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
@@ -191,7 +191,7 @@ component ScopedSettingRow
                 Inheritance(row=row)
               box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
                 when row.reset != ""
-                  button press=rest("scoped", row.reset) disabled=busy aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` testId=`reset-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=rest("scoped", row.reset) disabled=busy aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` testId=`reset-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
             when row.description != ""
               text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
@@ -299,7 +299,7 @@ component DiscoveryItem
               RedactedText(value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
         row flex-shrink=0 align-items="center" gap="0.5rem"
           when item.details
-            button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               when open
                 LucideChevronUp(size=14, color="light-dark(#71717b, #818181)")
               else
@@ -318,7 +318,7 @@ component DiscoveryItem
                 LucideInfo(size=14, color="light-dark(#71717b, #818181)")
               box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
                 when length(filter(fetches, current => current.canReset)) > 0
-                  button press=rest("fetch-interval", "value=__default__") aria-label="Reset fetch interval to default" testId="reset-fetch-interval" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=rest("fetch-interval", "value=__default__") aria-label="Reset fetch interval to default" testId="reset-fetch-interval" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
             text "Refresh remote branches in the background. Set to 0 to avoid automatic Git prompts." font-size="0.75rem" line-height="1.21875rem" max-width="42rem" color="light-dark(#71717b, #818181)"
           row flex-shrink=0 align-items="center" gap="0.5rem"
@@ -337,10 +337,10 @@ component FetchField
     draft = next
   view
     row role="group" align-items="center" width="8rem" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
-      button press=rest("fetch-interval", `value=${fetch.decrease}`) disabled=busy aria-label="Decrease fetch interval" testId="decrease-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=rest("fetch-interval", `value=${fetch.decrease}`) disabled=busy aria-label="Decrease fetch interval" testId="decrease-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         LucideMinus(size=16, color="light-dark(#27272a, #f5f5f5)")
       input value=draft input=edit change=restInput("fetch-interval", "value=") disabled=busy aria-label="Automatic Git fetch interval in seconds" testId="fetch-interval-seconds" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="center" color="light-dark(#27272a, #f5f5f5)"
-      button press=rest("fetch-interval", `value=${fetch.increase}`) disabled=busy aria-label="Increase fetch interval" testId="increase-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=rest("fetch-interval", `value=${fetch.increase}`) disabled=busy aria-label="Increase fetch interval" testId="increase-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
 
 component SourceControlPanel
@@ -369,7 +369,7 @@ component SourceControlPanel
           column width="100%" gap="0.625rem" testId="source-control-vcs"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between"
               SectionTitle(title="Version Control")
-              button press=restLocal("rescan", "") disabled=busy aria-label="Rescan server environment" testId="rescan-source-control" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=restLocal("rescan", "") disabled=busy aria-label="Rescan server environment" testId="rescan-source-control" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideRefreshCw(size=14, color="light-dark(#71717b, #818181)")
             Card()
               each item in data.vcs key=item.kind
@@ -490,7 +490,7 @@ component BrowserLinkTargetRow
           text "Open links in" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
             when value != "system"
-              button press=restInput("browser-link-target", "", "system") aria-label="Reset link target to default" testId="reset-browser-link-target" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=restInput("browser-link-target", "", "system") aria-label="Reset link target to default" testId="reset-browser-link-target" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
         text "Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"

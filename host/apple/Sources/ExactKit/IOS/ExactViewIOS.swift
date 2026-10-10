@@ -17,6 +17,7 @@ public final class ExactView: UIView {
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
+    private var lastScreen: CGSize?
     /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
     /// partially open, 3 fully open; nil before it reports or without a
     /// hinge), and how many layouts have re-read the division regions since
@@ -52,8 +53,9 @@ public final class ExactView: UIView {
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
-        // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .white
+        // The launch screen's colour (the manifest's `launch`) until the first
+        // frame names the canvas; unset, the platform's (LLP 1115 D2).
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
@@ -282,6 +284,13 @@ public final class ExactView: UIView {
             session.rasters.displayChanged()
         }
         var size = frame.size
+        // LLP 1075.003 §9.11: the window — this view's own viewport, as it
+        // is without a sheet or the keyboard — always told, whatever is
+        // presented: the viewport units and the segments are its,
+        // root and every sheet, so no length follows a sheet's height.
+        // The root's containers decide it, never a presented sheet's bar.
+        let screenFrame = cover || presenter.navigation.rootWantsWholeView ? bounds : bounds.inset(by: safeAreaInsets)
+        var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
@@ -290,6 +299,7 @@ public final class ExactView: UIView {
            let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
            width.isFinite, height.isFinite, width > 0, height > 0 {
             size = CGSize(width: width, height: height)
+            screen = size
             let scale = min(frame.width / size.width, frame.height / size.height)
             presenter.viewport.transform = CGAffineTransform(scaleX: scale, y: scale)
             presenter.viewport.bounds = CGRect(origin: .zero, size: size)
@@ -305,7 +315,8 @@ public final class ExactView: UIView {
         // posture is folded while any is active or the hinge says it is
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
-        let fold = Self.fold(of: container, viewport: frame, size: size, hingeBent: bent)
+        // The window's, not a sheet's (LLP 1075.003 §9.11).
+        let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
         if fold.hasFold { presenter.hasFold = true }
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
@@ -330,6 +341,11 @@ public final class ExactView: UIView {
             // none, and fitting it again would boot again, without end.
             if session.booted { fit() }
             return
+        }
+        // Before the resize, so a sheet's viewport never stands in for it.
+        if screen != lastScreen {
+            lastScreen = screen
+            session.screen(screen)
         }
         if insets != lastInsets {
             lastInsets = insets
@@ -368,6 +384,8 @@ public final class ExactView: UIView {
     /// always: the bake's flat answer must never stand in for the device's,
     /// LLP 1078 D5), and fit the root.
     func rebooted() {
+        // A new runner has no screen: tell it again first (Grok's review).
+        if let screen = lastScreen { session.screen(screen) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
         session.segments(lastFold)
         reportScheme()

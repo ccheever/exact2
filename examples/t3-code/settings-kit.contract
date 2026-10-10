@@ -91,7 +91,7 @@ component SettingsSwitch
     switchId: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 3px #0000000d"
 
 // ui/select.tsx size="sm" trigger; the popup is the platform's menu.
@@ -224,5 +224,5 @@ component PolicyTip
     focused = on
     show(on)
   view
-    button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
+    button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(hovered or focused ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000") title=""
       children

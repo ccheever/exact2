@@ -79,26 +79,26 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
     more = not more
   view
     column
-      button press=grow testId="grow"
+      button appearance="none" press=grow testId="grow"
         text "Grow"
-      button testId="named"
+      button appearance="none" testId="named"
         text "x" testId="label"
-      button testId="styled"
+      button appearance="none" testId="styled"
         text "x" color="#ff0000"
       column testId="pair"
         text "a"
         when more
           text "b"
-      button testId="tall" height=48
+      button appearance="none" testId="tall" height=48
         text "t"
       row
-        button testId="stretched"
+        button appearance="none" testId="stretched"
           text "s"
       row align-items=(more ? "stretch" : "center")
-        button testId="flips" display="flex" flex-direction="column"
+        button appearance="none" testId="flips" display="flex" flex-direction="column"
           text "f"
       row touch-action="none"
-        button testId="touchy"
+        button appearance="none" testId="touchy"
           text "p"
 "##,
     )

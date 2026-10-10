@@ -84,7 +84,7 @@ component SidebarOverlays
     when open and dragId == ""
       SidebarEdgeTips(width=width, hoverId=hoverId, newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.projectGroupCount > 1 ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)
     when open and data.sidebar.scopeOpen
-      button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop"
+      button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop" title=""
       SidebarScopeMenu(data=data, width=width, local=local, run=run)
     when data.sidebar.dialog == "archive" or data.sidebar.dialog == "unpin"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
@@ -199,12 +199,12 @@ component SidebarSnoozeDialog
                 text "Snooze for" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
                 // NumberField: Decrease, the centered amount, Increase in one bordered group.
                 row height="2rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" align-items="stretch" role="group"
-                  button press=local("dialog-step", "amount", "-1") aria-label="Decrease duration" testId="snooze-decrease" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=local("dialog-step", "amount", "-1") aria-label="Decrease duration" testId="snooze-decrease" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     SidebarIcon(name="minus", size=16, color="light-dark(#27272a, #f5f5f5)")
                   // The host input does not center its text: the input fits the amount and centers in the field.
                   row flex=1 min-width=0 justify-content="center" align-items="center"
                     input value=data.sidebar.dialogAmount input=local("dialog-field", "amount") inputmode="decimal" aria-label="Snooze for" testId="snooze-amount" width=(max(9, length(data.sidebar.dialogAmount) * 8.5 + 2) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 box-sizing="border-box" border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
-                  button press=local("dialog-step", "amount", "+1") aria-label="Increase duration" testId="snooze-increase" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=local("dialog-step", "amount", "+1") aria-label="Increase duration" testId="snooze-increase" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     SidebarIcon(name="plus", size=16, color="light-dark(#27272a, #f5f5f5)")
               column flex=1 min-width=0 gap="0.375rem"
                 text "Unit" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -219,7 +219,7 @@ component SidebarSnoozeDialog
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=run("dialog-confirm", "", "") disabled=busy testId="snooze-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)"
             text "Snooze" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-        button id="snooze-close" press=dismiss key=closeKey disabled=busy aria-label="Close" testId="snooze-close" position="absolute" top="0.5rem" right="0.5rem" z-index=1 width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button id="snooze-close" press=dismiss key=closeKey disabled=busy aria-label="Close" testId="snooze-close" position="absolute" top="0.5rem" right="0.5rem" z-index=1 width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           SidebarIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
 
 // ui/tooltip.tsx TooltipPopup for a sidebar row control, centered over the

@@ -1,6 +1,7 @@
 //! LLP 1084: `list appearance="auto"` is a grouped list. Contract checks its
 //! sections and writes its look as a sheet the author's rows replace; the
-//! kernel reads its sections and rows as a native list draws them.
+//! kernel reads its sections and rows as a native list draws them. Bare row
+//! fixtures exercise LLP 1104's default in the grouped-list context.
 
 use exact_kernel::{Accessory, GroupedRow, Kernel, Offer, PropId};
 use exact_runner::{DataError, DataSource, Runner, Value};
@@ -535,5 +536,50 @@ fn a_negative_margin_collapses_as_css_has_it() {
         list.sections[2].space_above,
         Some(17.33),
         "in a plain list the sheet writes 0, so 17.33 is the author's"
+    );
+}
+
+#[test]
+fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:sf/chevron.right\"\n    button press=go testId=\"dark\"\n      text \"Dark\"\n      when dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"delete\" destructive=true\n      text \"Delete Account\"\n    row testId=\"device\"\n      text \"Device\"\n      button press=go testId=\"info\" aria-label=\"Info\"\n        image \"symbol:sf/info.circle\"";
+    let mut r = boot(body);
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("grouped-default.contract");
+    let (plan, map) = contract::compile_path_source_mapped(&path, &app(body)).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let reasons: Vec<_> = json["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|n| n["bare_reason"].as_str())
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            "grouped-list row",
+            "grouped-list row",
+            "grouped-list row",
+            "grouped-list detail accessory"
+        ]
+    );
+    assert!(
+        map.button_migrations().is_empty(),
+        "grouped-list rows need no migration"
+    );
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let rows = &list.sections[0].rows;
+    for (index, title) in ["Open", "Dark", "Delete Account"].iter().enumerate() {
+        assert_eq!(rows[index].title.as_deref(), Some(*title));
+        assert!(rows[index].pressable, "{title} is a grouped-list action");
+        assert!(!rows[index].custom);
+        let node = r.kernel().node(rows[index].view).unwrap();
+        assert_eq!(node.style.appearance, exact_kernel::Appearance::None);
+    }
+    assert_eq!(rows[0].accessory, Accessory::Disclosure);
+    assert_eq!(rows[3].accessory, Accessory::Detail(id(&r, "info")));
+    r.dispatch(id(&r, "dark"), exact_runner::Event::Press)
+        .unwrap();
+    assert_eq!(
+        r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[1].accessory,
+        Accessory::Checkmark
     );
 }

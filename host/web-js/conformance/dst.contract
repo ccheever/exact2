@@ -12,4 +12,4 @@ component Dst
   view
     column testId="root" padding=10
       text `${time.timeZone} ${time.utcOffset}` testId="offset"
-      text formatTime(time.epochAtZero + now(), time.utcOffset, "short") testId="local"
+      text formatTime(time.epochAtZero + performanceNow(), time.utcOffset, "short") testId="local"

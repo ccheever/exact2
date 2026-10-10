@@ -1,0 +1,11 @@
+{
+ "//": "Trial sequences recorded from a verbatim copy of social-app src/lib/media/image/compress.ts (its loop, with renderImage replaced by `model`, the encoded size of a w x h image at quality q). LLP 1069.002 A1.2/A1.7: every host`s search must make these trials.",
+ "cases": [
+  {"name":"flat","width":3000,"height":2000,"maxDimension":4000,"maxBytes":70000,"model":"q*1000","trials":[[3000,2000,51],[3000,2000,76],[3000,2000,64],[3000,2000,70],[3000,2000,73],[3000,2000,72],[3000,2000,71]],"result":{"width":3000,"height":2000,"size":70000}},
+  {"name":"shrinks","width":6000,"height":4000,"maxDimension":4000,"maxBytes":1600000,"model":"floor(w*h/4)+q*1000","trials":[[4000,2666,51],[4000,2666,26],[3200,2133,51],[3200,2133,26],[2560,1706,51],[2560,1706,76],[2560,1706,89],[2560,1706,95],[2560,1706,98],[2560,1706,100]],"result":{"width":2560,"height":1706,"size":1191840}},
+  {"name":"unfit","width":4032,"height":3024,"maxDimension":4000,"maxBytes":1,"model":"w*h","trials":[[4000,3000,51],[4000,3000,26],[3200,2400,51],[3200,2400,26],[2560,1920,51],[2560,1920,26],[2048,1536,51],[2048,1536,26]],"result":null},
+  {"name":"small","width":800,"height":601,"maxDimension":4000,"maxBytes":30000,"model":"floor(w*h*q/1000)","trials":[[800,601,51],[800,601,76],[800,601,64],[800,601,58],[800,601,61],[800,601,63],[800,601,62]],"result":{"width":800,"height":601,"size":29809}},
+  {"name":"tower333","width":1000,"height":750,"maxDimension":333,"maxBytes":1,"model":"w*h","trials":[[333,249,51],[333,249,26],[266,199,51],[266,199,26],[212,159,51],[212,159,26],[169,126,51],[169,126,26]],"result":null},
+  {"name":"portrait","width":3024,"height":4032,"maxDimension":2000,"maxBytes":1000000,"model":"floor(w*h*q/250)","trials":[[1500,2000,51],[1500,2000,76],[1500,2000,89],[1500,2000,83],[1500,2000,86],[1500,2000,85],[1500,2000,84]],"result":{"width":1500,"height":2000,"size":996000}}
+ ]
+}

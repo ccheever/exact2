@@ -242,7 +242,10 @@ impl<D: DataSource> Bridge<D> {
         if let (Some(h), Some(x)) = (host.as_mut(), executor.as_deref()) {
             x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
-                x.resume_ordered();
+                for (ticket, reason) in x.resume_ordered() {
+                    h.refuse_request(ticket, reason, true);
+                    x.notify();
+                }
             }
             let admitted = h.grants();
             let mut presenter = crate::batch::Batch::new();
@@ -302,6 +305,8 @@ impl<D: DataSource> Bridge<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => x.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => x.run(r, None),
         };
         if let Err(reason) = result {
@@ -536,6 +541,9 @@ impl<D: DataSource> Bridge<D> {
                     )
                 });
                 if let Some(executor) = &executor {
+                    if let Some(roots) = host.app_roots() {
+                        executor.set_app_roots(roots);
+                    }
                     host.listen(executor.waker());
                 }
                 self.canvas_hooks(&mut host, &hooks);
@@ -884,6 +892,9 @@ impl<D: DataSource> Bridge<D> {
             )
         });
         if let Some(executor) = &executor {
+            if let Some(roots) = candidate.host.app_roots() {
+                executor.set_app_roots(roots);
+            }
             candidate.host.listen(executor.waker());
         }
         self.canvas_hooks(&mut candidate.host, &candidate.hooks);
@@ -1015,6 +1026,16 @@ impl<D: DataSource> Bridge<D> {
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
+
+    /// `exact_host_back`: the platform's own Back from visit `id` (LLP 1115
+    /// D5), a batch.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(h) => h.host_back(id, now_ms),
             None => not_booted(),
         };
         self.emit(out)

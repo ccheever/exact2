@@ -2,10 +2,12 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// The iOS agent at a world's canvas, on `SurfaceControlTests`' fixture.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class SurfaceControlIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// b6 review B6: a chord the iOS agent types at a world's canvas is split
     /// before the keyboard's route; nothing taking it, the world hears its key.
     func testAgentChordAtACanvasReachesTheWorldByItsKey() {

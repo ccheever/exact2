@@ -46,7 +46,13 @@ impl<D: DataSource> Presenter<D> {
         }
     }
     /// Paint a frame and publish its immutable pixels, hits and native source together.
+    /// Text-cache eviction waits for the paint's end
+    /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
+    /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        crate::text::cache::deferring_eviction(|| self.paint_frame())
+    }
+    fn paint_frame(&mut self) -> Arc<Pixmap> {
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);

@@ -90,7 +90,7 @@ describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
     // The window hides the notice once its own wall time passes undoUntil (app.contract).
     expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoUntil: NOW + 5000 });
     const app = await source('app.contract');
-    expect(app).toContain('send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + now() : n)');
+    expect(app).toContain('send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + performanceNow() : n)');
     expect(await source('client-ops-lanes.ts')).toContain("chatCommand(this, native, storage, op.slice(5), id, value, n)");
   });
 });

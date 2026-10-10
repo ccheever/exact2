@@ -132,6 +132,9 @@ pub struct Links<D: DataSource> {
     pub grammars: Grammars,
     /// The host's I/O; `None`, none (no request runs, nothing is kept).
     pub io: Option<IoLinks>,
+    /// What the motion engine plays: everything, or settled values only
+    /// when the plan animates nothing.
+    pub engine: &'static exact_motion::EngineLinks,
 }
 
 impl<D: DataSource> Clone for Links<D> {
@@ -141,6 +144,7 @@ impl<D: DataSource> Clone for Links<D> {
             device: self.device,
             grammars: self.grammars,
             io: self.io,
+            engine: self.engine,
         }
     }
 }
@@ -152,6 +156,7 @@ impl<D: DataSource> Links<D> {
         device: DeviceLinks::ALL,
         grammars: Grammars::ALL,
         io: Some(IoLinks::LINKED),
+        engine: &exact_motion::EngineLinks::ALL,
     };
 
     /// What `uses` needs; evaluated in a `const`, so nothing else is named.
@@ -194,6 +199,11 @@ impl<D: DataSource> Links<D> {
                 } else {
                     None
                 },
+                keyframes: if uses.has(Capability::Animations) {
+                    all.keyframes
+                } else {
+                    None
+                },
             },
             device: DeviceLinks {
                 auth: DeviceLinks::<D>::ALL.auth,
@@ -223,6 +233,18 @@ impl<D: DataSource> Links<D> {
                 Some(IoLinks::LINKED)
             } else {
                 None
+            },
+            // Anything that moves: a spring or a hold, a drag, keyframes, a
+            // timeline, or a transition CSS would play.
+            engine: if uses.has(Capability::Motion)
+                || uses.has(Capability::Drag)
+                || uses.has(Capability::Animations)
+                || uses.has(Capability::Timelines)
+                || uses.has(Capability::Transitions)
+            {
+                &exact_motion::EngineLinks::ALL
+            } else {
+                &exact_motion::EngineLinks::SETTLE
             },
         }
     }

@@ -21,9 +21,10 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
-  /* Press feedback is the node's own (`-exact-press-scale`, LLP 1061), as on UIKit,
-     where a pressable view shows none unless it declares one; mobile WebKit's
-     grey tap highlight would paint over it on every button and link. A
+  /* Press feedback is the node's own (`-exact-press-scale`, LLP 1061); a page
+     shows none unless it declares one (the iOS host dims an undeclared custom
+     pressable as UIKit does, LLP 1115, which a web page is not). Mobile
+     WebKit's grey tap highlight would paint over it on every button and link. A
      native button keeps a highlight as UIButton does: the input glue marks it
      `data-pressed` by the same rule as a press, and its face dims. */
   html { -webkit-tap-highlight-color: transparent; }
@@ -41,7 +42,9 @@
   select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
-     node; a run with an \`href\` stays inline in its paragraph. Markdown's own
+     node and inherits its colour; a run with an \`href\` stays inline in its
+     paragraph, and its colour is the compiler's unsaid \`LinkText\` row,
+     inline, so the browser's own link colour (LLP 1115 §3). Markdown's own
      links (never views) keep the UA's look. */
   #exact-root a[data-view] { color: inherit; text-decoration: none; cursor: default; display: block; }
   #exact-root [data-exact-text] a[data-view] { display: inline; }
@@ -49,7 +52,7 @@
      tree; its box is a bare div's, so the UA's heading margins, size and
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
-  #exact-root button:focus-visible,
+  #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
   #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was

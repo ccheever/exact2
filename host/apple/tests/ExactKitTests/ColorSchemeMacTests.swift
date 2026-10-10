@@ -8,6 +8,13 @@ import XCTest
 final class ColorSchemeMacTests: XCTestCase {
     private let pair: BatchValue = .array([.array([255, 255, 255, 255]), .array([0, 0, 0, 255])])
 
+    /// LLP 1115 D2: a page with no background shows the window's, which
+    /// follows Dark Mode, never a fixed white.
+    func testAnUnsetPageBackgroundIsTheWindowBackground() {
+        let p = Presenter()
+        XCTAssertEqual(p.pageBackground, .windowBackgroundColor)
+    }
+
     func testASubtreeResolvesInItsColorScheme() throws {
         let p = Presenter()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 402, height: 874), styleMask: [.borderless], backing: .buffered, defer: false)

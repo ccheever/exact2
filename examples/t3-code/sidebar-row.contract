@@ -207,12 +207,12 @@ component ThreadRow
                   when t.canWake
                     row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
                       SidebarTip(tip=`${t.hoverKey}#wake`, hoverCard=hoverCard)
-                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="alarm-clock-off", size=12, color=(hoverId == `${t.hoverKey}#wake` ? "light-dark(#27272a, #f1f3f7)" : tool))
                   when t.canUnsettle
                     row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
                       SidebarTip(tip=`${t.hoverKey}#unsettle`, hoverCard=hoverCard)
-                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="undo-2", size=14, color=(hoverId == `${t.hoverKey}#unsettle` ? "light-dark(#27272a, #f1f3f7)" : tool))
                   when not t.woke and not (hovering and (t.canWake or t.canUnsettle))
                     row align-items="center"
@@ -290,12 +290,12 @@ component SidebarCardActions
     row align-items="stretch"
       when t.draft
         SidebarTip(tip=`${t.hoverKey}#discard`, hoverCard=hoverCard)
-          button cursor="pointer" press=run("discard-draft", t.id, "") aria-label="Discard draft" testId=`discard-draft-${t.id}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          button cursor="pointer" press=run("discard-draft", t.id, "") aria-label="Discard draft" testId=`discard-draft-${t.id}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
             SidebarIcon(name="x", size=14, color=(hoverId == `${t.hoverKey}#discard` ? lit : tool))
       when t.canSnooze
         SidebarTip(tip=`${t.hoverKey}#snooze`, hoverCard=hoverCard)
           box position="relative" display="flex"
-            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
             KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)
       when t.canSettle
@@ -351,7 +351,7 @@ component SidebarPinButton
   derive hovered = hoverId == `${t.hoverKey}#unpin`
   view
     SidebarTip(tip=`${t.hoverKey}#unpin`, hoverCard=hoverCard)
-      button cursor="pointer" press=run("unpin", t.id, "") focus=focusPin(true) blur=focusPin(false) disabled=(busy or not t.canPin) aria-label=(t.canPin ? "Unpin thread" : "Pinned") testId=`unpin-${t.id}` width="0.75rem" height="0.75rem" padding=0 flex-shrink=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button cursor="pointer" press=run("unpin", t.id, "") focus=focusPin(true) blur=focusPin(false) disabled=(busy or not t.canPin) aria-label=(t.canPin ? "Unpin thread" : "Pinned") testId=`unpin-${t.id}` width="0.75rem" height="0.75rem" padding=0 flex-shrink=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         SidebarIcon(name=(t.canPin and (hovered or focused) ? "pin-off" : "pin"), size=12, color=(t.canPin and hovered ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717ba6, #a3a3a3a6)"))
 
 // "Woke" stays visible and pressable while the hover actions appear beside it.
@@ -445,11 +445,15 @@ component DraftCard
     hoverId: string
   derive hovering = hoverId == `draft:${d.id}` or startsWith(hoverId, `draft:${d.id}#`)
   // r12-sidebar: SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the menu at the row's
-  // bottom left. The row's own key handler hears both, with its modifiers (main's KeyboardEvent, 8a0afbeab).
+  // bottom left. The row's own key handler hears both, with its modifiers (main's KeyboardEvent, 8a0afbeab),
+  // and prevents both, so the host's ContextMenu default (exact2 #314) opens no second menu at its centre.
   action rowKey(k: string, e: KeyboardEvent)
     if e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10"
       preventDefault()
       run("row-key", `draft:${d.id}`, "Shift+F10")
+    else if k == "ContextMenu"
+      preventDefault()
+      run("row-key", `draft:${d.id}`, k)
     else
       run("row-key", `draft:${d.id}`, k)
   view
@@ -464,7 +468,7 @@ component DraftCard
           // the pointer survives the card's hover handing over to it.
           row height="1.25rem" min-width="1.25rem" justify-content="flex-end" align-items="center" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
             SidebarTip(tip=`draft:${d.id}#discard`, hoverCard=hoverCard)
-              button cursor="pointer" press=run("discard-project-draft", d.id, "") aria-label="Discard draft" testId=`discard-draft-${d.id}` height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              button cursor="pointer" press=run("discard-project-draft", d.id, "") aria-label="Discard draft" testId=`discard-draft-${d.id}` height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                 SidebarIcon(name="x", size=12, color=(hoverId == `draft:${d.id}#discard` ? "light-dark(#27272a, #f1f3f7)" : "light-dark(#71717b, #a3a3a3)"))
         text d.preview width="100%" margin-top="0.125rem" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272ae6, #f3f3f3e6)" line-clamp=1 text-align="left"
 
@@ -487,12 +491,14 @@ style SidebarMenuItem
   gap="0.5rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
 
 // handleThreadContextMenu as the rows' one context popover (LLP 1021 §5.1–5.2, exact2 #223):
-// macOS presents it as an NSMenu at the pointer with its submenus (Snooze, Auto-settle behavior,
-// Copy), check marks and the 12pt trash glyph, as ElectronMenu.ts shows the reference's; the web
-// and the agent paint it at the row, its submenus beside their rows. The row's `contextmenu`
-// names the thread first, so one popover serves every row. A selected row's is the bulk menu.
-// The keyboard's menu (ContextMenu, Shift+F10 at the focused row) is the module's: a context
-// popover opens only from the pointer (T3Sidebar.swift).
+// macOS presents it as an NSMenu with its submenus (Snooze, Auto-settle behavior, Copy), check
+// marks and the 12pt trash glyph, as ElectronMenu.ts shows the reference's; the web and the agent
+// paint it at the row, its submenus beside their rows. The row's `contextmenu` names the thread
+// first, so one popover serves every row. A selected row's is the bulk menu. A right click opens
+// it at the pointer; ContextMenu at the focused row is the host's default (exact2 #314): it runs
+// the row's `contextmenu` and opens this popover at the row's centre, as Chromium's keyboard
+// contextmenu does. Shift+F10 opens nothing on a thread row (Chromium on macOS). A draft row
+// (DraftCard) and a legacy row prevent that default and open their own menus.
 component ThreadMenu
   props
     threads: list<Thread>

@@ -116,7 +116,7 @@ component PrRowChecks
     control: action
   view
     column position="relative" flex-shrink=0 pointer-events="auto"
-      button press=control("quick-checks", rowRef) popovertarget=popId aria-label=label testId=`${popId}-trigger` width="0.875rem" height="0.875rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" cursor="pointer"
+      button press=control("quick-checks", rowRef) popovertarget=popId aria-label=label testId=`${popId}-trigger` width="0.875rem" height="0.875rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" cursor="pointer" title=""
         PgIcon(name=pqChecksIcon(checks), size=14, color=pqChecksTone(checks))
       // aria-modal: while it shows, its Escape is the popover's, not the page's Back (usage-and-pr-pages PG-7).
       row id=popId popover="auto" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`

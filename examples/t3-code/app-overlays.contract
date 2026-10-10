@@ -65,7 +65,7 @@ component ProjectPicker
             column gap="0.3125rem"
               each project in data.projects key=project.id
                 row gap="0.25rem" align-items="center"
-                  button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}`
+                  button press=manageProject(project.id, project.name, project.path) disabled=commandPending testId=`manage-project-${project.id}` class=Control aria-label=`Settings for ${project.name}` title=""
                     Icon(name="settings", size=16, color="light-dark(#71717a, #858585)")
                   button press=selectProject(project.id) disabled=commandPending testId=`project-${project.id}` padding="0.75rem" border-radius="0.5625rem" border-width=0 display="flex" flex-direction="column" align-items="flex-start" gap="0.25rem" width="100%" box-sizing="border-box" background-color=(project.selected ? "light-dark(#f0f2f8, #242424)" : "#00000000")
                     text project.name font-size="0.875rem" font-weight=500 class=Ink

@@ -93,7 +93,7 @@ component ProjectActionEditor
             text "Name" class=AeLabel
             row gap="0.5rem" align-items="center" position="relative"
               box position="relative"
-                button popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0
+                button popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title=""
                   CnScriptIcon(icon=icon, size=18, color="light-dark(#27272a, #f5f5f5)")
                 column id="action-icon-picker" popover="auto" position="absolute" margin-top="0.5rem" width="17rem"
                   row flex-wrap="wrap" gap="0.5rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" testId="action-icon-grid"
@@ -138,7 +138,7 @@ component ProjectActionEditor
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) disabled=busy display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" testId="action-save"
             text (busy ? "Saving…" : (editing ? "Save changes" : "Save action")) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-        button press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close"
+        button press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close" title=""
           CnGlyph(name="x", size=16, color="light-dark(#71717b, #818181)")
       when confirming
         column class=AeOverlay testId="action-delete-overlay"
@@ -179,5 +179,5 @@ component ActionSwitchRow
   view
     row width="100%" box-sizing="border-box" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" align-items="center" justify-content="space-between" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #00000000)" background-color="light-dark(#00000000, #ffffff09)" opacity=(enabled ? 1 : 0.6) testId=rowId
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-      button press=flip role="switch" aria-checked=checked aria-label=label disabled=(busy or not enabled) testId=`${rowId}-switch` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+      button press=flip role="switch" aria-checked=checked aria-label=label disabled=(busy or not enabled) testId=`${rowId}-switch` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
         box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"

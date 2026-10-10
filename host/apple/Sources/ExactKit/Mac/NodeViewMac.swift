@@ -235,6 +235,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
+        if isButton, !pressable, name == "Enter" || name == " " {
+            activateNative()
+            return
+        }
         if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
@@ -299,7 +303,17 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
     package override func resetCursorRects() {
         super.resetCursorRects()
-        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor); return }
+        // `cursor: auto` over a link is AppKit's pointing hand, as
+        // `NSTextView` shows over its links (LLP 1115 §3): a `link` node, and
+        // each `href` run of a paragraph.
+        if props["accessibilityRole"] == "link" || !(props["href"] ?? "").isEmpty {
+            addCursorRect(bounds, cursor: .pointingHand)
+            return
+        }
+        for run in inlineText where run.isLink && !run.hidden {
+            for rect in inlineRects(run) { addCursorRect(rect, cursor: .pointingHand) }
+        }
     }
     func syncHoverTracking() {
         let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
@@ -446,7 +460,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" {
-            let f = makeField(secure: false)
+            let f = makeField(.plain)
             addSubview(f)
             field = f
         }
@@ -771,10 +785,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// The field for an input: `NSSecureTextField` for `type="password"`
-    /// (the web's masking), a plain one otherwise; the same delegate,
-    /// borderless, the node paints its own box.
-    func makeField(secure: Bool) -> NSTextField {
-        let f = secure ? SecureField(frame: .zero) : Field(frame: .zero)
+    /// (the web's masking), `NSSearchField` for a native `type="search"`, a
+    /// plain one otherwise; the same delegate, borderless, the node paints
+    /// its own box.
+    func makeField(_ kind: FieldClass) -> NSTextField {
+        let f: NSTextField = switch kind {
+        case .secure: SecureField(frame: .zero)
+        case .search: SearchField(frame: .zero)
+        case .plain: Field(frame: .zero)
+        }
         f.isBordered = false
         f.isBezeled = false
         f.drawsBackground = false
@@ -887,21 +906,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         props = next
         if set["symbolEffectValue"] != nil { updateSymbol() }
         applyTextArea()
-        if let f = field {
-            // `type` changed between password and text: a secure field is a
-            // different class on AppKit, so the field is remade in place.
-            let secure = props["type"] == "password"
-            if (f is NSSecureTextField) != secure {
-                let n = makeField(secure: secure)
-                n.frame = f.frame
-                n.stringValue = f.stringValue
-                n.font = f.font
-                n.textColor = f.textColor
-                f.removeFromSuperview()
-                addSubview(n)
-                field = n
-            }
-        }
+        remakeFieldIfNeeded()
         if let f = field {
             if let v = props["value"] {
                 // While the field is being edited its field editor holds the
@@ -1096,7 +1101,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         styleTextArea()
         if let f = field, let t = text {
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()
@@ -1443,10 +1448,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        let menu = !disabled && props["contextPopover"]?.isEmpty == false // and its popover's NSMenu (LLP 1021 §5.1)
-        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line) }
-        if menu { presenter?.menus.context(self, at: convert(event.locationInWindow, from: nil)) }
-        if menu || (!disabled && handlers.contains("contextmenu")) { return }
+        if dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
         if !canvas { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {

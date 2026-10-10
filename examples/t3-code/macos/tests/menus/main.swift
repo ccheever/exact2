@@ -503,6 +503,58 @@ final class MenuTests: XCTestCase {
         keys.menuNeedsUpdate(edit)
         XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
     }
+    /// The host's Edit and Help since LLP 1115 D8 (DevMenuMac.swift): Xcode's template, which DesktopApplicationMenu.ts's
+    /// Edit lacks, and a Help menu with the help-book item (adopt-main-fixes-r7).
+    func testTheHostTemplateEditAndHelpShowOnlyTheReferenceItems() {
+        _ = NSApplication.shared
+        let bar = NSMenu(), edit = NSMenu(title: "Edit"), command = ShortcutHost()
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let matchStyle = edit.addItem(withTitle: "Paste and Match Style", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
+        matchStyle.keyEquivalentModifierMask = [.command, .option, .shift]
+        edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        // Find, with the app's ⇧⌘G (the branch picker) standing in Find Previous's place (ShortcutsMac placeEdit).
+        let find = NSMenu(title: "Find")
+        find.addItem(withTitle: "Find…", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "f")
+        let branch = NSMenuItem(title: "Branch", action: #selector(ShortcutHost.fire(_:)), keyEquivalent: "g"); branch.target = command
+        branch.keyEquivalentModifierMask = [.command, .shift]
+        find.addItem(branch)
+        let selection = find.addItem(withTitle: "Use Selection for Find", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "e")
+        edit.addItem(withTitle: "Find", action: nil, keyEquivalent: "").submenu = find
+        for title in ["Spelling and Grammar", "Substitutions", "Transformations"] { edit.addItem(withTitle: title, action: nil, keyEquivalent: "").submenu = NSMenu(title: title) }
+        let speech = NSMenu(title: "Speech")
+        speech.addItem(withTitle: "Start Speaking", action: nil, keyEquivalent: "")
+        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
+        bar.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
+        let help = NSMenu(title: "Help")
+        let book = help.addItem(withTitle: "T3 Code Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?")
+        bar.addItem(withTitle: "Help", action: nil, keyEquivalent: "").submenu = help
+        let menus = T3Menus()
+        menus.updatesDisabledReason = { "Automatic updates are not available because no update feed is configured." }
+        menus.augment(bar)
+        menus.augment(bar)
+        let shown = { (menu: NSMenu) in menu.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
+        XCTAssertEqual(shown(edit), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Delete", "—", "Select All", "—", "Speech"])
+        XCTAssertTrue(matchStyle.isHidden)
+        XCTAssertFalse(matchStyle.allowsKeyEquivalentWhenHidden, "⌥⇧⌘V is no item in the reference")
+        XCTAssertTrue(branch.allowsKeyEquivalentWhenHidden, "⇧⌘G still reaches the branch picker from Find")
+        XCTAssertFalse(selection.allowsKeyEquivalentWhenHidden, "the host's own ⌘E stays out with its menu")
+        let before = ShortcutHost.fired
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0, windowNumber: 0, context: nil,
+                                   characters: "G", charactersIgnoringModifiers: "g", isARepeat: false, keyCode: 5)!
+        XCTAssertTrue(bar.performKeyEquivalent(with: key), "a hidden Find still answers the app's chord")
+        XCTAssertEqual(ShortcutHost.fired, before + 1)
+        // DesktopApplicationMenu.ts's Help: Check for Updates... alone; the help book is not offered.
+        XCTAssertEqual(shown(help), ["Check for Updates..."])
+        XCTAssertTrue(book.isHidden)
+        XCTAssertFalse(book.allowsKeyEquivalentWhenHidden, "⇧⌘/ stays AppKit's help search")
+    }
     func testCheckForUpdatesJoinsTheAppAndHelpMenus() {
         _ = NSApplication.shared
         let bar = NSMenu()
@@ -636,9 +688,9 @@ let suite = XCTestSuite(name: "Menus")
 suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 45 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 46 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
 /// The host's command target (ExactKit's ShortcutHost), named as R8KeysMenus finds it.
-final class ShortcutHost: NSObject { @objc func fire(_ sender: Any?) {} }
+final class ShortcutHost: NSObject { nonisolated(unsafe) static var fired = 0; @objc func fire(_ sender: Any?) { Self.fired += 1 } }

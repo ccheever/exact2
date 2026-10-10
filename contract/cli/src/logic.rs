@@ -130,10 +130,16 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
                 .is_some_and(|module| !module.is_empty()));
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
-    // A grouped list is its authored nodes on the web (LLP 1047.001 D2).
+    // A grouped list is its authored nodes on the web, and the browser does
+    // its own I/O and plays CSS's transitions (LLP 1047.001 D2).
     let names: Vec<&str> = uses
         .iter()
-        .filter(|c| !matches!(c, Capability::GroupedLists | Capability::Io))
+        .filter(|c| {
+            !matches!(
+                c,
+                Capability::GroupedLists | Capability::Io | Capability::Transitions
+            )
+        })
         .map(|c| c.name())
         .chain(["inspection"])
         // A colour row's text, literal or a template's piece, names one in
@@ -178,7 +184,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Tabs
             | Capability::Notifications
             | Capability::GroupedLists
-            | Capability::Io => {}
+            | Capability::Io
+            | Capability::Transitions => {}
         }
     }
     entry

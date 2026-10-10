@@ -10,22 +10,6 @@ guide's rules don't make obvious.
 
 ## Layout
 
-- **A numeric `height` transition jumps on macOS.** Apple's automatic height
-  ownership requires a border-box node with `interpolate-size="allow-keywords"`,
-  including numeric endpoints. Use both on the clipping parent, for example
-  `box-sizing="border-box" interpolate-size="allow-keywords" height=(open ? 280 : 0)
-  transition="height 400ms ease-out"`. A fixed-height child then retains its grid
-  while the parent animates. A standalone macOS probe measured 105.88 pt at 100 ms
-  and continuous reversal. (Terminal parity, framework height code identical to
-  `origin/main` `a72661fd4`, 2026-10-07; `host/apple/src/height.rs`.)
-
-- **A one-edge border draws a 3 px frame, or a closed panel stays 3 px tall.**
-  `border-style="solid"` enables every edge; unspecified widths retain CSS's
-  `medium` default. Set `border-width=0` before the intended edge, for example
-  `border-width=0 border-top-width=1 border-style="solid"`. The terminal drawer
-  measured 3 px when its declared height was zero, and its panes lost 6 px to
-  unintended side borders. (T3 Code macOS terminal parity, 2026-10-06.)
-
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -54,9 +38,18 @@ guide's rules don't make obvious.
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
-  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: add
-  `object-fit="contain"` to every symbol with a `width`/`height`. (Signal Clone,
-  2026-10-02.)
+  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
+  it follows its text (in a button, tab or bar item, its title's font; give it a
+  `font-size` if it must differ; a native button refuses its symbol's `width` and
+  `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
+  Clone, 2026-10-02.)
+- **In dark mode the navigation title and status bar turn white on a light page.**
+  Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
+  while the system is dark, so UIKit's bars and the platform's colours go dark
+  around it. Fix: leave the background unsaid (the platform's, LLP 1115), or, for a
+  deliberately light-only design, write `color-scheme="light"` on the root, which
+  holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
+  2026-10-09.)
 - **On iOS the whole window scrolls when the keyboard opens, and the header goes
   with it.** Cause: without `interactive-widget`, the root is not resized for the
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
@@ -70,6 +63,13 @@ guide's rules don't make obvious.
   percent that also has padding or a border (`exact new`'s template does), and
   `min-width=0` on a `flex=1` input in a row. Look at a screenshot on each host.
   (Fresh-agent README trial, 2026-10-04.)
+
+- **A list of buttons is ragged: each is only as wide as its text.** A `button`
+  directly in a `scroll` or another block container shrinks to fit, so a row's
+  `flex-grow` title never grows and its trailing columns sit right after it.
+  Cause: as on the web, a button is `inline-block`; only a flex item, or one given
+  a width, fills its line. Fix: `width="100%"` on the button, or put the rows in
+  a `column`. (The LLP terminal reader's document tree, 2026-10-08.)
 
 - **A raised `z-index` leaves a dragged card under the next column.** A card at
   `position="relative" z-index=10`, dragged over a neighbouring column, paints
@@ -145,10 +145,23 @@ guide's rules don't make obvious.
   frame. (Signal Clone, build 2.)
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
-  key, never as the clock moves: so a gate cannot read `now()` (refused), and the
-  `after`'s action runs at its deadline exactly, `now()` equal to it. An action
-  that re-tests `now() > toastUntil` there does nothing and the toast stays up
+  key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
+  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
+  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **An "on return" task also runs at every launch.** Cause: a gated task arms
+  when its gate becomes true and at boot when it is already true (LLP 1092 D8),
+  and the page is `visible` at launch: `task returned when page.visibilityState
+  == "visible"` with `after(1, onVisible)` runs `onVisible` once at launch and
+  once after each return from the background. A gate follows a state; it is not
+  an event. Fix: have the action skip its own first run (`if launched` … then
+  `launched = true`); it then hears every return. To keep the run out of the
+  launch as well, latch the hide (`task hid when page.visibilityState ==
+  "hidden"` with `after(1, markHidden)` setting `wasHidden`) and gate the return
+  on `wasHidden and page.visibilityState == "visible"`, clearing `wasHidden` in
+  its action: that misses a return which lands before the hide's timer has fired
+  (`prefer visibility-state hidden` then `visible` with no clock step between).
+  (Web and iOS simulator, 2026-10-06.)
 
 - **A custom row in a grouped list overflows its card on the right.** Cause:
   the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
@@ -185,18 +198,17 @@ guide's rules don't make obvious.
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
   Fix: in a test or drive put `clock settle` between drags. Showing the move in
-  the drop's own commit (the board in state the action writes, saved through the
-  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  the drop's own commit (an `overlay` on the cards' source, or the board in state the
+  action writes, saved through the mutation) only removes the wait for storage, which
+  shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
-  by the root's `navigationBack`; with no such enabled control in the active route
-  it is refused (the log says "back gesture refused"). Fix: `navigationBack="back"`
-  on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
-  **Candidate diagnostic:** the compiler could warn on a stacked route with no
-  control of that id.
+  by the root's `navigationBack`, and a route that declares one that is disabled
+  refuses it (the log says "back gesture refused" and why). A route with no such
+  control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -208,19 +220,22 @@ guide's rules don't make obvious.
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
-  dismissal refused: no enabled navigationBack control in the active route").
-  Cause: as for edge-swipe back, the swipe presses the control named by the root's
-  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
-  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
-  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
-  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+  dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
+  control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
+  control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
-  grouped list). Fix: the native Contract forms
+  grouped list), and values copied from a screenshot: Apple's system colours as hex
+  (`#8e8e93`, `#007aff`, `#f2f2f7`), headings as `font-size=34 font-weight=700`, a
+  large title or a search bar painted in the content. Each is a tell: it misses dark
+  mode, Increased Contrast and the next iOS. Fix: the native Contract forms
   ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
-  native controls"); a hand-built lookalike of a system control is a bug. Match a
-  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
-  2026-10-04.)
+  native controls"): a `header` with a `role="heading" aria-level=1` (the large
+  title) and an `input type="search"` (the bar's search field); a colour role
+  (`-exact-secondary-label`, `AccentColor`, `-exact-grouped-background`) or nothing
+  where you would write a hex. A hand-built lookalike of a system control is a bug.
+  Match a reference's structure and controls, not its pixels. (Exact-new iOS app
+  feedback, 2026-10-04; LLP 1115.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -246,7 +261,7 @@ guide's rules don't make obvious.
 - **`role="alertdialog"` refuses a dialog laid out in a `column`.**
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
-  1021: iOS's sheet, macOS's menu), whose rows can only be text, buttons that
+  1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
   close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
   aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
   (x2apps onboarding's Delete account?, 2026-10-04.)
@@ -271,15 +286,14 @@ guide's rules don't make obvious.
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
 
-- **An empty date input can still show a date on iOS.** `input type="date" value=""`
-  draws a date in the `UIDatePicker`, which has no empty state: today in a new picker,
-  the last date in one whose value was cleared (`time` and `datetime-local` share the
-  picker), while the bound value, `state` and `tree` stay `""` until the person picks. Fix: when the value is empty,
-  show the field's emptiness yourself (a "Not set" label beside it), and validate
-  the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
-  2026-10-05.)
-
 ## Actions
+
+- **An `every(N, …)` task does not fire at mount.** Its first tick comes `N` ms
+  after it starts, so state it fills is empty until then, after a test `reload`
+  too: a "today" label or a comparison against it reads the stale or empty
+  value. Fix: compute the value in a derive (from the `exactTime` source's
+  `time.epochAtZero + performanceNow()`), or set it in the mount action, and let
+  the task only refresh it. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-08.)
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
   strings, not only keys: grant `secret.keep <name>` and use
@@ -302,7 +316,7 @@ guide's rules don't make obvious.
   (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
   bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
-  from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
+  from the call's arguments (the Contract's `wallTime.epochAtZero + performanceNow()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
 - **A helper action does not see what its caller just assigned.** `sel = next`
@@ -343,8 +357,8 @@ guide's rules don't make obvious.
 - **A sequence's first hit is late when the first timer tick plays it.** A
   gated or new `every(25, tick)` first fires 25 ms after it starts, so a downbeat
   left to the tick is 25 ms late. Fix: schedule the first window from the press
-  itself (`playSounds(hitsBetween(song, now(), now() + 100))` in the start
-  action), then each tick the next (`[scheduledTo, now() + 100)`). (Drums; LLP
+  itself (`playSounds(hitsBetween(song, performanceNow(), performanceNow() + 100))` in the start
+  action), then each tick the next (`[scheduledTo, performanceNow() + 100)`). (Drums; LLP
   1096 D3.)
 
 ## Media session
@@ -365,6 +379,14 @@ guide's rules don't make obvious.
   1098 D8.)
 
 ## Input
+
+- **A keyboard shortcut does nothing.** Two causes, both as on the web.
+  `aria-keyshortcuts` belongs to a node that must be on the screen: a button with
+  `display="none"` (a "hidden" shortcut holder) is not, so its key never fires; give
+  the key a visible control (a status line of keys, as the LLP reader's) or handle
+  it in a `key=` handler. And Shift is part of the shortcut: `n` is the unshifted
+  key, a capital `N` is `Shift+N`, so write `aria-keyshortcuts="Shift+N"` for it (in
+  a terminal too, where a typed capital is reported as `Shift+N`).
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a
   state change replaced during the hold; the up is not delivered to a node that no
@@ -391,6 +413,12 @@ guide's rules don't make obvious.
   value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
   codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
   13.)
+- **A field's `change` fires when a tap elsewhere blurs it.** A dialog that adds
+  a word on `change` adds it the moment the person taps a duration or another
+  control, before they meant to submit. Cause: `change` is the commit event, and
+  a text field commits on Enter and on blur, as in HTML. Fix: submit on `submit`
+  (Return, a form's button) and keep `change` for normalizing the draft.
+  (The Bluesky clone's muted words dialog, 2026-10-08.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -408,9 +436,13 @@ guide's rules don't make obvious.
   out and checked only when the refreshed answer lands, so a slow store shows no tick,
   and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
   macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
-  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
-  `send`), and seed that state from the saved record as a form does. (Authoring bench,
-  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+  the answer. Fix: give the mutation `refreshes form` and export an `overlay` that lays
+  the pending save over `form`'s answer (the agent guide's "Optimistic writes: the
+  overlay"), so `form.terms` reads the new value from the click until the refreshed
+  answer has it; or bind the box to state the
+  action writes at once (`terms = value`, then `send`), seeded from the saved record as
+  a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
+  checked on the web with a save that never answers, 2026-10-09.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -491,30 +523,59 @@ guide's rules don't make obvious.
   flight. Fix: await the write before answering, or carry it in a
   request of its own that the view sends (a `flush` source called with the change).
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
+- **`showPicker("x")` names the input's `id`, not its `testId`.** With only
+  `testId="x"` the press opens no picker, and a drive's `type @x photo.jpg`
+  answers `no held device request … (held: none)`. Fix: give the
+  `input type="file"` both, `id="x" testId="x"`. (Interview's profile photo,
+  LLP 1108, 2026-10-08.)
 
 ## Driving and testing
 
-- **Physical IME input differs in a macOS agent window.** `EXACT_AGENT=1`
-  launches a non-activating accessory app. Its window can be key and its textarea
-  AX-focused while another process remains the foreground application. In that
-  state, a terminal probe received the first Korean syllable as separate Jamo;
-  a fresh terminal in a normally launched, active app composed it correctly.
-  For physical keyboard acceptance, use the normal app and verify both
-  `NSApp.isActive` and the foreground PID before asking someone to type. A key
-  window or successful synthetic input alone is insufficient. Keep other test
-  windows hidden and name the visible app. (T3 terminal parity, 2026-10-07.)
+- **Asserting a boot loading state against a live backend is a race.** The
+  real reply lands on real time, and under load it can arrive before the first
+  `expect`, so `expect tree has "loading"` passes once and fails once. Assert
+  loading against a stand-in server that answers late, never by racing the real
+  one; `fail fetch` (LLP 1103) tests the error state and its retry, not loading.
+  (Authoring bench, LLP 1087, t3-recipes, Studio, 2026-10-08.)
+
+- **On the web, a save still in flight when the tab closes is lost.** A
+  `storage.fs` write is one IndexedDB transaction, and the browser drops a
+  transaction still running when the page goes away (an immediate close after
+  Enter lost it 4 of 4 times; native hosts finish it, LLP 1097 D10). In a test,
+  let saves land (`clock data`, or wait for the saved state) before `reload`,
+  `relaunch` or closing. In the app, show a saving state until the write
+  resolves. (Authoring bench, LLP 1087, t5-pomodoro on the Android round,
+  2026-10-08.)
+
+- **A test fixture that patches `window.fetch` after boot changes nothing.** A
+  data source's `fetch` is captured when the data module loads, so a stub
+  installed later (a browser script's `page.evaluate`, a console patch) never
+  sees its requests. Fix: to test a failure, `fail fetch "<url prefix>"` (the
+  guide's testing section); a fixture that must stand in for the network
+  installs its stub before the document loads (`addInitScript`) or serves a
+  stand-in server. (Authoring bench, LLP 1087, t8-library, codex, 2026-10-08.)
+
 - **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
   several simulators booted, `booted` names any one of them, not the one the
   app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
   the agent's own `screenshot`, which targets the app's simulator. (Authoring
   bench, LLP 1087, t9-profile, 2026-10-07.)
 
+- **`axe tap` misses on an exact2 app about one time in three.** Its default
+  style (FBSimulator `tapAt`) sometimes lands as nothing: a mute button toggled
+  1 of 3, a drawer button did not open, and the app looked frozen until
+  relaunched. Fix: `axe tap … --tap-style physical` (a real touch down and up),
+  which hit 6 of 6; or drive by `testId` with the agent. (Bluesky clone, b12,
+  2026-10-08.)
+
 - **Records an agent drive writes are dated 2026-01-01.** The driver's clock
-  starts at a fixed epoch, so `wallTime.epochAtZero + now()` is that date, and a
+  starts at a fixed epoch, so `wallTime.epochAtZero + performanceNow()` is that date, and a
   `createdAt` taken from it is too: Bluesky's AppView then sorted the clone's
   test posts out of the author feed, and they turned up only through search.
-  Fix: `--epoch $(date -u +%Y-%m-%dT%H:%M:%SZ)` on any drive that writes to a
-  real service. (Bluesky clone, b12, 2026-10-07.)
+  Fix: `--epoch now` (the machine's clock, read once at launch; a test file's
+  `epoch now`) on any drive or test that talks to a real service, `snapback4 dev`
+  included: a backend on real time otherwise sees the app's dates months early
+  ("Due in 403783 min"). (Bluesky clone, b12, 2026-10-07; app farm round 2.)
 
 - **`screenshot` of a sheet is the sheet alone, at full width.** On iOS it
   captures the presented route (a fit-content repost sheet came out 402 × 270
@@ -618,6 +679,7 @@ guide's rules don't make obvious.
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
   file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
+  Against a live backend, `--epoch now` (`epoch now`) instead.
 - **A simulator measurement shows a 100–200 ms stall the app never makes.** A
   plain launch's frames hold 16.7 ms, but a run driven with `axe` shows one
   stall with no batch applied about 0.4 s after `axe` first reads the screen
@@ -850,3 +912,20 @@ guide's rules don't make obvious.
   Keep the words the node was last told with and act only when they differ.
   Found building the fixture's Linux hatches (§13.13): the pressing hatch
   pressed itself forever once its label grew a digit.
+
+- **A background, border or radius makes a default button your own box.**
+  Rich children and rows the native button refuses do too, including on one
+  conditional arm or through a class. `buttonStyle` then refuses with
+  `lower-button-style` and says why. Remove the named reason to keep the
+  platform's button, or write `appearance="none"` without `buttonStyle` for
+  your own box. Explicit `appearance="auto"` admits a radius as a native
+  content field but refuses backgrounds, borders and unsupported children.
+  (LLP 1104 r10 D1, D2.)
+
+- **A projected segmented control can widen after its tabs become native
+  buttons.** The projection supplies the tablist's minimum height and fills
+  its content box; the authored children still decide that box's width.
+  Native button insets then contribute even though the segmented control
+  draws the face. If the row was designed around bare text tabs, write
+  `appearance="none"` on those tabs. Native Fixture's header needed this
+  after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)
