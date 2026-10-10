@@ -1,0 +1,23 @@
+realinput-1010e-followups RE-4: the focus after Cancel by the pointer in the browser import wizard (2026-10-10)
+
+Reference over CDP (T3 Code 1e2ecbd975, lane realinput-1010e-followups with realinput-1010c-fixes' browser fixture in its
+HOME): Settings > Integrations, a click on Add profile, a click on Chrome, a click on Cancel (Playwright's mouse):
+  Add profile clicked (menu open)    focus DIV "Blank profile / Import from / Chrome / Brave / A"
+  Chrome chosen (wizard open)        focus BUTTON "Personal / 5 cookies"
+  Cancel clicked                     focus BUTTON "Add profile"
+  Escape after cancel                focus DIV[Message] "x now" (focus-visible)
+  url after Escape                   t3code://app/#/draft/24180fea-f6ba-440d-98f2-2c373b0e7dba
+
+So the reference gives the focus back to Add profile, whose menu opened the wizard (no ring after a pointer press; the
+next Escape closes Settings, as in the clone).
+
+Clone, agent drives (same steps, 1280x840, T3_BROWSER_IMPORT_HOME = the fixture): 'tap browser-profiles-add',
+'tap browser-import-source-chrome', 'tap browser-import-cancel mouse', then 'state' (its focus):
+  before (feature tip 4c13b440f): focus {"responder": null, "editor": null, "pending": null, "logical": null}; Add profile is node 2204
+  after  (this branch, the live drive): focus {"editor": null, "pending": null, "responder": "NodeView", "logical": 2172}; Add profile is node 2172
+
+After: app.contract task importWizardFocus / action importWizardFlip: when the wizard's open state goes from true to false,
+focus("browser-profiles-add") (the button now has that id), so every way out (Cancel, Escape, Close, the X) ends there.
+In agent mode AppKit draws no focus ring (the window is never key, docs/agent-pitfalls.md), so the two screenshots match.
+
+Bun test realinput-1010e-followups.test.ts: with 4c13b440f's sources 0 pass, 2 fail (RE-4 and RE-5); now 2 pass.
