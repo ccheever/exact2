@@ -9,7 +9,7 @@ import { letGo, letGoAware } from './shared/let-go';
 import { fileStagingLimit } from './shared/composer-editor-files';
 import { contextLabel, contextLink } from './shared/composer-editor-menu';
 import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteContent,
-  queuedEditNative, queuedEditReplaceAttachments, queuedEditState, type MobileQueuedEditAttachment } from './queued-edit-state';
+  queuedEditNative, queuedEditReplaceAttachments, queuedEditSessionNoticeOwner, queuedEditSetNotice, type MobileQueuedEditAttachment } from './queued-edit-state';
 import { mobileComposerStageSelection } from './voice-data';
 import { mobileComposerTarget } from './composer-target';
 import { queuedEditImageMime } from './queued-edit-upload';
@@ -103,6 +103,6 @@ export async function mobileQueuedEditAttachmentAction(source: string, id: strin
     }
     if (letGo(error)) throw error;
     const message = error instanceof Error ? error.message : 'Could not attach files.';
-    queuedEditState(client).notice = message; return result(message);
+    queuedEditSetNotice(client, message, queuedEditSessionNoticeOwner(edit)); return result(message);
   } finally { picking.delete(client); client.revision++; }
 }
