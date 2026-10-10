@@ -1,0 +1,665 @@
+adopt-main-fixes-r7, review round 1 (2026-10-10): evidence for PR #384
+
+§1 Base drift: merge of feat(example)/t3-code b731bdb39
+$ git merge-tree --write-tree 70de0e1cf b731bdb39   (before the merge)
+31cfb28665b156336e7bd859eff3eb96c429c181
+100644 38e20d1d4076e9d60bf192f37e4567fddd56d9b0 1	examples/t3-code/snapshot.contract
+100644 e902ab8267c166a773a52038282ff90fe6be3fd6 2	examples/t3-code/snapshot.contract
+100644 39affd581ab4cd05f76ec0154abe03db4c385cb2 3	examples/t3-code/snapshot.contract
+
+Resolution (4a7c53051): #383's two lines (hover/focus/blur handlers added) with title="" appended:
+  snapshot.contract:207 ... testId="snapshot-play-whoosh" title=""
+  snapshot.contract:212 ... testId="snapshot-play-click" title=""
+#383 adds no now() call: git diff ec6f9bf1c b731bdb39 -- examples/t3-code | grep '^+' | grep -c 'now()' -> 0
+git merge-base --is-ancestor b731bdb39 HEAD -> yes
+
+§2 Help tags by the host's rule (PresenterMac.propsChanged/settleTips, Accessibility.swift accessibleText/authoredLabel)
+== help-tags.test.ts (this head's guard) on each tree: labelled button/link sites with no title whose mounted, not aria-hidden children may give no text
+-- b731bdb39
+error: 342 labelled buttons without title="" may show their label as a help tag:
+app-main.contract:342 aria-label="Toggle right panel" (text: never)
+app-overlays.contract:68 aria-label=`Settings for ${project.name}` (text: never)
+app-settings.contract:297 aria-label="Close menu" (text: never)
+auto-balance.contract:29 aria-label=notice.menuLabel (text: sometimes)
+browser-automation.contract:16 aria-label=(audio == "muted" ? `Unmute ${title}` : `Mute ${title}`) (text: never)
+browser-defaults.contract:70 aria-label=`Reset ${resetLabel} to default` (text: never)
+browser-defaults.contract:172 aria-label=view.rotateLabel (text: never)
+browser-profiles.contract:170 aria-label=`${row.name} options` (text: never)
+browser-profiles.contract:323 aria-label="Close" (text: never)
+browser-stage.contract:155 aria-label=`${label}. Use arrow keys to resize.` (text: never)
+browser-stage.contract:255 aria-label=(view.aspectLocked ? "Unlock viewport aspect ratio" : "Lock viewport aspect ratio") (text: never)
+browser-stage.contract:258 aria-label="Rotate viewport" (text: never)
+browser-stage.contract:261 aria-label="Close device toolbar" (text: never)
+browser-surface.contract:176 aria-label=label (text: never)
+browser-surface.contract:196 aria-label="Open in system browser" (text: never)
+browser-surface.contract:226 aria-label="Preview menu" (text: never)
+browser-surface.contract:291 aria-label=label (text: never)
+browser-surface.contract:392 aria-label=entry.removeLabel (text: never)
+browser-surface.contract:517 aria-label="Open browser in a profile" (text: never)
+browser-surface.contract:576 aria-label="Open browser in a profile" (text: never)
+chat.contract:58 aria-label="Toggle sidebar" (text: never)
+chat.contract:76 aria-label=`Thread actions for ${data.threadTitle}` (text: sometimes)
+chat.contract:92 aria-label="Toggle thread details panel" (text: never)
+chat.contract:100 aria-label="Toggle terminal drawer" (text: never)
+chat.contract:104 aria-label="Toggle right panel" (text: never)
+chat.contract:136 aria-label=data.providerBannerDismiss (text: never)
+chat.contract:145 aria-label="Dismiss error" (text: never)
+codex-setup.contract:377 aria-label="Close" (text: never)
+composer-controls.contract:195 aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) (text: sometimes)
+composer-controls.contract:250 aria-label=aria (text: sometimes)
+composer-controls.contract:279 aria-label="Runtime mode" (text: sometimes)
+composer-controls.contract:300 aria-label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode") (text: sometimes)
+composer-controls.contract:320 aria-label="More composer controls" (text: never)
+composer-controls.contract:365 aria-label="Attach files" (text: never)
+composer-controls.contract:399 aria-label=data.composer.contextAria (text: never)
+composer-controls.contract:411 aria-label="Implementation actions" (text: never)
+composer-controls.contract:416 aria-label="Stop generation" (text: never)
+composer-controls.contract:422 aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread") (text: never)
+composer-controls.contract:427 aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") (text: never)
+composer-controls.contract:501 aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") (text: never)
+composer-controls.contract:604 aria-label="Close options" (text: never)
+composer-controls.contract:855 aria-label="Reorder queued message (drag, or press the arrow keys)" (text: never)
+composer-controls.contract:881 aria-label="Edit queued message" (text: never)
+composer-controls.contract:887 aria-label="Remove queued message" (text: never)
+composer-controls.contract:1005 aria-label=notice.dismissLabel (text: never)
+composer-controls.contract:1110 aria-label="Show other notices" (text: never)
+composer-controls.contract:1112 aria-label="Hide other notices" (text: never)
+composer-editor.contract:285 aria-label="Delete stashed prompt" (text: never)
+composer-editor.contract:351 aria-label=`Remove ${name}` (text: never)
+composer-editor.contract:354 aria-label=`Remove ${name}` (text: never)
+composer.contract:141 aria-label=`Remove ${item.name}` (text: never)
+connections-network-dialogs.contract:75 aria-label="Close" (text: never)
+connections-network.contract:135 aria-label=label (text: never)
+connections-routes.contract:145 aria-label=`Remove ${route.label} route` (text: never)
+connections.contract:251 aria-label="More actions for this machine" (text: never)
+connections.contract:258 aria-label="Local environment" (text: never)
+connections.contract:345 aria-label=`${environment.update} for ${environment.label} server` (text: never)
+connections.contract:350 aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` (text: never)
+connections.contract:355 aria-label=`More actions for ${environment.label}` (text: never)
+connections.contract:570 aria-label="Close" (text: never)
+diff-comments.contract:63 aria-label="Delete comment" (text: never)
+diff-rows.contract:28 aria-label=label (text: never)
+diff-rows.contract:105 aria-label=`${item.expanded ? "Collapse" : "Expand"} ${item.path}` (text: never)
+diff-rows.contract:110 aria-label="Copy file path" (text: never)
+diff-rows.contract:176 aria-label=`Comment on line ${line}` (text: never)
+diff.contract:183 aria-label="Stacked diff view" (text: never)
+diff.contract:188 aria-label="Split diff view" (text: never)
+diff.contract:218 aria-label="Close diff scope menu" (text: never)
+diff.contract:361 aria-label="Close comparison target" (text: never)
+diff.contract:396 aria-label=`Use remote version of ${ref.label}` (text: never)
+legacy-sidebar.contract:89 aria-label="Toggle sidebar" (text: never)
+legacy-sidebar.contract:112 aria-label="Add project" (text: never)
+legacy-sidebar.contract:130 aria-label="Settings" (text: never)
+legacy-sidebar.contract:134 aria-label="Pull Requests" (text: never)
+legacy-sidebar.contract:137 aria-label="Usage" (text: never)
+legacy-sidebar.contract:175 aria-label="Sidebar options" (text: never)
+legacy-sidebar.contract:231 aria-label="Decrease visible thread count" (text: never)
+legacy-sidebar.contract:234 aria-label="Increase visible thread count" (text: never)
+legacy-sidebar.contract:280 aria-label=p.newThreadLabel (text: never)
+legacy-sidebar.contract:372 aria-label=`Archive ${t.title}` (text: never)
+markdown.contract:401 aria-label="Toggle task" (text: never)
+markdown.contract:738 aria-label="Run in terminal" (text: never)
+markdown.contract:741 aria-label=(wrap ? "Disable line wrap" : "Wrap lines") (text: never)
+markdown.contract:793 aria-label=(wrap ? "Disable line wrap" : "Wrap lines") (text: never)
+markdown.contract:805 aria-label="Expand diagram" (text: never)
+markdown.contract:838 aria-label=label (text: never)
+markdown.contract:864 aria-label="Copy code" (text: never)
+markdown.contract:975 aria-label=label (text: never)
+markdown.contract:1006 aria-label="Copy table" (text: never)
+model-picker.contract:78 aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") (text: never)
+model-picker.contract:189 aria-label="Dismiss model picker" (text: never)
+model-picker.contract:197 aria-label="Favorites" (text: never)
+model-picker.contract:203 aria-label=provider.label (text: sometimes)
+pages-hero.contract:191 aria-label="Toggle sidebar" (text: never)
+pages-pr-actions.contract:163 aria-label=label (text: sometimes)
+pages-pr-actions.contract:221 aria-label=actions.moreLabel (text: never)
+pages-pr-code.contract:268 aria-label=label (text: never)
+pages-pr-code.contract:375 aria-label=(item.expanded ? "Collapse diff" : "Expand diff") (text: never)
+pages-pr-code.contract:398 aria-label=(mark == "changed" ? "Changed" : "Viewed") (text: never)
+pages-pr-compose.contract:169 aria-label=label (text: never)
+pages-pr-compose.contract:188 aria-label=label (text: never)
+pages-pr-compose.contract:191 aria-label=label (text: never)
+pages-pr-detail.contract:339 aria-label=`Close ${detail.numberLabel}` (text: never)
+pages-pr-edit.contract:35 aria-label=label (text: never)
+pages-pr-ghost.contract:78 aria-label=(handoffs.pending == "conflicts" ? "Preparing..." : "Resolve conflicts") (text: sometimes)
+pages-pr-handoffs.contract:53 aria-label=(checking ? "Checking out..." : "Check out") (text: sometimes)
+pages-pr-links.contract:64 aria-label=links.countLabel (text: never)
+pages-pr-links.contract:79 aria-label="Back to this thread's pull requests" (text: never)
+pages-pr-meta.contract:111 aria-label="Add a reaction" (text: never)
+pages-pr-meta.contract:125 aria-label=choice.name (text: never)
+pages-pr-meta.contract:180 aria-label=label (text: never)
+pages-pr-meta.contract:184 aria-label=label (text: never)
+pages-pr-quick.contract:119 aria-label=label (text: never)
+pages-pr-stack.contract:225 aria-label="Close" (text: never)
+pages-pr-threads.contract:212 aria-label="Discard this comment" (text: never)
+pages-pr-timeline.contract:303 aria-label="Open activity on host" (text: never)
+pages-pr-timeline.contract:340 aria-label="Open activity on host" (text: never)
+pages-prs.contract:222 aria-label="Toggle sidebar" (text: never)
+pages-prs.contract:273 aria-label=ariaLabel (text: sometimes)
+pages-prs.contract:394 aria-label=`Filter by provider: ${page.hostLabel}` (text: sometimes)
+pages-prs.contract:737 aria-label=`${row.stateLabel} #${row.number} ${row.title}` (text: never)
+pages-usage-dialogs.contract:63 aria-label="Close" (text: never)
+pages-usage-prices.contract:177 aria-label=label (text: never)
+pages-usage.contract:314 aria-label="Toggle sidebar" (text: never)
+pages-usage.contract:464 aria-label=(limits ? "Refresh limits" : "Refresh usage") (text: never)
+pages-usage.contract:655 aria-label="Unpriced usage details" (text: never)
+pages-usage.contract:745 aria-label=model.model (text: never)
+pages-welcome.contract:323 aria-label="Copy command" (text: never)
+palette.contract:290 aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) (text: sometimes)
+palette.contract:427 aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") (text: never)
+palette.contract:432 aria-label="Back" (text: never)
+palette.contract:517 aria-label="Close" (text: never)
+palette.contract:536 aria-label="Close" (text: never)
+providers-kit.contract:80 aria-label=label (text: never)
+providers-setup.contract:211 aria-label="Copy sign-in link" (text: never)
+providers-setup.contract:366 aria-label="Remove downloaded runtime" (text: never)
+providers-upkeep.contract:196 aria-label="Close" (text: never)
+providers-upkeep.contract:248 aria-label=advisory.label (text: never)
+providers-upkeep.contract:255 aria-label="Close" (text: never)
+providers-upkeep.contract:275 aria-label="Copy update command" (text: never)
+providers-upkeep.contract:496 aria-label=`Remove option ${descriptor.index + 1}` (text: never)
+providers-upkeep.contract:528 aria-label="Default choice" (text: never)
+providers-upkeep.contract:531 aria-label="Remove choice" (text: never)
+providers-wizard.contract:231 aria-label=`About ${agent.name}` (text: never)
+providers-wizard.contract:255 aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` (text: never)
+providers-wizard.contract:291 aria-label="Close" (text: never)
+providers.contract:183 aria-label="Add provider" (text: never)
+providers.contract:196 aria-label=`Select ${row.name}` (text: never)
+providers.contract:218 aria-label=`Enable ${row.name}` (text: never)
+providers.contract:235 aria-label="Cursor account usage" (text: never)
+providers.contract:249 aria-label="Reset provider health check interval to default" (text: never)
+providers.contract:253 aria-label="Decrease provider health check interval" (text: never)
+providers.contract:256 aria-label="Increase provider health check interval" (text: never)
+providers.contract:290 aria-label=`Reset ${editor.placeholder} provider settings to default` (text: never)
+providers.contract:293 aria-label=`Delete instance ${editor.id}` (text: never)
+providers.contract:439 aria-label=`Clear ${field.label}` (text: never)
+providers.contract:466 aria-label=`Mark environment variable ${variable.label} as sensitive` (text: never)
+providers.contract:469 aria-label=`Remove environment variable ${variable.label}` (text: never)
+providers.contract:553 aria-label=`${model.favorite ? "Remove" : "Add"} ${model.name} ${model.favorite ? "from" : "to"} favorites` (text: never)
+providers.contract:567 aria-label=`Move ${model.name} up` (text: never)
+providers.contract:572 aria-label=`Move ${model.name} down` (text: never)
+providers.contract:578 aria-label=`Edit ${model.slug}` (text: never)
+providers.contract:583 aria-label=`Remove ${model.slug}` (text: never)
+providers.contract:588 aria-label=`Show ${model.name} in the model picker` (text: never)
+r4-composer.contract:28 aria-label=`Play ${video.name}` (text: never)
+r4-composer.contract:34 aria-label=`Remove ${video.name}` (text: never)
+r4-composer.contract:55 aria-label="Close video preview" (text: never)
+r4-composer.contract:59 aria-label="Close video preview" (text: never)
+r4-git.contract:99 aria-label="Git action options" (text: never)
+r4-git.contract:272 aria-label="Close" (text: never)
+r4-git.contract:275 aria-label="Close" (text: never)
+r4-git.contract:297 aria-label=label (text: never)
+r4-polish-tip.contract:94 aria-label="Dismiss provider update notice" (text: never)
+r4-surfaces-files.contract:84 aria-label="Close folder menu" (text: never)
+r4-surfaces-files.contract:95 aria-label="Close editor menu" (text: never)
+r4-surfaces-files.contract:137 aria-label="Open file in preferred editor" (text: never)
+r4-surfaces-files.contract:141 aria-label="Choose editor" (text: never)
+r4-surfaces-files.contract:202 aria-label=label (text: never)
+r4-surfaces-files.contract:334 aria-label=`Comment on line ${line.number}` (text: never)
+r4-surfaces-files.contract:351 aria-label="Refresh workspace files" (text: never)
+r4-surfaces-files.contract:358 aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") (text: never)
+r4-surfaces.contract:151 aria-label="Toggle thread details panel" (text: never)
+r4-surfaces.contract:156 aria-label=(maximized ? "Restore panel size" : "Maximize panel") (text: never)
+r4-surfaces.contract:160 aria-label="Toggle terminal drawer" (text: never)
+r4-surfaces.contract:164 aria-label="Toggle right panel" (text: never)
+r4-surfaces.contract:187 aria-label=`Close ${tab.title}` (text: never)
+r4-surfaces.contract:257 aria-label="Add panel surface" (text: never)
+r4-surfaces.contract:367 aria-label="Close actions" (text: never)
+r4-surfaces.contract:450 aria-label=`Actions for #${row.number}` (text: never)
+r4-surfaces.contract:569 aria-label="Close device setup" (text: never)
+r4-surfaces.contract:635 aria-label="Close" (text: never)
+r5-panels.contract:248 aria-label=label (text: never)
+r6-device.contract:91 aria-label="Dismiss device error" (text: never)
+r6-device.contract:195 aria-label=label (text: never)
+r6-device.contract:260 aria-label="Close menu" (text: never)
+r6-device.contract:375 aria-label=label (text: never)
+r6-media-video.contract:37 aria-label=`Play ${name}` (text: never)
+r6-polish.contract:46 aria-label="Script actions" (text: never)
+r6-polish.contract:66 aria-label="Close script menu" (text: never)
+r6-pr.contract:68 aria-label=row.checksAria (text: sometimes)
+r7-device.contract:120 aria-label=label (text: never)
+r7-device.contract:208 aria-label="Close tools" (text: never)
+r8-keys-table-menu.contract:32 aria-label="Close menu" (text: never)
+r9-connect.contract:34 aria-label="Close" (text: never)
+r9-connect.contract:72 aria-label="Close" (text: never)
+r9-device.contract:39 aria-label=stand.label (text: never)
+r12-threads.contract:39 aria-label=label (text: never)
+requests.contract:152 aria-label="More approval options" (text: never)
+requests.contract:290 aria-label="Stop generation" (text: never)
+requests.contract:294 aria-label="Previous question" (text: never)
+settings-a-collections.contract:34 aria-label=v.aria (text: never)
+settings-a-collections.contract:45 aria-label=o.aria (text: never)
+settings-a-dialogs.contract:80 aria-label="Close" (text: never)
+settings-a-dialogs.contract:137 aria-label=`Decrease ${label}` (text: never)
+settings-a-dialogs.contract:142 aria-label=`Increase ${label}` (text: never)
+settings-a-dialogs.contract:199 aria-label=toggle.label (text: never)
+settings-a-hosts.contract:198 aria-label=`${host.label} options` (text: never)
+settings-a-hosts.contract:282 aria-label="Close" (text: never)
+settings-a-telemetry.contract:152 aria-label=label (text: never)
+settings-a-telemetry.contract:245 aria-label=`${row.toggle == "expand" ? "Expand" : "Collapse"} ${row.name}` (text: never)
+settings-a-telemetry.contract:285 aria-label="Copy trace ID" (text: never)
+settings-appearance-editor.contract:133 aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") (text: never)
+settings-appearance-editor.contract:141 aria-label="Close the theme editor" (text: never)
+settings-appearance-editor.contract:167 aria-label="Advanced Use advanced theme colors" (text: never)
+settings-appearance-import.contract:109 aria-label="Close" (text: never)
+settings-appearance-import.contract:143 aria-label=`View source for ${ext.displayName}` (text: never)
+settings-appearance.contract:53 aria-label=`Use ${card.label} ${orb.mode} mode` (text: never)
+settings-appearance.contract:127 aria-label=label (text: never)
+settings-b-accent.contract:66 aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` (text: never)
+settings-b-actions.contract:96 aria-label="Choose icon" (text: never)
+settings-b-actions.contract:141 aria-label="Close" (text: never)
+settings-b-actions.contract:182 aria-label=label (text: never)
+settings-b-icons.contract:145 aria-label=option.label (text: never)
+settings-b-icons.contract:152 aria-label=item.label (text: never)
+settings-b-icons.contract:185 aria-label="Close" (text: never)
+settings-b-kit.contract:152 aria-label=switchLabel (text: never)
+settings-core.contract:341 aria-label="Toggle sidebar" (text: never)
+settings-core.contract:356 aria-label="Clear settings search" (text: never)
+settings-core.contract:384 aria-label="Focus settings search" (text: never)
+settings-core.contract:403 aria-label="Toggle sidebar" (text: never)
+settings-diagnostics.contract:138 aria-label="Open logs folder" (text: never)
+settings-diagnostics.contract:171 aria-label=`${label} details` (text: never)
+settings-keybindings.contract:129 aria-label="Search keybindings" (text: never)
+settings-keybindings.contract:135 aria-label="Add keybinding" (text: never)
+settings-keybindings.contract:137 aria-label="Open keybindings.json" (text: never)
+settings-keybindings.contract:158 aria-label="Cancel new keybinding" (text: never)
+settings-keybindings.contract:210 aria-label=`Actions for ${row.label}` (text: never)
+settings-keybindings.contract:222 aria-label=`Edit shortcut for ${row.label}: ${row.aria}` (text: sometimes)
+settings-keybindings.contract:331 aria-label=line.removeLabel (text: never)
+settings-kit.contract:94 aria-label=label (text: never)
+settings-kit.contract:227 aria-label="Background policy details" (text: never)
+settings-licenses.contract:31 aria-label="Search open-source licenses" (text: never)
+settings-projects.contract:147 aria-label="Reset project icon to default" (text: never)
+settings-projects.contract:169 aria-label="Reset default workspace to default" (text: never)
+settings-projects.contract:275 aria-label="Reset Actions to default" (text: never)
+settings-projects.contract:361 aria-label=`Edit ${item.name}` (text: never)
+settings-rows.contract:72 aria-label=`Project scope: ${projectLabel}` (text: sometimes)
+settings-rows.contract:87 aria-label=`Environment scope: ${environmentLabel}` (text: sometimes)
+settings-rows.contract:174 aria-label="Advanced Show advanced typography settings" (text: never)
+settings-rows.contract:220 aria-label=`${row.inheritanceSummary}. Show where this value comes from` (text: never)
+settings-rows.contract:235 aria-label=`Reset ${row.resetLabel} to default` (text: never)
+settings-rows.contract:252 aria-label="Configure advanced background activity" (text: never)
+settings-rows.contract:569 aria-label="Replay panel animation preview" (text: never)
+settings-scheduled.contract:193 aria-label=`Actions for ${item.title}` (text: never)
+settings-scheduled.contract:361 aria-label="Close" (text: never)
+settings-scoped-switch.contract:21 aria-label=label (text: never)
+settings-source-control.contract:157 aria-label=`${row.summary}. Show where this value comes from` (text: never)
+settings-source-control.contract:194 aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` (text: never)
+settings-source-control.contract:302 aria-label=`Toggle ${item.label} details` (text: never)
+settings-source-control.contract:321 aria-label="Reset fetch interval to default" (text: never)
+settings-source-control.contract:340 aria-label="Decrease fetch interval" (text: never)
+settings-source-control.contract:343 aria-label="Increase fetch interval" (text: never)
+settings-source-control.contract:372 aria-label="Rescan server environment" (text: never)
+settings-source-control.contract:493 aria-label="Reset link target to default" (text: never)
+settings-storage.contract:81 aria-label=`Decrease ${rule.label}` (text: never)
+settings-storage.contract:85 aria-label=`Increase ${rule.label}` (text: never)
+shell-details.contract:56 aria-label="Close thread details" (text: never)
+shell-details.contract:135 aria-label="Dismiss version mismatch warning" (text: never)
+shell-details.contract:143 aria-label="Workspace" (text: sometimes)
+shell-details.contract:174 aria-label="Choose editor" (text: never)
+shell-details.contract:201 aria-label="Close editor menu" (text: never)
+shell-details.contract:323 aria-label=details.mergeLabel (text: never)
+shell-panels.contract:78 aria-label="Toggle thread details panel" (text: never)
+shell-panels.contract:82 aria-label=(maximized ? "Restore panel size" : "Maximize panel") (text: never)
+shell-panels.contract:86 aria-label="Toggle terminal drawer" (text: never)
+shell-panels.contract:90 aria-label="Toggle right panel" (text: never)
+shell-panels.contract:233 aria-label="Close menu" (text: never)
+shell-toast.contract:72 aria-label="Dismiss notification" (text: never)
+shell-toast.contract:99 aria-label=(toast.copied ? "Copied error" : "Copy error") (text: never)
+sidebar-icons.contract:51 aria-label="Check for updates" (text: never)
+sidebar-overlays.contract:87 aria-label="Close project filter" (text: never)
+sidebar-overlays.contract:202 aria-label="Decrease duration" (text: never)
+sidebar-overlays.contract:207 aria-label="Increase duration" (text: never)
+sidebar-overlays.contract:222 aria-label="Close" (text: never)
+sidebar-row.contract:210 aria-label="Wake thread now" (text: never)
+sidebar-row.contract:215 aria-label="Un-settle thread" (text: never)
+sidebar-row.contract:293 aria-label="Discard draft" (text: never)
+sidebar-row.contract:298 aria-label="Snooze thread" (text: never)
+sidebar-row.contract:354 aria-label=(t.canPin ? "Unpin thread" : "Pinned") (text: never)
+sidebar-row.contract:467 aria-label="Discard draft" (text: never)
+sidebar.contract:87 aria-label="Toggle sidebar" (text: never)
+sidebar.contract:107 aria-label="Clear thread search" (text: never)
+sidebar.contract:113 aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) (text: sometimes)
+sidebar.contract:119 aria-label="Add project" (text: never)
+sidebar.contract:123 aria-label="New thread" (text: never)
+sidebar.contract:178 aria-label="Settings" (text: never)
+sidebar.contract:182 aria-label="Pull Requests" (text: never)
+sidebar.contract:185 aria-label="Usage" (text: never)
+sidebar.contract:281 aria-label="Cancel sweep" (text: never)
+snapshot.contract:98 aria-label=label (text: never)
+snapshot.contract:180 aria-label=data.shortcutAria (text: sometimes)
+snapshot.contract:207 aria-label="Play Whoosh" (text: never)
+snapshot.contract:212 aria-label="Play Click" (text: never)
+snapshot.contract:241 aria-label=(image.included ? "View accessibility data" : "No accessibility data") (text: never)
+snapshot.contract:251 aria-label=`Remove ${image.name}` (text: never)
+snapshot.contract:254 aria-label=`Remove ${image.name}` (text: never)
+snapshot.contract:352 aria-label=data.shortcutAria (text: sometimes)
+snapshot.contract:384 aria-label="Close" (text: never)
+snapshot.contract:387 aria-label="Close" (text: never)
+snooze-calendar.contract:41 aria-label="Go to the Previous Month" (text: never)
+snooze-calendar.contract:44 aria-label="Go to the Next Month" (text: never)
+ssh-prompt.contract:38 aria-label="Cancel SSH password prompt" (text: never)
+terminal.contract:165 aria-label=tab.closeLabel (text: never)
+terminal.contract:216 aria-label=label (text: never)
+theme-color-picker.contract:258 aria-label=`Choose ${row.label} color` (text: never)
+thread-automations.contract:54 aria-label=label (text: never)
+timeline-attachments.contract:79 aria-label=`Preview ${image.name}` (text: never)
+timeline-attachments.contract:145 aria-label=(video ? "Close video preview" : "Close image preview") (text: never)
+timeline-attachments.contract:170 aria-label=(video ? "Close video preview" : "Close image preview") (text: never)
+timeline-attachments.contract:185 aria-label=label (text: never)
+timeline-attachments.contract:205 aria-label=`Download ${file.name}` (text: never)
+timeline-mermaid.contract:21 aria-label="Close image preview" (text: never)
+timeline-mermaid.contract:34 aria-label="Close image preview" (text: never)
+timeline-minimap.contract:61 aria-label=`Jump to message: ${item.label}` (text: never)
+timeline-minimap.contract:87 aria-label=label (text: never)
+timeline-plan.contract:44 aria-label="Plan actions" (text: never)
+timeline-work.contract:463 aria-label="Copy message" (text: never)
+timeline.contract:162 aria-label="Edit from here" (text: never)
+timeline.contract:194 aria-label="Fork from this response" (text: never)
+timeline.contract:239 aria-label=label (text: never)
+timeline.contract:355 aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) (text: sometimes)
+usage-pooled.contract:259 aria-label=seg.label (text: never)
+-- 70de0e1cf
+error: 31 labelled buttons without title="" may show their label as a help tag:
+auto-balance.contract:29 aria-label=notice.menuLabel (text: sometimes)
+chat.contract:76 aria-label=`Thread actions for ${data.threadTitle}` (text: sometimes)
+composer-controls.contract:195 aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) (text: sometimes)
+composer-controls.contract:250 aria-label=aria (text: sometimes)
+composer-controls.contract:279 aria-label="Runtime mode" (text: sometimes)
+composer-controls.contract:300 aria-label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode") (text: sometimes)
+markdown.contract:805 aria-label="Expand diagram" (text: never)
+model-picker.contract:203 aria-label=provider.label (text: sometimes)
+pages-pr-actions.contract:163 aria-label=label (text: sometimes)
+pages-pr-compose.contract:169 aria-label=label (text: never)
+pages-pr-ghost.contract:78 aria-label=(handoffs.pending == "conflicts" ? "Preparing..." : "Resolve conflicts") (text: sometimes)
+pages-pr-handoffs.contract:53 aria-label=(checking ? "Checking out..." : "Check out") (text: sometimes)
+pages-pr-links.contract:64 aria-label=links.countLabel (text: never)
+pages-pr-meta.contract:125 aria-label=choice.name (text: never)
+pages-pr-timeline.contract:303 aria-label="Open activity on host" (text: never)
+pages-pr-timeline.contract:340 aria-label="Open activity on host" (text: never)
+pages-prs.contract:273 aria-label=ariaLabel (text: sometimes)
+pages-prs.contract:390 aria-label=`Filter by provider: ${page.hostLabel}` (text: sometimes)
+palette.contract:290 aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) (text: sometimes)
+providers-wizard.contract:231 aria-label=`About ${agent.name}` (text: never)
+r6-pr.contract:68 aria-label=row.checksAria (text: sometimes)
+settings-appearance-import.contract:143 aria-label=`View source for ${ext.displayName}` (text: never)
+settings-keybindings.contract:222 aria-label=`Edit shortcut for ${row.label}: ${row.aria}` (text: sometimes)
+settings-rows.contract:72 aria-label=`Project scope: ${projectLabel}` (text: sometimes)
+settings-rows.contract:87 aria-label=`Environment scope: ${environmentLabel}` (text: sometimes)
+shell-details.contract:143 aria-label="Workspace" (text: sometimes)
+sidebar.contract:113 aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) (text: sometimes)
+snapshot.contract:170 aria-label=data.shortcutAria (text: sometimes)
+snapshot.contract:342 aria-label=data.shortcutAria (text: sometimes)
+timeline.contract:355 aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) (text: sometimes)
+usage-pooled.contract:259 aria-label=seg.label (text: never)
+-- e585f13b1 (this head)
+ 3 pass
+ 0 fail
+
+== tallies of the button/link source sites the walk reaches (tag, labelled, titled, title="", text on every arm / some arm / none)
+-- b731bdb39
+visits 5347 sites 937 flagged 342
+361 button labelled=false titled=false titleEmpty=false text=always
+2 button labelled=false titled=false titleEmpty=false text=never
+1 button labelled=false titled=false titleEmpty=false text=sometimes
+2 button labelled=false titled=true titleEmpty=false text=always
+205 button labelled=true titled=false titleEmpty=false text=always
+316 button labelled=true titled=false titleEmpty=false text=never
+22 button labelled=true titled=false titleEmpty=false text=sometimes
+1 button labelled=true titled=true titleEmpty=false text=always
+5 button labelled=true titled=true titleEmpty=false text=never
+8 link labelled=false titled=false titleEmpty=false text=always
+9 link labelled=true titled=false titleEmpty=false text=always
+4 link labelled=true titled=false titleEmpty=false text=never
+1 link labelled=true titled=true titleEmpty=false text=never
+-- 70de0e1cf
+visits 5347 sites 937 flagged 31
+361 button labelled=false titled=false titleEmpty=false text=always
+2 button labelled=false titled=false titleEmpty=false text=never
+1 button labelled=false titled=false titleEmpty=false text=sometimes
+2 button labelled=false titled=true titleEmpty=false text=always
+205 button labelled=true titled=false titleEmpty=false text=always
+5 button labelled=true titled=false titleEmpty=false text=never
+22 button labelled=true titled=false titleEmpty=false text=sometimes
+1 button labelled=true titled=true titleEmpty=false text=always
+5 button labelled=true titled=true titleEmpty=false text=never
+311 button labelled=true titled=true titleEmpty=true text=never
+8 link labelled=false titled=false titleEmpty=false text=always
+9 link labelled=true titled=false titleEmpty=false text=always
+4 link labelled=true titled=false titleEmpty=false text=never
+1 link labelled=true titled=true titleEmpty=false text=never
+-- e585f13b1
+visits 5347 sites 937 flagged 0
+361 button labelled=false titled=false titleEmpty=false text=always
+2 button labelled=false titled=false titleEmpty=false text=never
+1 button labelled=false titled=false titleEmpty=false text=sometimes
+2 button labelled=false titled=true titleEmpty=false text=always
+205 button labelled=true titled=false titleEmpty=false text=always
+1 button labelled=true titled=true titleEmpty=false text=always
+5 button labelled=true titled=true titleEmpty=false text=never
+316 button labelled=true titled=true titleEmpty=true text=never
+22 button labelled=true titled=true titleEmpty=true text=sometimes
+8 link labelled=false titled=false titleEmpty=false text=always
+9 link labelled=true titled=false titleEmpty=false text=always
+1 link labelled=true titled=true titleEmpty=false text=never
+4 link labelled=true titled=true titleEmpty=true text=never
+
+§3 The new source tests on the base
+== this head's appearance-fonts.test.ts and r12-sidebar.test.ts on the base b731bdb39 tree
+(fail) the root font size app.contract sets > is 16 before the data answers and the stored size after [0.61ms]
+(fail) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > a draft row's ContextMenu and Shift+F10 open its menu at its bottom left; a thread row's keys open none here [0.13ms]
+(fail) keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference) > a thread row's ContextMenu asks the module for no menu (the host's context popover opens it); a right click does [0.70ms]
+(fail) the rows' key handlers and the host's ContextMenu default (exact2 #314) > a draft row prevents the default for ContextMenu and Shift+F10, then opens its own menu [0.29ms]
+(fail) the rows' key handlers and the host's ContextMenu default (exact2 #314) > a legacy row prevents the default for ContextMenu, then opens its own menu [0.20ms]
+ 14 pass
+ 5 fail
+== the same on e585f13b1
+ 19 pass
+ 0 fail
+
+§4 Live drive of the merged head (agent mode, lane adopt-main-fixes-r7, 1280x840, one try), against the previous after drive (d2713f214)
+Screenshots (2560x1680 window shots), per-channel max difference:
+  1-shell: max 1/255, bbox (559, 38, 573, 39)
+  2-thread: max 7/255, bbox (2, 24, 2536, 1640)
+  3-composer: max 7/255, bbox (2, 24, 2536, 1640)
+  4-right-panel: max 7/255, bbox (2, 38, 2226, 1640)
+  5-dialog: max 2/255, bbox (530, 168, 1853, 1680)
+  6-settings: max 0/255, bbox None
+Logs: 0 'refus', 0 'error', 0 'panic', 0 'warn'.
+Agent trees: the previous after drive (d2713f214) vs this drive (e585f13b1 + the merged base), node (type, props, depth) multisets
+== 1-shell: 637 -> 648 nodes; 16 only in this drive, 5 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+e", "accessibilityLabel": "Medium", "accessibilityRole": "button", "disabled": false, "testId": "reasoning-effort", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "Claude Fable 5.1", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace", "title": ""}, 10]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-commit-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-publish-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "hero-add-project-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "hero-project-2f0fb7ba-0866-4a5e-9fa1-389c1c17fd35-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "hero-project-verify-project-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+e", "accessibilityLabel": "Medium", "accessibilityRole": "button", "disabled": false, "testId": "reasoning-effort"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "Claude Fable 5.1", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace"}, 10]
+== 2-thread: 669 -> 677 nodes; 13 only in this drive, 5 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title", "title": ""}, 9]
+  + 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace", "title": ""}, 10]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-commit-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-publish-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title"}, 9]
+  - 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace"}, 10]
+== 3-composer: 668 -> 676 nodes; 13 only in this drive, 5 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title", "title": ""}, 9]
+  + 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace", "title": ""}, 10]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-commit-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "details-git-menu-publish-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title"}, 9]
+  - 1 ["Pressable", {"accessibilityLabel": "Workspace", "accessibilityRole": "button", "popovertarget": "details-workspace-menu", "testId": "details-workspace"}, 10]
+== 4-right-panel: 660 -> 668 nodes; 12 only in this drive, 4 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title", "title": ""}, 9]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-default-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-incognito-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+m", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title"}, 9]
+== 5-dialog: 729 -> 737 nodes; 15 only in this drive, 7 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title", "title": ""}, 9]
+  + 1 ["Pressable", {"accessibilityLabel": "Git URL", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:url", "title": ""}, 5]
+  + 1 ["Pressable", {"accessibilityLabel": "Local folder", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:local", "title": ""}, 5]
+  + 1 ["Pressable", {"accessibilityLabel": "New project", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:new", "title": ""}, 5]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-default-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-incognito-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title"}, 9]
+  - 1 ["Pressable", {"accessibilityLabel": "Git URL", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:url"}, 5]
+  - 1 ["Pressable", {"accessibilityLabel": "Local folder", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:local"}, 5]
+  - 1 ["Pressable", {"accessibilityLabel": "New project", "accessibilityRole": "option", "accessibilitySelected": false, "disabled": false, "testId": "palette-row-sources:new"}, 5]
+== 6-settings: 2000 -> 2066 nodes; 72 only in this drive, 6 only in the previous
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker", "title": ""}, 11]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode", "title": ""}, 12]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project", "title": ""}, 7]
+  + 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title", "title": ""}, 9]
+  + 1 ["Pressable", {"accessibilityLabel": "Environment scope: All environments", "accessibilityRole": "button", "popovertarget": "settings-scope-environment-menu", "testId": "settings-scope-environment", "title": ""}, 10]
+  + 1 ["Pressable", {"accessibilityLabel": "Project scope: All projects", "accessibilityRole": "button", "popovertarget": "settings-scope-project-menu", "testId": "settings-scope-project", "title": ""}, 10]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-default-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "launcher-browser-profile-incognito-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-background-activity-menu-advanced-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-background-activity-menu-balanced-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-background-activity-menu-battery-saver-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-background-activity-menu-performance-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-diff-file-state-menu-collapsed-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-diff-file-state-menu-expanded-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=high-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=low-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=max-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=medium-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=ultracode-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=ultrathink-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-model-effort-menu-effort=xhigh-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-permissions-menu-approval-required-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-permissions-menu-auto-accept-edits-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-permissions-menu-auto-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-default-permissions-menu-full-access-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-diff-layout-menu-split-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-diff-layout-menu-stacked-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-follow-up-behavior-menu-queue-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-follow-up-behavior-menu-steer-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-new-threads-menu-local-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-new-threads-menu-worktree-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-project-order-menu-created_at-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-project-order-menu-manual-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-project-order-menu-updated_at-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-quit-confirmation-menu-direct-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-quit-confirmation-menu-double-click-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-quit-confirmation-menu-hold-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-response-streaming-menu-paragraph-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-response-streaming-menu-turn-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-send-shortcut-menu-enter-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-send-shortcut-menu-mod-enter-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-send-shortcut-menu-mod-enter-multiline-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=high-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=low-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=max-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=medium-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=ultracode-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=ultrathink-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-text-generation-model-effort-menu-effort=xhigh-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-thread-notifications-menu-notifications-and-sound-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-thread-notifications-menu-notifications-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-thread-notifications-menu-off-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-thread-notifications-menu-sound-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-time-format-menu-12-hour-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-time-format-menu-24-hour-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-time-format-menu-locale-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-update-track-menu-latest-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-update-track-menu-nightly-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-worktree-submodules-menu-none-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-worktree-submodules-menu-recursive-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "setting-worktree-submodules-menu-top-level-km", "tabIndex": -1}, 17]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "settings-scope-choice-environment-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "settings-scope-choice-environment-all-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/adopt-main-fixes-r7/projects/work-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "settings-scope-choice-project-all-km", "tabIndex": -1}, 13]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-custom-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-evening-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-hour-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-next-week-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-three-hours-km", "tabIndex": -1}, 11]
+  + 1 ["View", {"accessibilityElementsHidden": true, "id": "snooze-verify-timeline-tomorrow-km", "tabIndex": -1}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "", "accessibilityLabel": "gpt-6-astra", "accessibilityRole": "button", "disabled": false, "testId": "model-picker"}, 11]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityKeyShortcuts": "Meta+Shift+a", "accessibilityLabel": "Runtime mode", "accessibilityRole": "button", "disabled": false, "testId": "runtime-mode"}, 12]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Filter threads by project", "accessibilityRole": "button", "testId": "filter-project"}, 7]
+  - 1 ["Pressable", {"accessibilityExpanded": false, "accessibilityLabel": "Thread actions for Timeline verification", "accessibilityRole": "button", "id": "thread-title", "testId": "thread-title"}, 9]
+  - 1 ["Pressable", {"accessibilityLabel": "Environment scope: All environments", "accessibilityRole": "button", "popovertarget": "settings-scope-environment-menu", "testId": "settings-scope-environment"}, 10]
+  - 1 ["Pressable", {"accessibilityLabel": "Project scope: All projects", "accessibilityRole": "button", "popovertarget": "settings-scope-project-menu", "testId": "settings-scope-project"}, 10]
+
+§5 Checks on the code head e585f13b1 (the record follows)
+  bun test examples/t3-code --timeout 60000: exit 0; 4242pass, 1skip, 0fail; Ran 4243 tests across 289 files. [7.00s]
+  strict tsc (README command): exit 0
+  bun scripts/exact.mjs contract build examples/t3-code/app.contract: exit 0; 5958 slots, 13 derives, 48 resources, 7936 actions, 110024 nodes, 44122 regions, 27156062 bytes
+  cargo test -p contract --test it button_migration (main's sweep): exit 0, 1 passed, 235.24 s
+  view-depth.test.ts + help-tags.test.ts: 5 pass, 0 fail
+  AppKit binaries (T3Sidebar.swift's header comment changed): sidebar 6 tests, r12-sidebar 3 tests, 0 failures
+  build exit 0 (1 s)
+  test exit 0 (280 s)
+  clippy exit 0 (0 s)
+  fmt exit 0 (3 s)
+  caps exit 0 (1 s)
+  boot exit 0 (0 s)
+  t3macos exit 0 (593 s)
+  (build = cargo build --all-targets --keep-going; test = cargo test --lib --bins --tests --no-fail-fast: 3675 passed, 0 failed, 34 ignored, 95 suites; clippy = cargo clippy --all-targets --keep-going -- -D warnings; fmt = cargo fmt --all -- --check; caps = git add -A && bun scripts/caps.mjs; boot = bun scripts/boot.mjs; t3macos = cargo test -p t3-code-macos --lib: 17 passed)
+  app.contract: 1329 lines
