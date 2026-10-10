@@ -1,0 +1,46 @@
+realinput-1010e-followups RE-1: does the reference's first click on its permission helper reach the page? (2026-10-10)
+
+Probe (no real input): the reference's own Electron (target/t3-ref/src-1e2ecbd975 apps/desktop node_modules/electron, 44.4.2, the audit copy
+"T3 Code (Alpha).app") runs a BrowserWindow with MacPermissionHelper.ts:100-117's options and a page shaped like helperHtml,
+shows it with showInactive() beside the front app (the probe is never active), then asks AppKit in-process, through a
+N-API addon, what a click there would ask: [hitView acceptsFirstMouse:<left mouse down at the row's centre>]. No event is sent.
+Files: re1-probe-main.js, re1-probe.m (built: xcrun clang -fobjc-arc -dynamiclib -undefined dynamic_lookup -framework AppKit).
+
+Run: env -i HOME=<lane home> "T3 Code (Alpha).app/Contents/MacOS/Electron" <probe dir> --variant 0|1
+
+{"variant":"reference: alwaysOnTop, no acceptFirstMouse (MacPermissionHelper.ts:100-117)","electron":"44.4.2","alwaysOnTop":true,"focused":false,"centers":{"app":{"x":280,"y":91},"close":{"x":538,"y":20}},"answers":{"app":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":3,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":true},"close":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":3,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":true}}}
+{"variant":"control: the same window at the normal level (alwaysOnTop false)","electron":"44.4.2","alwaysOnTop":false,"focused":false,"centers":{"app":{"x":280,"y":91},"close":{"x":538,"y":20}},"answers":{"app":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":0,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":false},"close":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":0,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":false}}}
+
+Reading: level 3 is NSFloatingWindowLevel (alwaysOnTop: true). The page view (RenderWidgetHostViewCocoa) under the "T3 Code"
+row and under the close button accepts the first mouse, although the window keeps Electron's acceptFirstMouse false; the
+same window at the normal level (control) does not. So the click that activates the reference also reaches the page: one
+press reveals (click) or starts the drag (dragstart), as the clone does (acceptsFirstMouse true on the row and the close
+button). The #398 declared difference ("the reference's first click only activates") is withdrawn; no clone change.
+
+Why, from the sources:
+- Electron v44.4.2 patches/chromium/render_widget_host_view_mac.patch: acceptsFirstMouse: returns YES when the window's
+  acceptsFirstMouse (BrowserWindow acceptFirstMouse) is set, otherwise falls through to Chromium's own rule.
+- Chromium 152.0.7977.130 content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm:
+    - (AcceptMouseEvents)acceptsMouseEventsOption {
+      // Always-on-top windows, e.g picture-in-picture window, accepts all mouse
+      // events even if the window or the application is inactive.
+      if (self.window.level > NSNormalWindowLevel) {
+        return AcceptMouseEvents::kAlways;
+      }
+    
+      // By default, only active window accepts mouse events. The embedder may
+      // override this to mimic the hover and click behavior of native UIs.
+      if (_responderDelegate && [_responderDelegate respondsToSelector:@selector
+                                                    (acceptsMouseEventsOption)]) {
+        return [_responderDelegate acceptsMouseEventsOption];
+      }
+    
+      // By default, only active window accepts mouse events.
+      return AcceptMouseEvents::kWhenInActiveWindow;
+    }
+    
+    - (BOOL)acceptsFirstMouse:(NSEvent*)theEvent {
+      // Enable "click-through" if mouse clicks are accepted in inactive windows.
+      return
+          [self acceptsMouseEventsOption] > AcceptMouseEvents::kWhenInActiveWindow;
+    }
