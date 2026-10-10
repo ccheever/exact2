@@ -89,8 +89,22 @@ issue is filed separately.
   a few ms, so each step goes out on its own queued mutation (`lineDragChanged`): on `localChanged` the release replaced
   the press before it ran, and the Diff panel's `changed` takes one command at a time. Declared (EXACT2-GAPS, "Hover and the
   window's mouse moves; the diff gutter's drag"): a press on the gutter no longer reaches the window root's outside press,
-  which only matters for a skill chip's details beside the Diff panel; and under a real pointer the "+" stays on the pressed
-  line during a drag (the host's tracking areas have no `.enabledDuringMouseDrag`).
+  which only matters for a skill chip's details beside the Diff panel.
+- RF-3, after the PR's review: where the "+" sits is Pierre's `placeUtility`, not hover. While a file has a selection
+  (`getCurrentSelectionRange`, which a drag updates on each move) `placeUtilityFromSelection` draws the "+" on the
+  selection's bottom line only, and nowhere when that line is not drawn; without one it follows the hovered line. The clone
+  drew a "+" on whichever line was hovered, so (1) during a drag it stayed on the pressed line (the session's "the gutter's
+  hover stays on line 3", first declared as a host gap and filed by the coordinator as X80, main #414), and (2) with lines
+  selected in the Diff panel a click on another line's "+" sent two commands on two mutations that could disagree: the
+  pointer's `gutter`/`end` (lineDragChanged) opened the draft on the selection (pressGutter's top to bottom), the press's
+  `comment:` (`changed`; `pr-code-begin` on `localChanged` in the Code tab) on the clicked line alone, whichever ran
+  first. Now the projections mark the file `pinned` and the one cell that draws its "+" (`diff-line-drag.ts`
+  `utilityPlacement`, `pin`/`leftPin`/`rightPin` in `diff.ts` and `pages-pr-code-rows.ts`), and `DiffCell` draws a "+" only
+  there while the file has a selection, keeping a cell's "+" mounted while its own drag is in flight (the pressed node
+  holds the pointer). The press (`comment:`, `pr-code-begin`) queues on `lineDragChanged` behind its drag and is the
+  gesture's release while a "+" drag is in flight; a press no gesture carried (a keyboard or accessibility press) comments
+  on what the gesture would (`gutterClick`: the selection's top to bottom, else its line). X80 no longer shows in the clone
+  (its EXACT2-GAPS row says so).
 - RF-4: the pending card's dashed border is an absolutely positioned box over the card (`border-style` is solid-only), so it
   paints over the card's row and took the presses meant for the trash (CSS paint order; the agent's real-event tap hit it
   too: the before drive's tap changed nothing). It is `pointer-events="none"` now. The reference's card (a dashed border)
@@ -112,6 +126,7 @@ issue is filed separately.
 | RF-1 | implemented, AppKit test: before 73 Services asks and plug-ins on (2 failures), after none. Agent mode logs the menu instead of popping it, so the real menu is real-input step 1 (open) | [RF1-services-test.txt](https://raw.githubusercontent.com/ccheever/exact2/6a2953c54e29c1917198b611b90e0fa140d9236b/realinput-1010f-followups/RF1-services-test.txt) |
 | RF-2 | pass by reference comparison, no change: the reference's same drag moves (-20, -200), as the clone under real input | [RF2 image](https://raw.githubusercontent.com/ccheever/exact2/73198a72c56263afb9769cb1b195419b12d73494/realinput-1010f-followups/RF2-pill-drag.png), [RF2-reference.txt](https://raw.githubusercontent.com/ccheever/exact2/9e49e5ba345cbac8e0648eb1a44bbb5d3cc87b65/realinput-1010f-followups/RF2-reference.txt) |
 | RF-3 | pass (agent drive, reference over CDP, tests): before a drag from new line 3 to 5 painted nothing and opened no draft; after lines 3–5 paint and the draft opens under added line 5, as the reference. Real pointer: step 2 (open) | [RF3 image](https://raw.githubusercontent.com/ccheever/exact2/3976a74cf988c4bd2fc7cf6005713243413ff180/realinput-1010f-followups/RF3-gutter-drag.png), [RF3-RF4-reference.txt](https://raw.githubusercontent.com/ccheever/exact2/dcfe6ece0207419e41f235d8d8fe10929608e5ae/realinput-1010f-followups/RF3-RF4-reference.txt), [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/f671c1a636f5c09d8df6d8c3e1905b81a544f7de/realinput-1010f-followups/drive-record.txt) |
+| RF-3, review | pass (agent drive with the button held, reference over CDP, tests): during a drag from new line 3 to added 5 the "+" sits on added 5, the selection's bottom, as the reference's (before: the feature tip paints nothing and shows no "+"); after the release the draft opens under added 5. A "+" click opens one draft on the selection in every order of its sends (before: line 10's "+" with 3–5 selected opened "+10" in two of three orders) | [RF3 during the drag](https://raw.githubusercontent.com/ccheever/exact2/35152a00ff7902bfc341c0f0261844efb2a85483/realinput-1010f-followups/RF3-plus-during-drag.png), [after the release](https://raw.githubusercontent.com/ccheever/exact2/0d97ff9d3265ce733cbefeb663cd0697bfbb5f09/realinput-1010f-followups/RF3-after-release.png), [RF3-plus-click-test.txt](https://raw.githubusercontent.com/ccheever/exact2/0d97999f1541efa8809ec7d29e244e87c5cce428/realinput-1010f-followups/RF3-plus-click-test.txt), [review-drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/3d876404c434d179984f3ea52d0bb413ac521a2d/realinput-1010f-followups/review-drive-record.txt) |
 | RF-4 | pass (agent drive, reference): before the trash's tap changed nothing (the card stayed); after the card and the badge go, as the reference. Real click: step 3 (open) | [RF4 image](https://raw.githubusercontent.com/ccheever/exact2/fa7333dff09452167bac5b988096ad1d30d03e3b/realinput-1010f-followups/RF4-pending-discard.png), [card before the click](https://raw.githubusercontent.com/ccheever/exact2/9cfadcf7cc1bfd262d0d33d61884d20e91737b59/realinput-1010f-followups/RF4-pending-card.png), [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/f671c1a636f5c09d8df6d8c3e1905b81a544f7de/realinput-1010f-followups/drive-record.txt) |
 | RF-5 | implemented, AppKit test: before the window accepted mouse moves and a move away from the focused view reached it (5 failures), after it does not and the reporter's own area hears the moves. Agent hover is a hit test, so the popover itself is real-input step 4 (open) | [RF5-pointer-test.txt](https://raw.githubusercontent.com/ccheever/exact2/7c96b569f3a0a763c5b7d28cca84bd0e4999dc77/realinput-1010f-followups/RF5-pointer-test.txt) |
 
@@ -129,7 +144,11 @@ press Submit review.
    unfold it. (a) Click new line 3's number: the draft opens on line 3 ("Add a comment…", focused), as the reference.
    Cancel. (b) Press on line 3's number, drag slowly to added line 5's number, release: lines 3, 4, deleted 5 and added 5
    paint while the pointer moves, and the draft opens under added line 5 at the release (its label `docs/usage.md:5`).
-   Cancel. (c) The same from line 3's "+". Cancel. (The "+" stays on line 3 during the drag: declared.)
+   Cancel. (c) The same from line 3's "+". Cancel. In (b) and (c) the "+" moves to the selection's bottom line while the
+   pointer moves (added line 5 at the end), as the reference's; it does not stay on line 3.
+   (d) The thread's Diff panel (a thread of the lane's `work` project, Diff open on `src/app.ts`): drag the numbers from
+   line 2 to line 4 and release: the lines stay selected, no draft, and the "+" shows on line 4 only, without hovering.
+   Hover line 7: no "+" there. Click the "+" on line 4: the draft opens under line 4 on lines 2 to 4. Cancel.
 3. **RF-4, the trash.** Open a draft (line 3's "+"), type `lane check`, ⌘↵: the pending card and badge 1. Click the card's
    trash once: the card and the badge go.
 4. **RF-5, hover after a press.** Usage › click Cost (it takes the focus) › 30 days. Rest the pointer on the unpriced (i):
@@ -147,7 +166,14 @@ press Submit review.
 - `diff-review.test.ts`: the line comment test now selects with a click and a Shift-click drag (no draft opens in the Diff
   panel), and a new test drags on the numbers, clears a single selected line, and opens the draft from a "+" drag (`3 to 5`).
 - `realinput-1010f-followups.test.ts` (new): DiffCell's pointer handlers, ids and `elementFromPoint`; the queued
-  `lineDragChanged` in both panels; the pending card's border with `pointer-events="none"`.
+  `lineDragChanged` in both panels (the "+"'s press too); the "+" drawn only on the selection's bottom while the file has
+  one, and kept while its own drag is in flight; the pending card's border with `pointer-events="none"`.
+- Review round (where the "+" sits; the "+" click's two sends): `diff-line-drag.test.ts` 3 new (`utilityPlacement`: no
+  selection, a press, a drag down and up; stacked rows by row, split rows by row and side, an undrawn bottom; `gutterClick`);
+  `diff-review.test.ts` 3 new (the pin follows a drag and goes with the selection; a "+" click in every order of its sends,
+  on the bottom line and off the selection, opens one draft on "3 to 5": 2 pass / 1 fail with the head's handler; a "+" drag
+  whose press comes before its release); `pages-pr-code.test.ts` 2 new (the pin in the Code tab during a drag; a "+" click
+  in every order, and a press ending a "+" drag).
 - Updated for the gutter: `usage-pooled.test.ts` (the window's pointer takers list the gutter's number and "+") and
   `audit-wave-followups.test.ts` (the chat sends' routing between the Files comments' and the rest).
 - AppKit `macos/tests/contextmenu` `text-menu.swift` `testTheShellsMenuPopsUpWithoutServices` (2 failures with the tip's
@@ -168,14 +194,19 @@ and records.
 | Reference | T3 Code `1e2ecbd975` on lane `realinput-1010f-followups` (backend 16700, CDP 16701), paired with the GitHub lane (16703), a fixture page on 16704 | RF-3 click and drags, RF-4 discard, RF-2 float and drag (texts above) | [reference-scripts.txt](https://raw.githubusercontent.com/ccheever/exact2/0c07426ee1d0853f6933670dd121e00e5f25d436/realinput-1010f-followups/reference-scripts.txt) |
 | Before drive | feature tip `596672b62`, built in worktree `t3-code-realinput-1010f-before` (the shared evidence base `c03d7e908` predates #400 and #406) | RF-4 the trash's tap changed nothing; RF-3 the drag changed nothing. Three runs to settle the steps: the tree reveal did not unfold the file, then the file header had to be brought into the virtualized list by key, then the pending card's trash sat under the review button at the window's bottom (the card is centered first now) | [drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/772c1c058e2dc57896eed27ecc50aabb4fe988bc/realinput-1010f-followups/drive.sh.txt), [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/f671c1a636f5c09d8df6d8c3e1905b81a544f7de/realinput-1010f-followups/drive-record.txt) |
 | After drive (one) | `2c23c369b` (the queued drag sends) | RF-4 the card goes; RF-3 lines 3–5 paint and the draft opens | the images above |
+| Review round, before drive | feature tip `596672b62` (the same worktree, not rebuilt) | during the drag nothing paints and no "+" shows. Two runs: the first stopped at the drag, as added line 5 was below the window (the unfolded file is brought to the top again now) | [review-drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/3e6234d5b8d3255028baef36da6cf60cc0e26ab2/realinput-1010f-followups/review-drive.sh.txt), [review-drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/3d876404c434d179984f3ea52d0bb413ac521a2d/realinput-1010f-followups/review-drive-record.txt) |
+| Review round, after drive (one) | `06113041e` merged with the feature tip (`0ac7ab269`; bundle built from it) | during the drag lines 3–5 paint and the "+" is on added line 5; the release opens the draft under it | the RF-3 review row's images |
 
 ## Not done / not verified
 
 - RF-1, RF-3, RF-4 and RF-5 under real input: open until steps 1–4 run (agent mode pops no menu, moves no real pointer,
   and its hover is a hit test).
 - Declared, not built (EXACT2-GAPS): in the thread's Diff panel a press on the gutter leaves a skill chip's details open
-  (the reference's outside press closes them; handing the press on grew the plan by 777 KB); the "+" stays on the pressed
-  line during a real drag.
+  (the reference's outside press closes them): a node that hears `pointerdown` keeps the press from its ancestors (X71,
+  main `issues/20261010-pointer-events-reach-ancestors.md`), and handing the press on grew the plan by 777 KB. The "+"
+  during a drag is no longer declared: it is placed from the selection, as the reference's (review round), so X80 (main
+  #414) no longer shows in the clone; its EXACT2-GAPS row says so, and its plan record and the issues README row (the
+  coordinator's) still say the "+" stays on the pressed line.
 - Observations for the coordinator, not findings of this record: the clone paints selected lines amber
   (`light-dark(#fef3c7, …)`), the reference blue; the reference draws the gutter's "+" at the right of the line number, the
   clone over the change bar at its left (the RF-3 image shows both).
