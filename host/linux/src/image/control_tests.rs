@@ -510,3 +510,158 @@ fn a_cached_picture_is_taken_in_the_poll_that_asks_for_it() {
         .iter()
         .any(|(id, natural)| *id == 2 && natural.is_some()));
 }
+
+fn photo_assets() -> Assets {
+    Assets::selected(
+        PathBuf::new(),
+        Arc::new(|_| Ok(Some(encoded(400, 200, [9, 100, 70, 255])))),
+    )
+}
+
+/// Image `id` in a `width`×`height` box, laid out.
+fn boxed(k: &mut Kernel, id: u32, width: f32, height: f32, fit: exact_kernel::ObjectFit) {
+    use exact_kernel::{AxisOffer, Dimension, Offer, StyleId, StyleProps};
+    let mut style = StyleProps {
+        width: Dimension::Points(width),
+        height: Dimension::Points(height),
+        object_fit: fit,
+        ..Default::default()
+    };
+    for row in [StyleId::Width, StyleId::Height, StyleId::ObjectFit] {
+        style.mask.set(row);
+    }
+    let epoch = k.epoch();
+    k.apply(
+        0,
+        epoch + 1,
+        &[Op::SetStyle {
+            id,
+            patch: Box::new(style),
+        }],
+    )
+    .unwrap();
+    let offer = Offer {
+        width: AxisOffer::Definite(1000.0),
+        height: AxisOffer::Definite(1000.0),
+    };
+    k.compute_layout(id, offer).unwrap();
+}
+
+/// A picture a box clips to itself is decoded as the part the box shows.
+/// Two boxes of different shapes over one source hold two parts, never each
+/// other's, and a box of the first's shape shares the first's.
+#[test]
+fn a_covering_box_holds_the_part_it_shows() {
+    use exact_kernel::ObjectFit;
+    let mut k = kernel(3);
+    // 400×200 in a 100×200 box: the middle quarter of its width.
+    boxed(&mut k, 1, 100.0, 200.0, ObjectFit::Cover);
+    boxed(&mut k, 2, 200.0, 200.0, ObjectFit::Cover);
+    boxed(&mut k, 3, 100.0, 200.0, ObjectFit::Cover);
+    for id in 2..=3 {
+        source(&mut k, id, "1");
+    }
+    let mut images = Images::with_assets(photo_assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    let (tall, square, twin) = (
+        &images.bitmaps[&1],
+        &images.bitmaps[&2],
+        &images.bitmaps[&3],
+    );
+    let part = tall.crop();
+    assert_eq!((part.full.width, part.full.height), (400, 200));
+    assert_eq!(
+        (part.x, part.y, tall.width(), tall.height()),
+        (148, 0, 104, 200)
+    );
+    assert_eq!(
+        tall.natural(),
+        (400, 200),
+        "layout sees the picture's own size"
+    );
+    assert_eq!(
+        (square.crop().x, square.width(), square.height()),
+        (98, 204, 200)
+    );
+    assert!(
+        Arc::ptr_eq(tall, twin),
+        "one part for two boxes of one shape"
+    );
+    assert!(!Arc::ptr_eq(tall, square));
+    // Where a painter draws the part: the whole goes to (-150, 0, 400, 200)
+    // in the 100×200 box, and the part's pixels to their place in that.
+    assert_eq!(
+        tall.placed((-150.0, 0.0, 400.0, 200.0)),
+        (-2.0, 0.0, 104.0, 200.0)
+    );
+    let stats = images.stats();
+    assert_eq!(stats.resident_bytes, (104 * 200 + 204 * 200) * 4);
+}
+
+/// A picture that is contained is decoded whole, and a box that would clip
+/// it shares the whole one the session already holds: no second decode.
+#[test]
+fn a_contained_picture_is_whole_and_shared() {
+    use exact_kernel::ObjectFit;
+    let mut k = kernel(1);
+    boxed(&mut k, 1, 400.0, 200.0, ObjectFit::Contain);
+    let mut images = Images::with_assets(photo_assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    let whole = images.bitmaps[&1].clone();
+    assert!(whole.crop().whole());
+    assert_eq!(
+        (whole.width(), whole.height(), whole.natural()),
+        (400, 200, (400, 200))
+    );
+    assert_eq!(whole.placed((1.0, 2.0, 3.0, 4.0)), (1.0, 2.0, 3.0, 4.0));
+    let epoch = k.epoch();
+    k.apply(
+        0,
+        epoch + 1,
+        &[
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Image,
+            },
+            Op::SetProp {
+                id: 2,
+                prop: PropId::ImageSource,
+                value: "1".into(),
+            },
+            Op::AttachRoot { id: 2 },
+        ],
+    )
+    .unwrap();
+    boxed(&mut k, 2, 100.0, 200.0, ObjectFit::Cover);
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert!(Arc::ptr_eq(&whole, &images.bitmaps[&2]));
+    assert_eq!(images.stats().resident_bytes, 400 * 200 * 4);
+}
+
+/// A box that changes size under a part gets the whole picture, and keeps
+/// it: a box that animates does not ask for a part a frame.
+#[test]
+fn a_box_that_changes_size_gets_the_whole_picture() {
+    use exact_kernel::ObjectFit;
+    let mut k = kernel(1);
+    boxed(&mut k, 1, 100.0, 200.0, ObjectFit::Cover);
+    let mut images = Images::with_assets(photo_assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert!(!images.bitmaps[&1].crop().whole());
+    boxed(&mut k, 1, 110.0, 200.0, ObjectFit::Cover);
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert!(images.bitmaps[&1].crop().whole());
+    assert_eq!(images.bitmaps[&1].width(), 400);
+    boxed(&mut k, 1, 100.0, 200.0, ObjectFit::Cover);
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    assert!(
+        images.bitmaps[&1].crop().whole(),
+        "back at the first size, still the whole"
+    );
+}

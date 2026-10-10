@@ -8,6 +8,9 @@ pub struct Bitmap {
     // Field order matters: pixels are destroyed before the last charge drops.
     pixels: Pixels,
     natural: (u32, u32),
+    /// The part of the picture the pixels are, when not all of it
+    /// ([`Bitmap::placed`]).
+    crop: exact_raster::Crop,
     _charge: AllocationCharge,
     // No backedge to the backend, session, payload or runtime.
     _source: Option<std::sync::Arc<super::workers::SourceOwner>>,
@@ -47,6 +50,7 @@ impl Bitmap {
         Self {
             pixels: pixels.into(),
             natural,
+            crop: exact_raster::Crop::default(),
             _charge: charge,
             _source: None,
         }
@@ -54,12 +58,14 @@ impl Bitmap {
     pub(super) fn from_source(
         pixels: Pixels,
         natural: (u32, u32),
+        crop: exact_raster::Crop,
         charge: AllocationCharge,
         source: std::sync::Arc<super::workers::SourceOwner>,
     ) -> Self {
         Self {
             pixels,
             natural,
+            crop,
             _charge: charge,
             _source: Some(source),
         }
@@ -73,6 +79,28 @@ impl Bitmap {
             return None;
         }
         source.file()
+    }
+    /// Where the pixels go when the whole picture goes to `whole`: there,
+    /// or, for a picture decoded as the part of it a box shows
+    /// (`image::crop`), the same part of `whole`. A painter places a
+    /// picture by its natural size and draws the pixels here, so a part is
+    /// drawn where the whole's pixels of it would be, at the same scale.
+    pub fn placed(&self, whole: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+        if self.crop.whole() {
+            return whole;
+        }
+        let (fw, fh) = (self.crop.full.width as f32, self.crop.full.height as f32);
+        let (w, h) = self.pixels.size();
+        (
+            whole.0 + whole.2 * self.crop.x as f32 / fw,
+            whole.1 + whole.3 * self.crop.y as f32 / fh,
+            whole.2 * w as f32 / fw,
+            whole.3 * h as f32 / fh,
+        )
+    }
+    /// The part of the picture the pixels are (the whole, by default).
+    pub fn crop(&self) -> exact_raster::Crop {
+        self.crop
     }
     /// Original source dimensions, independent of the chosen decode resolution.
     pub fn natural(&self) -> (u32, u32) {

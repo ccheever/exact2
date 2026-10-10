@@ -261,7 +261,7 @@ impl Backend {
             let Prepared::Ready(header) = *source.prepared.lock().unwrap() else {
                 return Err(Refusal::Stale);
             };
-            let plan = png_decode::DecodePlan::new(header, (key.pixels.width, key.pixels.height))?;
+            let plan = png_decode::DecodePlan::of_key(header, &key)?;
             if plan.cost != permit.cost() || header.metadata != permit.metadata() {
                 return Err(Refusal::ConflictingMetadata);
             }
@@ -276,6 +276,7 @@ impl Backend {
             let bitmap = Arc::new(Bitmap::from_source(
                 pixels,
                 plan.natural(),
+                plan.crop,
                 charge,
                 source.clone(),
             ));
