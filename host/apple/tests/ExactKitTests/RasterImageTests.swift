@@ -108,19 +108,18 @@ final class RasterImageTests: XCTestCase {
         let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='50%'><rect width='100%' height='100%' fill='red'/></svg>"
         let url = "data:image/svg+xml;base64," + Data(svg.utf8).base64EncodedString()
         let browser = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-        browser.loadHTMLString("<meta name='viewport' content='width=device-width'><img id='art' style='width:120px;height:auto' src='\(url)'><script>art.onload=()=>{window.geometry=[art.width,art.height]}</script>", baseURL: nil)
         var geometry: [Double]?
-        let deadline = Date(timeIntervalSinceNow: 10)
-        repeat {
-            let read = expectation(description: "browser geometry")
-            browser.evaluateJavaScript("window.geometry") { value, error in
+        let sized = expectation(description: "browser geometry")
+        let navigation = SVGImageNavigation {
+            browser.evaluateJavaScript("[document.getElementById('art').width, document.getElementById('art').height]") { value, error in
                 XCTAssertNil(error)
                 geometry = value as? [Double]
-                read.fulfill()
+                sized.fulfill()
             }
-            wait(for: [read], timeout: 2)
-            if geometry == nil { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
-        } while geometry == nil && Date() < deadline
+        }
+        browser.navigationDelegate = navigation
+        browser.loadHTMLString("<meta name='viewport' content='width=device-width'><img id='art' style='width:120px;height:auto' src='\(url)'>", baseURL: nil)
+        wait(for: [sized], timeout: 10)
         XCTAssertEqual(geometry, [120, 150], "the fallback 300x150 does not imply a 2:1 intrinsic ratio")
 
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("svg-no-ratio-\(UUID().uuidString)")
@@ -138,7 +137,7 @@ final class RasterImageTests: XCTestCase {
         func failure() -> String? { (loader.diagnostics["images"] as? [[String: Any]])?.first?["failure"] as? String }
         let nativeDeadline = Date(timeIntervalSinceNow: 5)
         while failure()?.isEmpty != false && Date() < nativeDeadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
         XCTAssertEqual(failure(), "unsupported SVG image intrinsic sizing")
         XCTAssertTrue(intrinsic.isEmpty, "no fallback pair may reach the kernel and imply a ratio")
@@ -341,3 +340,11 @@ private final class RasterImageAlias: @unchecked Sendable {
     init(_ image: CGImage) { self.image = image }
     func drop() { image = nil }
 }
+
+#if os(iOS)
+private final class SVGImageNavigation: NSObject, WKNavigationDelegate {
+    let finish: () -> Void
+    init(finish: @escaping () -> Void) { self.finish = finish }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish() }
+}
+#endif
