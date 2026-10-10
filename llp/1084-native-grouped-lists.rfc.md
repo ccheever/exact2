@@ -95,20 +95,23 @@ This is HTML's own structure (`section` > `header`, the rows, `footer`), so the 
 
 A row of any other shape is **custom**: a raster image, a third text, a nested box. A row with no title is custom too. A custom row carries only its node, its press and its state, and the host shows its views. `destructive` (the existing prop 68) draws the title and symbol red, and `disabled` dims the row and makes it untappable. Roles name symbols as everywhere else, so `forward-chevron` is `chevron.forward`. This RFC adds the role `info` (`info.circle`), so the detail button has a web path.
 
-**D5. iOS: UIKit's list over the authored scroll.** `GroupedListHost` (`IOS/GroupedListIOS.swift`) runs after each batch:
+**D5. iOS: UIKit's list is the scroll owner.** `GroupedListHost` (`ExactGroupedLists/GroupedListIOS.swift`) runs after each batch:
 - **It reads the model through `exact_grouped_list`**, which returns JSON as `exact_press_face` does.
-- **It installs a `UICollectionView` in the list's box** and hides the authored scroll beneath it. The layout is a compositional layout per section, so a section has a header or footer only where it has the text. The data source is a diffable data source keyed by the section and row node ids. A row whose parts changed is reconfigured, never reloaded.
+- **It installs the list's only `UIScrollView`, a `UICollectionView`, in the list's box.** The original section roots remain in the authored hierarchy and are hidden by the host; no duplicate scroll or wrapper is created. The layout is a compositional layout per section, so a section has a header or footer only where it has the text. The data source is a diffable data source keyed by the section and row node ids. A row whose parts changed is reconfigured, never reloaded. An unchanged snapshot is not reapplied; custom rows refresh their carried views and height during mounting without reconfiguration.
 - **A standard row** is a `UIListContentConfiguration`: `.cell()`, `.valueCell()` or `.subtitleCell()`. Its image is `UIImage(systemName:)`. Its accessories are `.disclosureIndicator()`, `.checkmark()`, `.detail` (which presses the button), or a `UISwitch` as a custom-view accessory. The switch shows the control's committed `checked` and reports through the control's own path (`presenter.checked`), and the committed state is authoritative, as in LLP 1069.001 D4.
 - **A tap** is the collection view's own selection. UIKit highlights the row, deselects it, and presses it. Rows that are not buttons, or are disabled, do not highlight.
 - **A custom row's node is carried into its cell** and given back before every batch, as LLP 1008 §9 carries a swipe row's.
   - It sits at its place in the group: its kernel x, top at 0.
   - The cell is the row's kernel height less the row's bottom border. The cell's content view clips, so the separator the cell draws replaces the sheet's.
-- **Insets follow the authored scroll.** The collection view copies that scroll's `contentInsetAdjustmentBehavior`, `contentInset` and indicator insets.
+  - A prepared cell carries the row again when UIKit displays it; a batch may have restored the row after cell preparation. A changed height requests the existing coalesced projection refresh, without reconfiguring or invalidating inside the display callback.
+- **Scroll configuration uses the shared owner.** The node's `scrollView` is the collection. Refresh, keyboard dismissal, indicator style, authored offsets, events and navigation use it directly; the collection delegate forwards the shared scroll callbacks while retaining native row selection. UIKit owns its content extent. Navigation registers the physical backend before its first layout, and shared offset writes follow navigation and keyboard inset adoption. An immediate logical write that changes the collection's title inset settles that transition once before its final target; it retains no later offset replay. A plain scroller's extent remains the kernel's.
+- **Content room stays content.** Native insets implement the list's top and bottom padding and the space under a footer, as this module's own delta. Shared scroll metrics, focus reveal and alignment exclude that room from UI obstructions; the kernel's scroll facts do not add authored padding twice. Backend replacement retains the logical offset and transfers an existing keyboard-toolbar inset after mounting.
+- **Geometry resolves by row identity.** A standard or offscreen row's native layout attributes supply its projected box; a carried custom descendant supplies its own box. Reveal and reading anchors use those boxes rather than the hidden section positions. Navigation binds after mounting and compares the physical scroller identity. A fractional difference within 0.5 points at the native start is not a reading anchor; an idle follow-end list at that start uses the new native minimum when its inset changes.
 - **A plain list's footers are not pinned.** UIKit pins them by default and shades the rows under them (§2); a settings footer belongs under its rows.
 
-**D6. Reuse, and what is not reused.** The list is still a `list` node, laid out by the kernel, mounted by the presenter, with its scroll, its `testId` and its handlers. The projection follows the swipe cell's pattern: `prepare()` before a batch, `sync(changed:)` after it, hosts registered with the inspection walk. A virtualized collection's window is not reused, because a grouped list has no window (§1). The two never meet: D1 refuses `virtualized`.
+**D6. Reuse, and what is not reused.** The list is still a `list` node, laid out by the kernel, mounted by the presenter, with its native scroll, its `testId` and its handlers. The projection follows the swipe cell's pattern: `prepare()` before a batch, `sync(changed:)` after it, hosts registered with the inspection walk. A virtualized collection's window is not reused, because a grouped list has no window (§1). The two never meet: D1 refuses `virtualized`.
 
-**D7. The other hosts draw the sheet.** Contract adds rows to the list, the sections, the header and footer, the group and each row's parts. They are prepended to the author's rows, so a class or attribute of the author's replaces any of them. Every host lays them out as it lays out any rows. The web, macOS and Linux need no code, and on iOS the same layout is what the hidden scroll holds.
+**D7. The other hosts draw the sheet.** Contract adds rows to the list, the sections, the header and footer, the group and each row's parts. They are prepended to the author's rows, so a class or attribute of the author's replaces any of them. Every host lays them out as it lays out any rows. The web, macOS and Linux need no code, and on iOS that layout remains on the original sections and determines custom-row sizes.
 - **The list:** the grouped or plain background.
 - **A section:** margins of 0, 17.33 or 35.33 (§2).
 - **The group:** the cell colour; with `inset-grouped`, 16 pt margins and radius 26; with `grouped`, top and bottom separators. It always clips.
@@ -148,12 +151,11 @@ Colours are `light-dark()` pairs of §2's values.
 - **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
-- **The large-title collapse (LLP 1075.003 §3.7) does not follow a grouped list.** It follows the route's authored scroll, which this list hides. The route's `setContentScrollView` would need to be the collection view (§7).
 - **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
 - **A part hidden by a class's `display: none` is counted by the sheet.** The sheet sees only a literal `display="none"` written on the part. A class is applied when that part is lowered, after the row's parts are counted, so the kernel and the sheet can disagree about which text is the title. Write the attribute, or use `when`.
 - **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
 - **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
-- **The list's scroll position is UIKit's.** An authored `scrollTop` write still goes to the hidden scroll, and the collection view reports no `scroll` event. The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other would be wrong at both ends. A settings screen needs neither. The agent's wheel scrolls the collection view (D8). A consumer that needs a position gets it designed then.
+- **Native and authored geometry are distinct.** The kernel still lays out the sheet and its custom rows; UIKit lays out native cells and sections. Native scroll positions, ranges and projected row boxes come from the collection, without mirroring an offset onto a second scroller.
 
 ## 5. Scope
 
@@ -169,8 +171,12 @@ This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag me
   - hidden parts, plain sections, native button rows;
   - each refusal.
 - **Kernel.** `grouped.rs`, `Kernel::grouped_list`. Adding a prop and a role moved `SCHEMA_DIGEST`'s snapshot (`wire/codec.rs`).
-- **Apple.** `exact_grouped_list` and `GroupedListIOS.swift`. `GroupedListIOSTests` has 13 tests:
-  - the collection view in the box over the hidden scroll;
+- **Apple.** `exact_grouped_list` and `GroupedListIOS.swift`. `GroupedListIOSTests` includes:
+  - the collection view as the only scroll owner, with hidden authored section roots;
+  - initial and same-batch scroll writes, native extents and events, refresh and keyboard style;
+  - projected offscreen geometry, reading anchors and nested scroll reveal;
+  - prepend/resize reading positions, native end following, padded metrics and focus reveal;
+  - backend offset transfers and authored-write precedence;
   - cells of the model's parts;
   - the tap: highlighted, pressed once, refused when scrolled away or inert;
   - a switch following its control's state and target, and one rebuilt only after its own action;
@@ -282,7 +288,7 @@ margin-bottom=0`.
   configuration's `headerTopPadding`: a section's top inset under a header
   is the header-to-rows gap (measured, iOS 27). The space under the last
   section is its bottom inset, or under a footer the collection's bottom
-  content inset (added to the authored scroll's).
+  content inset (added as this module's own delta, preserving refresh and keyboard insets).
 
 Proofs: `contract/cli/tests/it/grouped_list.rs`
 `an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits` and
@@ -305,6 +311,5 @@ gaps, a titled section's header 20 under the card above).
   UIKit's; a fixture compared in a browser beside UIKit would close it.
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
-- **The large title.** The route's content scroll view (LLP 1075.003 §3.7) should be the collection view when a grouped list is the scroller after the header.
 - **Swipe actions on rows.** `UICollectionLayoutListConfiguration`'s own `trailingSwipeActionsConfigurationProvider` would replace the one-row table for a grouped list's rows.
 - **The Signal Clone.** Its `Section`, `Row` and `ActionRow` become a grouped list. That is a change in the clone's repository, not this one.

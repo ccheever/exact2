@@ -17,6 +17,10 @@ package protocol GroupedLists: AnyObject {
     func reset()
     /// The collection view a wheel on `id` scrolls.
     func scroller(for id: UInt32) -> UIScrollView?
+    /// Row geometry from the native layout, never the hidden authored boxes.
+    func projectedRect(for node: NodeView, in scroll: UIScrollView) -> CGRect?
+    /// Visible rows in native reading order, for preserving the reading position.
+    func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)]
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
     /// Where a real finger aimed at `node` lands, for a row a list draws.

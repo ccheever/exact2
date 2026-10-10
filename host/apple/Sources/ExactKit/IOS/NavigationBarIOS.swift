@@ -236,7 +236,7 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
         // Restoring a hidden bar changes the route's safe area. Lay out its
         // container before reporting that cover to the kernel.
         nav.view.setNeedsLayout()
-        nav.view.layoutIfNeeded()
+        if nav.viewIfLoaded?.window != nil { nav.view.layoutIfNeeded() }
         host?.navigationController(nav, didShow: controller, animated: animated)
         app?.navigationController?(nav, didShow: controller, animated: animated)
     }
@@ -474,7 +474,9 @@ extension NavigationHost {
             presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
                                                  key: c.key, dataset: dataset)
             c.hatched = true
-            if let scroll { c.ownedScroll = element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scroll === scroll ? $0 : nil } }
+            c.ownedScroll = scroll.flatMap { physical in
+                element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scrollView === physical ? $0 : nil }
+            }
         }
         // A route's header shown or hidden in place; a push or pop sets the
         // bar in `willShow` instead, with UIKit's transition.
@@ -610,20 +612,39 @@ extension NavigationHost {
     private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
         let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
         let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
-        let target = node?.scroll != nil && node?.scroll === scroll ? node : nil
-        guard c.collapseScroll !== target else { return }
-        if let old = c.collapseScroll, let sv = old.scroll {
-            let top = sv.contentOffset.y + old.scrollTopInset(sv)
-            sv.contentInsetAdjustmentBehavior = .never
+        let target = node?.scrollView != nil && node?.scrollView === scroll ? node : nil
+        let physical = target?.scrollView
+        guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
+        if let old = c.collapseScroll {
+            let previous = c.collapseScrollView
+            let top = previous.map { $0.contentOffset.y + old.scrollTopInset($0) }
+            if let previous { old.retainScrollPosition(from: previous) }
+            previous?.contentInsetAdjustmentBehavior = .never
             old.scrollOrigin = 0
             old.scrollCollapsed = 0
-            sv.contentOffset.y = top
+            if let previous, let top { previous.contentOffset.y = top - old.scrollTopInset(previous) }
         }
         c.collapseScroll = target
-        if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        c.setContentScrollView(target?.scroll, for: .top)
+        c.collapseScrollView = physical
+        physical?.contentInsetAdjustmentBehavior = .always
+        c.setContentScrollView(physical, for: .top)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// Register a replacement before its first native layout. Resolve only
+    /// the containing route, preserving that stack's Back relationships.
+    func scrollBackendChanged(_ node: NodeView) {
+        var responder: UIResponder? = node
+        while let current = responder {
+            if let route = current as? RouteController, route.host === self,
+               let nav = route.navigationController {
+                guard route.collapseScroll === node || (node.scrollView != nil && contentScroll(of: route) === node.scrollView) else { return }
+                prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+                return
+            }
+            responder = current.next
+        }
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
@@ -672,7 +693,7 @@ extension NavigationHost {
     /// inside it by HTML id as its Back control is (E7: nothing searches).
     func contentScroll(of c: RouteController) -> UIScrollView? {
         guard let name = c.node.props["navigationScroll"], !name.isEmpty else { return nil }
-        return element(named: name, in: c.node)?.scroll
+        return element(named: name, in: c.node)?.scrollView
     }
 
     private func element(named name: String, in route: NodeView) -> NodeView? {
@@ -769,7 +790,7 @@ extension NavigationHost {
             // UIKit's own does, but a title's insets are not sampled.
             let search = searching(c)
             let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, !search, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
+            if settled, !search, let node = c.collapseScroll, let sv = c.collapseScrollView, sv === node.scrollView, sv.adjustedContentInset.top > 0 {
                 let inset = sv.adjustedContentInset.top
                 // tvOS has no large titles: every title is inline.
                 #if os(tvOS)
@@ -860,7 +881,7 @@ extension NavigationHost {
         }
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
-            guard let node = c.ownedScroll, let scroll = node.scroll else { continue }
+            guard let node = c.ownedScroll, let scroll = node.scrollView else { continue }
             for property in NavigationHost.ownedChanges(scroll, of: node, collapsing: c.collapseScroll === node) { say("route \(c.key)", property) }
         }
     }
@@ -868,18 +889,22 @@ extension NavigationHost {
     /// What Exact sets on a node's scroll view and nothing else may (LLP
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
     /// refresh control insets it while it spins), no automatic adjustment,
-    /// the node as its delegate, the authored keyboard dismissal. The offset
+    /// the backend's Exact-owned delegate, the authored keyboard dismissal. The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, collapsing: Bool) -> [String] {
         var out: [String] = []
-        #if os(tvOS)
-        if s.contentInset != .zero { out.append("contentInset") }
-        #else
-        if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
-        #endif
+        // A native backend owns layout/footer insets, composed with the
+        // refresh control and keyboard; zero is only the plain-scroll baseline.
+        if s === node.scroll {
+            #if os(tvOS)
+            if s.contentInset != .zero { out.append("contentInset") }
+            #else
+            if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
+            #endif
+        }
         if s.contentInsetAdjustmentBehavior != (collapsing ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
-        if s.delegate !== node { out.append("delegate") }
+        if s !== node.scrollView || !node.ownsScrollDelegate { out.append("delegate") }
         let dismiss: UIScrollView.KeyboardDismissMode = switch node.props["keyboardDismissMode"] {
         case "interactive": .interactive
         case "on-drag": .onDrag

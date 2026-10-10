@@ -13,7 +13,7 @@ extension Presenter {
         let chosen = scrollsToTopTarget()
         if viewport.scrollsToTop != (chosen === viewport) { viewport.scrollsToTop = chosen === viewport }
         for id in scrollers {
-            guard let sv = views[id]?.scroll else { continue }
+            guard let sv = views[id]?.scrollView else { continue }
             if sv.scrollsToTop != (sv === chosen) { sv.scrollsToTop = sv === chosen }
         }
     }
@@ -38,7 +38,7 @@ extension Presenter {
         var level: [NodeView] = [node], depth = 0
         while !level.isEmpty, depth < 8 {
             depth += 1
-            if let hit = level.first(where: { $0.scroll?.scrollsY == true }) { return hit.scroll }
+            if let hit = level.first(where: { $0.scrollView != nil && $0.scrollsVertically }) { return hit.scrollView }
             level = level.flatMap { $0.container.subviews.compactMap { $0 as? NodeView }.filter { !$0.isHidden } }
         }
         return nil

@@ -79,13 +79,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// scroll callback, what shows and nothing more, is its fill, and the
     /// fill it is owed waits until it slows.
     func outruns(_ id: UInt32) -> Bool {
-        guard let node = presenter?.views[id], let scroll = node.scroll else { return false }
+        guard let node = presenter?.views[id], let scroll = node.scrollView else { return false }
         let horizontal = presenter?.collections.entries[id]?.snapshot.horizontal == true
         let port = Double(horizontal ? scroll.bounds.width : scroll.bounds.height)
         return port > 0 && abs(velocity(id)) * refreshInterval >= port * Self.outrun
     }
     private func sample(_ node: NodeView, now: TimeInterval) {
-        guard let scroll = node.scroll else { return }
+        guard let scroll = node.scrollView else { return }
         // Along the list's own axis (LLP 1070 H3): a row list travels on x.
         let horizontal = presenter?.collections.entries[node.id]?.snapshot.horizontal == true
         let top = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y

@@ -19,6 +19,8 @@ final class RouteController: UIViewController {
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
+    /// The physical scroller bound to UIKit; a node can replace its backend.
+    var collapseScrollView: UIScrollView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).
@@ -279,6 +281,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return
         }
         let nav = makeNavigation(first: first.first?.node)
+        prepareRoutes(first, in: nav)
+        nav.setViewControllers(first, animated: false)
         parent.addChild(nav)
         p.root.addSubview(nav.view)
         nav.view.setPaintForeground(aboveAuthored: false)
@@ -286,8 +290,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         nav.didMove(toParent: parent)
         primaryNavigation = nav
-        prepareRoutes(first, in: nav)
-        nav.setViewControllers(first, animated: false)
         recordOwned(nav)
         watchPops(nav)
     }
@@ -315,7 +317,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let p = projection(batch) else { return }
         let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
         installPrimary(p, first: Array(p.chosen[parts[0]]))
-        primaryOwner?.view.layoutIfNeeded()
+        // Content geometry follows later in this batch. Forcing layout here
+        // would let UIKit choose its title shape from zero-size scrollports.
         // The content area the bar leaves reaches layout in this turn, before
         // the first frame (LLP 1075.003 Q3 (c)).
         reportCovers()
@@ -430,6 +433,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let part = parts[mounted.count + 1], route = wanted[part.lowerBound].node
             guard presenter.modals.canPresent(from: owner, route: route) else { return }
             let nav = makeNavigation(first: route)
+            let stack = Array(wanted[part])
+            prepareRoutes(stack, in: nav)
+            nav.setViewControllers(stack, animated: false)
             owner.addChild(nav)
             root.addSubview(nav.view)
             nav.view.setPaintForeground(aboveAuthored: false)
@@ -437,8 +443,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             nav.didMove(toParent: owner)
             presentedNavigations.append(nav)
-            prepareRoutes(Array(wanted[part]), in: nav)
-            nav.setViewControllers(Array(wanted[part]), animated: false)
             recordOwned(nav)
             watchPops(nav)
             nav.view.layoutIfNeeded()

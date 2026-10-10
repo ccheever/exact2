@@ -69,15 +69,38 @@ extension Presenter {
             return
         }
         let (block, inline) = IntoView.options(args)
-        for case let sv as UIScrollView in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            // The port is the bounds inside the insets (a bar's, the keyboard's).
-            let frame = target.convert(target.bounds, to: sv), inset = sv.adjustedContentInset
+        let grouped = groupedLists?.scroller(for: target.id).flatMap { scroll in
+            scroll.window === target.window && groupedLists?.projectedRect(for: target, in: scroll) != nil ? scroll : nil
+        }
+        var scrollers: [UIScrollView] = []
+        for view in sequence(first: target.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            if let sv = view as? UIScrollView, sv.isScrollEnabled { scrollers.append(sv) }
+            // A standard cell's authored original is a sibling of the native
+            // collection. Insert that port at its owner, after any nested one.
+            if let grouped, view === grouped.superview, grouped.isScrollEnabled,
+               !scrollers.contains(where: { $0 === grouped }) { scrollers.append(grouped) }
+        }
+        for sv in scrollers {
+            let frame: CGRect
+            if let grouped, sv === grouped || grouped.isDescendant(of: sv),
+               let projected = groupedLists?.projectedRect(for: target, in: grouped) {
+                // Inner authored scrolls use the target's own box. The native
+                // row frame projects only into its collection and outer ports.
+                frame = grouped.convert(projected, to: sv)
+            } else {
+                frame = target.convert(target.bounds, to: sv)
+            }
+            // Content room belongs to the range; only UI insets (a bar or
+            // keyboard) obstruct the viewport used for CSS alignment.
+            let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+            let inset = owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset
             let port = sv.bounds.inset(by: inset)
             let x = IntoView.aligned(inline, target: frame.minX, frame.maxX, port: port.minX, size: port.width) - inset.left
             let y = IntoView.aligned(block, target: frame.minY, frame.maxY, port: port.minY, size: port.height) - inset.top
-            let maxX = max(-inset.left, sv.contentSize.width + inset.right - sv.bounds.width)
-            let maxY = max(-inset.top, sv.contentSize.height + inset.bottom - sv.bounds.height)
-            let to = CGPoint(x: min(max(x, -inset.left), maxX), y: min(max(y, -inset.top), maxY))
+            let rangeInset = sv.adjustedContentInset
+            let maxX = max(-rangeInset.left, sv.contentSize.width + rangeInset.right - sv.bounds.width)
+            let maxY = max(-rangeInset.top, sv.contentSize.height + rangeInset.bottom - sv.bounds.height)
+            let to = CGPoint(x: min(max(x, -rangeInset.left), maxX), y: min(max(y, -rangeInset.top), maxY))
             guard to != sv.contentOffset else { continue }
             sv.setContentOffset(to, animated: false)
         }

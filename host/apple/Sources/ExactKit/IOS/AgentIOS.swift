@@ -257,7 +257,7 @@ extension Agent {
             if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
             // A waiting scroll (a closed swipe row's) is at its start.
             if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
-            if let sv = v.scroll {
+            if let sv = v.scrollView {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 // How far past its own ends it sits: a stretched bounce is a
@@ -382,7 +382,7 @@ extension Agent {
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
-                if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
+                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0]) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
@@ -665,9 +665,10 @@ extension Agent {
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
-            // A row a grouped list draws scrolls that list, wherever its
-            // hidden node lies (LLP 1084 D8).
-            Agent.scroll(from: presenter.groupedLists?.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            // A native standard row has no visible authored hit. Custom
+            // rows keep their real nested scroll containers in the hit path.
+            let projected = presenter.groupedLists?.draws(v.id) == true ? presenter.groupedLists?.scroller(for: v.id) : nil
+            Agent.scroll(from: projected ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
@@ -814,7 +815,7 @@ extension Agent {
         while let cur = v {
             // A waiting scroll (a closed swipe row's) scrolls as the wheel asks.
             var target: UIScrollView? = cur as? ScrollView
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scrollView }
             // A grouped list's collection view scrolls in its place (LLP 1084 D8).
             if target == nil, cur is GroupedScroller { target = cur as? UIScrollView }
             if let sv = target {
