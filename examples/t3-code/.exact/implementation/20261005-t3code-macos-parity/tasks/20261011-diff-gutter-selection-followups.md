@@ -118,7 +118,12 @@ leaves unselectable text out.
 - `diff-gutter-visuals.test.ts`: its number-colour assertion reads `DiffNumber` (the colour is unchanged).
 - Before (the feature tip's sources with the new test): 1 pass, 6 fail; after: all pass ([tests-before-after-r2.txt](https://raw.githubusercontent.com/ccheever/exact2/790c0d1e42862c72b55bc4ec8ed05915429faeb0/diff-gutter-selection-followups/r2/tests-before-after-r2.txt)).
 
-Checks: run on this commit; results in the next record commit.
+Checks on `7321f92f6` (the review round; the branch merged with `feat(example)/t3-code` at `79cfa3706`, still its tip;
+all exit 0): `bun test examples/t3-code --timeout 60000` 4451 pass / 1 skip / 0 fail (304 files); strict tsc; `contract
+build` of `app.contract` (1397 lines; 109,609 nodes, 28,573,305 bytes, unchanged); caps; the five checks (cargo build,
+cargo test 3679 pass / 0 fail / 34 ignored, clippy, fmt, caps, boot). No Rust or Swift changed, so `cargo test -p
+t3-code-macos --lib` and the AppKit binaries were not run. The review round's bundle was built from `f7ad4e8f3` (the
+code; the record only after it). The first round's checks ran on `694fd0d33` with the same results.
 
 ## Attempts and evidence
 
