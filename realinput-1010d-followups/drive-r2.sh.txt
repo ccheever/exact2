@@ -1,0 +1,46 @@
+#!/bin/zsh
+# realinput-1010d-followups review round: the RD-4 agent drive of the fixed monitor (not committed). Usage: drive-r2.sh <run name> after
+# Same lane, home and provider pinning as drive.sh; only the RD-4 ops (the thread, the banner's text selected, the
+# right-click), each answer stamped with the wall clock (ops.tsv) so the right-click's latency is on record.
+# The build is this worktree's (after). Lane base 16560: the clone's embedded server 16562 (no fixture page needed).
+# Provider state equals the reference lane's: no provider (both CLIs pinned to a missing path, no PATH entry for them).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010d-followups
+S0=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/realinput-1010d-followups
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+AL=$A/lanes/realinput-1010d-followups
+P=${1:?run}; MODE=${2:?before|after}; OUT=$S0/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$W/examples/t3-code
+if [ "$MODE" = before ]; then export EXACT_MAC_BIN="$W/target/rd/before-dev/standalone/T3 Code (Exact)" EXACT_ASSETS=$W/target/rd/before-dev/capture; fi
+mkdir -p $S0/homes
+export T3_LOCAL_HOME=$S0/homes/$P T3_LOCAL_PORT=16562 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$AL/codex CLAUDE_CONFIG_DIR=$AL/claude
+export XDG_CONFIG_HOME=$AL/xdg/config XDG_DATA_HOME=$AL/xdg/data XDG_STATE_HOME=$AL/xdg/state XDG_CACHE_HOME=$AL/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$A/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $AL/clone-t3-home $T3_LOCAL_HOME
+cat > $T3_LOCAL_HOME/userdata/settings.json <<JSON
+{
+  "projectSettingsFolded": true,
+  "enableProviderUpdateChecks": false,
+  "providers": { "cursor": { "enabled": false }, "grok": { "enabled": false }, "opencode": { "enabled": false } },
+  "providerInstances": {
+    "claudeAgent": { "driver": "claudeAgent", "enabled": true, "config": { "customModels": [], "binaryPath": "$S0/absent/claude", "homePath": "", "launchArgs": "", "autoCompactWindow": "" } },
+    "codex": { "driver": "codex", "enabled": true, "config": { "binaryPath": "$S0/absent/codex", "homePath": "", "shadowHomePath": "", "launchArgs": "", "customModels": [] } }
+  }
+}
+JSON
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+S=$OUT/shots; mkdir -p $S
+OPS=("clock +15000 real" "clock +6000 real"
+  "tap thread-verify-timeline" "clock +3000 real"
+  "tap \"Codex provider status\" clicks 2" "clock +600 real" "screenshot $S/rd4-selected.png window"
+  "tap \"Codex provider status\" contextmenu" "clock +600 real" "logs" "screenshot $S/rd4-after-rightclick.png window"
+  "tap \"Codex provider status\" clicks 2" "clock +600 real" "state")
+cd $W
+T0=$(perl -MTime::HiRes=time -e 'printf "%.3f", time'); echo "start $T0" > $OUT/ops.tsv
+( $BUN scripts/agent.mjs macos --json --size 1280x840 --storage rd-$P "${OPS[@]}" 2> $OUT/agent.err; echo "agent exit $?" >> $OUT/pids.txt ) | perl -MTime::HiRes=time -ne 'BEGIN{$|=1} print STDOUT $_; open(my $f, ">>", "'$OUT'/ops.tsv"); printf $f "%.3f\t%s", time, substr($_,0,300); print $f "\n" unless /\n$/; close $f' > $OUT/agent.jsonl &
+AG=$!; echo "agent pid $AG" > $OUT/pids.txt
+wait $AG
+echo DRIVE-DONE
