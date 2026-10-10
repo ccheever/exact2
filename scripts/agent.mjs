@@ -22,7 +22,7 @@
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, browserDiagnosticNoise, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render, tapRefusal, worldView } from './agent-inspect.mjs';
@@ -30,17 +30,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-const WORLD_LIMIT = 256 * 1024 * 1024;
-function worldFile(path) {
-  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  const bytes = readFileSync(path);
-  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  return bytes;
-}
 import { connect } from 'node:net';
-import { contactSheet, decodePng, encodeApng, encodePng, shrink } from './png.mjs';
-/** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
-const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
+import { contactSheet, encodeApng, encodePng } from './png.mjs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1319,15 +1310,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (shrunk) writeFileSync(r.screenshot, encodePng(image));
       return s.tagged({ ...r, scale });
     },
-    /** A capture's pixels, decoded once, at the drive's `--scale`: shrunk by area from the capture's own pixels a point, never enlarged. */
-    scaled(r) {
-      const png = decodePng(readFileSync(r.screenshot)), drawn = r.scale ?? png.width / r.w, said = Math.round(drawn * 100) / 100;
-      if (scale === undefined) return { image: png, shrunk: false };
-      if (!Number.isFinite(drawn)) throw new Error(`--scale: the ${host} capture did not say its size in points`);
-      if (scale > drawn + 1e-3) throw new Error(`--scale ${scale}: this ${host} capture is ${said} pixel${said === 1 ? '' : 's'} a point; a screenshot is never enlarged`);
-      if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
-      return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
-    },
+    scaled(r) { return scaledScreenshot(r, scale, host); },
     /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at), both at the drive's `--scale` (a grid wider than 2048 px is shrunk again; the reply's `scale` is the picture's). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
     async film(path, { over, every }) {
       const frames = Math.floor(over / every) + 1;

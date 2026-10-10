@@ -3,6 +3,27 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderAx } from './agent-ax.mjs';
+import { decodePng, shrink } from './png.mjs';
+
+/** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
+export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
+export const WORLD_LIMIT = 256 * 1024 * 1024;
+export function worldFile(path) {
+  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  const bytes = readFileSync(path);
+  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  return bytes;
+}
+
+/** A capture's pixels, decoded once, at the drive's `--scale`: shrunk by area from the capture's own pixels a point, never enlarged. */
+export function scaledScreenshot(r, scale, host) {
+  const png = decodePng(readFileSync(r.screenshot)), drawn = r.scale ?? png.width / r.w, said = Math.round(drawn * 100) / 100;
+  if (scale === undefined) return { image: png, shrunk: false };
+  if (!Number.isFinite(drawn)) throw new Error(`--scale: the ${host} capture did not say its size in points`);
+  if (scale > drawn + 1e-3) throw new Error(`--scale ${scale}: this ${host} capture is ${said} pixel${said === 1 ? '' : 's'} a point; a screenshot is never enlarged`);
+  if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
+  return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
+}
 
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
