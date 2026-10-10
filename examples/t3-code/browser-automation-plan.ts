@@ -165,7 +165,7 @@ export type PlanContext = {
   budgetMs: number;
   /** Tabs whose presentation the agent suppressed (`open: false`) in this thread. */
   suppressed: ReadonlySet<string>;
-  /** The floating-preview preference (`browserAutoShowFloatingPreview`, Settings › Integrations › Browser, part 4). */
+  /** The floating-preview preference (`browserAutoShowFloatingPreview`, part 3's setting, default on; its row is Settings › Integrations › Browser, part 4). */
   autoShowFloatingPreview: boolean;
   /** The configured open defaults (part 4's browserDefaults): a tab an agent creates without a size gets them, as a
    *  hand-opened one does. Fill and Default when absent. */

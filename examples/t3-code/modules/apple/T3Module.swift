@@ -73,8 +73,10 @@ final class T3Module: ExactModule {
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         r9 = R9Input(agent: context.agent)
         r10 = R10Connect(agent: context.agent)
-        browserSessions = T3BrowserSessions(agent: context.agent, changed: changed)
-        browserAutomation = T3BrowserAutomation(sessions: browserSessions) // wired in attachBrowserAutomation (T3Module+Browser.swift)
+        let browser = T3BrowserSessions(agent: context.agent, changed: changed)
+        browser.dataRoot = T3Storage.dataRoot(agent: context.agent, contextData: context.data) // part 3: artifacts, Annotate's crops
+        browserSessions = browser
+        browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
         exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
