@@ -1,0 +1,16 @@
+# Composite a reference shot: the preview guest under the renderer (whose webview area is transparent). Not committed.
+import json, sys
+from PIL import Image
+def comp(base):
+    meta = json.load(open(f'{base}.json'))
+    r = Image.open(f'{base}.r.png').convert('RGBA')
+    out = Image.new('RGBA', r.size, 'white')
+    sc = meta['scale']
+    slots = [s for s in meta['slots'] if s['visible']]
+    for slot, shot in zip(slots, [s for s in meta['shots'] if 'file' in s]):
+        g = Image.open(shot['file']).convert('RGBA').resize((round(slot['width'] * sc), round(slot['height'] * sc)), Image.LANCZOS)
+        out.paste(g, (round(slot['x'] * sc), round(slot['y'] * sc)))
+    out.alpha_composite(r)
+    out.convert('RGB').save(f'{base}.png')
+    print(base, out.size, len(slots))
+for b in sys.argv[1:]: comp(b)
