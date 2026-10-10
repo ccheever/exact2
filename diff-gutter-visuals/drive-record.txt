@@ -1,0 +1,183 @@
+diff-gutter-visuals: the agent drives and what their window screenshots measure (points; the clone's 2x window
+screenshots halved). The '+' box is the run of its fill colour (clone #009fff exactly; the reference's CDP screenshots are
+colour-managed, #009fff reads (70,157,248) there).
+
+Builds: before = feature tip ca034e055 (worktree t3-code-diff-gutter-visuals-before, bundle built there; the shared evidence
+base c03d7e908 predates #413, so it could not show the gutter drag); after = this branch 149170af0 (bundle built from it).
+Drive: target/dgv-drive/drive.sh (below), the same steps on both, 1280x840, lane diff-gutter-visuals(-before), clone server
+16742, the GitHub lane's primary server on 16743 paired with a fresh single-use link. One after drive (exit 0), no retry.
+Before took three runs to settle the Diff panel's steps (Cargo.lock is not in the clone's Changes for the fixture thread;
+fixture.txt has one line; then the tree read of the '+' found none, as the before build's press opened a draft).
+
+'+' boxes (x0, y0, x1, y1):
+  PR #168 Code tab, docs/usage.md, added line 5 (a two-digit gutter, 41.1 wide, the number cell at x 641):
+    before  (645.0, 415.0, 661.0, 431.0)   16 x 16 at the cell's left, over the change bar, #1b4ed8
+    after   (672.5, 413.0, 692.0, 433.0)   20 x 20 from the number's right edge (cell left + 31.3), #009fff (light and dark)
+    ref     (673.0, 434.0, 692.0, 454.0)   20 x 20, CDP left 672.3 = cell left + 31.3 (the row sits 21 pt lower in the reference's list)
+  Thread Diff panel (a one-digit gutter, 33.3 wide, the cell at x 741):
+    after   (764.5, 184.0, 784.0, 204.0)   cell left + 23.5
+    ref     CDP 764.5 on Cargo.toml (one digit; cell left + 23.5), 788.0 on Cargo.lock (four digits, 56.8 wide; cell left + 47.0)
+Selected-row pixels (light / dark), clone after vs reference screenshot:
+  bar   (0,159,255) / (0,159,255)        ref (70,157,248) / (70,157,248)   [both #009fff; the reference's capture is colour-managed]
+  row   (238,247,253) / (15,21,26)       ref (240,247,252) / (16,21,26)    [CDP #eff7fd / #0f151a]
+  cell  (240,247,253) / (16,21,26)       ref (241,247,252) / (17,21,25)    [CDP #f0f7fd / #10151a]
+After drive tree reads (the Diff panel): diff-line-.agents/skills/verify/SKILL.md-additions-4 is the number cell ("Select line 4");
+diff-comment-.agents/skills/verify/SKILL.md-additions-4 is the pinned '+' (Pressable "Comment on line 4", an Svg 0 0 16 16 with
+Pierre's plus path).
+Seen in both builds, not this task's: the agent's drag over the numbers also paints a native text selection over the code
+of the rows it crosses (the reference's gutter drag selects no text).
+
+=== drive.sh
+#!/bin/zsh
+# One agent drive of the clone for diff-gutter-visuals. Usage: drive.sh before|after
+# before: the feature tip ca034e055 built in t3-code-diff-gutter-visuals-before; after: this worktree's bundle.
+# Same steps, same size (1280x840). (1) The fixture thread's Diff panel (Changes), .agents/skills/verify/SKILL.md (+5): numbers 2 to 4
+# dragged and released (they stay selected; the "+" on 4), light then dark. (2) The GitHub lane's server paired
+# (`bun lane.mjs start primary --port 16743`, a fresh single-use link), #168's Code tab, docs/usage.md: new line 3's
+# number dragged to added line 5's and held for the screenshot (the release opens a draft, then Cancel), light then dark.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals
+S=$W/target/dgv-drive/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals-before; LANE=diff-gutter-visuals-before; else ROOTDIR=$W; LANE=diff-gutter-visuals; fi
+G=$W/examples/t3-code/tools/github-lane
+( cd $G && PATH=$HOME/.bun-1.4.2/bin:$PATH T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane bun lane.mjs pair primary >/dev/null )
+PAIR=$(cat $W/target/github-lane/servers/primary/pairing-url); rm -f $W/target/github-lane/servers/primary/pairing-url
+D=.agents/skills/verify/SKILL.md
+# Reads of the after build's pinned "+" (the before build's press on the number lands on its hidden "+", which opens a
+# draft and hides it, so it has no "+" there to read).
+READS=("tree diff-line-$D-additions-4")
+[ "$MODE" = after ] && READS+=("tree diff-comment-$D-additions-4")
+F=docs/usage.md
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  # (1) The thread's Diff panel.
+  "tap thread-verify-timeline" "clock +2500 real"
+  "tap details-changes" "clock +10000 real"
+  "tap \"Expand $D\"" "clock +4000 real"
+  "screenshot $S/1-diff-open.png window"
+  "tap diff-line-$D-additions-2 drag to diff-line-$D-additions-4 mouse over 400" "clock +1500 real"
+  "screenshot $S/2-diff-light.png window"
+  "${READS[@]}"
+  "prefer prefers-color-scheme dark" "clock +1500 real"
+  "screenshot $S/3-diff-dark.png window"
+  "prefer prefers-color-scheme light" "clock +1000 real"
+  # (2) Pair the GitHub lane's server (the embedded one stays focused), then #168's Code tab.
+  "tap connection-settings" "clock +1500 real"
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +1000 real"
+  "type server-origin $PAIR" "clock +500 real"
+  "tap connect" "clock +12000 real"
+  "type t3-code key Escape" "clock +1500 real"
+  "tap open-pull-requests" "clock +6000 real"
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap pull-request-code-fold-$F" "clock +4000 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "screenshot $S/4-usage.png window"
+  "tap diff-line-$F-additions-3 drag to diff-line-$F-additions-5 mouse over 400 during \"clock +1500 real\" \"screenshot $S/5-pr-light.png window\""
+  "clock +2000 real"
+  "tap pull-request-comment-cancel" "clock +1500 real"
+  "prefer prefers-color-scheme dark" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap diff-line-$F-additions-3 drag to diff-line-$F-additions-5 mouse over 400 during \"clock +1500 real\" \"screenshot $S/6-pr-dark.png window\""
+  "clock +2000 real"
+  "tap pull-request-comment-cancel" "clock +1500 real"
+  "prefer prefers-color-scheme light" "clock +500 real"
+  "state"
+  "logs"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16740 --epoch 2026-10-11T09:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
+
+=== before: ops
+clock +20000 real
+clock +3000 real
+tap thread-verify-timeline
+clock +2500 real
+tap details-changes
+clock +10000 real
+tap "Expand .agents/skills/verify/SKILL.md"
+clock +4000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/1-diff-open.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag to diff-line-.agents/skills/verify/SKILL.md-additions-4 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/2-diff-light.png window
+tree diff-line-.agents/skills/verify/SKILL.md-additions-4
+prefer prefers-color-scheme dark
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/3-diff-dark.png window
+prefer prefers-color-scheme light
+clock +1000 real
+tap connection-settings
+clock +1500 real
+tap settings-connections
+clock +1500 real
+tap manage-connection
+clock +1000 real
+type server-origin <pairing link>
+clock +500 real
+tap connect
+clock +12000 real
+type t3-code key Escape
+clock +1500 real
+tap open-pull-requests
+clock +6000 real
+type pull-requests-search #168
+clock +6000 real
+tap pr-row-168
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap pull-request-code-fold-docs/usage.md
+clock +4000 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/4-usage.png window
+tap diff-line-docs/usage.md-additions-3 drag to diff-line-docs/usage.md-additions-5 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/5-pr-light.png window"
+clock +2000 real
+tap pull-request-comment-cancel
+clock +1500 real
+prefer prefers-color-scheme dark
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap diff-line-docs/usage.md-additions-3 drag to diff-line-docs/usage.md-additions-5 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-visuals/target/dgv-drive/shots/before/6-pr-dark.png window"
+clock +2000 real
+tap pull-request-comment-cancel
+clock +1500 real
+prefer prefers-color-scheme light
+clock +500 real
+state
+logs
+=== before: last lines of drive.jsonl
+{"page":{"visibility-state":"visible","can-open-files":true,"has-focus":true,"online":true,"root-font-size":13,"can-share":true},"media":{"prefers-contrast":"no-preference","prefers-reduced-transparency":"no-preference","prefers-color-scheme":"light","color-gamut":"srgb","prefers-reduced-motion":"no
+{"incarnation":1,"epoch":114,"inflight":1,"clock":136000,"real":532}
+{"epoch":114,"incarnation":1,"clock":136000,"slots":{"elapsed":120000,"reconnectGraceKey":"","disconnectDelayKey":"","noticeExit":"","noticeExitOp":"","noticeExitTarget":"","noticeExitSerial":0,"hoverWait":60,"hoverEnd":0,"utilityPage":"pull-requests","pageTrail":[],"usageMetric":"","usageDays":0,"u
+{"lines":["t=94500.000208 fulfil 1203 (data) [HTTP 200, 1557 bytes; wall 5 ms] → epoch 77 (+0 −0 ~0)","t=94500.000208 data: the reply asks for one more request","t=94500.000208 request 1205 (data): POST exact-native:","t=94500.000208 fulfil 1204 (data) [HTTP 200, 73 bytes; wall 3 ms] → epoch 77 (+0 
+
+=== after: last lines of drive.jsonl
+{"clock":135500,"page":{"root-font-size":13,"online":true,"has-focus":true,"can-share":true,"can-open-files":true,"visibility-state":"visible"},"media":{"dynamic-range":"standard","prefers-reduced-transparency":"no-preference","prefers-contrast":"no-preference","prefers-color-scheme":"light","prefer
+{"incarnation":1,"epoch":104,"inflight":1,"clock":136000,"real":545}
+{"epoch":104,"incarnation":1,"clock":136000,"slots":{"elapsed":120000,"reconnectGraceKey":"","disconnectDelayKey":"","noticeExit":"","noticeExitOp":"","noticeExitTarget":"","noticeExitSerial":0,"hoverWait":60,"hoverEnd":0,"utilityPage":"pull-requests","pageTrail":[],"usageMetric":"","usageDays":0,"u
+{"lines":["t=94564.590125 store exact.kept.terminalDrawer","t=94564.590125 store exact.kept.usage","t=94564.590125 store exact.kept.palette","t=94564.590125 store exact.kept.snapshotSettings","t=94564.590125 store exact.kept.settings","t=94564.590125 store exact.kept.details","t=94564.590125 store e
