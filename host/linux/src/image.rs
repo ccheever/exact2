@@ -454,6 +454,25 @@ impl Images {
                         view.request = Some((request, decode.pixels));
                         view.requested_for = view.desired;
                         view.refusal = None;
+                        // A picture the cache holds is ready as it is asked
+                        // for: taken now, it is in this paint, not the next
+                        // poll's (a frame later, of the five a row is in
+                        // view for at 24,000 dp/s).
+                        if matches!(
+                            self.backend.session.status(request),
+                            Some(RequestStatus::Ready)
+                        ) {
+                            if let Some(lease) = self.backend.session.take_ready(request) {
+                                if let Some(bitmap) = lease.payload::<Arc<Bitmap>>() {
+                                    self.bitmaps.insert(*id, bitmap.clone());
+                                    let natural = bitmap.natural();
+                                    reports.push((*id, Some((natural.0 as f32, natural.1 as f32))));
+                                    view.lease = Some(lease);
+                                    view.accepted = Some(request);
+                                    view.displayed_source = view.source.clone();
+                                }
+                            }
+                        }
                     }
                     Err(e) => view.refusal = Some(e),
                 }

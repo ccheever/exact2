@@ -118,7 +118,12 @@ fn symbols_clear_rasters_without_loading_and_follow_font_size() {
     .unwrap();
     assert_eq!(images.sync(&k, &k.roots()), vec![(1, Some((28., 28.)))]);
     source(&mut k, 1, "1");
-    assert_eq!(images.sync(&k, &k.roots()), vec![(1, None)]);
+    // No longer a symbol's square; then the picture, which the session
+    // still holds decoded, in the same sync.
+    assert_eq!(
+        images.sync(&k, &k.roots()),
+        vec![(1, None), (1, Some((17., 11.)))]
+    );
     images.wait(SETTLED);
     assert_eq!(images.bitmaps[&1].natural(), (17, 11));
 }
@@ -463,4 +468,45 @@ fn sharing_a_large_live_raster_does_not_require_a_second_decode_budget() {
         "reuse needs no new pixel/scratch reservation"
     );
     assert_eq!(images.stats().resident_bytes, 2048 * 2048 * 4);
+}
+
+/// A second view of a picture the session holds decoded has it in the sync
+/// that first sees the view: nothing is waited for, and no later poll is
+/// needed (on a list, the paint a row comes into view in).
+#[test]
+fn a_cached_picture_is_taken_in_the_poll_that_asks_for_it() {
+    let mut k = kernel(1);
+    let mut images = Images::with_assets(assets());
+    images.sync(&k, &k.roots());
+    images.wait(SETTLED);
+    let first = images.bitmaps[&1].clone();
+    let epoch = k.epoch();
+    k.apply(
+        0,
+        epoch + 1,
+        &[
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Image,
+            },
+            Op::SetProp {
+                id: 2,
+                prop: PropId::ImageSource,
+                value: "1".into(),
+            },
+            Op::AttachRoot { id: 2 },
+        ],
+    )
+    .unwrap();
+    let reports = images.sync(&k, &k.roots());
+    assert!(
+        images
+            .bitmaps
+            .get(&2)
+            .is_some_and(|b| Arc::ptr_eq(b, &first)),
+        "the cached picture, in the same sync"
+    );
+    assert!(reports
+        .iter()
+        .any(|(id, natural)| *id == 2 && natural.is_some()));
 }
