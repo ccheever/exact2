@@ -5,7 +5,7 @@
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/20261010-x70-aria-disabled-focusable.md
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x70-aria-disabled-focusable.md
 
 ## Summary
 
