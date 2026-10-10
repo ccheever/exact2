@@ -475,7 +475,9 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
 });
 
 // The real-input session of 2026-10-10 (realinput-1010c, row A, bundle d1ae77d7): what a person's keys and pointer did
-// that agent drives could not show. Each row fails without its fix.
+// that agent drives could not show. Each row fails without its fix, except the canvas row ("a resize's pans under one
+// serial …"): the canvas did not change, so it passes on the previous code too. It shows why one serial per gesture
+// matters; the fix itself, the contract's `pan` taking one serial per gesture, is the line row before it and the drive.
 describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag and the resize, the header tooltip', () => {
   const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
   const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
@@ -490,7 +492,7 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
   it('the handle\'s hover box covers the pill while it shows, and the pill\'s buttons hear no hover of their own (X62)', () => {
     const contract = source('browser-capture.contract');
     const handle = line(contract, 'testId="browser-mini-handle"');
-    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) hover=overDot pointermove=movePill pan=pan("move")');
+    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) hover=overDot pointermove=movePill cursor=');
     expect(line(contract, 'testId="browser-mini-pill"')).toContain('position="absolute" top=0 right=0 width=pillWidth height="2rem"');
     expect(line(contract, 'derive pillWidth')).toBe('  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)');
     const button = block(contract, 'component BcPillButton', '//');
@@ -513,7 +515,9 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
   });
 
   it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {
-    // The chat canvas of chat-canvas-view.test.ts (1280 × 840, the panel closed) and the reference's floating page (539 × 748).
+    // The canvas's side of the row above, unchanged by the fix (this row passes on the previous code too): the frame of a
+    // gesture's start moves by the pan's total only while the serial holds; a new serial per pan restarts from the frame on
+    // screen. The chat canvas of chat-canvas-view.test.ts (1280 × 840, the panel closed) and the reference's floating page (539 × 748).
     const frames = { chat: [256, 0, 1024, 840], overlay: [400, 668, 736, 172] };
     const run = async (gestures: string[]) => {
       const client = { environmentId: 'env', threadId: 't1', draftKey: 'env:t1', generation: 1, diffOpen: false, presentation: { frames }, local: {}, shell: { projects: [], threads: [] } } as unknown as T3Client;
@@ -532,6 +536,25 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
     const held = await run(pans(['7.1', '7.1', '7.1', '7.1'])), fresh = await run(pans(['7.1', '8.1', '9.1', '10.1']));
     expect([held.last.width, held.last.height]).toEqual([305, 423]);
     expect(fresh.last.width).toBeGreaterThan(305 + 40);
+  });
+
+  it('a press on a pill button never drags the player: the drag is a box behind the pill, not the handle that holds its buttons', () => {
+    // Review of 2026-10-10 (second): the handle's `pan` took a nested button's contact past the slop (LLP 1057.001 rule 3),
+    // so a drag that started on Open in right panel moved the player. The reference's buttons stop the pointer-down
+    // (MiniPlayerShell), and its pill's padding and the dot still drag (the pointer-down reaches the handle's group).
+    const contract = source('browser-capture.contract'), lines = contract.split('\n');
+    const indent = (text: string) => text.length - text.trimStart().length;
+    const at = (id: string) => lines.findIndex(candidate => candidate.includes(`testId="${id}"`));
+    const handle = at('browser-mini-handle'), grab = at('browser-mini-grab'), pill = at('browser-mini-pill');
+    expect(lines[handle]).not.toContain('pan=');
+    expect(lines[grab]).toContain('box position="absolute" left=0 top=0 right=0 bottom=0 pan=pan("move") panrelease=release touch-action="none"');
+    // The grab box fills the handle and sits behind the pill, which lets the pointer through to it; only the buttons take it.
+    expect([grab, pill]).toEqual([handle + 1, handle + 2]);
+    expect([indent(lines[grab]!), indent(lines[pill]!)]).toEqual([indent(lines[handle]!) + 2, indent(lines[handle]!) + 2]);
+    expect(lines[pill]).toContain(' pointer-events="none" ');
+    expect(lines[pill]).not.toContain('pan=');
+    expect(block(contract, 'component BcPillButton', '//')).toContain('button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none")');
+    expect(contract.match(/pan=pan\("move"\)/g)).toHaveLength(1);
   });
 
   it('the header\'s Toggle right panel drops its hover on press: it leaves the header as the panel opens, so no leave comes', () => {
