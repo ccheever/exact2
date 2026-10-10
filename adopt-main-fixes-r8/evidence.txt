@@ -1,7 +1,8 @@
-adopt-main-fixes-r8 — text evidence (2026-10-10)
-Branch feat(example)/t3-code-adopt-main-fixes-r8. Base: feat(example)/t3-code d076c3056 (then 5e3253cfc merged).
-Adopted main: a10050516 (main's tip at the final merge; 25 commits past round 7's bc357d03c).
-Code head for the checks: 922ba1b5b (the record follows).
+adopt-main-fixes-r8 — text evidence (2026-10-10; §1 and §7 updated after main d413487a8)
+Branch feat(example)/t3-code-adopt-main-fixes-r8. Base: feat(example)/t3-code d076c3056 (then 5e3253cfc and a1ade42f9 merged).
+Adopted main: d413487a8 (main's tip at the final merge; 26 commits past round 7's bc357d03c). When the checks of §6
+  ran, main's tip was a10050516 (25 commits); d413487a8 (#401) adds one Markdown file, merged in 308668781 (§1).
+Code head for the checks of §6: 922ba1b5b. Head of §1's last check and of §7: 883db992a (the record follows).
 
 1. Merge
    git merge -s ours bc357d03c   -> b027ae773 (records round 7's squash-merged main; its content was already here)
@@ -15,6 +16,24 @@ Code head for the checks: 922ba1b5b (the record follows).
    On 922ba1b5b: git merge-base --is-ancestor origin/main HEAD: yes (origin/main = a10050516)
                  git merge-base --is-ancestor origin/feat(example)/t3-code HEAD: yes
                  git diff origin/main -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml': empty
+   After §6's checks and the records commit 79febf238, main and the base moved; both steps are Markdown only:
+   git merge origin/main (d413487a8, #401) -> cdfd670ff, clean
+     git diff --stat a10050516 d413487a8: issues/20261010-macos-popover-escape-after-blur.md (1 file, +115)
+   git merge origin/feat(example)/t3-code (a1ade42f9, X73 moved to main) -> 308668781, clean
+     git diff --stat 5e3253cfc a1ade42f9: the plan's issues/README.md, its closed X73 record, EXACT2-GAPS.md (3 files)
+   git diff --name-only 922ba1b5b 308668781: 5 files, all Markdown, no source file:
+     examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/README.md
+     examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x73-macos-popover-escape-after-blur.md
+     examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/tasks/20261010-adopt-main-fixes-r8.md
+     examples/t3-code/EXACT2-GAPS.md
+     issues/20261010-macos-popover-escape-after-blur.md
+   450ec805a, 883db992a: this task record and EXACT2-GAPS.md only.
+   Checked again after a fresh fetch (main and the base had not moved):
+     fetched: origin/main = d413487a8, origin/feat(example)/t3-code = a1ade42f9
+     308668781: git merge-base --is-ancestor origin/main 308668781: yes; ... origin/feat(example)/t3-code 308668781: yes
+                git diff origin/main 308668781 -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml': empty
+     883db992a: git merge-base --is-ancestor origin/main 883db992a: yes; ... origin/feat(example)/t3-code 883db992a: yes
+                git diff origin/main 883db992a -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml': empty
 
 2. Main's changes against the clone (step 2 of the record)
    a. LLP 1012 §1, a tap that names a node presses that node (a09f48a5e, e5d9b46f4, abc1eadff):
@@ -235,3 +254,15 @@ Code head for the checks: 922ba1b5b (the record follows).
      cargo fmt --all -- --check: exit 0
      bun scripts/boot.mjs: exit 0
    app.contract: 1341 lines
+
+7. Checks again on 883db992a (main d413487a8 and base a1ade42f9 merged; since 922ba1b5b only Markdown changed, §1)
+   bun test examples/t3-code --timeout 60000: exit 0 (4360 pass, 1 skip, 0 fail, 57561 expect() calls, 296 files)
+   git add -A && bun scripts/caps.mjs: exit 0 (All budgets within cap. 6 categories inspected.)
+   The five checks (CLAUDE.md), once:
+     cargo build --all-targets --keep-going: exit 0
+     cargo test --lib --bins --tests --no-fail-fast: exit 0 (3679 passed, 0 failed, 34 ignored, 95 suites)
+     cargo clippy --all-targets --keep-going -- -D warnings: exit 0 (the vendored ibex2 dead-code warning, as in §6)
+     cargo fmt --all -- --check: exit 0 (no output)
+     bun scripts/boot.mjs: exit 0
+   Not rerun (no source changed since §6): strict tsc, contract build, cargo test -p t3-code-macos --lib, the bundle,
+   the AppKit binaries, the live drive.
