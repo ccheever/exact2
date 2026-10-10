@@ -3,7 +3,7 @@ name: 20261010-shell-context-menu
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-shell-context-menu'
@@ -247,6 +247,15 @@ Left as is (the shell's menu with Copy Link) until decided.
 
 Draft PR [#407](https://github.com/ccheever/exact2/pull/407) into `feat(example)/t3-code`.
 
+## Delivery
+
+Merged on 2026-10-10 as `6bac646cc` (#407, squash) after an independent review and its repair round (four should-fix
+items, and a draft thread's missing "Open in integrated browser" found by the live drive). Coordinator decisions: S1–S3
+are checked against the web oracle and #327 and filed on main where real (standing rule for framework gaps); no
+clone-side workaround for S2 (drawing a table cell's link one node per run costs +176 KB of plan and drops the cell's
+ellipsis at the column edge, a new difference), so a table cell's link keeps the shell's menu with Copy Link until S2 is
+fixed on main. The record stays open for the real-input steps 1–8.
+
 ## Next action
 
-The coordinator reviews and merges the draft PR, then runs the real-input steps in the next batch.
+Real-input steps 1–8 join the next session. Close this record after it.
