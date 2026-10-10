@@ -1,0 +1,30 @@
+realinput-1010d-followups review round, RD-4: the text menu's monitor now takes the right-click.
+
+Cause: T3TextContextMenu.install() registered { [weak self] event in self?.handle(event) ?? event }. Optional chaining
+flattens handle's NSEvent? result, so handle's nil ("taken") became nil ?? event and the click went on to
+NodeView.rightMouseDown, whose super call pops ExactKit's Look Up menu. Fix (1f25f2645):
+    guard let self else { return event }; return self.handle(event)
+
+== AppKit macos/tests/contextmenu, the two new rows (the right-click through NSApp.sendEvent to the installed monitor;
+   HostParagraph.rightMouseDown counts where NodeViewMac's super call pops the host's menu)
+-- before (the monitor of PR head 086cf4f9e, same test sources):
+examples/t3-code/macos/tests/contextmenu/text-menu.swift:98: error: -[T3contextmenuTests.TextContextMenuTests testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows] : XCTAssertEqual failed: ("1") is not equal to ("0") - the click ends in the monitor: ExactKit's Look Up menu does not pop after it
+  TextContextMenuTests testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows]' failed (0.018 seconds).
+examples/t3-code/macos/tests/contextmenu/text-menu.swift:113: error: -[T3contextmenuTests.TextContextMenuTests testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks] : XCTAssertEqual failed: ("1") is not equal to ("0") - nor does ExactKit's menu (the after drive's 120 s hang)
+  TextContextMenuTests testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks]' failed (0.007 seconds).
+context menu tests: 24 run, 2 failed
+-- after (fixed monitor):
+  TextContextMenuTests testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows]' passed (0.031 seconds).
+  TextContextMenuTests testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks]' passed (0.007 seconds).
+context menu tests: 24 run, 0 failed
+
+== Agent drive (macOS, agent mode, lane base 16560, 1280 x 840): the Verification fixture's thread, a double-click
+   selects "status" in the Codex provider banner, then tap "Codex provider status" contextmenu.
+-- before (the first round's after drive: its bundle's code 8a33343ef is PR head 086cf4f9e's app code; op 79/82):
+  app: t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+  op 79/82 `tap "Codex provider status" contextmenu`: tap did not answer within 120 s (pid 32205 still running)
+-- after (this round's bundle, code 1f25f2645 merged as 275e7849e): the op answers 21 ms after the previous one, the
+   app logs the shell's menu once, and the next ops (a double-click, state) answer; the agent exits 0.
+  tap "Codex provider status" contextmenu -> {'contextmenu': true, 'delivery': 'platform', 'at': [764, 89]} after 21 ms
+  logs: app: t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+  agent exit 0
