@@ -1,0 +1,82 @@
+adopt-main-fixes-r7 — text evidence (2026-10-10)
+Branch feat(example)/t3-code-adopt-main-fixes-r7. Base: feat(example)/t3-code 309e49344 (then ec6f9bf1c merged). Adopted main: bc357d03c (247 commits past e200397ec).
+Code head for the checks: 5e7597f38 (records and one test comment follow).
+
+1. Merge
+   git merge -s ours e200397ec   -> c52d2f248 (records round 6's squash-merged main; its content was already here)
+   git merge origin/main (bc357d03c) -> c1941d82b; conflicts: Cargo.toml (main's members + examples/t3-code/macos),
+   QUEUE.md (main's: #304 closed #285, the branch's 'clock +N real' entry goes), docs/agent-pitfalls.md (main's).
+   The branch's own framework-file lines moved into the example: .gitignore -> examples/t3-code/.gitignore,
+   three pitfalls -> examples/t3-code/README.md "Pitfalls found here".
+   git merge-base --is-ancestor bc357d03c HEAD: yes (origin/main was bc357d03c at merge time; it moved 11 commits later).
+   git diff bc357d03c -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml': empty.
+   git diff bc357d03c -- Cargo.toml Cargo.lock: the t3-code-macos member and its lock entry only.
+
+2. Main's language moves on the clone
+   First contract build of the merged tree: refused, [type-now-renamed] at the clone's now() calls (LLP 1109 D1).
+   now() -> performanceNow(): 24 call sites in app.contract, r6-device, settings-appearance-editor, theme-color-picker (same clock).
+   .exact/.../evidence/20261007-interface-font-size/rem-probe.contract: main refuses its calc(1rem + 4px) height and
+   calc(90px + 2.5rem) padding ([lower-attr-value]); kept verbatim as rem-probe.contract.txt (the folder's drive.mjs.txt convention).
+
+3. main's examples sweep and the 2 MiB stack (ground truth)
+   cargo test -p contract --test it button_migration -- --nocapture: exit 0,
+     "source sweep: 90 roots, 192 imported source files, 0 failures" (247 s)
+   (ulimit -s 2048; target/debug/contract build examples/t3-code/app.contract): exit 0 (208 s; main's debug compiler)
+   app.contract: 6341 slots, 13 derives, 48 resources, 7737 actions, 109849 nodes, 43947 regions, 27060175 bytes
+
+4. view-depth.test.ts re-measured (main changed contract-lower: LLP 1115 D3 heading_style in Lowerer::node)
+   Instrumented scratch copy of main's contract-lower (the #382 tool: stack sampled at each node and expr::compile).
+   lldb at a forced overflow (1 MiB thread): Lowerer::nodes 19,392 + node 512 = 19,904 B per site (was 18,816 + 512);
+   expr::compile 12,944 B per level (was 12,720). Peak: 1,611,616 B (1,573 KiB) at timeline-files.contract:39,
+   67 sites, 17 levels (1,535 KiB on the old compiler): the old constants predicted 1,536 KiB, 37 KiB under.
+   New constants: PER_SITE 19,904, PER_LEVEL 12,944, BELOW_LOWERING 58,000 (the peak exactly).
+   200 leaves listed by the instrumented contract-lower (stack sampled at each node and expr::compile), final sources:
+     model >= measured (within 1 KiB) on 187; under on 13
+     top 12 by measured stack:
+       timeline-files.contract:39   measured  1573 KiB at 67 | model  1574 KiB at 67 sites, 17 levels | over 1
+       timeline-files.contract:38   measured  1554 KiB at 66 | model  1567 KiB at 66 sites, 18 levels | over 13
+       icons.contract:15            measured  1548 KiB at 67 | model  1549 KiB at 67 sites, 15 levels | over 1
+       timeline-icons.contract:39   measured  1535 KiB at 67 | model  1536 KiB at 67 sites, 14 levels | over 1
+       timeline-files.contract:41   measured  1523 KiB at 67 | model  1523 KiB at 67 sites, 13 levels | over 0
+       timeline-files.contract:37   measured  1510 KiB at 65 | model  1510 KiB at 65 sites, 15 levels | over 0
+       timeline-icons.contract:37   measured  1509 KiB at 65 | model  1522 KiB at 65 sites, 16 levels | over 13
+       timeline-icons.contract:35   measured  1509 KiB at 65 | model  1522 KiB at 65 sites, 16 levels | over 13
+       timeline-files.contract:40   measured  1503 KiB at 66 | model  1516 KiB at 66 sites, 14 levels | over 13
+       icons.contract:14            measured  1479 KiB at 66 | model  1479 KiB at 66 sites, 11 levels | over 0
+       shell-icons.contract:19      measured  1476 KiB at 62 | model  1477 KiB at 62 sites, 17 levels | over 1
+       timeline-files.contract:43   measured  1472 KiB at 67 | model  1473 KiB at 67 sites, 9 levels | over 1
+     under-predicted (all far below the peak):
+        (-40, 'markdown.contract:583', 1281, 1241, 59, 3, 59)
+        (-40, 'markdown.contract:587', 1281, 1241, 59, 3, 59)
+        (-40, 'markdown.contract:692', 1320, 1280, 61, 3, 61)
+        (-39, 'markdown.contract:738', 1164, 1125, 53, 3, 53)
+        (-39, 'shell-tip.contract:18', 1236, 1197, 58, 1, 58)
+        (-27, 'markdown.contract:511', 1203, 1176, 55, 4, 55)
+        (-27, 'media-actions.contract:42', 1184, 1157, 54, 4, 54)
+        (-14, 'media-markdown.contract:86', 1230, 1216, 59, 1, 59)
+        (-14, 'r4-timeline-tips.contract:16', 1211, 1197, 58, 1, 58)
+        (-12, 'shell-tip.contract:83', 1318, 1306, 61, 5, 61)
+        (-12, 'shell-tip.contract:86', 1318, 1306, 61, 5, 61)
+        (-2, 'media-markdown.contract:96', 1172, 1170, 56, 2, 56)
+
+5. Live drive (agent mode, 1280x840, lane adopt-main-fixes-r7, same ops on both builds)
+   before: the feature tip 309e49344 built in a detached worktree; after: this branch.
+   Agent tree (type, role, testId, label) diff, before vs after: 0 lines on all 8 shared states
+     (shell 637, thread 669, composer 668, right panel 660, dialog 729, Settings 2000, Pull Requests 800, Shift+F10 669 nodes).
+   Screenshots: no pixel differs by more than 24/255 in any channel (one 90x23 px area at the sidebar artwork moves slightly).
+   Logs: no refusal, error or failure line in either build.
+   Shift+F10 on the focused thread row: no menu in either build (the reference: none on macOS).
+   ContextMenu on the focused thread row: before "key: unsupported key ContextMenu" (the old agent);
+     after "key view 320 (sidebarRun)" then "contextmenu view 317 (threadMenu#77)": the row's context popover
+     (ThreadMenu) opens; the module's sidebarMenu is not asked.
+
+6. Icon-only help tags (LLP 1115 D8: a custom button with aria-label and no text shows its label as AppKit's help tag)
+   Instrumented lowering of app.contract: 316 labelled buttons with no text in their lowered subtree; 5 had a title.
+   311 lines got title="" (101 files); after: 316 titled, 0 untitled. Native buttons by default (LLP 1104): 0 of the
+   clone's buttons lower native (every one has a background or border).
+
+7. Menus (AppKit, examples/t3-code/macos/tests/menus): 46 tests, 0 failures, including
+   testTheHostTemplateEditAndHelpShowOnlyTheReferenceItems: the host's LLP 1115 Edit shows
+   Undo, Redo, —, Cut, Copy, Paste, Paste as Text, Delete, —, Select All, —, Speech; Paste and Match Style and
+   Find/Spelling and Grammar/Substitutions/Transformations hidden; the app's ⇧⌘G inside the hidden Find still fires
+   through NSMenu.performKeyEquivalent; Help shows Check for Updates... alone (the help-book item hidden, no chord).
