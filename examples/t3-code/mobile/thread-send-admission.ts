@@ -4,6 +4,7 @@ import type { OrdinaryInventoryAttachment } from './composer-attachment-publicat
 import type { MobileOutboxRecord, MobileOutboxModelSelection, MobileOutboxRuntimeMode } from './mobile-outbox-model';
 import { mobileOutboxCanonicalOrigin } from './mobile-outbox-model';
 import { mobileContextRecordValid } from './mobile-context-record';
+import { imageMimeType } from './composer-editor-document';
 import { mobileModelSelectionUnavailable } from './model-availability';
 import { MAX_FILE_BYTES } from './shared/composer-editor-files';
 import { isUsageLimitsCommand } from './shared/composer-controls-usage';
@@ -122,7 +123,9 @@ function context(snapshot:ThreadSendSnapshot,files:MobileOutboxRecord['attachmen
     ids.add(String(record.contextId));
     if(!localUsage&&'attachmentId'in record) {
       const file=files.find(file=>file.id===record.attachmentId);
-      if(!file||record.kind!==file.kind||['name','mimeType','sizeBytes'].some(k=>record[k]!==file[k as keyof typeof file]))
+      // Files images keep file-byte storage while their source context is image.
+      if(!file||!(record.kind===file.kind||record.kind==='image'&&file.kind==='file'&&imageMimeType(file)!==null)
+        ||['name','mimeType','sizeBytes'].some(k=>record[k]!==file[k as keyof typeof file]))
         fail('A context attachment does not match its canonical local file.');
     }
   }

@@ -1,3 +1,8 @@
+import {mobileComposerPickerAction,mobileComposerPickerFileLimit,mobileComposerPickerHasWork} from './composer-picker';
+import {mobileEditorOwner} from './composer-editor-owner';
+import {mobileEditorFilesReady} from './composer-file-runtime';
+import {mobileComposerContextPickerRead} from './composer-command-context';
+import {mobileComposerCountAttachmentsAfterSelection} from './composer-context-insertion';
 import { mobileDraftAttachmentIds, mobileDraftAttachmentRecord, mobileDraftAttachmentsOrdered } from './draft-attachment-order';
 import { mobileNewTaskDraftLookup, mobileNewTaskDraftChanged, mobileNewTaskDraftPersisted, mobileNewTaskDraftQueueFiles } from './mobile-new-task-drafts';
 import { mobileQueuedEditPresentation } from './queued-edit';
@@ -39,15 +44,18 @@ export function mobileComposerAttachments(client: T3Client = mobileClient, now =
     return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !disabled && remaining > 0, supportsFiles: attachStagingLimit(client) > 0,
       remaining, error: errors.get(client) ?? '' };
   }
-  const disabled = !!client.pending || client.busy || picking.has(client), remaining = Math.max(0, MAX_ATTACHMENTS - reservedAttachments(client));
+  const mounted=mobileEditorOwner(client), rich=mounted?.state.mountId&&mounted.target.owner===target.owner?mounted:null;
+  const richDraft=rich?mobileComposerContextPickerRead(client,rich.target):null;
+  const disabled = !!client.pending || client.busy || picking.has(client)||!!rich&&(!richDraft||!mobileEditorFilesReady(client,rich.admission)),
+    remaining = Math.max(0, MAX_ATTACHMENTS - (richDraft&&rich?mobileComposerCountAttachmentsAfterSelection(richDraft,{text:rich.state.value,...rich.state.selection}):reservedAttachments(client)));
   const images = client.snapshotDrafts.map(image => ({ id: str(image.id), name: str(image.name), kind: 'image',
     mimeType: str(image.mimeType), size: formatAttachmentSize(Number(image.sizeBytes) || 0), preview: '', removeOperation: 'remove-snapshot', disabled }));
-  const files = referencedFiles(client.local, client.draftKey, client.draft).map(file => ({ id: file.id, name: file.name,
+  const files = (richDraft?richDraft.attachments.flatMap(a=>a.type==='file'?[a.file]:[]):referencedFiles(client.local, client.draftKey, client.draft)).map(file => ({ id: file.id, name: file.name,
     kind: file.mimeType.startsWith('video/') ? 'video' : file.mimeType.startsWith('image/') ? 'image' : 'file', mimeType: file.mimeType,
     size: formatAttachmentSize(file.sizeBytes), preview: '', removeOperation: 'editorlocal:r4c-video-remove', disabled }));
   const items = mobileDraftAttachmentsOrdered(client, client.draftKey, [...images, ...files]);
   return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
-    supportsFiles: attachStagingLimit(client) > 0, remaining, error: errors.get(client) ?? '' };
+    supportsFiles: rich?mobileComposerPickerFileLimit(client,'files')>0:attachStagingLimit(client) > 0, remaining, error: errors.get(client) ?? '' };
 }
 
 /** An actual native picker request; shared attachFiles owns acceptance, count limits and draft chip insertion. */
@@ -55,6 +63,14 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
   client: T3Client = mobileClient, expectedOwner = '') {
   const result = (message = '') => ({ revision: client.revision, message });
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to attach files.');
+  const mounted=mobileEditorOwner(client);
+  if(mounted?.state.mountId&&mounted.target.kind==='ordinary'||mobileComposerPickerHasWork(client)){
+    if(picking.has(client)||client.pending||client.busy)return result('Wait for the current submission before changing attachments.');
+    const native=letGoAware(mobileNative(nativeInput)),storage=client===mobileClient?nativeFiles(native):suppliedStorage;
+    picking.add(client);errors.delete(client);
+    try {const message=await mobileComposerPickerAction(client,source,id,expectedOwner,native,storage);if(message)errors.set(client,message);return result(message)}
+    finally {picking.delete(client);client.revision++}
+  }
   const target = mobileComposerTargetRequire(client, expectedOwner);
   if (target.kind === 'queued-edit') return mobileQueuedEditAttachmentAction(source, id, target.editOwner, nativeInput, client);
   if (picking.has(client) || client.pending || client.busy) return result('Wait for the current submission before changing attachments.');
