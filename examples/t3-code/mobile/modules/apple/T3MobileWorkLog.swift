@@ -4,7 +4,7 @@
 import UIKit
 import UniformTypeIdentifiers
 
-private struct T3WorkRowConfiguration: Decodable, Equatable {
+struct T3WorkRowConfiguration: Decodable, Equatable {
     let id: String; let owner: String; let routeKey: String; let label: String; let copyText: String
     let expanded: Bool; let copiedColor: String
     static func read(_ props: [String: String]) throws -> Self {
@@ -17,9 +17,11 @@ private struct T3WorkRowConfiguration: Decodable, Equatable {
     }
 }
 
+protocol T3CopiedWorkRow: AnyObject { func resetCopied() }
+
 final class T3MobileWorkLog {
     private final class RouteRef { weak var value: ExactRoute?; init(_ value: ExactRoute) { self.value = value } }
-    private final class RowRef { weak var value: T3WorkRow?; init(_ value: T3WorkRow) { self.value = value } }
+    private final class RowRef { weak var value: (any T3CopiedWorkRow)?; init(_ value: any T3CopiedWorkRow) { self.value = value } }
     private var routes: [String: RouteRef] = [:]
     private var copied: [String: RowRef] = [:]
     private var alive = true
@@ -32,20 +34,24 @@ final class T3MobileWorkLog {
         guard alive else { throw ExactNativeRefusal("The work log session has ended.") }
         let result = T3WorkRow(owner: self, events: events); try result.setProps(props); return result
     }
+    func makeFailure(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
+        guard alive else { throw ExactNativeRefusal("The work log session has ended.") }
+        let result = T3WorkFailure(owner: self, events: events); try result.setProps(props); return result
+    }
     func makeDetail(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         guard alive else { throw ExactNativeRefusal("The work log session has ended.") }
         let result = T3WorkDetail(owner: self, events: events); try result.setProps(props); return result
     }
-    fileprivate func allows(_ key: String) -> Bool {
+    func allows(_ key: String) -> Bool {
         guard alive, UIApplication.shared.applicationState == .active, let route = routes[key]?.value,
               route.isLive, route.controller.navigationController?.topViewController === route.controller,
               route.controller.viewIfLoaded?.window != nil, route.controller.presentedViewController == nil else { return false }
         return true
     }
-    fileprivate func didCopy(_ row: T3WorkRow, key: String) {
+    func didCopy(_ row: any T3CopiedWorkRow, key: String) {
         copied[key]?.value?.resetCopied(); copied[key] = RowRef(row)
     }
-    fileprivate func forget(_ row: T3WorkRow, key: String) { if copied[key]?.value === row { copied.removeValue(forKey: key) } }
+    func forget(_ row: any T3CopiedWorkRow, key: String) { if copied[key]?.value === row { copied.removeValue(forKey: key) } }
     func destroy() {
         alive = false
         let rows = copied.values.compactMap(\.value); copied.removeAll()
@@ -85,7 +91,7 @@ private final class T3WorkButton: UIButton {
     }
 }
 
-private final class T3WorkRow: ExactNativeInstance {
+private final class T3WorkRow: ExactNativeInstance, T3CopiedWorkRow {
     private let button = T3WorkButton(frame: .zero)
     private weak var owner: T3MobileWorkLog?
     private var config: T3WorkRowConfiguration?
@@ -135,7 +141,7 @@ private final class T3WorkRow: ExactNativeInstance {
         let timer = Timer(timeInterval: 1.2, repeats: false) { [weak self] _ in self?.resetCopied() }
         feedback = timer; RunLoop.main.add(timer, forMode: .common)
     }
-    fileprivate func resetCopied() {
+    func resetCopied() {
         feedback?.invalidate(); feedback = nil; button.copied.isHidden = true; button.setNeedsLayout()
         if let config { owner?.forget(self, key: config.routeKey) }
     }
@@ -146,7 +152,7 @@ private final class T3WorkRow: ExactNativeInstance {
 
 // RN0.88.0-rc.3 RCTParagraphComponentView: selectable Text offers Copy of the
 // whole attributed paragraph, with UTF-8 and RTFD clipboard representations.
-private final class T3SelectableWorkText: UILabel, UIEditMenuInteractionDelegate {
+final class T3SelectableWorkText: UILabel, UIEditMenuInteractionDelegate {
     var allowsCopy: (() -> Bool)?
     private var menu: UIEditMenuInteraction!
     private var hold: UILongPressGestureRecognizer!

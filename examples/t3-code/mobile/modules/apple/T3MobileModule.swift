@@ -37,6 +37,9 @@ final class T3MobileModule: ExactModule {
         "t3-work-row": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.workLog.makeRow(props: props, events: events)
         },
+        "t3-work-failure": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.workLog.makeFailure(props: props, events: events)
+        },
         "t3-work-detail": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.workLog.makeDetail(props: props, events: events)
         },
@@ -630,6 +633,7 @@ final class T3MobileModule: ExactModule {
          "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-thread-header": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-work-row": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-work-failure": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-work-detail": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-home-swipe-events": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-review-viewport": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

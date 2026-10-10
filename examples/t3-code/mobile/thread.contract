@@ -8,6 +8,7 @@ component ThreadFeed
     data: ThreadSnapshot
     horizontalPadding: number
     userBubbleMaxWidth: number
+    workWidth: number
     bottomClearance: number
     action: action
     openMedia: action
@@ -44,12 +45,13 @@ component ThreadFeed
                   when data.queuedCanRetry
                     button press=action("outbox:retry", data.queuedOwner, "") padding=7 aria-label="Retry pending task" testId="outbox-retry"
                       text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
-              ThreadMessage(row=row, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
+              ThreadMessage(row=row, workWidth=workWidth, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
 
 component ThreadMessage
   props
     row: ThreadRow
     userBubbleMaxWidth: number
+    workWidth: number
     action: action
     openMedia: action
     colors: ThreadColors
@@ -112,7 +114,7 @@ component ThreadMessage
           when length(row.body) > 0
             ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
           each activity in row.activities key=activity.id
-            ThreadToolRow(activity=activity, action=action, colors=colors)
+            ThreadToolRow(activity=activity, workWidth=workWidth, action=action, colors=colors)
 
 component ThreadCopy
   props

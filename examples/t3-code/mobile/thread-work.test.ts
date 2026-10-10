@@ -241,3 +241,49 @@ test('native copy ownership changes with a route visit or live server scope, whi
   const current = configuration(); client.environmentId = 'other-env'; expect(configuration().owner).not.toBe(current.owner);
   expect(mobileThreadActivity(activity, projected({}), client, now, false, '').nativeWorkRow).toBe('');
 });
+
+
+test('failure row copy uses the source title, actual message and projected wire JSON', () => {
+  const row = projected({ type: 'error', status: 'failed', title: '  provider error  ',
+    failure: { retryable: null, code: 'other', message: 'Provider stopped unexpectedly', class: 'provider_error' } });
+  const client = clientFor([row]), result = mobileThreadRows(client, now, false, 'failure-visit').flatMap(row => row.activities)[0]!;
+  const config = JSON.parse(result.nativeWorkRow);
+  expect(result).toMatchObject({ label: 'Provider error', expanded: false, expandable: false, detail: 'Provider stopped unexpectedly' });
+  expect(config).toMatchObject({ id: '["source","item"]', routeKey: 'failure-visit', label: 'Provider error', expanded: false, copiedColor: '#009966' });
+  expect(config.copyText).toStartWith('Provider error\nProvider stopped unexpectedly\n{\n');
+  const json = config.copyText.slice(config.copyText.indexOf('{'));
+  expect(JSON.parse(json)).toEqual(row);
+  expect(json).toContain('"failure": {\n      "class": "provider_error",\n      "message": "Provider stopped unexpectedly",\n      "code": "other",\n      "retryable": null\n    }');
+  expect(json.indexOf('"id":')).toBeLessThan(json.indexOf('"threadId":'));
+  expect(json.indexOf('"updatedAt":')).toBeLessThan(json.indexOf('"type": "error"'));
+  expect(json).not.toContain('"resetAt"'); expect(json).not.toContain('"retry":');
+});
+
+test('usage row copies the original failure while its visible warning keeps the reset-time label', () => {
+  const row = projected({ type: 'error', status: 'failed', title: '', failure: {
+    class: 'usage_limit', message: 'Quota exhausted', code: null, retryable: true, resetAt: '2026-10-07T15:00:00Z' } });
+  const client = clientFor([row]);
+  const result = mobileThreadActivity(activity, row, client, now, true, '', 'usage-visit'), config = JSON.parse(result.nativeWorkRow);
+  expect(result.warning).toBe(true); expect(result.label).toStartWith('Usage limit reached. Retry after ');
+  expect(config.label).toBe(result.label); expect(config.copiedColor).toBe('#00d492');
+  expect(config.copyText).toStartWith('Usage limit reached\nQuota exhausted\n{');
+  expect(config.copyText).not.toContain('Retry after');
+  expect(JSON.parse(config.copyText.slice(config.copyText.indexOf('{')))).toEqual(row);
+});
+
+test('failure copy stays on the captured source item and route without detail or retry dispatch', () => {
+  const rows = ['first', 'second'].map(source => projected({ type: 'error', status: 'failed', title: 'transport error',
+    failure: { class: 'transport_error', message: source, code: null, retryable: null },
+    retry: { retryDelayMs: 500, maxAttempts: 3, attempt: 1 } }, source));
+  const client = clientFor(rows);
+  const config = (row: Obj, route = 'one') => JSON.parse(mobileThreadActivity({ ...activity, id: JSON.stringify([row.sourceThreadId, row.sourceItemId]) },
+    row, client, now, false, '', route).nativeWorkRow);
+  const first = config(rows[0]!), second = config(rows[1]!);
+  expect(first.owner).not.toBe(second.owner); expect(first.copyText).toContain('Transport error\nfirst\n');
+  expect(second.copyText).toContain('Transport error\nsecond\n'); expect(config(rows[0]!, 'two').owner).not.toBe(first.owner);
+  client.generation++; expect(config(rows[0]!).owner).not.toBe(first.owner);
+  const before = config(rows[0]!); client.threadEpoch++; expect(config(rows[0]!).owner).not.toBe(before.owner);
+  expect(config(rows[0]!).copyText).toContain('"retry": {\n      "attempt": 1,\n      "maxAttempts": 3,\n      "retryDelayMs": 500\n    }');
+  expect(client.pending).toBeUndefined();
+  expect(mobileThreadActivity(activity, projected({ type: 'error', status: 'completed' }), client, now, false, '', 'one').nativeWorkRow).toBe('');
+});

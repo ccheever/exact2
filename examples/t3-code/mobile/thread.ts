@@ -86,7 +86,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
       activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
-        const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp));
+        const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
         // Parse only visible reasoning; tools keep literal command/result output.
         return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
       }) });

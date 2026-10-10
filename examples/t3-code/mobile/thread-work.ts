@@ -21,17 +21,20 @@ const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'num
 function dateLabel(value: unknown) { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? errorTime.format(stamp) : ''; }
 
 /** Native JSON dictionary order is unstable; use pinned OrchestrationV2TurnItemBaseFields. */
-function forkDisplayItem(item: Obj): Obj {
+function workDisplayItem(item: Obj): Obj {
   const ordered = (value: Obj, fields: string[]): Obj => Object.fromEntries([
     ...fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]),
     ...Object.entries(value).filter(([key]) => !fields.includes(key)),
   ]);
   const source = obj(item.source), sourceFields = source.type === 'run' ? ['type', 'threadId', 'runId']
     : source.type === 'node' ? ['type', 'nodeId'] : ['type', 'providerThreadId', 'providerTurnId'];
-  return ordered({ ...item, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}) }, [
+  const failure = obj(item.failure), retry = obj(item.retry);
+  return ordered({ ...item, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}),
+    ...(Object.hasOwn(item, 'failure') ? { failure: ordered(failure, ['class', 'message', 'code', 'retryable', 'resetAt']) } : {}),
+    ...(item.retry && typeof item.retry === 'object' ? { retry: ordered(retry, ['attempt', 'maxAttempts', 'retryDelayMs']) } : {}) }, [
     'toolNonExecutionKind', 'toolSurface', 'toolIcon', 'toolSource', 'id', 'threadId', 'runId', 'nodeId', 'providerThreadId',
     'providerTurnId', 'nativeItemRef', 'parentItemId', 'ordinal', 'status', 'title', 'startedAt', 'completedAt', 'updatedAt',
-    'type', 'source', 'targetThreadId',
+    'type', 'source', 'targetThreadId', 'failure', 'retry',
   ]);
 }
 
@@ -39,15 +42,20 @@ function forkDisplayItem(item: Obj): Obj {
 export function mobileForkLifecycleActivity(row: Obj, client: T3Client, now: number, dark: boolean, routeKey = ''): ThreadActivity {
   const item = obj(row.item), id = JSON.stringify([row.sourceThreadId, row.sourceItemId]), expanded = turnItemIsOpen(client, id);
   const title = str(item.title).trim(), summary = title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Thread forked';
-  const label = str(item.targetThreadId), fullDetail = JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId, item: forkDisplayItem(item) }, null, 2);
+  const label = str(item.targetThreadId), fullDetail = JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId, item: workDisplayItem(item) }, null, 2);
   const shown = mobileThreadActivity({ id, label, icon: 'zap', timestamp: str(item.updatedAt),
     body: expanded ? fullDetail : '',
     output: '', result: '', failed: item.status === 'failed', expandable: true, detailOpen: expanded }, row, client, now, dark, '');
-  return { ...shown, nativeWorkRow: JSON.stringify({ id, routeKey, expanded, label,
+  return { ...shown, nativeWorkRow: nativeWorkConfiguration(client, id, routeKey, expanded, label,
+    [summary, label, fullDetail], dark) };
+}
+
+function nativeWorkConfiguration(client: T3Client, id: string, routeKey: string, expanded: boolean,
+  label: string, parts: string[], dark: boolean): string {
+  return JSON.stringify({ id, routeKey, expanded, label,
     owner: JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch, routeKey, id]),
-    copyText: [summary, label, fullDetail].filter((text, index, values) => !!text && values.indexOf(text) === index).join('\n'),
-    // Exact sRGB conversions of source adaptive-emerald-600-400's pinned OKLCH values.
-    copiedColor: dark ? '#00d492' : '#009966' }) };
+    copyText: parts.filter((text, index, values) => !!text && values.indexOf(text) === index).join('\n'),
+    copiedColor: dark ? '#00d492' : '#009966' });
 }
 
 /** QuestionAnswerHistory365aa87982 preserves the source union order. */
@@ -60,7 +68,7 @@ function answerHistory(answer: Obj, client: T3Client, row: Obj, now: number): Th
 }
 
 /** Scalar projection only. Disclosure/fetched output/retry remain on the adopted shared owners. */
-export function mobileThreadActivity(activity: Activity, row: Obj | undefined, client: T3Client, now: number, dark: boolean, timestamp: string): ThreadActivity {
+export function mobileThreadActivity(activity: Activity, row: Obj | undefined, client: T3Client, now: number, dark: boolean, timestamp: string, routeKey = ''): ThreadActivity {
   const original = obj(row?.item), expanded = activity.detailOpen === true;
   const detail = row ? turnItemDetailView(client, original, now, activity.id) : null;
   const shown = detail?.item ?? original;
@@ -72,6 +80,8 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
   const callBody = call ? [call.command, ...(call.args ?? []).map(([key, value]) => `${key} ${value}`), call.argsText].filter(Boolean).join('\n') : '';
   const prominentError = original.type === 'error' && original.status === 'failed';
   const failure = obj(original.failure), warning = prominentError && failure.class === 'usage_limit';
+  const title = str(original.title).trim(), failureSummary = title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}`
+    : warning ? 'Usage limit reached' : 'Provider error';
   const reset = warning ? dateLabel(failure.resetAt) : '';
   const retryCandidate = preparationFailureRunId(original);
   const retryRunId = retryCandidate && workspacePreparationRetryRunIds(arr(client.projection.runs), arr(client.projection.turnItems)).has(retryCandidate) ? retryCandidate : '';
@@ -81,9 +91,12 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
   const fetched = detail !== null && detail.item !== original;
   const answer = original.type === 'user_input_request' && original.questionAnswer ? obj(original.questionAnswer) : null;
   return {
-    id: activity.id, nativeWorkRow: '', reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
+    id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
+      warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
+      [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
+        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark) : '', reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
-      : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
+      : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
     body: activity.reasoning ? '' : call ? callBody : readPaths || activity.body,
     output: !row ? activity.output : expanded ? ['file_search', 'web_search'].includes(str(shown.type)) ? turnItemOutputText(shown) ?? ''
       : activity.reasoning ? activity.output : fetched ? turnItemOutputText(shown) ?? 'No output.' : output : '',
