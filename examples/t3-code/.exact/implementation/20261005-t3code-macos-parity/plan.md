@@ -253,9 +253,17 @@ both closed, and [adopt-main-fixes-r8](tasks/closed/20261010-adopt-main-fixes-r8
 merged by fast-forward, so main `d413487a8` is now an ancestor of the T3 branch. `realinput-1010e` (the bundle of
 `a1ade42f9`) passed #398's RC-1 step 1 and #399's RC-2, RC-3, RC-4 (b)–(d), RC-6 and RC-8.
 What did not pass (RC-1 steps 2 and 3, RC-4 (a)'s caret, RC-5, #308's 503 again) and one new finding are RE-1 to RE-6.
-Open tasks: [realinput-1010d-followups](tasks/20261010-realinput-1010d-followups.md) (draft #400),
-[right-panel-escape](tasks/20261010-right-panel-escape.md) (draft #403), [settings-headings](tasks/20261010-settings-headings.md)
-(planned) and [realinput-1010e-followups](tasks/20261010-realinput-1010e-followups.md) (RE-1 to RE-6, planned).
+Then merged: [realinput-1010d-followups](tasks/closed/20261010-realinput-1010d-followups.md) (#400, `3a88f3a9f`),
+[right-panel-escape](tasks/closed/20261010-right-panel-escape.md) (#403, `dcbb7bdf4`),
+[settings-headings](tasks/closed/20261010-settings-headings.md) (#404, `917ddd341`) and
+[realinput-1010e-followups](tasks/closed/20261010-realinput-1010e-followups.md) (#406, `2c9225c10`), all closed. X74 (a
+heading inside a button, found by #404) moved to main as `issues/20261010-macos-a-heading-inside-a-button.md` (main PR
+#405); X75 (two sends on one mutation in one turn, found by #403) was checked and not filed: main's docs declare it.
+`realinput-1010f` (the bundle of `d057787cb`) passed RD-1, RD-2's positions, RD-3, RE-1 to RE-4 and RE-5's Code tab, and
+traced RE-6's two bad states. What did not pass (RD-4's Services item, RD-2's drag offset, #308's gutter drag, the pending
+card's Discard, RE-6's hover cause) is RF-1 to RF-5. Open tasks: [shell-context-menu](tasks/20261010-shell-context-menu.md)
+(#407), [import-wizard-initial-focus](tasks/20261010-import-wizard-initial-focus.md) (planned) and
+[realinput-1010f-followups](tasks/20261010-realinput-1010f-followups.md) (RF-1 to RF-5, planned).
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with

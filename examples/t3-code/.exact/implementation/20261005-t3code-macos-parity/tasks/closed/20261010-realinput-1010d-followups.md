@@ -1,14 +1,14 @@
 ---
 name: 20261010-realinput-1010d-followups
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
+implementation: done
+verification: partial
 delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010d-followups
 pr_url: https://github.com/ccheever/exact2/pull/400
-verified_commit: null
+verified_commit: 3a88f3a9f5b29324650017fe99ffd5362e77f968
 ---
 
 # New findings of the real-input session of 2026-10-10 (realinput-1010d)
@@ -37,7 +37,7 @@ and leave the framework alone; the main issue is filed separately.
 
 Excluded:
 - #383 step 4's second Escape leaving Filters open: the same cause as RC-3, fixed in
-  [realinput-1010c-fixes](closed/20261010-realinput-1010c-fixes.md).
+  [realinput-1010c-fixes](20261010-realinput-1010c-fixes.md).
 - #308's gutter drag: not run, because the GitHub lane's Code tab answered HTTP 503. It is a re-check for the next
   real-input session (STATUS), not a fix.
 - #296 U6's race (pairing before the server registers itself as This machine): real input cannot time it; its unit
@@ -161,10 +161,31 @@ Merged on 2026-10-10 as `3a88f3a9f` (#400, squash) after an independent review (
 returned the event it meant to take, so ExactKit's menu followed the shell's) and its repair round. Round 8 (#402) landed
 on the base after that round's checks; the coordinator merged the base and ran again what it could reach: the Bun suite
 (4,362 pass, 0 fail), caps, the bundle build (exit 0) and the AppKit `contextmenu` (24) and `browser-automation` (26)
-binaries, 0 failures. The record stays open for the real-input rows below. The wider shell menu (unselected text, empty
-areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu](20261010-shell-context-menu.md).
+binaries, 0 failures. The record stayed open for the real-input rows. The wider shell menu (unselected text, empty
+areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu](../20261010-shell-context-menu.md).
+
+**Real-input results (realinput-1010f).** The steps ran in `realinput-1010f` on the bundle of `d057787cb` (lane
+ri1010f-1, the lane's fake ACP agent) ([notes](https://raw.githubusercontent.com/ccheever/exact2/2f3a80555ea176b202a0e652e92c2dcbf790b352/realinput-1010f/F0-1010f-notes.txt)). New rows went to
+[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+
+- RD-1 passed: one 8-step move onto the dot and a 1 s rest showed the pill (3 of 3). On Pop its tooltip showed after the
+  delay and the pill stayed. Onto the page, or a quick exit from the dot, hid it
+  ([arrival](https://raw.githubusercontent.com/ccheever/exact2/e016f039b370a65006669d66e29641d40c5e4a3d/realinput-1010f/F1-RD1-arrival-3of3.png)).
+- RD-2 passed on positions: Toggle right panel twice put the player back where it was left; Open in right panel, then
+  Toggle right panel, put it in the default corner. The sizes differ from this record's: the agent's tab is 1280 × 800,
+  so the player is landscape, 320 × 200
+  ([re-float](https://raw.githubusercontent.com/ccheever/exact2/3f828a1ab6c1543b4259bb97a20a3bb7a8d06d02/realinput-1010f/F1-RD2-refloat.png)).
+  One oddity: a drag of the pill's padding by (-300, -200) moved the player only (-20, -200). Moved to RF-2.
+- RD-3 passed: the tip sits on Go, the Name field and Page B, with a ping on each and no offset
+  ([Go](https://raw.githubusercontent.com/ccheever/exact2/7550b1d5716aa16f7a68045eab68c92486c17632/realinput-1010f/F1-RD3-cursor-go.png)).
+- RD-4 partial. Passed: Cut (dimmed), Copy, Paste (dimmed) and Select All with their shortcuts; no Look Up or Speech; no
+  second menu after Escape; Copy and paste, and Select All, work; the sidebar row and the composer keep their own menus
+  ([selection menu](https://raw.githubusercontent.com/ccheever/exact2/cf9b2f18bc6058fd2cd62da1ec049be981492bd1/realinput-1010f/F1-RD4-1-selection-menu.png)).
+  Failed: the menu also has "Services ›". Moved to RF-1. A right-click on a link shows no menu at all; that is
+  [shell-context-menu](../20261010-shell-context-menu.md) (#407).
+- RD-5 needed no real input.
 
 ## Next action
 
-Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 (with the check that no second menu follows) join the next
-session. Close this record after it.
+Closed after `realinput-1010f`. RD-4's Services item is RF-1 and RD-2's drag offset is RF-2 in
+[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).

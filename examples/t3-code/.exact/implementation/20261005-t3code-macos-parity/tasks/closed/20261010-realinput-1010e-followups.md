@@ -1,14 +1,14 @@
 ---
 name: 20261010-realinput-1010e-followups
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
+implementation: done
+verification: partial
 delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010e-followups
 pr_url: https://github.com/ccheever/exact2/pull/406
-verified_commit: null
+verified_commit: 2c9225c1012c312396d7141e0246664a394be7fc
 ---
 
 # Findings of the real-input session realinput-1010e
@@ -237,9 +237,32 @@ or live drive (the task's one drive and its retry were used).
 
 Merged on 2026-10-10 as `2c9225c10` (#406, squash) after an independent review and its repair round (four should-fix
 items: the Viewed write routed as the reference routes it, tests for every changed RE-5 path, the record's node number,
-the wizard's opening focus written up). The record stays open for the real-input steps 1–6 below. The wizard's opening
-focus is [import-wizard-initial-focus](20261010-import-wizard-initial-focus.md).
+the wizard's opening focus written up). The record stayed open for the real-input steps 1–6. The wizard's opening
+focus is [import-wizard-initial-focus](../20261010-import-wizard-initial-focus.md).
+
+**Real-input results (realinput-1010f).** Steps 1–6 ran in `realinput-1010f` on the bundle of `d057787cb` (lane
+ri1010f-2, the GitHub lane's server paired) ([notes](https://raw.githubusercontent.com/ccheever/exact2/2f3a80555ea176b202a0e652e92c2dcbf790b352/realinput-1010f/F0-1010f-notes.txt)). New rows went to
+[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+
+- RE-1 passed (the reference's probe): one click logs `app did-become-active`, then `page mousedown` and `page click`. On
+  a press and drag, `did-become-active` comes before `page dragstart`: the reference is front on press
+  ([probe log](https://raw.githubusercontent.com/ccheever/exact2/d3e584a6f4eb642c8abe18ee7ce4c81838fb6011/realinput-1010f/F2-RE1-probe.log)).
+- RE-2 passed: one click reveals the bundle in Finder and hides the helper. After a drag out and back, a click on System
+  Settings' sidebar hides it, and it shows again, docked, 0.44 s later
+  ([helper lines](https://raw.githubusercontent.com/ccheever/exact2/18b486448bafdbc4333a7414964c198fd8b529e6/realinput-1010f/F2-RE2-r9-helper-lines.txt)).
+- RE-3 passed: the chip is selected (0,16) and stays selected after Escape; typing gives "x now"
+  ([chip](https://raw.githubusercontent.com/ccheever/exact2/0fd1b41ca2abb4c5c6370b0ce314787c3daf9f6f/realinput-1010f/F2-RE3-chip-escape-x.png)).
+- RE-4 passed: Cancel by the pointer leaves the focus on Add profile with no ring; by keys, with the ring
+  ([Cancel](https://raw.githubusercontent.com/ccheever/exact2/85a5e2e67caa0410c5a1725eb001e7464c1e4899/realinput-1010f/F2-RE4-cancel-pointer-vs-keys.png)).
+- RE-5 partial. Passed: #168's files load with no 503; Viewed went 0 → 1/100 and stayed after Refresh; GitHub read it
+  back as VIEWED; it was then unticked
+  ([Code tab](https://raw.githubusercontent.com/ccheever/exact2/9e1eb9d2ffe1c493d1de92381fb209e0d5ca0d30/realinput-1010f/F2-RE5-1-code-tab-loads.png)).
+  Failed: #308's gutter range drag paints no range and opens no draft (moved to RF-3), and the pending card's Discard
+  ignores real clicks (moved to RF-4).
+- RE-6 done: both bad states were reproduced and traced with ⌥⌘T. The traces lead to another view's hover region (the
+  Cost metric segment's) claiming the (i)'s point. Moved to RF-5.
 
 ## Next action
 
-Real-input steps 1–6 join the next session. Close this record after it.
+Closed after `realinput-1010f`. RE-5's open parts are RF-3 (#308's gutter drag) and RF-4 (Discard), and RE-6's cause is
+RF-5, in [realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
