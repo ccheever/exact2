@@ -36,11 +36,12 @@ component R4FilesBody
     scheme: string
     sheet: bool
     local: action
+    searchFocus: action
   view
     when scheme == "dark"
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
     else
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
 
 component R4FilesSurface
   props
@@ -49,6 +50,7 @@ component R4FilesSurface
     scheme: string
     sheet: bool
     local: action
+    searchFocus: action
   action closeEditors
     local("surface-files-editors", "", "")
     focus("file-choose-editor")
@@ -79,7 +81,7 @@ component R4FilesSurface
             R4FilePreview(files=files, documents=documents, scheme=scheme, local=local)
         when files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
-            R4Explorer(files=files, local=local)
+            R4Explorer(files=files, sheet=sheet, local=local, searchFocus=searchFocus)
       when files.crumbMenu.open
         button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop" title=""
         column position="absolute" left=files.crumbMenu.x top=(sheet ? "2rem" : "1.625rem") z-index=10 min-width="10rem" max-width="20rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
@@ -261,6 +263,12 @@ component R4FilePreview
   action saveComment
     local("surface-files-comment-save", files.path, draftText)
     draftText = ""
+  // right-panel-escape: Escape leaves the editor and keeps the panel (installFileEditorDismissal blurs it); the blur ends the
+  // editing. It had no Escape of its own while the panel toggle took the key.
+  action editorKey(k: string)
+    if k == "Escape"
+      preventDefault()
+      blur()
   view
     when files.preview == "loading"
       column flex=1 align-items="center" justify-content="center" testId="file-loading"
@@ -303,7 +311,7 @@ component R4FilePreview
               DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
-            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
 component R4CodeRow
@@ -340,10 +348,22 @@ component R4CodeRow
 component R4Explorer
   props
     files: R4Files
+    sheet: bool
     local: action
+    searchFocus: action
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
+  // right-panel-escape: FileSearchField's Escape runs closeSearch (the query and the tree's search) and blurs the field;
+  // inline the panel stays. In a sheet the key then reaches the Base UI dialog, which closes, so the sheet's toggle
+  // leaves Escape to the field while it has the focus (SurfacePanel filesSearchAt) and the field's "sheet" closes it
+  // too (r4-surfaces-panel.ts, app.contract chatLocal). The focus is kept in the window, not sent: a second send on
+  // `localChanged` in one turn forgets the first (the blur's would forget the Escape's).
+  action searchKey(k: string)
+    if k == "Escape"
+      local("surface-files-search-key", sheet ? "sheet" : "", k)
+      preventDefault()
+      blur()
   view
     column flex=1 min-height=0 width="100%"
       row height="2.25rem" flex-shrink=0 margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center"
@@ -352,7 +372,7 @@ component R4Explorer
             R4Icon(name="refresh-cw", size=14, color="light-dark(#71717b, #a1a1aa)")
           TipBubble(label=(files.loading ? "Refreshing…" : "Refresh files"), side="bottom", align="start", offset=28, inset=0, shown=(hovered == "refresh"))
         row flex=1 min-width=0 height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center"
-          input value=files.query input=local("surface-files-search", "") key=local("surface-files-search-key", "") placeholder="Search files" aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          input value=files.query input=local("surface-files-search", "") key=searchKey focus=searchFocus(true) blur=searchFocus(false) placeholder="Search files" aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         when files.hasDirectories
           box position="relative" flex-shrink=0
             button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""

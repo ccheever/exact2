@@ -70,12 +70,12 @@ component R4PanelHeader
     details: action
     local: action
     scheme: string
-    urlFocused: bool // browser-surface: a Browser tab's URL field has the focus (its Escape)
+    searchFocused: bool // right-panel-escape: the Files search has the focus (SurfacePanel filesSearchAt)
   view
     when scheme == "dark"
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, urlFocused=urlFocused)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
     else
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, urlFocused=urlFocused)
+      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
 
 // The bar itself, rebuilt per scheme by R4PanelHeader so its SVG glyphs resolve light-dark().
 component R4HeaderBar
@@ -94,7 +94,7 @@ component R4HeaderBar
     ui: action
     details: action
     local: action
-    urlFocused: bool
+    searchFocused: bool
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -160,9 +160,15 @@ component R4HeaderBar
         button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(terminalAvailable ? (keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
-      // Escape stays the page's while the shown Browser tab annotates: the reference's pick focuses the page, whose Escape cancels the pick (PickPreload) and keeps the panel.
+      // right-panel-escape: T3 Code binds no Escape to the right panel (rightPanel.toggle is ⌘⌥B, rightPanel.close ⌘W); only
+      // its sheet (a window 980pt wide or less: RightPanelSheet, a Base UI Dialog) closes on Escape, from any focus that lets
+      // the key reach the document: the URL field and the Files search close it too. What keeps it there keeps it here: a
+      // nested dialog (device setup) or menu (the file's editor menu), the file editor (installFileEditorDismissal blurs
+      // it first), and the Browser pick, which focuses the page (PickPreload cancels it). Checked on the reference over CDP.
+      // The Files search clears itself before its sheet closes (FileSearchField's onKeyDown runs first), so while it has
+      // the focus the field takes the key and closes the sheet (R4Explorer searchKey).
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused or panel.browser.capture.pickActive) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -309,11 +315,12 @@ component R4SurfaceBody
     urlFocused: bool // browser-surface part 2: the URL field has the focus (the module answers the preview's chords)
     // markdown-links-and-files-preview PA-3: the rendered Markdown file (app.contract filesMarkdown).
     filesDocuments: list<ChatDocument>
+    searchFocus: action // right-panel-escape: the Files search's focus and blur (SurfacePanel filesSearchFocus)
   view
     when panel.kind == "terminal"
       TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     when panel.kind == "files" or panel.kind == "file"
-      R4FilesBody(files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local)
+      R4FilesBody(files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
     when panel.kind == "pull-requests"
       R4PrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
     when panel.kind == "device"

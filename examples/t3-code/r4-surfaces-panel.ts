@@ -252,6 +252,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
   if (op.startsWith('r5-')) return r5Local(client, native, state, op.slice(3), id, value); // r5-panels-surfaces.ts
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
+  // right-panel-escape: a sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
+  if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
   if (op.startsWith('files-')) return filesLocal(client, native, op.slice(6), id, value);
   if (op.startsWith('pr-')) return prsLocal(client, native, op.slice(3), id, value);
   if (op.startsWith('device-')) return deviceLocal(client, native, op.slice(7), id, value);
