@@ -615,7 +615,7 @@ public final class Agent {
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.
-                let deadline = Date(timeIntervalSinceNow: 2)
+                let nativeDeadline = Date(timeIntervalSinceNow: 2)
                 var wasBusy = nativeInFlight()
                 while true {
                     #if !(os(iOS) || os(tvOS))
@@ -624,8 +624,19 @@ public final class Agent {
                     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
                     let busy = nativeInFlight()
                     if !wasBusy && !busy { break }
-                    if Date() >= deadline { return reply(landed, false, reason: "transition") }
+                    if Date() >= nativeDeadline { return reply(landed, false, reason: "transition") }
                     wasBusy = busy
+                }
+                // A native completion can press an action, starting a request
+                // or queuing its answer's `then` during the wait above. Recheck
+                // the runner before claiming the fixed point (LLP 1012 §2).
+                let afterNative = max(landed, self.settle() ?? landed)
+                if pendingCount() > 0 || session.timerDue.map({ $0 <= landed }) == true
+                    || afterNative > landed || launchQueued() || presenter.elements.inFlight > 0 {
+                    rounds += 1
+                    if rounds >= 16 || Date() >= deadline { return reply(landed, false) }
+                    to = afterNative
+                    continue
                 }
                 // A held device request is never waited on: the fixed point
                 // stands, and the agent hears what waits for it (LLP 1069.007 D3).
