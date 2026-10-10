@@ -28,7 +28,7 @@ T3 Code's desktop shell (`apps/desktop/src/window/DesktopWindow.ts:529-604`, `in
 It is installed on the main window, on windows the page opens, and on every attached `<webview>` (the Browser panel's
 pages).
 
-[realinput-1010d-followups](20261010-realinput-1010d-followups.md) RD-4 (#400) built the read-only selected
+[realinput-1010d-followups](closed/20261010-realinput-1010d-followups.md) RD-4 (#400) built the read-only selected
 text case: a local right-click monitor (`T3TextContextMenu.swift`) replaces ExactKit's read-only text menu (Look Up,
 Copy, Speech, Services) with Cut (disabled), Copy, Paste (disabled), Select All. Elsewhere the clone still differs:
 a right-click on unselected text or an empty area shows nothing, a link shows ExactKit's or nothing, the composer and
