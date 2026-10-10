@@ -6,7 +6,7 @@ import { questionAnswerText, questionAnswerPreview, hasQuestionAnswer } from './
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Activity, type Obj } from './shared/domain';
 import { toolCallLines, turnItemNeedsDetailFetch, turnItemOutputText } from './shared/timeline-item-detail';
-import { turnItemDetailView } from './shared/timeline-item-fetch';
+import { turnItemDetailView, turnItemIsOpen } from './shared/timeline-item-fetch';
 import { projectedWorkEntry, groupAction, collectToolFilePaths } from './shared/timeline-worklog';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
 
@@ -16,9 +16,32 @@ export interface ThreadActivity { id: string; label: string; body: string; outpu
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
   prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[] }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
-  brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch' };
+  brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 function dateLabel(value: unknown) { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? errorTime.format(stamp) : ''; }
+
+/** Native JSON dictionary order is unstable; use pinned OrchestrationV2TurnItemBaseFields. */
+function forkDisplayItem(item: Obj): Obj {
+  const ordered = (value: Obj, fields: string[]): Obj => Object.fromEntries([
+    ...fields.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]),
+    ...Object.entries(value).filter(([key]) => !fields.includes(key)),
+  ]);
+  const source = obj(item.source), sourceFields = source.type === 'run' ? ['type', 'threadId', 'runId']
+    : source.type === 'node' ? ['type', 'nodeId'] : ['type', 'providerThreadId', 'providerTurnId'];
+  return ordered({ ...item, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}) }, [
+    'toolNonExecutionKind', 'toolSurface', 'toolIcon', 'toolSource', 'id', 'threadId', 'runId', 'nodeId', 'providerThreadId',
+    'providerTurnId', 'nativeItemRef', 'parentItemId', 'ordinal', 'status', 'title', 'startedAt', 'completedAt', 'updatedAt',
+    'type', 'source', 'targetThreadId',
+  ]);
+}
+
+/** Pinned threadActivity's standalone fork work row, not the desktop ancestry link. */
+export function mobileForkLifecycleActivity(row: Obj, client: T3Client, now: number, dark: boolean): ThreadActivity {
+  const item = obj(row.item), id = JSON.stringify([row.sourceThreadId, row.sourceItemId]), expanded = turnItemIsOpen(client, id);
+  return mobileThreadActivity({ id, label: str(item.targetThreadId), icon: 'zap', timestamp: str(item.updatedAt),
+    body: expanded ? JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId, item: forkDisplayItem(item) }, null, 2) : '',
+    output: '', result: '', failed: item.status === 'failed', expandable: true, detailOpen: expanded }, row, client, now, dark, '');
+}
 
 /** QuestionAnswerHistory365aa87982 preserves the source union order. */
 function answerHistory(answer: Obj, client: T3Client, row: Obj, now: number): ThreadAnswerHistory[] {

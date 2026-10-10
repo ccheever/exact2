@@ -22,7 +22,7 @@ import { followUpBehavior } from './shared/composer-controls';
 import { queueState } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
-import { mobileThreadActivity } from './thread-work';
+import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
 import type { ThreadActivity } from './thread-work';
 import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
 export type { ThreadActivity } from './thread-work';
@@ -68,9 +68,9 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
   for (const message of source) {
     // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
     if (message.kind === 'checkpoint') continue;
-    const item = raw.get(message.id), user = message.kind === 'user';
+    const item = raw.get(message.id), user = message.kind === 'user', fork = item?.type === 'fork' ? projected.get(message.id) : undefined;
     // Shared desktop renders '(empty response)'; mobile deliberately skips blank assistant rows.
-    const body = message.kind === 'assistant' && item ? str(item.text) : message.body;
+    const body = fork ? '' : message.kind === 'assistant' && item ? str(item.text) : message.body;
     const media = arr(item?.attachments).filter(attachment => str(attachment.id)).map(attachment => ({ id: str(attachment.id), name: str(attachment.name),
       kind: attachment.type === 'image' ? 'image' : /^video\//.test(str(attachment.mimeType)) ? 'video' : 'file',
       url: cachedAttachmentUrl(client, str(attachment.id)) ?? '' }));
@@ -78,14 +78,14 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
     const toggleOp = message.kind === 'work' ? 'chatlocal:fold' : message.kind === 'attempt' ? 'chatlocal:attempt'
       : ['group', 'live', 'thinking'].includes(message.kind) && message.groupId ? 'chatlocal:group' : '';
     const showMeta = user || ['assistant', 'plan'].includes(message.kind) && message.meta !== false && message.completed === true && message.streaming !== true;
-    const title = message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
+    const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
     rows.push({ id: message.id, kind: message.kind, title, body, blocks: mobileThreadBlocks(body, dark), user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
       streaming: message.streaming === true, attribution: message.attribution === 'automation' ? 'Sent by automation' : message.attribution === 'agent' ? 'Sent by agent' : '',
       intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
-      activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
+      activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
         const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp));
         // Parse only visible reasoning; tools keep literal command/result output.
         return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
