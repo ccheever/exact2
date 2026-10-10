@@ -21,8 +21,10 @@ import { subscriptionSerial } from './shared/shell-vcs';
 import { compactThreadBranch, compactThreadGitStatus, resolveQuickAction, threadNextTerminalId,
   threadScriptSymbol, threadTerminalLabel, threadTerminalStatus } from './thread-header-model';
 import { mobileStageThreadScript, mobileThreadHeaderPending, mobileThreadHeaderObserveRoute } from './thread-header-terminal';
+import { mobileReviewSnapshot } from './review-data';
 export interface ThreadHeaderOptions { routeKey: string; routeIdentity: string; focused: boolean; split: boolean; sidebarVisible: boolean;
-  canGoBack: boolean; returnToChat: boolean; foreground: string }
+  canGoBack: boolean; returnToChat: boolean; foreground: string; review?: boolean; reviewRevision?: number; dark?: boolean;
+  inspectorAvailable?: boolean; inspectorVisible?: boolean }
 export interface ThreadHeaderSnapshot { owner: string; routeKey: string; version: string; configuration: string;
   ready: boolean; needsPrepare: boolean; error: string; pendingLaunch: string; pendingTerminalId: string }
 export interface ThreadHeaderItem { id: string; title: string; subtitle: string; symbol: string; disabled: boolean }
@@ -76,11 +78,24 @@ function model(options: ThreadHeaderOptions, client: T3Client) {
   terminalItems.push(item('terminal:new', 'Open new terminal', 'Start another shell for this thread', 'plus', !state.operate));
   const saved = fleet.saved.find(entry => entry.environmentId === client.environmentId);
   const environment = environmentSources(client, fleet.saved, fleet.entries).find(entry => entry.environmentId === client.environmentId);
-  const configuration = { owner: state.owner, routeKey: options.routeKey, focused, title: str(ctx.thread?.title),
-    subtitle: [str(ctx.project?.title), str(saved?.mobileLabel) || environment?.label || ''].filter(Boolean).join(' · '),
+  const reviewData = options.review ? mobileReviewSnapshot(options.dark === true, client) : null;
+  const turns = reviewData?.sections.filter(section => section.id.startsWith('turn:')) ?? [];
+  const reviewItem = (id: string, title: string, subtitle = '') => ({ ...item(`review:section:${id}`, title, subtitle, '', !id),
+    selected: !!id && reviewData?.sectionId === id });
+  // ReviewSheet/buildReviewSectionMenu: fixed primary choices, then the ready
+  // turns in server order. Missing choices remain visible and disabled.
+  const review = reviewData ? { primary: [reviewItem(reviewData.sections.find(section => section.id === 'git:branch-range')?.id ?? '', 'Changes'),
+    reviewItem(reviewData.sections.find(section => section.id === 'git:working-tree')?.id ?? '', 'Uncommitted'),
+    reviewItem(turns[0]?.id ?? '', 'Latest turn')], turns: turns.map(section => reviewItem(section.id, section.title, section.subtitle)),
+    showSections: reviewData.sections.length > 0, inspectorAvailable: options.inspectorAvailable === true && reviewData.files.length > 0,
+    inspectorVisible: options.inspectorVisible === true } : undefined;
+  const configuration = { owner: state.owner, routeKey: options.routeKey, focused, title: reviewData?.title ?? str(ctx.thread?.title),
+    subtitle: reviewData ? [reviewData.additions ? `+${reviewData.additions}` : '', reviewData.deletions ? `-${reviewData.deletions}` : '',
+      reviewData.commentCount ? `${reviewData.commentCount} comment${reviewData.commentCount === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')
+      : [str(ctx.project?.title), str(saved?.mobileLabel) || environment?.label || ''].filter(Boolean).join(' · '),
     split: options.split, sidebarVisible: options.sidebarVisible, canGoBack: options.canGoBack, returnToChat: options.returnToChat,
-    canOpenFiles: !!str(ctx.project?.workspaceRoot), canOpenTerminal: !!str(ctx.project?.workspaceRoot) && (state.read || state.operate),
-    foreground: options.foreground, gitItems, terminalItems };
+    canOpenFiles: !review && !!str(ctx.project?.workspaceRoot), canOpenTerminal: !review && !!str(ctx.project?.workspaceRoot) && (state.read || state.operate),
+    foreground: options.foreground, gitItems, terminalItems: review ? [] : terminalItems, review };
   // Include invisible command recipes too: a changed script command cannot use an old open menu.
   const version = JSON.stringify([configuration, options.routeIdentity, ctx.scripts, mergeTarget, mergeRun, quick, status?.refName, state.read, state.operate]);
   return { state, ctx, ready, quick, mergeTarget, mergeRun, configuration: { ...configuration, version }, version };
@@ -143,9 +158,19 @@ export async function mobileThreadHeaderAction(raw: string, options: ThreadHeade
       ? `/threads/${encodeURIComponent(out.environmentId)}/${encodeURIComponent(out.threadId)}${locations[name]}` : ''; };
   if (!view.configuration.focused || state.busy || event.owner !== state.owner || event.routeKey !== route || event.version !== view.version
     || state.routeKey !== route || state.routeIdentity !== options.routeIdentity || !state.focused) return out;
+  if (view.configuration.review && id.startsWith('review:')) {
+    const review = view.configuration.review;
+    const section = [...review.primary, ...review.turns].find(entry => entry.id === id && !entry.disabled);
+    if (section && review.showSections) { out.navigation = 'review-section'; out.key = id.slice('review:section:'.length); }
+    else if (id === 'review:back') navigate('return-chat');
+    else if (id === 'review:sidebar' && options.split) out.navigation = 'sidebar';
+    else if (id === 'review:inspector' && review.inspectorAvailable) out.navigation = 'review-inspector';
+    return out;
+  }
   const menuItem = [...view.configuration.gitItems, ...view.configuration.terminalItems].find(entry => entry.id === id);
-  const special = id === 'files' ? view.configuration.canOpenFiles : id === 'return-chat' ? options.split && options.returnToChat : id === 'home' ? !options.split && !options.canGoBack : ['sidebar', 'new-task'].includes(id) && options.split;
+  const special = view.configuration.review ? false : id === 'files' ? view.configuration.canOpenFiles : id === 'return-chat' ? options.split && options.returnToChat : id === 'home' ? !options.split && !options.canGoBack : ['sidebar', 'new-task'].includes(id) && options.split;
   if (menuItem ? menuItem.disabled || id.startsWith('terminal:') && !view.configuration.canOpenTerminal : !special) return out;
+  if (view.configuration.review && id === 'git:review') return out;
   if (id === 'files' || id === 'git:more' || id === 'git:review' || ['sidebar','home','new-task','return-chat'].includes(id)) {
     navigate(({ files: 'threadFiles', 'git:more': 'gitOverview', 'git:review': 'threadReview', 'new-task': 'newTask', 'return-chat': 'return-chat', sidebar: 'sidebar', home: 'home' })[id] || ''); return out;
   }

@@ -5,12 +5,18 @@ import UIKit
 
 struct T3ThreadHeaderItem: Decodable, Equatable {
     let id: String; let title: String; let subtitle: String; let symbol: String; let disabled: Bool
+    var selected: Bool? = nil
+}
+struct T3ReviewHeaderConfiguration: Decodable, Equatable {
+    let primary: [T3ThreadHeaderItem]; let turns: [T3ThreadHeaderItem]
+    let showSections: Bool; let inspectorAvailable: Bool; let inspectorVisible: Bool
 }
 struct T3ThreadHeaderConfiguration: Decodable, Equatable {
     let owner: String; let routeKey: String; let version: String; let focused: Bool
     let title: String; let subtitle: String; let split: Bool; let sidebarVisible: Bool
     let canGoBack: Bool; let returnToChat: Bool; let canOpenFiles: Bool; let canOpenTerminal: Bool
     let foreground: String; let gitItems: [T3ThreadHeaderItem]; let terminalItems: [T3ThreadHeaderItem]
+    let review: T3ReviewHeaderConfiguration?
 
     func presentation(nativeGlass: Bool) -> T3ThreadHeaderPresentation {
         // The compact pre26 fallback's later layout effect replaces the right
@@ -27,6 +33,18 @@ struct T3ThreadHeaderConfiguration: Decodable, Equatable {
 
     func allows(_ id: String) -> Bool {
         guard focused, !id.isEmpty, !owner.isEmpty, !routeKey.isEmpty else { return false }
+        if let review {
+            switch id {
+            case "review:back": return true
+            case "review:sidebar": return split
+            case "review:inspector": return review.inspectorAvailable
+            default:
+                if let row = (review.primary + review.turns).first(where: { $0.id == id }) {
+                    return review.showSections && !row.disabled
+                }
+                return gitItems.contains { $0.id == id && !$0.disabled }
+            }
+        }
         switch id {
         case "files": return canOpenFiles
         case "sidebar", "new-task": return split
@@ -135,9 +153,12 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
         events.change(String(decoding: bytes, as: UTF8.self))
     }
     private func action(_ id: String, title: String, symbol: String, captured: T3ThreadHeaderConfiguration) -> UIBarButtonItem {
-        let item = UIBarButtonItem(image: UIImage(systemName: symbol), primaryAction: UIAction { [weak self] _ in
-            self?.emit(id, captured: captured)
-        })
+        let handler = UIAction { [weak self] _ in self?.emit(id, captured: captured) }
+        let item: UIBarButtonItem
+        if captured.review != nil {
+            // NativeHeaderToolbar / RNSBarButtonItem uses an initially bare item.
+            item = UIBarButtonItem(); item.image = UIImage(systemName: symbol); item.primaryAction = handler
+        } else { item = UIBarButtonItem(image: UIImage(systemName: symbol), primaryAction: handler) }
         item.accessibilityLabel = title; item.accessibilityIdentifier = "thread-header-\(id)"
         item.isEnabled = captured.allows(id); item.tintColor = color(captured.foreground)
         return item
@@ -152,17 +173,39 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
             action.subtitle = row.subtitle.isEmpty ? nil : row.subtitle
             return action
         }
-        let item = UIBarButtonItem(title: title, image: UIImage(systemName: symbol), primaryAction: nil,
+        let item: UIBarButtonItem
+        if captured.review != nil {
+            item = UIBarButtonItem(); item.image = UIImage(systemName: symbol); item.menu = UIMenu(title: title, children: children)
+        } else {
+            item = UIBarButtonItem(title: title, image: UIImage(systemName: symbol), primaryAction: nil,
                                   menu: UIMenu(title: title, children: children))
+        }
         item.accessibilityLabel = label; item.accessibilityIdentifier = identifier
         item.isEnabled = enabled && captured.focused; item.tintColor = color(captured.foreground)
+        return item
+    }
+    private func reviewSections(_ review: T3ReviewHeaderConfiguration, captured: T3ThreadHeaderConfiguration) -> UIBarButtonItem {
+        func choice(_ row: T3ThreadHeaderItem) -> UIAction {
+            let action = UIAction(title: row.title, identifier: UIAction.Identifier(row.id),
+                attributes: row.disabled ? [.disabled] : [], state: row.selected == true ? .on : .off) { [weak self] _ in
+                self?.emit(row.id, captured: captured)
+            }
+            action.subtitle = row.subtitle.isEmpty ? nil : row.subtitle
+            return action
+        }
+        var children: [UIMenuElement] = [UIMenu(title: review.primary.map(\.title).joined(), options: .displayInline, children: review.primary.map(choice))]
+        if !review.turns.isEmpty { children.append(UIMenu(title: "Turn", children: review.turns.map(choice))) }
+        let item = UIBarButtonItem(); item.image = UIImage(systemName: "ellipsis")
+        item.menu = UIMenu(title: "Select diff", children: children)
+        item.accessibilityLabel = "Select diff"; item.accessibilityIdentifier = "review-header-sections"
+        item.isEnabled = captured.focused && review.showSections; item.tintColor = color(captured.foreground)
         return item
     }
     private func refresh() {
         guard active, let config, let route, route.isLive, route.key == config.routeKey else { return }
         let item = route.controller.navigationItem
         item.title = config.title; item.largeTitleDisplayMode = .never
-        item.backButtonDisplayMode = .minimal; item.hidesBackButton = config.split || !config.canGoBack
+        item.backButtonDisplayMode = .minimal; item.hidesBackButton = config.review != nil || config.split || !config.canGoBack
         if rendered != config {
             let style = item.standardAppearance?.copy() as? UINavigationBarAppearance ?? UINavigationBarAppearance()
             if #available(iOS 26.0, *) {
@@ -178,32 +221,54 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
             let presentation: T3ThreadHeaderPresentation
             if #available(iOS 26.0, *) { presentation = config.presentation(nativeGlass: true) }
             else { presentation = config.presentation(nativeGlass: false) }
-            let git = menu(presentation.gitItems, title: presentation.gitTitle,
-                           symbol: "point.topleft.down.curvedto.point.bottomright.up", label: presentation.gitLabel,
+            let git = menu(presentation.gitItems, title: config.review == nil ? presentation.gitTitle : "Git controls",
+                           symbol: "point.topleft.down.curvedto.point.bottomright.up", label: config.review == nil ? presentation.gitLabel : "Git controls",
                            identifier: "thread-right-git", enabled: true, captured: config)
-            let files = action("files", title: "Open files", symbol: "folder", captured: config)
-            let terminal = menu(config.terminalItems, title: presentation.terminalTitle, symbol: "terminal", label: "Open terminal",
-                                identifier: "thread-right-terminal", enabled: config.canOpenTerminal, captured: config)
-            let buttons = ["git": git, "files": files, "terminal": terminal]
-            trailing = presentation.groups.compactMap { ids in
-                let items = ids.compactMap { buttons[$0] }
-                return items.isEmpty ? nil : .fixedGroup(representativeItem: nil, items: items)
-            }
-            var left: [UIBarButtonItemGroup] = []
-            if config.split {
+            if let review = config.review {
+                var right: [UIBarButtonItem] = []
+                if review.showSections { right.append(reviewSections(review, captured: config)) }
+                right.append(git)
+                if review.inspectorAvailable {
+                    let inspector = action("review:inspector", title: review.inspectorVisible ? "Hide changed files" : "Show changed files",
+                        symbol: "sidebar.right", captured: config)
+                    inspector.isSelected = review.inspectorVisible; right.append(inspector)
+                }
+                trailing = T3ThreadHeaderPresentation.group(right, nativeGlass: presentation.nativeGlass)
+                    .map { .fixedGroup(representativeItem: nil, items: $0) }
+                var left = [action("review:back", title: "Back to chat", symbol: "chevron.left", captured: config)]
+                if config.split { left.append(action("review:sidebar", title: config.sidebarVisible ? "Maximize \(config.title.lowercased())" : "Show threads",
+                    symbol: config.sidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left", captured: config)) }
                 let spacing = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil); spacing.width = 18
-                left.append(.fixedGroup(representativeItem: nil, items: [spacing]))
-                var controls: [UIBarButtonItem] = []
-                if config.returnToChat { controls.append(action("return-chat", title: "Return to chat", symbol: "chevron.left", captured: config)) }
-                controls.append(action("sidebar", title: config.sidebarVisible ? "Maximize content" : "Show thread sidebar",
-                    symbol: config.sidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left", captured: config))
-                controls.append(action("new-task", title: "New task", symbol: "square.and.pencil", captured: config))
-                left.append(contentsOf: T3ThreadHeaderPresentation.group(controls, nativeGlass: presentation.nativeGlass)
+                leading = [.fixedGroup(representativeItem: nil, items: [spacing])]
+                leading.append(contentsOf: T3ThreadHeaderPresentation.group(left, nativeGlass: presentation.nativeGlass)
                     .map { .fixedGroup(representativeItem: nil, items: $0) })
-            } else if !config.canGoBack {
-                left.append(.fixedGroup(representativeItem: nil, items: [action("home", title: "Go to threads list", symbol: "list.bullet", captured: config)]))
+                item.hidesBackButton = true
+                rendered = config
+            } else {
+                let files = action("files", title: "Open files", symbol: "folder", captured: config)
+                let terminal = menu(config.terminalItems, title: presentation.terminalTitle, symbol: "terminal", label: "Open terminal",
+                                    identifier: "thread-right-terminal", enabled: config.canOpenTerminal, captured: config)
+                let buttons = ["git": git, "files": files, "terminal": terminal]
+                trailing = presentation.groups.compactMap { ids in
+                    let items = ids.compactMap { buttons[$0] }
+                    return items.isEmpty ? nil : .fixedGroup(representativeItem: nil, items: items)
+                }
+                var left: [UIBarButtonItemGroup] = []
+                if config.split {
+                    let spacing = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil); spacing.width = 18
+                    left.append(.fixedGroup(representativeItem: nil, items: [spacing]))
+                    var controls: [UIBarButtonItem] = []
+                    if config.returnToChat { controls.append(action("return-chat", title: "Return to chat", symbol: "chevron.left", captured: config)) }
+                    controls.append(action("sidebar", title: config.sidebarVisible ? "Maximize content" : "Show thread sidebar",
+                        symbol: config.sidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left", captured: config))
+                    controls.append(action("new-task", title: "New task", symbol: "square.and.pencil", captured: config))
+                    left.append(contentsOf: T3ThreadHeaderPresentation.group(controls, nativeGlass: presentation.nativeGlass)
+                        .map { .fixedGroup(representativeItem: nil, items: $0) })
+                } else if !config.canGoBack {
+                    left.append(.fixedGroup(representativeItem: nil, items: [action("home", title: "Go to threads list", symbol: "list.bullet", captured: config)]))
+                }
+                leading = left; rendered = config
             }
-            leading = left; rendered = config
         }
         if #available(iOS 26.0, *) { item.style = .editor; item.subtitle = config.subtitle.isEmpty ? nil : config.subtitle }
         item.standardAppearance = appearance; item.scrollEdgeAppearance = appearance; item.compactAppearance = appearance

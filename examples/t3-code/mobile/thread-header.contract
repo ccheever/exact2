@@ -8,6 +8,11 @@ shape ThreadHeaderOptions
   canGoBack: bool
   returnToChat: bool
   foreground: string
+  review: bool
+  reviewRevision: number
+  dark: bool
+  inspectorAvailable: bool
+  inspectorVisible: bool
 shape ThreadHeaderSnapshot
   owner: string
   routeKey: string

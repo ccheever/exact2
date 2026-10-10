@@ -667,7 +667,7 @@ component App
         lastOperation = "thread-action"
         send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-  derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground)
+  derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
   resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot
   mutation threadHeaderPrepared as shape ThreadHeaderRead refreshes threadHeader, gitData, data
   mutation threadHeaderChanged as shape ThreadHeaderResult refreshes threadHeader, terminalData, gitData, data then didThreadHeaderChange
@@ -692,6 +692,10 @@ component App
             openFiles()
           else if result.navigation == "gitOverview"
             openGit()
+          else if result.navigation == "review-section" and top(nav).name == "threadReview"
+            reviewSection(result.key)
+          else if result.navigation == "review-inspector" and top(nav).name == "threadReview"
+            toggleInspector()
           else if result.navigation == "sidebar"
             toggleSidebar()
           else if result.navigation == "home"
@@ -900,7 +904,6 @@ component App
   action loadRequestedReviewPatches
     send reviewPatches = reviewAction(reviewData.owner, "patches", reviewData.sectionId, reviewData.patchRequest, 0, appearance.scheme, `${top(nav).id}`)
   mutation reviewChanged as shape ReviewResult refreshes reviewData, data then didReviewChange
-  state reviewWrap = false
   state reviewComment = ""
   state reviewCommentOwner = ""
   mutation reviewDismissed as shape ReviewResult refreshes reviewData
@@ -929,7 +932,7 @@ component App
       case some(file)
         reviewAction("visible", file.path, 0)
       case none
-        reviewWrap = reviewWrap
+        reviewComment = reviewComment
   action didReviewChange
     match reviewChanged
       case some(result)
@@ -942,7 +945,7 @@ component App
                 case some(row)
                   scrollIntoView("review-diff", row.id, block="start")
                 case none
-                  reviewWrap = reviewWrap
+                  reviewComment = reviewComment
             else
               scrollIntoView("review-diff", result.navigation, block="start")
           else if result.data.commentOpen and top(nav).name == "threadReview"
@@ -958,8 +961,6 @@ component App
   action submitReviewComment
     if workspaceRouteReady
       send reviewChanged = reviewAction(reviewCommentOwner, "save", "", reviewComment, 0, appearance.scheme, `${top(nav).id}`)
-  action toggleReviewWrap
-    reviewWrap = not reviewWrap
   state filesQuery = ""
   derive selectedFile = top(nav).name == "threadFile" ? top(nav).params.filePath : ""
   state fileWrap = false
@@ -1470,9 +1471,9 @@ component App
               threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
-              reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
+              reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
-              richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
+              richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment,
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,
               openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,
