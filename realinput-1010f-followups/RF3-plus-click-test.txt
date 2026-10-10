@@ -1,0 +1,33 @@
+realinput-1010f-followups, the review of PR #413 (finding 1): a click on the gutter's "+" sends two commands, the pointer's
+gutter/end and the press's comment, and in the PR's head they ran on two mutations (lineDragChanged; changed in the Diff
+panel, localChanged for the Code tab's pr-code-begin) and could disagree.
+
+Fixture: diff-review.test.ts's a.ts in the Diff panel. Numbers 3 to 5 dragged (drag:additions 3, to dl:additions:5, end):
+the lines stay selected, no draft. Then the "+" of line 5 (the selection's bottom) or of line 10 (outside the selection),
+its sends in each order the two mutations could run them. The draft each case opened:
+
+== before: diff-review.ts of ef8e7d608 (the head the review read)
+CASE 5 gutter -> end -> comment ["3 to 5"]
+CASE 5 gutter -> comment -> end ["3 to 5"]
+CASE 5 comment ["3 to 5"]
+CASE 10 gutter -> end -> comment ["3 to 5"]
+CASE 10 gutter -> comment -> end ["+10"]
+CASE 10 comment ["+10"]
+
+== after: this head (the press queues on lineDragChanged behind its drag; while a "+" drag is in flight it is its
+release; otherwise it comments on what the gesture would, gutterClick). Also, a file with a selection now draws its "+"
+on the selection's bottom only (line 5), so no pointer can press line 10's.
+CASE 5 gutter -> end -> comment ["3 to 5"]
+CASE 5 gutter -> comment -> end ["3 to 5"]
+CASE 5 comment ["3 to 5"]
+CASE 10 gutter -> end -> comment ["3 to 5"]
+CASE 10 gutter -> comment -> end ["3 to 5"]
+CASE 10 comment ["3 to 5"]
+
+The reference: Pierre's handlePointerClick ignores a click on the gutter utility when onGutterUtilityClick is set; only the
+pointer gesture (startGutterSelectionFromPointerDown: the selection's top to bottom) comments, and the utility sits on the
+selection's bottom line (placeUtilityFromSelection). So: "3 to 5".
+
+bun test diff-review.test.ts -t 'pinned to a selection' (the three new tests):
+  before (diff-review.ts of ef8e7d608): 2 pass, 1 fail (line 10, gutter -> comment -> end: received "+10", expected "3 to 5")
+  after (this head): 3 pass, 0 fail
