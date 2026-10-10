@@ -1,0 +1,25 @@
+realinput-1010c-fixes RC-8: why Diff › Changes showed the exact2 checkout for a lane project (check; no clone change)
+
+Lane ri1010c-4 (the #360 bundle, normal launch with HOME set to the lane home):
+  project      .../target/t3-ui-parity/lanes/ri1010c-4/projects/work   (its own git repo, branch feature/audit)
+  server home  NSHomeDirectory() = .../lanes/ri1010c-4/home              (the embedded server's cwd and workspace root)
+  Both sit inside the exact2 checkout /Users/daehyeonmun/orca/workspaces/exact2/t3-code (target/ is ignored there).
+
+The lane server's own trace (t3-home/userdata/logs/server.trace.ndjson):
+  ReviewService.assertWorkspaceBoundCwd  Failure: "VCS repository detection failed in ReviewService.getDiffPreview:
+      .../lanes/ri1010c-4/projects/work - Review diff preview cwd must stay within the configured workspace root."
+  then, for the retry at the server's cwd:
+    75 x GitVcsDriver.resolveRepositoryPaths.{worktreeRoot,commonDir,currentBranch}  git.cwd = .../lanes/ri1010c-4/home
+    75 x GitVcsDriver.getReviewDiffPreview.patch, 78 x .stat                          git.cwd = /Users/.../exact2/t3-code
+  -> the lane home is not a repository, so git found the enclosing checkout: "feat(example)/t3-code vs origin/main", +576k.
+
+The reference does the same, step for step:
+  apps/server/src/review/ReviewService.ts:66-86   a diff preview cwd outside config.cwd (or the worktrees dir) is refused
+  apps/web/src/components/DiffPanel.tsx:283-303    on that refusal the branch diff is asked again at serverConfig.cwd
+  apps/desktop/src/app/DesktopEnvironment.ts:220   backendCwd = homeDirectory for a packaged app (Electron reads HOME)
+The clone: r11-device-diff.ts requestDiff (the same retry), T3LocalBackend.swift:456 cwd NSHomeDirectory().
+
+Verdict: a lane artifact, not a clone bug. With HOME set to <lane>/home and the project at <lane>/projects/work, T3 Code
+refuses the project and diffs whatever repository holds the lane home. In a normal launch (HOME = the account's home,
+projects under it) the project is inside the root and its own repository is diffed. Next session: keep the project
+inside the lane HOME (e.g. <lane>/home/projects/work) or leave HOME alone for this row.
