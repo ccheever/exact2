@@ -165,6 +165,8 @@ final class ComposerChipPressTests: XCTestCase {
         let elements = fixture.preview.styler.press.accessibilityElements
         XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Skill Frontend Design. Show details"])
         XCTAssertEqual(elements.first?.accessibilityRole(), .button)
+        // realinput-1010c-fixes RC-4: an enabled button, as the reference's PopoverTrigger (the default is disabled).
+        XCTAssertEqual(elements.first?.isAccessibilityEnabled(), true)
         let children = fixture.view.accessibilityChildren() as? [NSAccessibilityElement] ?? []
         XCTAssertTrue(children.contains { $0 === elements.first }, "the text view lists the chip's button")
         // As the agent's accessibility walk reads it (AgentAccessibility.swift axFacts), without trapping.
