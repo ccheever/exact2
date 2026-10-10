@@ -1,0 +1,44 @@
+// RE-1 (realinput-1010e-followups): ask AppKit, inside the reference's own Electron, whether the view under the
+// permission helper's "T3 Code" row takes the click that activates the app (acceptsFirstMouse:). No event is sent.
+#import <AppKit/AppKit.h>
+#include <string.h>
+typedef struct napi_env__ *napi_env; typedef struct napi_value__ *napi_value; typedef struct napi_callback_info__ *napi_callback_info;
+typedef int napi_status; typedef napi_value (*napi_callback)(napi_env, napi_callback_info);
+extern napi_status napi_create_function(napi_env, const char *, size_t, napi_callback, void *, napi_value *);
+extern napi_status napi_set_named_property(napi_env, napi_value, const char *, napi_value);
+extern napi_status napi_create_string_utf8(napi_env, const char *, size_t, napi_value *);
+extern napi_status napi_get_cb_info(napi_env, napi_callback_info, size_t *, napi_value *, napi_value *, void **);
+extern napi_status napi_get_value_string_utf8(napi_env, napi_value, char *, size_t, size_t *);
+extern napi_status napi_get_value_double(napi_env, napi_value, double *);
+
+static napi_value probe(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value argv[3]; char title[256] = {0}; size_t length = 0; double x = 0, y = 0;
+  napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
+  napi_get_value_string_utf8(env, argv[0], title, sizeof title, &length);
+  napi_get_value_double(env, argv[1], &x); napi_get_value_double(env, argv[2], &y);
+  NSMutableArray *found = [NSMutableArray array];
+  for (NSWindow *window in NSApp.windows) {
+    if (![window.title isEqualToString:[NSString stringWithUTF8String:title]]) continue;
+    NSView *frameView = window.contentView.superview ?: window.contentView;
+    // (x, y): CSS pixels from the content's top-left; AppKit's window coordinates start bottom-left.
+    NSPoint inWindow = NSMakePoint(x, NSHeight(window.contentView.frame) - y);
+    NSView *hit = [frameView hitTest:[frameView.superview ?: frameView convertPoint:inWindow fromView:nil]];
+    if (!hit) hit = [frameView hitTest:inWindow];
+    NSEvent *down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:inWindow modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime
+                                    windowNumber:window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];
+    BOOL accepts = hit ? [hit acceptsFirstMouse:down] : NO;
+    NSString *windowFlag = [window respondsToSelector:@selector(acceptsFirstMouse)] ? ([[window valueForKey:@"acceptsFirstMouse"] boolValue] ? @"true" : @"false") : @"n/a";
+    [found addObject:[NSString stringWithFormat:@"{\"window\":\"%@\",\"windowAcceptsFirstMouse\":\"%@\",\"canBecomeKey\":%@,\"styleMask\":%lu,\"level\":%ld,\"appActive\":%@,\"windowKey\":%@,\"hitView\":\"%@\",\"hitAcceptsFirstMouse\":%@}",
+      NSStringFromClass(window.class), windowFlag, window.canBecomeKeyWindow ? @"true" : @"false", (unsigned long)window.styleMask, (long)window.level,
+      NSApp.isActive ? @"true" : @"false", window.isKeyWindow ? @"true" : @"false", hit ? NSStringFromClass(hit.class) : @"nil", accepts ? @"true" : @"false"]];
+  }
+  NSString *json = [NSString stringWithFormat:@"[%@]", [found componentsJoinedByString:@","]];
+  napi_value result; napi_create_string_utf8(env, json.UTF8String, strlen(json.UTF8String), &result);
+  return result;
+}
+
+napi_value napi_register_module_v1(napi_env env, napi_value exports) {
+  napi_value fn; napi_create_function(env, "probe", 5, probe, NULL, &fn);
+  napi_set_named_property(env, exports, "probe", fn);
+  return exports;
+}
