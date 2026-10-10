@@ -24,9 +24,9 @@ import { mobileNewTaskContextProject,type MobileMessageContext } from './mobile-
 import { mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
 import { mobileComposerTrigger,mobileComposerCommandRows,replaceTextRange,
   resolveProviderSkillsForCwd,mobileComposerThreadRecord,mobileComposerPullRequestRecord,
-  type ComposerCommandItem,type ComposerTrigger,type ServerProvider } from './composer-command-model';
+  type ComposerCommandItem,type ComposerTrigger } from './composer-command-model';
 import { mobileComposerCommandPresentation,type ComposerCommandPopover } from './composer-command-presentation';
-import { mobileComposerQueryDemand,mobileComposerQuerySnapshot,mobileComposerQueryPrepare,
+import { mobileComposerProvider,mobileComposerQueryDemand,mobileComposerQuerySnapshot,mobileComposerQueryPrepare,
   type ComposerQueryDemand,type ComposerQueryInput,type ComposerQueryLane } from './composer-command-query';
 import { mobileComposerEditorAccept,mobileComposerEditorDecodeEvent,mobileComposerEditorStageEffect,mobileComposerEditorCommitted,
   mobileComposerEditorControlled,mobileComposerEditorCommand,type ComposerEditorDocument,type ComposerEditorEffect } from './composer-editor-state';
@@ -61,7 +61,7 @@ const superseded=()=>new ClientError('The composer changed. Try again in the cur
 const mounted=(owner:EditorOwner)=>({...owner.state.identity,mountId:owner.state.mountId});
 function provider(client:T3Client):ComposerQueryInput['provider'] {
   const value=arr(client.config.providers).find(p=>p.instanceId===client.providerId);
-  return value?{...editorCopy(value),instanceId:str(value.instanceId),driver:str(value.driver),skills:arr(value.skills),slashCommands:arr(value.slashCommands)} as unknown as ServerProvider&{instanceId:string}:null;
+  return mobileComposerProvider(value);
 }
 function current(client:T3Client,runtime:Runtime):boolean {
   return runtimes.get(client)===runtime && mobileEditorOwner(client)===runtime.owner && runtime.owner.route.active

@@ -40,6 +40,28 @@ const lane = (): Lane => ({ target: '', selected: '', dueAt: 0, delayMs: 0, key:
 const discovery = (): Discovery => ({ scope: '', provider: null, providerKey: '', complete: false, observedComplete: false,
   pending: 0, retryAt: 0, attemptedWake: '', wake: '', timer: false, key: '' });
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+/** The command menu owns skills/commands, not the server's model catalog.
+ * Keep complete consumed fields and absence semantics before any copy/signature.
+ * Model selection, provider availability and send admission still use client.config. */
+export function mobileComposerProvider(value: unknown): ComposerQueryInput['provider'] {
+  if (value === null || value === undefined) return null;
+  const pick = (input: unknown, keys: readonly string[]): Obj => {
+    const row = obj(input);
+    return Object.fromEntries(keys.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]]));
+  };
+  const skills = (input: unknown) => arr(input).map(row => pick(row,
+    ['name', 'enabled', 'userInvocable', 'displayName', 'shortDescription', 'description', 'path', 'scope']));
+  const commands = (input: unknown) => arr(input).map(row => pick(row, ['name', 'description']));
+  const source = obj(value), projected = pick(source, ['instanceId', 'driver', 'showInteractionModeToggle', 'workspaceSnapshots']);
+  projected.skills = skills(source.skills); projected.slashCommands = commands(source.slashCommands);
+  if (Array.isArray(source.workspaceSnapshots)) projected.workspaceSnapshots = source.workspaceSnapshots.map(input => {
+    const snapshot = obj(input), result = pick(snapshot, ['cwd', 'skills', 'slashCommands', 'slashCommandsPending']);
+    if (Array.isArray(snapshot.skills)) result.skills = skills(snapshot.skills);
+    if (Array.isArray(snapshot.slashCommands)) result.slashCommands = commands(snapshot.slashCommands);
+    return result;
+  });
+  return clone(projected) as unknown as ComposerQueryInput['provider'];
+}
 const denied = () => new ClientError('The composer query was superseded.', 'superseded');
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The query failed.';
 function catalog(client: T3Client, input: ComposerQueryInput): string {
@@ -50,7 +72,7 @@ function connection(client: T3Client, input: ComposerQueryInput): string {
     client.connection, client.projectId, client.threadId, input.environmentId, input.cwd, input.projectId]);
 }
 function providerConfig(client: T3Client, input: ComposerQueryInput): string {
-  return JSON.stringify(arr(client.config.providers).find(p => p.instanceId === input.provider?.instanceId) ?? null);
+  return JSON.stringify(mobileComposerProvider(arr(client.config.providers).find(p => p.instanceId === input.provider?.instanceId)));
 }
 function available(client: T3Client, state: State): boolean {
   return state.input.active && !!catalog(client, state.input) && client.connection === 'connected'
@@ -104,6 +126,7 @@ function due(state: State, name: 'path' | 'pullRequests'): ComposerQueryDue {
 /** Initial hook values are already debounced upstream. Later changes wait180/200ms.
  * Admission is synchronous; callers must run it on every observed owner/document/session change. */
 export function mobileComposerQueryDemand(client: T3Client, input: ComposerQueryInput, now: number): ComposerQueryDemand {
+  input = { ...input, provider: mobileComposerProvider(input.provider) };
   let state = owners.get(client);
   const scope = connection(client, input), permission = JSON.stringify([input.permissionRevision, input.session ?? null]);
   const identity = JSON.stringify([input.owner, input.editorId, input.routeVisit, input.renderEpoch, input.mountId]);
@@ -214,7 +237,7 @@ export async function mobileComposerQueryPrepare(client: T3Client, admission: st
         const result = await request('server.refreshProviders', { instanceId: state.input.provider!.instanceId, cwd: state.input.cwd }); check();
         if (d.pending !== ticket) throw denied();
         const provider = arr(result.providers).find(p => p.instanceId === state.input.provider?.instanceId);
-        if (provider) d.provider = clone(provider) as unknown as ComposerQueryInput['provider'];
+        if (provider) d.provider = mobileComposerProvider(provider);
         d.complete = hasCompleteProviderWorkspaceSnapshot(d.provider, state.input.cwd);
       } catch (error) { if (letGo(error)) throw error; }
       finally { if (d.pending === ticket) { d.pending = 0; d.retryAt = d.complete || abandoned !== undefined ? 0 : clock() + 10_000; d.attemptedWake = d.wake; state.revision++; } }
