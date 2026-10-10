@@ -227,6 +227,11 @@ guide's rules don't make obvious.
   To see the bars, the tab bar and sheets as a person does, drive with `--chrome
   platform` and take `screenshot out.png window`; menus stay the agent's popovers
   there. (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+- **A native route adapter sets bar items, but the bar disappears.** Cause:
+  removing the authored header also removes Exact's header-shaped route. Keep
+  a first-child `header` with exactly one heading; decorate its navigation item
+  through the route hatch. Setting UIKit items alone does not declare a visible
+  bar (`NavigationBarIOS.swift`, `HeaderShape`; T3 Review, 2026-10-10).
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a

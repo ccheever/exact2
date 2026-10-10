@@ -6,6 +6,7 @@ import { mobileThreadHeaderSnapshot, mobileThreadHeaderPrepare, mobileThreadHead
 import { mobileThreadHeaderLaunch } from './thread-header-terminal';
 import { terminalMetadataEvent } from './shared/terminal-drawer-view';
 import { resolveQuickAction, threadNextTerminalId, threadTerminalLabel } from './thread-header-model';
+import { mobileReviewRead } from './review-data';
 function fixture() {
   const client = new T3Client(), calls: Obj[] = [];
   Object.assign(client, { origin: 'https://example.test', environmentId: 'e', projectId: 'p', threadId: 't', generation: 9,
@@ -39,6 +40,58 @@ function fixture() {
     grant(value: string[]) { permissions = value; }, hook(value: typeof hook) { hook = value; } };
 }
 const configuration = (f: ReturnType<typeof fixture>) => obj(JSON.parse(f.snapshot().configuration));
+
+async function reviewFixture() {
+  const f = fixture(); await f.prepare();
+  f.options.review = true; f.options.split = true; f.options.inspectorAvailable = true; f.options.inspectorVisible = true;
+  f.client.projection.checkpoints = [{ runId: 'r3', appRunOrdinal: 3, status: 'ready', files: [] },
+    { runId: 'r2', appRunOrdinal: 2, status: 'missing', files: [] }, { runId: 'r1', appRunOrdinal: 1, status: 'ready', files: [] }];
+  const diff = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n';
+  f.hook(request => request.path === '/api/auth/session' ? { ok: true, generation: 9, value: { authenticated: true, permissions: ['filesystem:read'] } }
+    : request.method === 'review.getDiffPreview' ? { ok: true, generation: 9, value: { cwd: '/shell-tree', sources: [
+      { kind: 'working-tree', title: 'Uncommitted', diff }, { kind: 'branch-range', title: 'Changes', diff }] } }
+    : request.method === 'orchestration.getTurnDiff' ? { ok: true, generation: 9, value: { diff } } : undefined);
+  await mobileReviewRead(f.native, '', false, false, f.client);
+  f.snapshot(); return f;
+}
+test('Review projects source primary choices, latest ready turn, title/counts and inspector eligibility', async () => {
+  const f = await reviewFixture(), config = configuration(f), review = obj(config.review);
+  expect(config).toMatchObject({ title: 'Changes', subtitle: '+1 · -1', canOpenFiles: false, canOpenTerminal: false, terminalItems: [] });
+  expect(review.primary).toMatchObject([{ id: 'review:section:git:branch-range', title: 'Changes', selected: true, disabled: false },
+    { id: 'review:section:git:working-tree', title: 'Uncommitted', selected: false, disabled: false },
+    { id: 'review:section:turn:3', title: 'Latest turn', selected: false, disabled: false }]);
+  expect(review.turns).toMatchObject([{ id: 'review:section:turn:3', title: 'Turn 3' }, { id: 'review:section:turn:1', title: 'Turn 1' }]);
+  expect(review).toMatchObject({ showSections: true, inspectorAvailable: true, inspectorVisible: true });
+  const count = f.calls.length;
+  expect(await f.action('review:section:git:working-tree')).toMatchObject({ navigation: 'review-section', key: 'git:working-tree' });
+  expect(await f.action('review:back')).toMatchObject({ navigation: 'return-chat', location: '/threads/e/t' });
+  expect((await f.action('review:sidebar')).navigation).toBe('sidebar');
+  expect((await f.action('review:inspector')).navigation).toBe('review-inspector');
+  for (const id of ['files', 'sidebar', 'new-task', 'terminal:new', 'review:section:turn:2', 'git:review']) expect((await f.action(id)).navigation).toBe('');
+  expect(f.calls).toHaveLength(count);
+});
+test('Review rejects an old section menu after selection, route or workspace changes', async () => {
+  const f = await reviewFixture(), old = f.event('review:section:turn:1');
+  await mobileReviewRead(f.native, 'git:working-tree', false, false, f.client);
+  expect(configuration(f)).toMatchObject({ title: 'Uncommitted', subtitle: '+1 · -1' });
+  const count = f.calls.length;
+  expect((await f.action('', old)).navigation).toBe('');
+  const current = f.event('review:section:turn:1'); f.options.focused = false; f.snapshot();
+  expect((await f.action('', current)).navigation).toBe('');
+  f.options.focused = true; f.options.routeKey = 'next'; f.snapshot();
+  expect((await f.action('', current)).navigation).toBe('');
+  f.client.shell.threads[0]!.worktreePath = '/different'; f.snapshot();
+  expect((await f.action('', current)).navigation).toBe('');
+  expect(f.calls).toHaveLength(count);
+});
+test('Review hides empty section menus and unavailable inspectors; missing source choices stay disabled', async () => {
+  const f = fixture(); f.options.review = true; f.options.inspectorAvailable = true; f.options.split = false;
+  expect(obj(configuration(f).review)).toMatchObject({ showSections: false, inspectorAvailable: false, turns: [],
+    primary: [{ title: 'Changes', disabled: true }, { title: 'Uncommitted', disabled: true }, { title: 'Latest turn', disabled: true }] });
+  for (const id of ['review:section:', 'review:inspector', 'review:sidebar']) expect((await f.action(id)).navigation).toBe('');
+  const loaded = await reviewFixture(); loaded.options.inspectorAvailable = false;
+  expect((await loaded.action('review:inspector')).navigation).toBe('');
+});
 
 test('header uses actual title/scripts and stable menu version, without opening a terminal during preparation', async () => {
   const f = fixture(); await f.prepare(); const before = f.snapshot(); f.client.revision += 10;
