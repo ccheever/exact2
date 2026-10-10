@@ -3,7 +3,7 @@ name: 20261010-realinput-1010d-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010d-followups
@@ -155,6 +155,16 @@ examples/t3-code` 4360 pass, 1 skip, 0 fail (295 files); strict `tsc`; `contract
 first round, unchanged since); `caps`; `cargo build --all-targets`, `cargo test` (3675 pass), `clippy -D warnings`,
 `fmt --check`, `boot`.
 
+## Delivery
+
+Merged on 2026-10-10 as `3a88f3a9f` (#400, squash) after an independent review (one blocking item: the RD-4 monitor
+returned the event it meant to take, so ExactKit's menu followed the shell's) and its repair round. Round 8 (#402) landed
+on the base after that round's checks; the coordinator merged the base and ran again what it could reach: the Bun suite
+(4,362 pass, 0 fail), caps, the bundle build (exit 0) and the AppKit `contextmenu` (24) and `browser-automation` (26)
+binaries, 0 failures. The record stays open for the real-input rows below. The wider shell menu (unselected text, empty
+areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu](20261010-shell-context-menu.md).
+
 ## Next action
 
-Coordinator: review the draft PR ([#400](https://github.com/ccheever/exact2/pull/400)); the review round's blocking RD-4 fix and its three should-fix items are in. Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 (with the new check that no second menu follows) join the next session.
+Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 (with the check that no second menu follows) join the next
+session. Close this record after it.
