@@ -106,7 +106,7 @@ component BrowserChrome
     addressOver = on
   // The field shows the page URL at rest and the draft while it has the focus; focusing it starts the draft
   // at the URL with all of it selected; Enter goes there; Escape puts the URL back and leaves the field.
-  // While it has the focus, Escape is the field's, not the panel toggle's (SurfacePanel `urlFocused`). The focus
+  // In a sheet the panel toggle's Escape closes the sheet first, as the reference's sheet does (right-panel-escape). The focus
   // is view state: a command sent on focus or blur would let go of the navigation Enter just sent through the
   // same mutation. Text that arrives before the focus does (the agent's `type`) is kept as the draft.
   action focusField(on: bool)
