@@ -1666,6 +1666,9 @@ The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
 `"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
+On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
+for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
+choice among several is refused rather than guessed (another drive's simulator).
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
 `type` also sets a control's value: `type "persona" "bob"` chooses a
