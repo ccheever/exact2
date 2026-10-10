@@ -1,0 +1,40 @@
+realinput-1010g, #407 shell context menu (tasks/20261010-shell-context-menu.md, Real-input batch steps 1-8).
+Bundle target/clients/59162dd9bd2b20489cc6c0e4/com.exact.t3code.macos/macos/T3 Code (Exact).app built at 6bac646cc
+(ri-build-6bac646cc.log exit 0, development), lane copy com.exact.t3code.macos.ri1010g-1 (open -n --env, scratchpad home,
+server 16980), Verification fixture thread. Clipboard empty before; restored empty after. Menus read through AX
+(enabled/disabled) and photographed. "Services" = RF-1, recorded per menu.
+
+1 PASS. Empty timeline: Cut, Copy, Paste disabled, Select All enabled (Services: no). Select All: the timeline text is
+  selected. Right-click on the selection: Copy enabled (Services: YES). Copy, paste (into the composer, not TextEdit):
+  "Ran 2 commands, read 1 file, and performed 8 other actions / 10/6 1:42 AM / Known ..." arrives. No second menu after
+  either (0 menus at +0.8 and +1.6 s).
+2 FAIL. Right-click on the work group's tool icon (the blue square left of "Ran 2 commands...", 3 tries at its centre in
+  two layouts): the shell menu Cut/Copy/Paste disabled, Select All (Services: no). No Copy Image, so the Preview paste was
+  not run. r9: rdown hit=NodeView (no id); AX has no image element there.
+3 PASS. "linked": Open in integrated browser, Open in system browser, Copy Link (Services: no). Copy Link, paste:
+  https://example.test. Open in integrated browser: the Browser opens beside the thread on https://example.test/
+  (DNS error page, as expected for .test).
+4 PASS. "Plese chek the parsr today": Plese, chek, parsr underlined. Right-click "chek" (word selected 6,4): check, chef,
+  chew, chez, cheek, separator, Cut, Copy, Paste, Select All, then AutoFill and Services (Services: YES). Paste was enabled
+  because the clipboard held step 1's text (the record assumes an empty one). "check" replaces the word.
+  Copy "today", right-click the composer with no selection: Cut/Copy disabled, Paste enabled (Services: no); Paste pastes.
+5 PARTIAL. Empty search field (clipboard empty): Cut, Copy, Paste, Select All all disabled, AutoFill (Services: no). PASS.
+  Typed "theme", right-click: the field's text became "Theme" (capitalised as the menu opened), insertion point 5,0 per
+  AX with "Them" highlighted; Cut and Copy enabled, Paste disabled, Select All, AutoFill, Services (Services: YES).
+  Pick Cut (two runs, a plain click and a move-rest-click): the menu closes, the field still reads "Theme", the clipboard
+  stays empty. FAIL for Cut.
+6 PASS. Browser on https://example.com (the page's link is now "Learn more", not "More information..."): link menu Copy
+  Link first, then Cut (disabled), Copy, Paste (disabled), Select All, Services (Services: YES); Copy Link copies
+  https://iana.org/help/example-domains. Right-click a word ("service"): the word is selected, Copy enabled, Copy copies
+  "service" (Services: YES). Empty area: Cut, Copy, Paste disabled, Select All (Services: no). No WebKit items (no Look Up,
+  Translate, Share, Inspect, Reload) in any.
+7 PASS. Fixture page served from an empty folder on 127.0.0.1:16985 (16664 is outside this session's lane range).
+  Empty field, empty clipboard: Cut, Copy, Paste, Select All all disabled (Services: no). With text on the clipboard,
+  Paste enabled and the rest disabled. Select All flicker: none seen; 5 AX reads right after the press all DISABLED and
+  20 frames 74 ms apart show it disabled from the first frame the menu appears. "Field text" field: "Field" selected,
+  Cut, Copy, Select All enabled, Paste disabled (Services: YES). Server stopped.
+8 PASS. Thread row: the app's thread menu only (Pin, Settle, Snooze, Rename, Regenerate title, Mark unread, Filter by
+  Verification fixture, Auto-settle behavior, Copy, Project settings, Archive thread, Delete; Services: no); after Escape
+  nothing else opens (0 menus at +0.5/1/1.5 s).
+RF-1 summary: "Services" appears exactly on the menus that have a text selection (1 selection, 4 misspelling, 5 "theme",
+  6 link and word, 7 text field); never on menus without a selection.
