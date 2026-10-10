@@ -1,0 +1,237 @@
+adopt-main-fixes-r8 — text evidence (2026-10-10)
+Branch feat(example)/t3-code-adopt-main-fixes-r8. Base: feat(example)/t3-code d076c3056 (then 5e3253cfc merged).
+Adopted main: a10050516 (main's tip at the final merge; 25 commits past round 7's bc357d03c).
+Code head for the checks: 922ba1b5b (the record follows).
+
+1. Merge
+   git merge -s ours bc357d03c   -> b027ae773 (records round 7's squash-merged main; its content was already here)
+   git merge origin/main (1f127a788, the 22 commits the record names) -> c595a36b2
+     one conflict, Cargo.toml: main's members (apps/shelf/web, apps/shelf/apple added) + examples/t3-code/macos.
+     Cargo.lock merged clean: git diff origin/main -- Cargo.lock is the t3-code-macos package entry only (14 lines).
+   git diff origin/main -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'   (at 1f127a788): empty
+   360e7132a: the clone's heading change (section 3)
+   git merge origin/main (a10050516: 1a71f1cfb, 2e913b294, a10050516, VideoArm reads the item's timebase) -> 85a1748e0
+   git merge origin/feat(example)/t3-code (5e3253cfc: #399 realinput-1010c-fixes, the right-panel-escape record) -> 922ba1b5b
+   On 922ba1b5b: git merge-base --is-ancestor origin/main HEAD: yes (origin/main = a10050516)
+                 git merge-base --is-ancestor origin/feat(example)/t3-code HEAD: yes
+                 git diff origin/main -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml': empty
+
+2. Main's changes against the clone (step 2 of the record)
+   a. LLP 1012 §1, a tap that names a node presses that node (a09f48a5e, e5d9b46f4, abc1eadff):
+      AgentMac.swift: a plain named click (and `hover`, which is not excluded) goes through Agent.addressedAim
+      (AgentAddressedTap.swift): its own press at the middle, or beside a control its middle holds (`avoided`), or refused.
+      The clone's agent-run Contract tests (section 4) and the drive's taps (section 5): none refused, none `avoided`.
+   b. A heading with no aria-level is level 2: f9dcdb1af (contract-lower writes accessibilityHeadingLevel 2) and
+      cf7196c0d (TextInteraction.swift `headingLevel`: role="heading" alone is AXHeading level 2 on the Mac; before, a
+      text without accessibilityHeadingLevel was AXStaticText). 162 role="heading" sites in the clone, 160 with aria-level:
+        r7-device.contract:181  R7DevSection title  -> reference DeviceToolsPanel.tsx Section: <h3>  => aria-level=3
+        settings-projects.contract:286 "Import from t3.json" -> reference ProjectActionsSettings.tsx MenuGroupLabel,
+          Base UI MenuGroupLabel.js renders role 'presentation'; on the running reference:
+          <div role="presentation" data-slot="menu-label" ...>Import from t3.json</div>   => role="presentation"
+      Tests that read a level (hover-layer.test.ts, dialog-focus.test.ts) read written levels: unchanged.
+   c. LLP 1041 six workers (94dfb2332, 1b31848f5): only a fetch with `exactIndependentHttp` uses the independent owners.
+      grep exactIndependentHttp examples/t3-code: none. The clone makes no HTTP fetch of its own (r5-composer-paging.ts's
+      `fetch` is a parameter); its reads are native-module calls on the ordered lane. The PR panel's one-at-a-time
+      reads keep the 16-ticket bound. Each executor now starts 1 + 6 workers (were 1 + 2); the process bound is 112.
+   d. Canvas host passes (0685da1f0, 1425ab8a7, 27ad05cce, c811edad8, 7e785faf1, 5ee9ce1a0; QUEUE a09efff61, a60419648):
+      CollectionFill.lean (feedback flag bit 3) and Runner::collection_shown are used only by host/linux. The Apple host's
+      report encodes bits 0-2 (host/apple/Sources/ExactKit/Collection.swift:42) and never calls collection_shown, so
+      lead() takes the old formula for every clone list (transcript, diff, PR code, legacy sidebar, connections).
+   e. Docs and rules: git diff bc357d03c origin/main -- rules: empty. AGENTS.md: docs/start-here.md is the one required
+      read (LLP 1115 D7), the long guides are lookup; agent-pitfalls.md adds the tap entry, the simulator choice and the
+      shelf entries. scripts/no-tells.mjs lists literal colours and sizes for apps that leave them to the platform; the
+      clone writes the reference's tokens on purpose (a parity copy of a web app; author > platform): not applied.
+   f. issues: e281d83e9 (#386: X69, X70, X71, backdrop beyond the parent) and 1f127a788 (#394: X72) in main's issues/.
+   g. VideoArm timebase read (1a71f1cfb, 2e913b294, a10050516): merged last; the bundle of 922ba1b5b builds (exit 0);
+      the clone's video previews play through it; not driven (the drive plays no video).
+
+3. The heading guard (examples/t3-code/headings.test.ts)
+   On c595a36b2 (the merged tree before the change; git archive + the new test), exit 1:
+   | bun test v1.4.2 (744846f84)
+   | 
+   | examples/t3-code/headings.test.ts:
+   | 20 |       headings.push(`${name}:${i + 1}`);
+   | 21 |       if (!/\baria-level=/.test(line)) unlevelled.push(`${name}:${i + 1}`);
+   | 22 |     });
+   | 23 |   }
+   | 24 |   expect(headings.length).toBeGreaterThan(150);
+   | 25 |   expect(unlevelled).toEqual([]);
+   |                           ^
+   | error: expect(received).toEqual(expected)
+   | 
+   | - []
+   | + [
+   | +   "r7-device.contract:181",
+   | +   "settings-projects.contract:286",
+   | + ]
+   | 
+   | - Expected  - 1
+   | + Received  + 4
+   | 
+   | (fail) every role="heading" says its aria-level [7.05ms]
+   | 29 |   const line = (file: string, needle: string) => {
+   | 30 |     const found = views().find(v => v.name === file)!.lines.filter(l => l.includes(needle));
+   | 31 |     expect(found).toHaveLength(1);
+   | 32 |     return found[0]!;
+   | 33 |   };
+   | 34 |   expect(line('r7-device.contract', 'text title font-size="0.75rem" font-weight=500')).toContain('role="heading" aria-level=3');
+   |                                                                                             ^
+   | error: expect(received).toContain(expected)
+   | 
+   | Expected to contain: "role=\"heading\" aria-level=3"
+   | Received: "      text title font-size=\"0.75rem\" font-weight=500 line-height=\"1rem\" color=r7devMuted() role=\"heading\""
+   | 
+   | (fail) the device tools section title is an h3 and the import menu label is no heading [4.09ms]
+   | 
+   |  0 pass
+   |  2 fail
+   |  4 expect() calls
+   | Ran 2 tests across 1 file. [15.00ms]
+   | exit 1
+   On 360e7132a:
+   | bun test v1.4.2 (744846f84)
+   | 
+   |  2 pass
+   |  0 fail
+   |  6 expect() calls
+   | Ran 2 tests across 1 file. [41.00ms]
+   | exit 0
+
+4. The clone's agent-run Contract tests on the after build (the bundle of 360e7132a's sources: main 1f127a788's agent)
+   EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh adopt-main-fixes-r8 16580 --test examples/t3-code/<file>
+   sidebar-palette-keys.test.contract:
+     test "SH-1: ⌘N with the focus on a thread row opens the palette on New thread in…": ok
+     test "SH-1: ⇧⌘N with the focus on a thread row opens a draft in its project": ok
+     test "SH-3: in the palette, ⌘5 with two projects is the field's and does nothing; ⌘2 opens a draft in the second": ok
+     test "TH-8: the calendar's arrows move a day only from a day, not from a month button, also after reopening": ok
+     test "SH-2: ⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it back": ok
+     5 passed, 0 failed
+   menu-one-highlight.test.contract:
+     test "Sort: the pointer on Blocked on me, ↓ goes on to Recently updated, and Enter picks it": ok
+     test "Sort: the highlight follows the pointer from row to row; ↓ goes on from the last one": ok
+     test "Sort: the pointer leaving the menu hands the keys back to the popup; ↓ starts at the first row": ok
+     test "Settings scope: the pointer on All projects, ↓ goes on to Verification fixture, and Enter picks it": ok
+     test "Settings scope: the pointer leaving the menu hands the keys back to the popup; ↓ starts at All projects": ok
+     5 passed, 0 failed
+   browser-launcher-chevron.test.contract:
+     test "Enter on the chevron opens its list and not the launcher's lit row; the list's Enter opens that profile's tab only": ok
+     test "↑ on the chevron opens its list without moving the launcher's lit row; Escape closes it": ok
+     test "the list's Incognito row by Enter opens an Incognito tab, badged": ok
+     3 passed, 0 failed
+   13 of 13 pass; no tap was refused, so none moved to its control or to `tap <target> at <x> <y>`.
+
+5. The live drive (agent mode, 1280x840, the same 48 ops on both builds; target/r8/drive.sh)
+   before: evidence-base worktree c03d7e908 (main bc357d03c's host and agent), lane adopt-main-fixes-r8-before
+   after:  the bundle of 360e7132a (main 1f127a788 + the heading change), lane adopt-main-fixes-r8 (one try)
+   Both lanes: a fresh clone T3 home from the seed, provider CLIs pinned to an absent path, a t3.json in the work project.
+   Ops: launch; tree, tree --ax; dismiss the Nightly toast; tap thread-verify-timeline; tap transcript wheel 0 -1600;
+   type composer (a draft, never sent); tap model-picker; tap dismiss-model-picker; tap toggle-right-panel;
+   tap panel-toggle-right; tap connection-settings; tree --ax; logs; settings-scope-project -> work; tap settings-projects;
+   tap import-scripts; tree --ax import-scripts-menu; logs.
+   (The before build's first try stopped at a second `tap toggle-right-panel`: the open panel's toggle is
+   panel-toggle-right; the step was fixed and the before drive rerun. The after drive ran once.)
+   Comparison (cmp.py):
+     ops 48 48
+     tap 5 same {'target': 'toast-dismiss-1', 'tapped': 305, 'at': [1241, 91], 'delivery': 'platform'} | 
+     tap 7 same {'target': 'thread-verify-timeline', 'tapped': 320, 'at': [127.5, 141], 'delivery': 'platform'} | 
+     tap 11 same {'target': 'transcript', 'tapped': 636, 'at': [768, 446], 'delivery': 'platform'} | 
+     tap 15 same {'target': 'composer', 'delivery': 'platform', 'typed': 150, 'value': 'adoption round eight'} | 
+     tap 17 same {'target': 'model-picker', 'tapped': 675, 'at': [351.72, 787], 'delivery': 'platform'} | 
+     tap 21 same {'target': 'dismiss-model-picker', 'tapped': 852, 'at': [640, 420], 'delivery': 'platform'} | 
+     tap 23 same {'target': 'toggle-right-panel', 'tapped': 126, 'at': [1253, 26], 'delivery': 'platform'} | 
+     tap 27 same {'target': 'panel-toggle-right', 'tapped': 915, 'at': [1253, 26], 'delivery': 'platform'} | 
+     tap 29 same {'target': 'connection-settings', 'tapped': 89, 'at': [24, 820], 'delivery': 'platform'} | 
+     tap 35 same {'target': 'settings-scope-project', 'tapped': 1254, 'at': [568.18, 88], 'delivery': 'platform'} | 
+     tap 37 DIFF {'target': 'settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/adopt-main-fixes-r8-before/projects/work', 'tapped': 1283, 'at': [610.46, 184], 'delivery': 'platform'} | {'target': 'settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/adopt-main-fixes-r8/projects/work', 'tapped': 1283, 'at': [610.46, 184], 'delivery': 'platform'}
+     tap 39 same {'target': 'settings-projects', 'tapped': 2485, 'at': [128, 116], 'delivery': 'platform'} | 
+     tap 42 same {'target': 'import-scripts', 'tapped': 2676, 'at': [1015.88, 652], 'delivery': 'platform'} | 
+     tree 3 596 596 only-before 1 only-after 1
+        - ('Pressable', 'menuitemradio', 'hero-project-184ad319-9387-4ba1-b56f-b2c28b8eb211', 'work', None)
+        + ('Pressable', 'menuitemradio', 'hero-project-cf24f55e-59f1-43b0-ba67-92bc65411db4', 'work', None)
+     ax 4 80 80 before [('heading', 'New thread', 2), ('heading', 'Nightly needs the beta mobile app', 2)] after [('heading', 'New thread', 2), ('heading', 'Nightly needs the beta mobile app', 2)]
+     tree 10 658 658 only-before 0 only-after 0
+     tree 20 13 13 only-before 0 only-after 0
+     tree 26 649 649 only-before 0 only-after 0
+     tree 32 1942 1942 only-before 1 only-after 1
+        - ('Pressable', 'menuitemradio', 'settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/adopt-main-fixes-r8-before/projects/work', None, None)
+        + ('Pressable', 'menuitemradio', 'settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/adopt-main-fixes-r8/projects/work', None, None)
+     ax 33 282 282 before [] after []
+     ax 45 3 3 before [('text', 'Import from t3.json', None)] after [('text', 'Import from t3.json', None)]
+     tree 46 14 14 only-before 1 only-after 1
+        - ('Text', 'heading', None, None, None)
+        + ('Text', 'presentation', None, None, None)
+     png 1-shell.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 2-thread.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 3-thread-scrolled.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 4-composer.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 5-right-panel.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 6-settings.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 7-projects.png (2560, 1680) max 0 bbox None pixels>24 0
+     png 8-import-menu.png (2560, 1680) max 0 bbox None pixels>24 0
+   Tap replies: identical node, point and delivery on all 13 tap/type ops; no `avoided`, no refusal (only the lane path
+   in the scope choice's testId differs). Trees: identical apart from lane-specific ids and the import menu label's role
+   (heading -> presentation). AX: the shell's headings New thread (2) and the Nightly toast (2) in both; the import
+   menu's label is text in both (main alone would have made it a level-2 heading). Screenshots: pixel-identical (max 0).
+   Transcript layout after the wheel, both builds: frame 1024x788, content 1024x345.9, scroll 0 (nothing to scroll).
+   Logs: no refusal or error line in either build (the five flagged lines are t3.local status JSON with failure "").
+   Found: Settings > General's AX tree has 282 elements and no heading in either build; the reference's ARIA snapshot
+   has heading "New threads" [level=2] and "Model", "Permissions", "Workspace", "Submodules" [level=3].
+
+6. Checks on 922ba1b5b (main a10050516 and base 5e3253cfc merged)
+   bun test examples/t3-code --timeout 60000: 4360 pass, 1 skip, 0 fail; 4361 tests across 296 files; exit 0
+   strict tsc (README command): exit 0, no output
+   bun scripts/exact.mjs contract build examples/t3-code/app.contract: exit 0
+     examples/t3-code/app.contract: 5980 slots, 13 derives, 48 resources, 7968 actions, 110235 nodes, 44177 regions, 27293662 bytes
+   EXACT_APP_DIR=... cargo test -p t3-code-macos --lib: test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.17s
+   bundle: EXACT_APP_DIR=... bun host/apple/build.mjs t3-code-macos --bundle: exit 0 (on 922ba1b5b; the drive used 360e7132a's)
+   AppKit binaries (README recipe, target/r8/appkit.sh): 37 binaries; 36 exit 0 on the first run, mermaid below:
+     activity exit 0 :: Test Suite 'ActivityTests' passed at 2026-10-10 16:59:42.951. 	 Executed 9 tests, with 0 failures (0 unexpected) in 2.107 (2.108) seconds 
+     app-control exit 0 :: T3 app control: "keeps Unix socket paths short and separates desktop state directories" passed T3 app control: 27 tests, 0 failures 
+     attach exit 0 :: 	 Executed 3 tests, with 1 test skipped and 0 failures (0 unexpected) in 0.010 (0.011) seconds Executed 3 tests, with 0 failures 
+     browser-automation exit 0 :: 	 Executed 25 tests, with 0 failures (0 unexpected) in 22.146 (22.149) seconds Executed 25 tests, with 0 failures 
+     browser-capture exit 0 :: recording frames over 2 s: 30 fps 62, 60 fps 123 Executed 34 tests, with 0 failures 
+     browser-profiles exit 0 :: 	 Executed 16 tests, with 0 failures (0 unexpected) in 6.745 (6.747) seconds Executed 16 tests, with 0 failures 
+     browser exit 0 :: 	 Executed 29 tests, with 0 failures (0 unexpected) in 7.715 (7.719) seconds Executed 29 tests, with 0 failures 
+     codex-auth exit 0 :: 	 Executed 6 tests, with 0 failures (0 unexpected) in 0.626 (0.627) seconds T3 codex auth: 6 tests, 0 failures 
+     composer-files exit 0 :: 	 Executed 4 tests, with 0 failures (0 unexpected) in 0.018 (0.018) seconds Executed 4 tests, with 0 failures 
+     composer exit 0 :: 	 Executed 4 tests, with 0 failures (0 unexpected) in 0.065 (0.066) seconds Composer: 56 tests, 0 failures 
+     contextmenu exit 0 :: 	 Executed 19 tests, with 0 failures (0 unexpected) in 0.620 (0.622) seconds context menu tests: 19 run, 0 failed 
+     fleet exit 0 :: 	 Executed 9 tests, with 0 failures (0 unexpected) in 0.578 (0.580) seconds T3 fleet: 9 tests, 0 failures 
+     intent exit 0 :: 	 Executed 4 tests, with 0 failures (0 unexpected) in 0.076 (0.078) seconds Executed 4 tests, with 0 failures 
+     local-backend exit 0 :: 	 Executed 82 tests, with 0 failures (0 unexpected) in 15.076 (15.083) seconds T3 local backend: 82 tests, 0 failures 
+     media-actions exit 0 :: save: sha256 6835e97b06e730eb equal to the source; second save named "clip one (1).mp4" Executed 7 tests, with 0 failures 
+     menus exit 0 :: 	 Executed 46 tests, with 0 failures (0 unexpected) in 0.366 (0.369) seconds Menus: 46 tests, 0 failures 
+     notifications exit 0 :: 	 Executed 4 tests, with 0 failures (0 unexpected) in 0.160 (0.162) seconds T3Notifications tests: 4 run, 0 failed 
+     r10-connect exit 0 :: 	 Executed 4 tests, with 0 failures (0 unexpected) in 0.700 (0.701) seconds Executed 4 tests, with 0 failures 
+     r10-device exit 0 :: 	 Executed 4 tests, with 1 test skipped and 0 failures (0 unexpected) in 49.441 (49.442) seconds Executed 4 tests, with 0 failures 
+     r11-device exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 34.938 (34.940) seconds Executed 3 tests, with 0 failures 
+     r11-upstream exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 0.099 (0.101) seconds R11 upstream draft menu tests: 3 run, 0 failed 
+     r12-sidebar exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 0.066 (0.067) seconds R12 sidebar menu anchor tests: 3 run, 0 failed 
+     r5-composer exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 0.731 (0.733) seconds R5 composer: 3 tests, 0 failures 
+     r5-panels exit 0 :: 	 Executed 6 tests, with 0 failures (0 unexpected) in 1.508 (1.518) seconds Executed 6 tests, with 0 failures 
+     r6-device exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 2.234 (2.239) seconds Executed 3 tests, with 0 failures 
+     r6-media exit 0 :: 	 Executed 10 tests, with 0 failures (0 unexpected) in 4.360 (4.364) seconds Executed 10 tests, with 0 failures 
+     r7-device exit 0 :: r7 X8 agent drag touches ["down 0.80", "move 0.65", "move 0.50", "move 0.35", "up 0.20"] Executed 14 tests, with 0 failures 
+     r8-keys exit 0 :: 	 Executed 6 tests, with 0 failures (0 unexpected) in 0.669 (0.671) seconds R8 keys tests: 6 run, 0 failed 
+     r8-pointer exit 0 :: 	 Executed 2 tests, with 0 failures (0 unexpected) in 0.108 (0.109) seconds R8Pointer tests: 2 run, 0 failed 
+     r9-device exit 0 :: 	 Executed 13 tests, with 2 tests skipped and 0 failures (0 unexpected) in 15.762 (15.773) seconds Executed 13 tests, with 0 failures 
+     r9-input exit 0 :: 	 Executed 13 tests, with 0 failures (0 unexpected) in 4.353 (4.356) seconds Executed 13 tests, with 0 failures 
+     sidebar exit 0 :: 	 Executed 6 tests, with 0 failures (0 unexpected) in 0.505 (0.507) seconds T3Sidebar tests: 6 run, 0 failed 
+     snapshot exit 0 :: 57 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested) 20 snapshot permission request checks passed (fake grants, no TCC prompt) 
+     ssh exit 0 :: 	 Executed 15 tests, with 1 test skipped and 0 failures (0 unexpected) in 2.917 (2.920) seconds T3 ssh: 15 tests, 1 skipped, 0 failures 
+     terminal exit 0 :: 	 Executed 38 tests, with 1 test skipped and 0 failures (0 unexpected) in 9.064 (9.069) seconds Executed 38 tests, with 0 failures 
+     transport exit 0 :: 	 Executed 3 tests, with 0 failures (0 unexpected) in 0.314 (0.314) seconds T3 transport: 62 tests, 0 failures 
+     mermaid: needs a T3 server's Mermaid build; first run without T3_SERVER failed 9 ('Mermaid failed to load'), as in
+       earlier rounds; rerun against a scratch t3 server (--mode web, port 16583, a scratch base dir; stopped after): PASS
+     timeline-keyboard (ExactKit + target/aarch64-apple-darwin/host-dev/libt3_code_macos.a of the 922ba1b5b bundle): exit 0
+       PASS: Tab and Shift-Tab traverse disclosure/output/next control; focus, blur and scroll keys delivered
+       Base row: 3 invisible or non-reference Tab stop(s) before the output
+       PASS: mounted row: Tab goes disclosure -> output -> next control; hooks and timestamp are not Tab stops
+   git add -A && bun scripts/caps.mjs: exit 0 (All budgets within cap. 6 categories inspected.)
+   The five checks (CLAUDE.md), once:
+     cargo build --all-targets --keep-going: exit 0
+     cargo test --lib --bins --tests --no-fail-fast: exit 0 (3679 passed, 0 failed, 34 ignored, 95 suites)
+     cargo clippy --all-targets --keep-going -- -D warnings: exit 0
+     cargo fmt --all -- --check: exit 0
+     bun scripts/boot.mjs: exit 0
+   app.contract: 1341 lines
