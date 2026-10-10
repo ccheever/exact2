@@ -110,11 +110,55 @@ final class AddressedTapIOSTests: XCTestCase {
         XCTAssertEqual(presses(), [])
     }
 
+    /// What a press there would deliver counts, a text editor's focus too;
+    /// a 2-point strip around a child that covers the rest is found (Astra,
+    /// round 1); a point on an inline run presses the run.
+    func testAnEditorAThinStripAndAnInlineRunAtAPoint() throws {
+        let (session, agent, presses) = rows()
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "handlers": ["press"], "props": ["testId": "note-row"]],
+            ["op": "create", "id": 21, "kind": "textarea", "props": ["id": "note", "value": "hi"], "handlers": ["input"]],
+            ["op": "create", "id": 22, "kind": "view", "handlers": ["press"], "props": ["testId": "ring"]],
+            ["op": "create", "id": 23, "kind": "view", "handlers": ["press"], "props": ["testId": "ring-core"]],
+            ["op": "create", "id": 24, "kind": "view", "handlers": ["press"], "props": ["testId": "para-row"]],
+            ["op": "create", "id": 25, "kind": "text", "style": ["font_size": 16, "line_height": "20px"]],
+            ["op": "paragraph", "id": 25, "runs": [
+                ["id": 26, "parent": 25, "paint": true, "props": ["text": "Read "], "style": [:], "handlers": []],
+                ["id": 27, "parent": 25, "paint": true, "props": ["text": "the guide"], "style": [:], "handlers": ["press"]],
+            ]],
+            ["op": "children", "id": 1, "ids": [2, 4, 6, 8, 20, 22, 24]],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "children", "id": 22, "ids": [23]],
+            ["op": "children", "id": 24, "ids": [25]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 600.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 21, "x": 100.0, "y": 10.0, "w": 200.0, "h": 40.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 680.0, "w": 100.0, "h": 100.0],
+            ["op": "frame", "id": 23, "x": 2.0, "y": 2.0, "w": 96.0, "h": 96.0],
+            ["op": "frame", "id": 24, "x": 120.0, "y": 680.0, "w": 280.0, "h": 40.0],
+            ["op": "frame", "id": 25, "x": 0.0, "y": 0.0, "w": 280.0, "h": 40.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        let note = agent.tap(["id": 20])
+        XCTAssertNil(note["error"], "\(note)")
+        XCTAssertEqual(presses(), [20], "the row beside its editor: \(note)")
+        XCTAssertEqual((note["avoided"] as? [String: Any])?["pressing"] as? Int, 21, "\(note)")
+        XCTAssertNotEqual(p.views[21]?.textArea?.isFirstResponder, true, "the editor did not take the focus")
+        let ring = agent.tap(["id": 22])
+        XCTAssertNil(ring["error"], "a 2-point strip reaches the ring: \(ring)")
+        XCTAssertEqual(presses(), [22])
+        let owner = try XCTUnwrap(p.views[25]), run = try XCTUnwrap(p.inlineText(27))
+        let fragment = try XCTUnwrap(owner.inlineRects(run).first)
+        let point = agent.tap(["id": 24, "at": [Double(fragment.midX), Double(fragment.midY)]])
+        XCTAssertEqual(point["pressed"] as? Int, 27, "a point on the run presses the run: \(point)")
+        XCTAssertEqual(presses(), [27])
+    }
+
     /// A real touch's aim (`--touch platform`) takes the same rule.
     func testTheTouchRunnersAimTakesTheSameRule() throws {
         let (_, agent, _) = rows()
         let plain = agent.aim(["id": 2, "aim": ["press": true]])
-        if (plain["error"] as? String)?.contains("foreground") == true { return } // a test host in the background aims nowhere
+        if (plain["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
         let aim = try XCTUnwrap(plain["aim"] as? [String: Any], "\(plain)")
         let at = try XCTUnwrap(aim["at"] as? [Double])
         XCTAssertFalse(CGRect(x: 100, y: 40, width: 200, height: 80).contains(CGPoint(x: at[0], y: at[1])), "beside the card: \(at)")

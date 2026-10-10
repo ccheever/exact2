@@ -680,6 +680,12 @@ extension Agent {
         // whatever had it (a field, and the keyboard with it) lets go.
         // An SVG element under the finger takes the press (LLP 1055.000 D17).
         let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        // An inline run with its own press under the finger takes it, as
+        // `touchesEnded` presses it (`tap <paragraph> at <x> <y>` on a run).
+        if element == nil, let node = n as? NodeView, !node.disabled, !node.inert, let run = node.inlineActivationTarget(at: node.local(p)),
+           node.activateInline(run.id) {
+            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
+        }
         // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
         if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
            let href = node.inlineLink(at: node.local(p)) {
@@ -723,13 +729,20 @@ extension Agent {
     /// one on the way, which stops it.
     func pressReach(_ v: NodeView, at p: CGPoint, in win: UIWindow) -> PressReach? {
         guard let hit = win.hitTest(p, with: nil), obscured(v, at: p, hit: hit) == nil else { return nil }
+        // A grouped list's cell: every cell is in the list's node, so its row
+        // (LLP 1084) is what a finger there selects, or its switch or detail
+        // button is what it presses (`TouchLog.landing`'s projection).
+        if let projected = GroupedListsLink.part?(hit), let row = projected["row"] as? Int, let list = Agent.enclosing(hit).first {
+            let part = projected["part"] as? String ?? "cell"
+            return .part(list, part == "cell" ? "row #\(row)" : "the \(part) of row #\(row)", UInt32(row))
+        }
         var at: UIView? = hit, node: NodeView?
         while let cur = at {
             if let n = cur as? NodeView { node = n; break }
             // A native button's control stands for its node (LLP 1069.011 D4);
-            // any other enabled control takes the touch itself.
+            // any other enabled control, or a text editor, takes the touch itself.
             if let button = cur as? NativeButtonIOS, let owner = button.owner { node = owner; break }
-            if let control = cur as? UIControl, control.isEnabled, let n = Agent.enclosing(control).first { return .control(n) }
+            if (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true, let n = Agent.enclosing(cur).first { return .control(n) }
             at = cur.superview
         }
         guard let node, !node.inert else { return .nothing }

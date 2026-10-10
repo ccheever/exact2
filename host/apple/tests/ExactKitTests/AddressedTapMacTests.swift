@@ -81,6 +81,18 @@ final class AddressedTapMacTests: XCTestCase {
         XCTAssertEqual(presses(), [], "nothing is pressed by a refusal")
         XCTAssertNil(agent.tap(["id": 8])["error"])
         XCTAssertEqual(presses(), [], "a disabled row's click presses nothing, not the button at its middle")
+        // A 2-point strip around a child that covers the rest is found (Astra, round 1).
+        session?.presenter.apply(wireBatch([
+            ["op": "create", "id": 22, "kind": "view", "handlers": ["press"], "props": ["testId": "ring"]],
+            ["op": "create", "id": 23, "kind": "view", "handlers": ["press"], "props": ["testId": "ring-core"]],
+            ["op": "children", "id": 1, "ids": [2, 4, 6, 8, 22]], ["op": "children", "id": 22, "ids": [23]],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 600.0, "w": 100.0, "h": 100.0],
+            ["op": "frame", "id": 23, "x": 2.0, "y": 2.0, "w": 96.0, "h": 96.0],
+        ]))
+        session?.presenter.viewport.layoutSubtreeIfNeeded()
+        let ring = agent.tap(["id": 22])
+        XCTAssertNil(ring["error"], "\(ring)")
+        XCTAssertEqual(presses(), [22])
     }
 }
 #endif

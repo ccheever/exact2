@@ -28,9 +28,9 @@ final class GroupedListIOSTests: XCTestCase {
         ])
     }
 
-    private func presenter(_ m: @escaping () -> GroupedListModel) -> Presenter {
+    private func presenter(_ m: @escaping () -> GroupedListModel, on given: Presenter? = nil, height: Double = 874) -> Presenter {
         ExactGroupedLists.install()
-        let p = Presenter()
+        let p = given ?? Presenter()
         host(p).model = { $0 == 1 ? m() : nil }
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         p.viewport.frame = window.bounds
@@ -52,7 +52,7 @@ final class GroupedListIOSTests: XCTestCase {
         ops += [["op": "children", "id": 1, "ids": [2, 3]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 3, "ids": [5]],
                 ["op": "children", "id": 4, "ids": [10, 11, 12]], ["op": "children", "id": 5, "ids": [20, 21]],
                 ["op": "children", "id": 12, "ids": [13]], ["op": "roots", "ids": [1]],
-                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": height],
                 ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 61.0]]
         p.apply(wireBatch(ops))
         return p
@@ -219,6 +219,25 @@ final class GroupedListIOSTests: XCTestCase {
         l.collection.setContentOffset(CGPoint(x: 0, y: 1500), animated: false)
         l.collection.layoutIfNeeded()
         XCTAssertEqual(try refusal(10), "its cell is outside the list's port; scroll it into view first")
+    }
+
+    /// A tap that names the list never selects the row its middle holds
+    /// (LLP 1012 §1; Astra, round 1): every cell is in the list's node, so
+    /// the row comes from the cell's projection, and the tap is refused,
+    /// naming it, as a real touch's aim is.
+    func testATapNamingTheListNeverSelectsTheRowAtItsMiddle() throws {
+        ExactGroupedLists.install()
+        let session = ExactApp.shared.makeSession(label: "grouped-addressed")
+        defer { session.destroy() }
+        let p = presenter({ self.model() }, on: session.presenter, height: 200)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        _ = try cell(p, 10)
+        let reply = Agent(session: session).tap(["id": 1])
+        let error = try XCTUnwrap(reply["error"] as? String, "refused: \(reply)")
+        XCTAssertTrue(error.contains("would press row #"), error)
+        XCTAssertTrue([10, 11, 12].contains(reply["pressing"] as? Int ?? 0), "\(reply)")
+        XCTAssertEqual(pressed, [], "no row was pressed")
     }
 
     func testASwitchFollowsItsControlsStateAndTarget() throws {

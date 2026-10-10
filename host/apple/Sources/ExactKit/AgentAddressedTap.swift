@@ -73,20 +73,39 @@ enum PressReach {
 }
 
 extension Agent {
-    /// The points of `box` a finger might land on, nearest `mid` first: the
-    /// middles of a grid of cells of about 12 points (at most 32 a side),
-    /// ties in reading order.
+    /// The points of `box` a finger might land on, nearest `mid` first (ties
+    /// in reading order): the middles of a grid of cells of about 12 points
+    /// (at most 32 a side), then of about 3 points (at most 96 a side) with
+    /// points along its edges 1 point in, every 2 points. A strip of the box
+    /// narrower than the finer grid away from its edges can still be missed.
     static func aimPoints(in box: CGRect, from mid: CGPoint) -> [CGPoint] {
         guard !box.isNull, box.width > 0, box.height > 0 else { return [] }
-        let cols = min(32, max(3, Int((box.width / 12).rounded(.up)))), rows = min(32, max(3, Int((box.height / 12).rounded(.up))))
-        var points: [(CGPoint, CGFloat, Int)] = []
-        for r in 0..<rows {
-            for c in 0..<cols {
-                let p = CGPoint(x: box.minX + (CGFloat(c) + 0.5) * box.width / CGFloat(cols), y: box.minY + (CGFloat(r) + 0.5) * box.height / CGFloat(rows))
-                points.append((p, hypot(p.x - mid.x, p.y - mid.y), r * cols + c))
+        func grid(_ cell: CGFloat, _ most: Int) -> [CGPoint] {
+            let cols = min(most, max(3, Int((box.width / cell).rounded(.up)))), rows = min(most, max(3, Int((box.height / cell).rounded(.up))))
+            return (0..<rows * cols).map { i in
+                CGPoint(x: box.minX + (CGFloat(i % cols) + 0.5) * box.width / CGFloat(cols), y: box.minY + (CGFloat(i / cols) + 0.5) * box.height / CGFloat(rows))
             }
         }
-        return points.sorted { $0.1 != $1.1 ? $0.1 < $1.1 : $0.2 < $1.2 }.map(\.0)
+        // A stable sort by distance keeps reading order among ties.
+        func near(_ points: [CGPoint]) -> [CGPoint] {
+            points.enumerated().sorted {
+                let a = hypot($0.element.x - mid.x, $0.element.y - mid.y), b = hypot($1.element.x - mid.x, $1.element.y - mid.y)
+                return a != b ? a < b : $0.offset < $1.offset
+            }.map(\.element)
+        }
+        var fine = grid(3, 96)
+        if box.width > 2, box.height > 2 {
+            let xs = min(400, Int(box.width / 2)), ys = min(400, Int(box.height / 2))
+            for i in 0...xs {
+                let x = box.minX + 1 + (box.width - 2) * CGFloat(i) / CGFloat(max(xs, 1))
+                fine += [CGPoint(x: x, y: box.minY + 1), CGPoint(x: x, y: box.maxY - 1)]
+            }
+            for i in 0...ys {
+                let y = box.minY + 1 + (box.height - 2) * CGFloat(i) / CGFloat(max(ys, 1))
+                fine += [CGPoint(x: box.minX + 1, y: y), CGPoint(x: box.maxX - 1, y: y)]
+            }
+        }
+        return near(grid(12, 32)) + near(fine)
     }
 
     /// Where a plain tap addressed to `v` lands, or the refusal: its middle
@@ -170,8 +189,9 @@ extension Agent {
             // A native button's control stands for its node (LLP 1069.011 D4);
             // any other enabled control takes the click itself.
             if let button = cur as? NativeButtonMac, let owner = button.owner { node = owner; break }
-            if let control = cur as? NSControl, control.isEnabled {
-                var up = control.superview
+            // A text editor takes the click itself, as an enabled control does.
+            if (cur as? NSTextView)?.isEditable == true || (cur as? NSControl)?.isEnabled == true {
+                var up = cur.superview
                 while let view = up, !(view is NodeView) { up = view.superview }
                 if let n = up as? NodeView { return .control(n) }
             }

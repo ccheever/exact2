@@ -420,10 +420,23 @@ impl<D: DataSource> Presenter<D> {
         let (id, sx, sy) = if continuing {
             self.control_contact?
         } else {
-            let id = q["id"].as_u64()? as u32;
-            let id = self.control_target(id)?;
+            let named = q["id"].as_u64()? as u32;
+            let id = self.control_target(named)?;
             let (x, y, w, h) = self.rect_of(id)?;
-            (id, x + w / 2., y + h / 2.)
+            // `at`: a point in the named node's box, from its top left (LLP 1012 §1).
+            match q["at"].as_array().map(|a| {
+                (
+                    a.first().and_then(|v| v.as_f64()),
+                    a.get(1).and_then(|v| v.as_f64()),
+                )
+            }) {
+                Some((Some(ax), Some(ay))) => {
+                    let (nx, ny, ..) = self.rect_of(named)?;
+                    (id, nx + ax as f32, ny + ay as f32)
+                }
+                Some(_) => return Some(json!({"error":"tap at needs two finite numbers"})),
+                None => (id, x + w / 2., y + h / 2.),
+            }
         };
         let x = q["x"]
             .as_f64()

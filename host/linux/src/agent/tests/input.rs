@@ -572,3 +572,89 @@ fn a_named_tap_presses_what_it_names_never_a_control_inside_it() {
     );
     assert!(reply.contains("outside its"), "{reply}");
 }
+
+/// What `press_at` delivers without a `press` handler is a control too (Astra
+/// and Grok, round 1): a checkbox toggles, a text field takes the focus, an
+/// inline run's `href` is followed. A named row with its own press is pressed
+/// beside them; a box without one refuses; a disabled row presses nothing;
+/// a point presses what is there.
+#[test]
+fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
+    let plan = contract::compile(concat!(
+        "component App\n  state log = \"\"\n  state on = false\n",
+        "  action hit(what: string)\n    log = `${log}${what};`\n",
+        "  action set(value: bool)\n    on = value\n",
+        "  view\n    column width=300\n",
+        "      row testId=\"opt-row\" press=hit(\"row\") padding-left=143 padding-right=144 padding-top=8 padding-bottom=8\n",
+        "        input type=\"checkbox\" checked=on change=set testId=\"opt\"\n",
+        "      row testId=\"opt-box\" padding-left=143 padding-right=144 padding-top=8 padding-bottom=8\n",
+        "        input type=\"checkbox\" checked=on change=set testId=\"opt2\"\n",
+        "      column testId=\"field-row\" press=hit(\"field-row\") padding-left=50 padding-right=50 padding-top=8 padding-bottom=8\n",
+        "        input value=\"\" testId=\"field\" height=24\n",
+        "      column testId=\"link-box\" padding=8\n",
+        "        text testId=\"para\" text-align=\"center\"\n",
+        "          text \"a long guidebook link here\" href=\"https://example.com/\" testId=\"guide\"\n",
+        "      column testId=\"off-row\" press=hit(\"off\") disabled=true padding-left=100 padding-right=100 padding-top=8 padding-bottom=8\n",
+        "        column testId=\"off-like\" press=hit(\"like\") height=24\n",
+        "      text log testId=\"log\" height=20\n",
+    ))
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 400.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let text = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let log = k.find_by_test_id("log")[0];
+        k.node_by_key(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let on = |p: &Presenter<NoData>| p.host().runner().slot("on") == Some(&Value::Bool(true));
+    let tap = |p: &mut Presenter<NoData>, t: &str| {
+        let i = id(p, t);
+        handle(p, &format!(r#"{{"op":"tap","id":{i}}}"#))
+    };
+    // A row with its own press, a checkbox at its middle: the row, the box unticked.
+    let reply = tap(&mut p, "opt-row");
+    assert!(reply.contains("\"avoided\""), "{reply}");
+    assert_eq!((text(&p), on(&p)), ("row;".to_string(), false), "{reply}");
+    // A box without one: refused, the checkbox unticked.
+    let reply = tap(&mut p, "opt-box");
+    assert!(
+        reply.contains(&format!("would press #{} inside it", id(&p, "opt2"))),
+        "{reply}"
+    );
+    assert!(!on(&p), "{reply}");
+    // A text field at the row's middle: the row, beside it.
+    let reply = tap(&mut p, "field-row");
+    assert!(reply.contains("\"avoided\""), "{reply}");
+    assert_eq!(text(&p), "row;field-row;");
+    // An inline run's link at the box's middle: refused, not followed.
+    let reply = tap(&mut p, "link-box");
+    assert!(reply.contains("would press a link in #"), "{reply}");
+    // A disabled row: nothing, not the Like at its middle.
+    let reply = tap(&mut p, "off-row");
+    assert!(!reply.contains("error"), "{reply}");
+    assert_eq!(text(&p), "row;field-row;", "{reply}");
+    // A point: the checkbox there toggles.
+    let row = id(&p, "opt-box");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{row},"at":[149,14]}}"#),
+    );
+    assert!(!reply.contains("error") && on(&p), "{reply}");
+}

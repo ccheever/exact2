@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
-import { namedRefusal } from '../../scripts/agent-aim.mjs';
+import { namedRefusal, pageAim } from '../../scripts/agent-aim.mjs';
 import { tapWords } from '../../scripts/agent-keys.mjs';
 import { serveBuildTree } from './serve.mjs';
 
@@ -31,6 +31,9 @@ const CONTRACT = `component AimFixture
           text "Like"
       column testId="post-1" press=openPost
         column testId="cover-1" press=openCard width=300 height=60 background-color="#dddddd"
+      column testId="post-2" press=openPost padding-left=100 padding-right=100 padding-top=10 padding-bottom=10
+        button testId="like-2" press=liked disabled=true width=100 height=40
+          text "Like"
 `;
 
 test('a refusal names nodes by testId, and `tap <target> at <x> <y>` is a press at a point', () => {
@@ -42,40 +45,65 @@ test('a refusal names nodes by testId, and `tap <target> at <x> <y>` is a press 
   expect(() => tapWords(['post-0', 'at', '10'])).toThrow(/takes a number/);
 });
 
+const built = (() => {
+  let ready;
+  return () => ready ??= (async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'exact-aim-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+    writeFileSync(contract, CONTRACT);
+    const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding: 'utf8' });
+    if (compile.status !== 0) throw new Error(compile.stderr);
+    const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: new URL('../../', import.meta.url).pathname, encoding: 'utf8' });
+    if (build.status !== 0) throw new Error(build.stderr);
+    const server = createServer((request, response) => serveBuildTree(dist, request, response));
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    server.unref();
+    return `http://127.0.0.1:${server.address().port}/`;
+  })();
+})();
+
+const drive = async (session) => {
+  const slots = async () => (await session.state()).slots;
+  const row = await session.tap('post-0');
+  expect(await slots()).toMatchObject({ post: 1, card: 0 });
+  expect(row.avoided?.pressing).toBeGreaterThan(0);
+  await expect(session.tap('wrap-0')).rejects.toThrow('tap wrap-0 would press like-0 inside it');
+  await expect(session.tap('post-1')).rejects.toThrow(/tap post-1 would press cover-1 inside it, at its middle; no point of post-1/);
+  await session.tap('post-2'); // a disabled Like at its middle presses nothing: the row, beside it
+  expect(await slots()).toMatchObject({ post: 2, card: 0, like: 0 });
+  await session.tap('post-0', { at: [150, 60] }); // a point: the card a finger there reaches
+  await session.tap('wrap-0', { at: [150, 40] });
+  await session.tap('card-0');
+  expect(await slots()).toMatchObject({ post: 2, card: 2, like: 1 });
+};
+
 test('a plain web tap presses what it names: beside the card, never Like in a box without a press, refused when covered', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'exact-aim-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
-  writeFileSync(contract, CONTRACT);
-  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding: 'utf8' });
-  expect(compile.status, compile.stderr).toBe(0);
-  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd: new URL('../../', import.meta.url).pathname, encoding: 'utf8' });
-  expect(build.status, build.stderr).toBe(0);
-  const server = createServer((request, response) => serveBuildTree(dist, request, response));
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const url = `http://127.0.0.1:${server.address().port}/`;
-  const drive = async (session) => {
-    const slots = async () => (await session.state()).slots;
-    const row = await session.tap('post-0');
-    expect(await slots()).toMatchObject({ post: 1, card: 0 });
-    expect(row.avoided?.pressing).toBeGreaterThan(0);
-    await expect(session.tap('wrap-0')).rejects.toThrow('tap wrap-0 would press like-0 inside it');
-    await expect(session.tap('post-1')).rejects.toThrow(/tap post-1 would press cover-1 inside it, at its middle; no point of post-1/);
-    expect(await slots()).toMatchObject({ post: 1, card: 0, like: 0 });
-    await session.tap('post-0', { at: [150, 60] }); // a point: the card a finger there reaches
-    await session.tap('wrap-0', { at: [150, 40] });
-    await session.tap('card-0');
-    expect(await slots()).toMatchObject({ post: 1, card: 2, like: 1 });
-  };
-  let session;
+  const session = await open({ host: 'web', url: await built() });
   try {
-    session = await open({ host: 'web', url });
     await drive(session);
-    await session.close(); session = null;
-    const { firefox } = await import('playwright-core');
-    if (!existsSync(firefox.executablePath())) { console.log('skip firefox: bunx playwright@1.63.0 install firefox webkit'); return; }
-    session = await open({ host: 'web', browser: 'firefox', url });
-    await drive(session);
-  } finally {
-    await session?.close?.();
-    server.close();
-  }
+    // In the page: a surface's action button over its canvas is a recipient of its own (gpu-glue.js), and a reachable
+    // perimeter 2 px wide around a child that covers the rest is found (Astra, round 1).
+    const probe = await session.carrier.evaluate(`(() => {
+      const box = (css, attrs = {}) => { const e = document.createElement(attrs.tag ?? 'div'); e.style.cssText = css; for (const [k, v] of Object.entries(attrs)) if (k !== 'tag') e.setAttribute(k, v); return e; };
+      const canvas = box('position:fixed;left:0;top:400px;width:200px;height:100px;z-index:9', { 'data-gpu-input': '' });
+      canvas.append(box('position:absolute;left:50px;top:25px;width:100px;height:50px', { tag: 'button', 'data-action': 'fire' }));
+      const ring = box('position:fixed;left:220px;top:400px;width:100px;height:100px;z-index:9', { 'data-exact-on': 'press' });
+      ring.append(box('position:absolute;left:2px;top:2px;width:96px;height:96px', { 'data-exact-on': 'press' }));
+      document.body.append(canvas, ring);
+      exact.views.set(990001, canvas); exact.views.set(990002, ring);
+      const aim = (${pageAim})({ id: 990001, x: 100, y: 450 }), edge = (${pageAim})({ id: 990002, x: 270, y: 450 });
+      exact.views.delete(990001); exact.views.delete(990002); canvas.remove(); ring.remove();
+      return { aim, edge };
+    })()`);
+    expect(probe.aim?.at).toBeDefined();
+    expect(probe.aim.at[0] < 50 || probe.aim.at[0] >= 150 || probe.aim.at[1] < 425 || probe.aim.at[1] >= 475).toBe(true);
+    expect(probe.edge?.at).toBeDefined();
+    const [ex, ey] = probe.edge.at;
+    expect(ex < 222 || ex >= 318 || ey < 402 || ey >= 498).toBe(true);
+  } finally { await session.close(); }
+}, 900000);
+
+const { firefox } = await import('playwright-core');
+test.skipIf(!existsSync(firefox.executablePath()))('the same on Firefox (Playwright; install it: bunx playwright@1.63.0 install firefox webkit)', async () => {
+  const session = await open({ host: 'web', browser: 'firefox', url: await built() });
+  try { await drive(session); } finally { await session.close(); }
 }, 900000);

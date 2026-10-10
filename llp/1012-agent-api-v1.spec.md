@@ -275,9 +275,11 @@ the Linux host implements this list, not that file):
   reaches its parent the way a DOM click bubbles. **A tap that names a node
   presses that node** (2026-10-09; the Bluesky clone's `tap post-0` liked and
   reposted real people's posts): one with its own press whose middle holds
-  another control is pressed at the point of its box nearest the middle that
-  reaches it (`avoided` in the reply), else refused; one without is refused
-  when its middle holds a control, naming both. `tap <target> at <x> <y>`
+  another control — whatever a press there would deliver: a press, a link run,
+  a form control or field, a grouped list's row, a canvas — is pressed at the
+  nearest point of its box a grid search finds reaching it (`avoided` in the
+  reply), else refused; one without is refused when its middle holds a
+  control, naming both. `tap <target> at <x> <y>`
   (`{"op":"tap","id":V,"at":[x,y]}`) is a press at a point in the target,
   whatever a finger there reaches, on every carrier (Windows and Android
   share the Linux presenter's). With `wheel: [dx, dy]`,

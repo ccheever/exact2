@@ -679,7 +679,8 @@ guide's rules don't make obvious.
   Cause: a simulator build reads `--sim` (or `EXACT_SIM`); `--phone` is the
   device's, so it fell back to a booted iPhone, another drive's
   (2026-10-09). `agent ios` and `smoke.mjs ios` choose the same way. Now a
-  choice among several booted iPhones is refused; fix: always pass
+  choice among several booted iPhones is refused, naming the caller's way to
+  choose; fix: always pass
   `--sim <udid>` to `build.mjs` and set `EXACT_SIM=<udid>` for the agent and
   the smokes.
 
@@ -692,7 +693,9 @@ guide's rules don't make obvious.
   without a `press` refuses rather than press a control inside it
   (`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
   Fix: tap the control by its own `testId`, or `tap <row> at <x> <y>` (a point
-  from its top left) for whatever a finger there reaches. Every host (LLP 1012 §1).
+  from its top left) for whatever a finger there reaches; name a point too when a
+  refusal says no point reaches the row but a thin strip of it does (the search
+  is a grid). Every host (LLP 1012 §1).
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on

@@ -1710,13 +1710,21 @@ of its lines that is; a tap whose point lands on something else fails, an
 ancestor that would take the press itself included.
 A tap that names a node presses that node, never a control inside it: a node
 with its own `press` (or a link) whose middle holds another — a post row's link
-card, its Like — is pressed at the point of its box nearest the middle that
-reaches it (the reply's `avoided` names what the middle holds), or refused when
-none does; a node without one is refused when its middle holds a control
+card, its Like — is pressed at the nearest point of its box the search finds
+that reaches it (the reply's `avoided` names what the middle holds), or refused
+when it finds none; a node without one is refused when its middle holds a control
 (`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
-`tap <target> at <x> <y>` presses at a point from the target's top left,
-whatever a finger there reaches, on every host. An SVG element, an inline run or link, a native control and a
-canvas inside the node count as controls; a disabled node presses nothing.
+The search tries a grid of about 12 points, then about 3 points and the box's
+edges 1 point in, so a reachable strip thinner than that, away from the edges,
+can be missed: then name a point. `tap <target> at <x> <y>` presses at a point
+from the target's top left, whatever a finger there reaches, on every host. What
+a press there would deliver counts as a control: a node with its own press, an
+SVG element, an inline run or link, a form control or text field (it toggles,
+opens or takes the focus), a grouped list's row, a surface's action button and a
+canvas that takes input. A disabled node presses nothing (on the web only a
+disabled form control: `disabled` on a box means nothing there). On iOS without
+`--touch platform` a refused tap has still dismissed, or begun to open, a
+painted popover, as the tap's first step.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,

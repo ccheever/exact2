@@ -161,8 +161,6 @@ extension Agent {
             // A point in the target (`tap <target> at <x> <y>`), from its top left.
             if let point = offset["at"] {
                 guard let pair = point as? [Double], pair.count == 2, pair.allSatisfy(\.isFinite) else { return ["error": "tap #\(v.id): the aim's at must be two finite numbers"] }
-                let whole = box(v)
-                guard pair[0] >= 0, pair[1] >= 0, pair[0] < whole.width, pair[1] < whole.height else { return ["error": "tap #\(v.id) at: (\(pair[0]), \(pair[1])) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
                 at["at"] = pair
             }
         }
@@ -178,7 +176,16 @@ extension Agent {
         case nil: break
         }
         let drawnBox = target === v ? nil : box(target)
-        guard var local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
+        // A point from the top left of what is drawn: UIKit's cell for a row a list draws.
+        if let pair = at["at"] as? [Double] {
+            let whole = drawnBox ?? box(v)
+            guard pair[0] >= 0, pair[1] >= 0, pair[0] < whole.width, pair[1] < whole.height else { return ["error": "tap #\(v.id) at: (\(pair[0]), \(pair[1])) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
+        }
+        let drawnAt = { (b: CGRect) -> CGPoint in
+            if let pair = at["at"] as? [Double] { return CGPoint(x: b.minX + pair[0], y: b.minY + pair[1]) }
+            return CGPoint(x: at["x"] as? Double ?? b.midX, y: at["y"] as? Double ?? b.midY)
+        }
+        guard var local = drawnBox.map(drawnAt) ?? tapPoint(at, node: v) else {
             return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
         }
         let vp = presenter.viewport
