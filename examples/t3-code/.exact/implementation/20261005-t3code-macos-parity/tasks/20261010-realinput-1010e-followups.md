@@ -3,7 +3,7 @@ name: 20261010-realinput-1010e-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010e-followups
@@ -233,8 +233,13 @@ or live drive (the task's one drive and its retry were used).
   (`first=true`: "I’ve quit it", Cancel on Full Disk Access, Done, Close), and `autofocus` applies at each step, where Base
   UI focuses only when the dialog opens; each step needs the reference compared (CDP) before it changes.
 
+## Delivery
+
+Merged on 2026-10-10 as `2c9225c10` (#406, squash) after an independent review and its repair round (four should-fix
+items: the Viewed write routed as the reference routes it, tests for every changed RE-5 path, the record's node number,
+the wizard's opening focus written up). The record stays open for the real-input steps 1–6 below. The wizard's opening
+focus is [import-wizard-initial-focus](20261010-import-wizard-initial-focus.md).
+
 ## Next action
 
-Coordinator: review draft PR [#406](https://github.com/ccheever/exact2/pull/406) (review fixes on it: the Viewed write
-routed, RE-5's tests, RE-4's node); file the wizard initial-focus follow-up above; the real-input batch steps 1-6 close
-RE-1 to RE-6, then #308's step 2.
+Real-input steps 1–6 join the next session. Close this record after it.
