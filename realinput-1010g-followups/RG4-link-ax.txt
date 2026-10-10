@@ -1,0 +1,130 @@
+realinput-1010g-followups RG-4: a reply's paragraph link in the accessibility tree (the Verification fixture's
+"linked $verify", https://example.test)
+
+== Reference (T3 Code 1e2ecbd975, Electron; CDP Accessibility.getFullAXTree, ref-ax.mjs): the link's paragraph
+paragraph ""
+  StaticText "Known $verify skill. Price $5 stays plain; code "
+  code ""
+    StaticText "$verify"
+  StaticText " stays plain; "
+  link "li n k e d $ v e r i f y" url=https://example.test/
+    StaticText "l"
+    StaticText "i"
+    StaticText "n"
+    StaticText "k"
+    StaticText "e"
+    StaticText "d"
+    StaticText " "
+    StaticText "$"
+    StaticText "v"
+    StaticText "e"
+    StaticText "r"
+    StaticText "i"
+    StaticText "f"
+    StaticText "y"
+  StaticText " stays a link."
+every link:
+  link "Go to threads" url=t3code://app/#/
+  link "li n k e d $ v e r i f y" url=https://example.test/
+  link "parser"
+  link "fixture.txt" url=t3code://app/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt
+  link "fixture.txt:3"
+One link with its URL (its name is Chrome's join of the per-character spans breakableExternalLinkText draws).
+
+== Clone, macOS, in-process (agent.mjs macos tree --ax), the paragraph's children
+-- before (evidence worktree c03d7e908)
+    AXStaticText "Known " 
+    AXStaticText "$verify " 
+    AXStaticText "skill. " 
+    AXStaticText "Price " 
+    AXStaticText "$5 " 
+    AXStaticText "stays " 
+    AXStaticText "plain; " 
+    AXStaticText "code " 
+    AXStaticText "$verify" 
+    AXStaticText " " 
+    AXStaticText "stays " 
+    AXStaticText "plain; " 
+    AXStaticText "linked " 
+    AXStaticText "$verify" 
+    AXStaticText " " 
+    AXStaticText "stays " 
+    AXStaticText "a " 
+    AXStaticText "link." 
+-- after (final drive)
+    AXStaticText "Known " 
+    AXStaticText "$verify " 
+    AXStaticText "skill. " 
+    AXStaticText "Price " 
+    AXStaticText "$5 " 
+    AXStaticText "stays " 
+    AXStaticText "plain; " 
+    AXStaticText "code " 
+    AXStaticText "$verify" 
+    AXStaticText " " 
+    AXStaticText "stays " 
+    AXStaticText "plain; " 
+    AXLink "linked $verify" interactive
+    AXStaticText " " 
+    AXStaticText "stays " 
+    AXStaticText "a " 
+    AXStaticText "link." 
+Before, the link's two words are AXStaticText (a text node with its own href is not a link on either host, X78's
+record). After, the link's first word is a Contract link node named with the whole link (ChatRun.label, markdown_links.rs
+link_labels), its globe inside it as the reference's favicon; the rest of the link is hidden from assistive tech. Its
+URL out of process is X78's host part (a link node has no AXURL there).
+
+== The same construct on the web host (Exact JS target in Chrome, a one-file app)
+   RG-4 on the web host (Exact JS target in Chrome, agent.mjs web tree --ax), a one-file Contract app:
+   // realinput-1010g RG-4: FlowRuns' web link words, before (each word a `text` with `href` and `press`) and after (the
+   // link's first word is a `link` named with the whole link, its globe inside; the other words hidden from assistive tech).
+   component Rg4app
+     state opened = ""
+     action open(href: string)
+       opened = href
+     view
+       main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" gap=16
+         text "before" role="heading" aria-level=2
+         row testId="before" flex-wrap="wrap" align-items="flex-start"
+           text "See " white-space="pre" flex-shrink=0
+           row flex-shrink=0 align-items="flex-start"
+             box width="0.875rem" height="1rem" flex-shrink=0 background-color="#1447e6"
+             text "the " href="https://example.com/docs" press=open("https://example.com/docs") white-space="pre" flex-shrink=0 color="#1447e6"
+           text "docs" href="https://example.com/docs" press=open("https://example.com/docs") white-space="pre" flex-shrink=0 color="#1447e6"
+           text " today." white-space="pre" flex-shrink=0
+         text "after" role="heading" aria-level=2
+         row testId="after" flex-wrap="wrap" align-items="flex-start"
+           text "See " white-space="pre" flex-shrink=0
+           link href="https://example.com/docs" press=open("https://example.com/docs") aria-label="the docs" testId="after-link" cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
+             box width="0.875rem" height="1rem" flex-shrink=0 background-color="#1447e6"
+             text "the " white-space="pre" flex-shrink=0 color="#1447e6"
+           text "docs" href="https://example.com/docs" press=open("https://example.com/docs") aria-hidden=true white-space="pre" flex-shrink=0 color="#1447e6"
+           text " today." white-space="pre" flex-shrink=0
+         text opened testId="opened"
+   
+   tree --ax: source chrome-cdp, Chrome 155.0.0.0
+   generic "" <div>
+     main "" <main>
+       heading "before" <h2>
+         StaticText "before" <#text>
+       generic "" <div>
+         StaticText "See " <#text>
+       generic "" <div>
+         StaticText "the " <#text>
+       generic "" <div>
+         StaticText "docs" <#text>
+       generic "" <div>
+         StaticText " today." <#text>
+       heading "after" <h2>
+         StaticText "after" <#text>
+       generic "" <div>
+         StaticText "See " <#text>
+       link "the docs" interactive <a>
+         generic "" <div>
+           StaticText "the " <#text>
+       generic "" <div>
+         StaticText " today." <#text>
+
+== From another process (AXUIElement, the API VoiceOver uses): not read. On the locked Mac every app answers AXWindows
+with its application element (the reference's Electron too: 'AXWindows: [AXApplication "T3 Code (Alpha)"]'), so the
+window cannot be walked; it is real-input step RG-4 (axwalk.swift).
