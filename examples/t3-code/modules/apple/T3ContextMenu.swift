@@ -88,7 +88,12 @@ final class T3ContextMenu: NSObject {
     /// pending. It answers dismissed, as Escape would, as T3Sidebar's menu does; menus the
     /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
     static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
-        if agent { return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]]) }
+        if agent {
+            // The items go to the log (shell-context-menu: a drive reads which menu answered a right-click).
+            let labels = (request["items"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }
+            FileHandle.standardError.write(Data("t3.contextmenu: \(labels.joined(separator: " | "))\n".utf8))
+            return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]])
+        }
         T3MenuTurn.run {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.

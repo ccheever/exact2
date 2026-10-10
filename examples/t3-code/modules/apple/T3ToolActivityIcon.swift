@@ -31,7 +31,7 @@ final class T3ToolActivityIcon {
         entries.removeAll()
     }
 
-    private final class IconView: NSView {
+    private final class IconView: NSView, T3ShellImageView {
         private static let cache = NSCache<NSString, NSImage>()
         private var light = "", dark = "", source = ""
         private var muted = false
@@ -40,6 +40,8 @@ final class T3ToolActivityIcon {
         var changed: (() -> Void)?
         private var reported = false
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        /// The shell's Copy Image over the icon (shell-context-menu, T3TextContextMenu.swift): the loaded image's bitmap.
+        var shellImage: CGImage? { image?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
         override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true; resolve() }
         func update(light: String, dark: String, muted: Bool) {
             if muted != self.muted { self.muted = muted; needsDisplay = true }
