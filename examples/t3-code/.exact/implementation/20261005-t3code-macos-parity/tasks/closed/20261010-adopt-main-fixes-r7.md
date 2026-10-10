@@ -1,14 +1,14 @@
 ---
 name: 20261010-adopt-main-fixes-r7
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+implementation: done
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r7'
 pr_url: https://github.com/ccheever/exact2/pull/384
-verified_commit: null
+verified_commit: afe62dfeb0b09a86bfa124dcf8641c952334ddde
 ---
 
 # Main adoption, round 7: merge current main into the T3 branch and adopt its fixes
@@ -248,3 +248,7 @@ Normal launch of this branch's bundle (lane copy), real keyboard and pointer:
 
 Review round 1 is fixed (above). The coordinator reviews the draft PR [#384](https://github.com/ccheever/exact2/pull/384), syncs `STATUS.md`, `plan.md` and `issues/README.md` from the lists above,
 merges it, and runs the real-input steps in the next batch. Round 8 starts with `git merge -s ours bc357d03c`.
+
+## Delivery
+
+Merged on 2026-10-10 as `afe62dfeb` (#384, squash) after an independent review and its repair round; it adopted main `bc357d03c`. The real-input steps ran in `realinput-1010d`: steps 1–3 passed (no AppKit help tag beside the clone's tips; the Edit and Help menus; ContextMenu and Shift+F10 on thread and draft rows). Step 4 found a difference: a right-click on selected timeline text shows AppKit's Look Up, Copy, Speech and Services, where the reference shows Cut (disabled), Copy, Paste (disabled) and Select All. It moved to [realinput-1010d-followups](../20261010-realinput-1010d-followups.md) as RD-4 ([D2](https://raw.githubusercontent.com/ccheever/exact2/a308565c52b88f44620c19ab3079e5888278fca4/realinput-1010d/D2-384-help-tags-menus-context.png)). Round 8 starts with `git merge -s ours bc357d03c`.

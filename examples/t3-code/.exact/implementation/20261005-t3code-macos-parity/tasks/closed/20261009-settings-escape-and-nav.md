@@ -23,7 +23,7 @@ verified_commit: 8f8e41c434862ea4f887f249e3791c940592e4c4
 - While the keybinding recorder records, a bound chord (⌘K) is recorded with its conflict warning, not run.
 - The Settings sidebar has the "Resize Sidebar" rail.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 S1-1, S1-2 and S2-1 have one root cause (Settings' Back keeps its Escape shortcut while something inside owns Escape). The

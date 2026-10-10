@@ -108,7 +108,7 @@ not committed):
 
 - a fake Codex: `bin/codex` runs the reference's own mock app-server peer
   (`apps/server/src/provider/testFixtures/codexCollabMockPeer.mjs`, copied) with a scripted reply,
-  "Here is the screenshot [screen.png](…/shots/screen.png) and the entry point [index.ts](…/src/index.ts)."
+  `Here is the screenshot [screen.png](…/shots/screen.png) and the entry point [index.ts](…/src/index.ts).`
   One `message.dispatch` from the lane RPC script produced it; no provider account was used.
 - a fake GitHub CLI: `bin/gh` answers `auth token`, `api user` and the GraphQL search and detail reads for
   `t3-fixture/menu-demo` #7 from canned JSON and logs every call; the fixture repository's `origin` is that

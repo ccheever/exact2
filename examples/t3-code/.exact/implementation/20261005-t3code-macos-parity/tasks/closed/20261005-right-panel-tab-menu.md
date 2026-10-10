@@ -270,7 +270,7 @@ acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.lo
 
 **Result: failed.** 20 Bun and11 AppKit checks pass. Native file opening/context menu and late correct relative clipboard value observed. Both menu attempts leave the action unanswered beyond20s; first request is later cancelled by another action. Cause not established. Mounted device rename/bulk/relaunch remain unverified.
 
-See [live attempt](../../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
+See live attempt, capture report, and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
 
 ## Authorized repair pass, 2026-10-06
 
@@ -279,8 +279,8 @@ User explicitly requested repair and continuation through verification. Prior fa
 
 ## Bounded mounted acceptance, 2026-10-06
 
-The [menu run-loop reproduction](../../evidence/tab-menu/20261006-menu-run-loop-repair/) explains the previous timeout: normal menu selection/Escape complete promptly, while nested `clock settle` delays completion until its bound. No production menu change was justified.
+The menu run-loop reproduction explains the previous timeout: normal menu selection/Escape complete promptly, while nested `clock settle` delays completion until its bound. No production menu change was justified.
 
-The [mounted acceptance record](../../evidence/tab-menu/20261006-mounted-acceptance/acceptance.md) proves five real Contract tabs, distinct host/device identities, visible native device-menu order, and inactive/active close-button neighbor selection. Native editor, bulk actions, middle click, keyboard menu and renamed relaunch acceptance remain unproved after the bounded input routes. A corrected normal-activation host then stalled before connection in `T3Credentials.save` → `SecItemAdd`; read-only process sampling establishes that prerequisite. Input evidence does not establish a new tab defect. The isolated normal host was closed afterwards. No task or framework issue is closed by these partial results.
+The mounted acceptance record proves five real Contract tabs, distinct host/device identities, visible native device-menu order, and inactive/active close-button neighbor selection. Native editor, bulk actions, middle click, keyboard menu and renamed relaunch acceptance remain unproved after the bounded input routes. A corrected normal-activation host then stalled before connection in `T3Credentials.save` → `SecItemAdd`; read-only process sampling establishes that prerequisite. Input evidence does not establish a new tab defect. The isolated normal host was closed afterwards. No task or framework issue is closed by these partial results.
 
 Addendum 2026-10-07 ([20261007-adopt-main-fixes-r3](20261007-adopt-main-fixes-r3.md)): the middle-click row is now an agent row (`tap panel-tab-<id> auxclick`, exact2 #186). Its first drive closed the wrong tab (the monitor's `visibleRect` hit test matched every tab); fixed there, and the tab under the pointer closes.

@@ -21,7 +21,7 @@ verified_commit: 256c189d8ef90e768e2f78ba6f15679cd01f4ba7
   favicon that open, tables with "Collapse table cells" and "Copy table", code blocks with the language icon, "Disable
   line wrap" and "Copy code", and task-list checkboxes that toggle and save the file (PA-3).
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -52,7 +52,7 @@ Reference (`target/t3-ref/src-1e2ecbd975`):
 
 Clone (`examples/t3-code`):
 - TH-9: the A4 rule lives in the app's Rust parser (`macos/src/markdown.rs`, from
-  [upstream-timeline-and-markdown](closed/20261005-upstream-timeline-and-markdown.md) A4, line 38 and the acceptance row
+  [upstream-timeline-and-markdown](20261005-upstream-timeline-and-markdown.md) A4, line 38 and the acceptance row
   at line 106), the chip list in `r4-timeline-chips.ts`, the view in `markdown.contract`.
 - PA-3: `r4-surfaces-render.ts:15-90` (`markdownDocument`, `inlineRuns`: table rows as blocks, "☐ " glyphs),
   `r4-surfaces-files.contract:246-249`. Reuse the chat renderer (`markdown.contract` and its data) instead of a second
@@ -97,7 +97,7 @@ that in the PR.
   chip list and an image's source, so every chip the parser draws has its ChipView. A side effect that also follows the
   reference: `tel:`, `javascript:`, `data:` and `ftp://` destinations are targetless link text, `xmpp:` is a link, not a
   chip, and a Windows drive path is a chip with its ChipView.
-- Regression note: the closed A4 row ([upstream-timeline-and-markdown](closed/20261005-upstream-timeline-and-markdown.md)
+- Regression note: the closed A4 row ([upstream-timeline-and-markdown](20261005-upstream-timeline-and-markdown.md)
   A4, line 38 and the acceptance row at line 106) expected "prose + chip; chip only; chip only" for
   `[parser](fixture.txt:3) [fixture.txt](fixture.txt) [fixture.txt:3](fixture.txt:3)`. Per the decision above, the
   clone now renders "parser" and "fixture.txt:3" as targetless link text. A destination with a slash before the colon
@@ -176,7 +176,7 @@ Checks: see the PR ("Checks").
 
 - On the review drive's lane (macOS Dark, the app Light), "Expand diagram" shows the diagram on a dark card where the
   reference shows a white one. The dialog is the transcript's shared `DiagramPreviewDialog` (`timeline-mermaid.contract`,
-  `app-overlays.contract`), unchanged here; [app-color-scheme](closed/20261009-app-color-scheme.md) TH-7 owns its card
+  `app-overlays.contract`), unchanged here; [app-color-scheme](20261009-app-color-scheme.md) TH-7 owns its card
   colour. Not re-checked on the transcript (one live drive per task).
 - A sent attachment's Markdown preview (`r5-panels-attach.ts`) still uses `r4-surfaces-render.ts`; the reference's
   AttachmentFilePreview is ChatMarkdown with no `cwd` (relative links stay plain links, not chips). Not in the

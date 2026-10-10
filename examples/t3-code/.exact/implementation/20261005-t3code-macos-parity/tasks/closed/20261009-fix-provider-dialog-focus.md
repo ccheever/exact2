@@ -42,7 +42,7 @@ in the wizard only). Excluded: framework code (below); Settings' own account row
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261008-fix-provider-auth-state](closed/20261008-fix-provider-auth-state.md) | #312 | Merged | merged |
+| merged task PR | [20261008-fix-provider-auth-state](20261008-fix-provider-auth-state.md) | #312 | Merged | merged |
 | merged task PR | real-input batch `realinput-1009` | #345 | Merged (the finding) | `d564a5c02` |
 
 ## Cause and fix
