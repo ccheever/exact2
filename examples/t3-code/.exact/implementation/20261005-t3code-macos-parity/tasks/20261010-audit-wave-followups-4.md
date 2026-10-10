@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-audit-wave-followups-4
-pr_url: PR_URL
+pr_url: https://github.com/ccheever/exact2/pull/383
 verified_commit: null
 ---
 
@@ -135,5 +135,5 @@ T3_LOCAL_PORT=16502`), app launched normally and active, window 1280×840:
 
 ## Next action
 
-The coordinator reviews the draft PR PR_URL, answers its "Decision needed", runs the real-input steps in the next batch,
+The coordinator reviews the draft PR [#383](https://github.com/ccheever/exact2/pull/383), answers its "Decision needed", runs the real-input steps in the next batch,
 and merges it.
