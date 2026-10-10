@@ -10,7 +10,7 @@ reproduced_on: null
 
 # X44: Remote `image` loading policy (credentials, referrer, redirects, size cap, cache, load state) and remote SVG
 
-**Status (reclassified 2026-10-08):** Bucket 2: the rest (a remote SVG `image` on Apple) is in open PR #239 (kmagiera); #121 is closed. T3 waits; the ACP SVG icons stay declared.
+**Status:** tracked by main PR [#239](https://github.com/ccheever/exact2/pull/239) (open, 2026-10-10). The rest of #121 (closed), a remote SVG `image` on Apple, has no main `issues/` file; the ACP registry SVG icons stay a declared difference.
 
 ## Summary
 
@@ -60,11 +60,6 @@ To confirm on the pinned `main` at `issue-open`. A one-node app `image "https://
 ## App adoption after resolution
 
 In `20261005-provider-settings-upkeep`: draw `registryIconUrl` (or the agent-id URL) at every instance-icon site through a shared component with the fallback glyph; apply the allow-list function when drawing as well as when saving; port the six tests above to logic tests. Remove workaround A if built. `issue-close` verifies: the policy cases against a local server, icons in list, picker and wizard, and the offline relaunch.
-
-## Status and next action
-
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
 
 ## Rest checked upstream (2026-10-08)
 

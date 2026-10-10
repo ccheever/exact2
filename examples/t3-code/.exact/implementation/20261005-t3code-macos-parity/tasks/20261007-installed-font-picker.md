@@ -21,7 +21,7 @@ Terminal reject a proportional family with the reference's error and keep the cu
 
 This is a discovery record from the 2026-10-07 desktop comparison. No fix is included.
 `verification: unverified` describes the future implementation, not the observed discrepancy.
-Complete application of a runtime-selected family is blocked by [X48](../issues/20261007-x48-runtime-font-family.md).
+Complete application of a runtime-selected family is blocked by [X48](../issues/closed/20261007-x48-runtime-font-family.md).
 
 ## Observed behavior and reproduction
 
@@ -75,7 +75,7 @@ font-size ranges, root `rem` scaling, text smoothing or bundled font licensing.
 
 ## Dependencies and deduplication
 
-- [X48](../issues/20261007-x48-runtime-font-family.md) blocks complete runtime selection through Contract.
+- [X48](../issues/closed/20261007-x48-runtime-font-family.md) blocks complete runtime selection through Contract.
 - `closed/20261005-interface-font-size.md` and `closed/20261005-interface-font-size-conversion.md`
   concern sizes and `rem`; they do not implement installed-family discovery or validation.
 - `research.md` calls the Monospace font row already done. The presence of the row does not

@@ -79,9 +79,9 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers in data sources (live-refresh interval, activity debounce) | macOS | nonblocking (workaround: time passed as an argument through the existing `wallTime` resource, as `pages-prs.ts`/`r6-pr-actions.ts` do) | Keep; no new timer API |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Sending on a stream | Swift `T3Transport` already owns streams | nonblocking (workaround: `restAccess(native).call({op:'subscribe',…})`, `shell-vcs.ts:97`) | Reuse |
-| [X30](../../issues/20261005-x30-ts-announce-readback-picker.md) | A stream event waking a TS read | Clone wakes reads by bumping `client.revision` (`client.ts:143`) | nonblocking (same workaround) | Reuse |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | Timers in data sources (live-refresh interval, activity debounce) | macOS | nonblocking (workaround: time passed as an argument through the existing `wallTime` resource, as `pages-prs.ts`/`r6-pr-actions.ts` do) | Keep; no new timer API |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Sending on a stream | Swift `T3Transport` already owns streams | nonblocking (workaround: `restAccess(native).call({op:'subscribe',…})`, `shell-vcs.ts:97`) | Reuse |
+| [X30](../../issues/closed/20261005-x30-ts-announce-readback-picker.md) | A stream event waking a TS read | Clone wakes reads by bumping `client.revision` (`client.ts:143`) | nonblocking (same workaround) | Reuse |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components; `app.contract` is 1,327 lines | cap 1,500 | nonblocking until the cap | No new root resource: extend `prDetail` (`app.contract:100`); new views in new files |
 | [X32](../../issues/closed/20261005-x32-sticky-positioning-in-lists.md) | Sticky Summary section headings inside a scroll (`sticky top-0`, `PullRequestSummaryTab.tsx:331`) | Not established in the library; check `bun exact.mjs contract vocab --json position` at `prepare` | unknown | If unsupported, that one row (headings stay at the top while a section scrolls) is held for a user decision; no matching workaround |
 

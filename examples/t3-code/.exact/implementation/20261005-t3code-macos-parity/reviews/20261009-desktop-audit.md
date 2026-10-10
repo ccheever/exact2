@@ -104,7 +104,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | SH-4 | No-projects header shows Filter and Add project | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) |
 | SH-5 | Palette row path is clipped at its start | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) (root cause X57, #291; clone `text-align="left"`) |
 | SH-6 | No "Check for updates" in the sidebar footer | blocked: [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md) |
-| SH-7 | Blue focus ring on the palette field | existing: [X61](../issues/20261008-x61-field-focus-ring-opt-out.md) (#302, waits for main fix) |
+| SH-7 | Blue focus ring on the palette field | existing: [X61](../issues/closed/20261008-x61-field-focus-ring-opt-out.md) (#302, waits for main fix) |
 | SH-8 | View › Toggle Developer Tools is absent | existing: [X2](../issues/closed/20261005-x02-app-developer-tools.md) (permanent declared difference; `rules/DEFERRED.md:722`) |
 | TH-1 | Fork shows on a message with no run and only errors | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-2 | Notification source kinds are not decoded | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
@@ -127,7 +127,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | CO-9 | Placeholder stays "Ask for changes…" with no provider | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | CO-10 | Thread with a failing provider loses its picker | [composer-provider-state-and-details](../tasks/closed/20261009-composer-provider-state-and-details.md) |
 | CO-11 | Picker name and Plan pressed state differ | [model-picker-parity](../tasks/closed/20261009-model-picker-parity.md) |
-| CO-12 | Focus ring on the composer and search fields | existing: [X61](../issues/20261008-x61-field-focus-ring-opt-out.md) (#302) |
+| CO-12 | Focus ring on the composer and search fields | existing: [X61](../issues/closed/20261008-x61-field-focus-ring-opt-out.md) (#302) |
 | PA-1 | Device disabled on a draft | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-2 | Launcher has no arrow keys or Enter | [right-panel-launcher-and-files](../tasks/closed/20261009-right-panel-launcher-and-files.md) |
 | PA-3 | Files rendered Markdown uses a reduced renderer | [markdown-links-and-files-preview](../tasks/closed/20261009-markdown-links-and-files-preview.md) |
@@ -148,14 +148,14 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | S1-4 | Recording a bound chord runs its command | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
 | S1-5 | Duplicate and Edit open the editor in simple mode | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
 | S1-6 | Open VSX results show the login, not the namespace | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
-| S1-7 | No colour usage highlight or "N uses" | blocked: [blocked-theme-usage-highlight](../tasks/20261009-blocked-theme-usage-highlight.md); new issue [X69](../issues/20261009-x69-paint-role-node-query.md) |
+| S1-7 | No colour usage highlight or "N uses" | blocked: [blocked-theme-usage-highlight](../tasks/20261009-blocked-theme-usage-highlight.md); new issue [X69](../issues/closed/20261009-x69-paint-role-node-query.md) |
 | S1-8 | Restore defaults button reads "Restore defaults" | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S1-9 | Background activity popover shows "Balanced" | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
-| S1-10 | Colour picker covers the editor header | existing: [X17](../issues/20261005-x17-popover-position-try.md) (#112; no per-site flip arithmetic) |
+| S1-10 | Colour picker covers the editor header | existing: [X17](../issues/closed/20261005-x17-popover-position-try.md) (#112; no per-site flip arithmetic) |
 | S1-11 | Font pickers offer a fixed catalog | existing: [installed-font-picker](../tasks/20261007-installed-font-picker.md) (X48, #318) |
 | S1-12 | Skill chip opens no details popover | [settings-appearance-and-skill-chip](../tasks/closed/20261009-settings-appearance-and-skill-chip.md) |
 | S1-13 | Update track disabled; no nav "Check for updates" | blocked: [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md) |
-| S1-14 | Days of inactivity is a text field | existing: [X60](../issues/20261008-x60-number-field-semantics.md) (#301) |
+| S1-14 | Days of inactivity is a text field | existing: [X60](../issues/closed/20261008-x60-number-field-semantics.md) (#301) |
 | S1-15 | Theme editor has no Inspect | existing: [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) line 137 (U18, waits for X68, #321) |
 | S1-16 | No hover tooltip on Background policy details | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-1 | Escape in a Settings dialog also leaves Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |
@@ -166,7 +166,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | S2-6 | Base branch says "From origin/main" for an unknown ref | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-7 | Git details row title and missing info button | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-8 | Invalid host error text | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
-| S2-9 | Icon submenu opens below, rows centred | existing: [X17](../issues/20261005-x17-popover-position-try.md) for the placement (Charlie, line 13); the row alignment is in [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
+| S2-9 | Icon submenu opens below, rows centred | existing: [X17](../issues/closed/20261005-x17-popover-position-try.md) for the placement (Charlie, line 13); the row alignment is in [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-10 | Accessible names and roles differ | [settings-rows-and-labels](../tasks/closed/20261009-settings-rows-and-labels.md) |
 | S2-11 | Diagnostics switches the scope to one environment | [settings-diagnostics-and-scope](../tasks/closed/20261009-settings-diagnostics-and-scope.md) |
 | PG-1 | Usage colours follow macOS, not the app | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |

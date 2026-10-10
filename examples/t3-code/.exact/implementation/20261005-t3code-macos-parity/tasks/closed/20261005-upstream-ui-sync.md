@@ -71,7 +71,7 @@ Checked sources and time: local issue drafts in [issues](../../issues/README.md)
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X17](../../issues/20261005-x17-popover-position-try.md) | Popover side areas and flips | A16 reads the popover's placement near the window edge at 840 pt | nonblocking | Record the oracle pair; no change expected |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md) | Popover side areas and flips | A16 reads the popover's placement near the window edge at 840 pt | nonblocking | Record the oracle pair; no change expected |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Line caps | `settings-source-control.contract` and `r4-surfaces.contract` grow with the new Integrations row | nonblocking until the cap | Put the row in a new `.contract` file |
 | none found | A5, A12, A13, A11 | — | none | — |
 

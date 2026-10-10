@@ -37,7 +37,7 @@ Included, if the decision is to build (reference behavior at `1e2ecbd975`; the e
 7. **Account pages.** "T3 Connect": "Environments registered to your account. Connections on this device are managed in Settings." with Deregister ("Deregistering…"), toast "Server deregistered" ("T3 Connect access was revoked and a host space is now available."), "Could not deregister server", empty state "No T3 Connect environments"
    (`T3ConnectUserProfilePage.tsx`). "Mobile clients": "Mobile devices that get notifications from your environments." with badges "Push notifications" and "Live Activities", empty state "No mobile clients" (`MobileClientsUserProfilePage.tsx`).
 8. **Hosted pairing** (decision U8 stays in `20261005-this-machine-network-access`; this ticket adds the sign-in link only if the decision keeps hosted links): `https://app.t3.codes/pair?host=<endpoint>[&label=]#token=…`, the endpoint hint "Opens the hosted app, no install needed", the copy toast "Hosted app link copied".
-9. **Handoff and return links** (decision U10, issue [X5](../../issues/20261005-x05-url-scheme-delivery.md)): `t3code://auth/codex?request=…` and `t3code://app/(welcome|settings…)` in the reference become links on a clone-specific scheme (never `t3code`). Port `codexAuthHandoff`, `providerAuthReturnUrl` and their validation; failure text "Could not receive hosted web ChatGPT sign-in. Retry or use the redirect URL in the web app."
+9. **Handoff and return links** (decision U10, issue [X5](../../issues/closed/20261005-x05-url-scheme-delivery.md)): `t3code://auth/codex?request=…` and `t3code://app/(welcome|settings…)` in the reference become links on a clone-specific scheme (never `t3code`). Port `codexAuthHandoff`, `providerAuthReturnUrl` and their validation; failure text "Could not receive hosted web ChatGPT sign-in. Retry or use the redirect URL in the web app."
 10. **Terminal.** `t3 connect` and its browser page "Connecting your terminal" (`ConnectCliAuthSurface.tsx`) belong to the user's CLI and to T3's hosted app. The clone only checks that an embedded server linked by the clone's own session behaves the same; the CLI install action is U10's.
 
 Excluded: telemetry (`20261005-telemetry`), the update feed (`20261005-app-update-feed`), WSL, mobile apps, Auto balance, the Browser surface, and any T3 key stored in the repository.
@@ -63,7 +63,7 @@ Port changes for headers: `Effect` services become plain functions; React atoms 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | [X38](../../issues/closed/20261005-x38-t3-connect-clerk-sign-in.md) | pending | The user decides to build (with the key source, sign-in surface and scheme name), or closes it | pending |
-| resolved framework issue | [X5](../../issues/20261005-x05-url-scheme-delivery.md) | pending | Resolved upstream on the pinned `main`, or the user drops the handoff and any scheme callback (then this row is marked not needed) | pending |
+| resolved framework issue | [X5](../../issues/closed/20261005-x05-url-scheme-delivery.md) | pending | Resolved upstream on the pinned `main`, or the user drops the handoff and any scheme callback (then this row is marked not needed) | pending |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
@@ -76,9 +76,9 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X38](../../issues/closed/20261005-x38-t3-connect-clerk-sign-in.md) | Decision to build or close | scope decision; not in the library | blocking | `issue-open`, then the user decides |
-| [X5](../../issues/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | #104 closed by main #201, which only journals a launch URL no navigation root hears; delivery to a module is still missing on `463acda68` ([adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | blocking only if a scheme callback or the handoff is built | resolve upstream or drop |
+| [X5](../../issues/closed/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | #104 closed by main #201, which only journals a launch URL no navigation root hears; delivery to a module is still missing on `463acda68` ([adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | blocking only if a scheme callback or the handoff is built | resolve upstream or drop |
 | [X1](../../issues/closed/20261005-x01-chromium-cdp-browser-surface.md) | Browser surface | blocked by policy | blocking only if the sign-in surface is a web view | choose the system browser flow, or wait |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | `EXACT2-GAPS.md` X21; workaround is the Swift transport | nonblocking (the relay socket can use the Swift transport) | confirm at `prepare` |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | `EXACT2-GAPS.md` X21; workaround is the Swift transport | nonblocking (the relay socket can use the Swift transport) | confirm at `prepare` |
 | [X39](../../issues/closed/20261005-x39-telemetry.md) | Relay tracing values in the public configuration | scope decision | nonblocking | none |
 
 ## Implementation notes

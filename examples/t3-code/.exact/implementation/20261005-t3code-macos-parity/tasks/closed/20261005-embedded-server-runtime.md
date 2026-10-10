@@ -134,9 +134,9 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X4](../../issues/closed/20261005-x04-bundle-helper-executables.md) | Executables and large trees in the `.app` | `EXACT2-GAPS.md` X4 at `d2cb661eb`; limits not re-measured | unknown: blocking if the parts exceed the bake limit or modes cannot be restored | Spike first: measure archive size and the bake limit on the pin |
-| [X6](../../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay of termination for the stop | `destroy()` timing unconfirmed | unknown (workaround: `willTerminate` stop + pid reaper; the reference stops before exit) | Measure ⌘Q to server exit time; if over 5 s or skipped, tell the user |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Native transport | existing | nonblocking | none |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers | Swift timers for readiness and restart | nonblocking | none |
+| [X6](../../issues/closed/20261005-x06-module-quit-shutdown.md) | Bounded delay of termination for the stop | `destroy()` timing unconfirmed | unknown (workaround: `willTerminate` stop + pid reaper; the reference stops before exit) | Measure ⌘Q to server exit time; if over 5 s or skipped, tell the user |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Native transport | existing | nonblocking | none |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | Timers | Swift timers for readiness and restart | nonblocking | none |
 | new: asset bytes are base64 in the bake | Size after base64 may cut the usable bundle | `EXACT2-GAPS.md` X4 text | unknown | Record at prepare with a measured number |
 
 ## Implementation notes

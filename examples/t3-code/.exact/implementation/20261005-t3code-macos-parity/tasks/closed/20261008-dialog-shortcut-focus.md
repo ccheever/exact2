@@ -68,9 +68,9 @@ Nightly toast's buttons and then to `shortcut-settings.open` and `shortcut-navig
 Framework (checked on main `462308f9c`, nothing newer): exact2's only modal with host focus
 containment is a `dialog` opened by an invoker button; `showModal(id)` from an action is carried by
 the terminal host only (macOS logs "unknown command showModal", the web refuses it) and
-`aria-modal` keeps no Tab inside (LLP 1080.003 §4) — [X53](../../issues/20261008-x53-state-driven-modal-focus.md).
+`aria-modal` keeps no Tab inside (LLP 1080.003 §4) — [X53](../../issues/closed/20261008-x53-state-driven-modal-focus.md).
 On macOS a date input, a time input and a `select` are no Tab stops at all (the web's are) —
-[X52](../../issues/20261008-x52-macos-form-controls-tab-order.md). The clone-side fix below is the
+[X52](../../issues/closed/20261008-x52-macos-form-controls-tab-order.md). The clone-side fix below is the
 narrowest that matches the reference without them.
 
 ## What was built
@@ -134,7 +134,7 @@ Not done or not verified, each with its blocker:
 - Real-keyboard rows (2 with real keys, the focus ring itself): deferred to the real-input batch — screen
   locked (user away). Steps below.
 - Date, Time and the Unit select in Custom snooze are no Tab stops on macOS: framework,
-  [X52](../../issues/20261008-x52-macos-form-controls-tab-order.md).
+  [X52](../../issues/closed/20261008-x52-macos-form-controls-tab-order.md).
 - Dialogs without their own trap no longer reach the dispatch buttons, but keep the rest of their
   base behavior: a showing toast is still a Tab stop from the provider wizard, the theme dialogs and
   Restore defaults (their page is inert), and the scheduled-task, project, SnapShot and
@@ -142,7 +142,7 @@ Not done or not verified, each with its blocker:
   focus and could freeze the page, review B1). AppConfirm opened by a composer image remove or a
   right-panel tab close keeps the focus on its trigger (no focus return exists for them). A sidebar
   dialog gives the focus back to its thread's row, not to whatever held it before (a ⌘-chord typed in
-  the composer). All need the host's modal: framework, [X53](../../issues/20261008-x53-state-driven-modal-focus.md);
+  the composer). All need the host's modal: framework, [X53](../../issues/closed/20261008-x53-state-driven-modal-focus.md);
   per-dialog traps are the stopgap used here.
 - The dispatch buttons stay exposed to VoiceOver as 1×1 buttons (unchanged; a `tabindex` does not hide
   them, and the reference has no such elements). Recorded as a follow-up, not this task's focus path.

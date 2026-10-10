@@ -111,10 +111,10 @@ Checked sources and time: {{at prepare}}; draft records only.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers for the 2 s grace and the 20 s delay | `EXACT2-GAPS.md` X19 | nonblocking (workaround: root `every` task advancing `now` only while an environment is unavailable; pure functions take `now`) | none |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Streamed update progress and commit over the socket | X21 | nonblocking (workaround: Swift transport streams; reuse the outdated-host stream code) | none |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | Timers for the 2 s grace and the 20 s delay | `EXACT2-GAPS.md` X19 | nonblocking (workaround: root `every` task advancing `now` only while an environment is unavailable; pure functions take `now`) | none |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Streamed update progress and commit over the socket | X21 | nonblocking (workaround: Swift transport streams; reuse the outdated-host stream code) | none |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap (`20261005-hot-file-split` makes room) | Per-environment update state in a Swift or `.ts` store, not root state |
-| [X17](../../issues/20261005-x17-popover-position-try.md), [X11](../../issues/20261005-x11-shadow-blur-parity.md) | Tooltip placement and shadow | X17, X11 | nonblocking (declared visible difference) | Declare |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md), [X11](../../issues/closed/20261005-x11-shadow-blur-parity.md) | Tooltip placement and shadow | X17, X11 | nonblocking (declared visible difference) | Declare |
 | [X40](../../issues/closed/20261005-x40-app-update-feed.md) | The T3 desktop update feed (server-triggered desktop update) | X40 scope decision | nonblocking for the banner; the server-triggered desktop-update part waits for X40 | follow the X40 decision |
 
 ## Implementation notes

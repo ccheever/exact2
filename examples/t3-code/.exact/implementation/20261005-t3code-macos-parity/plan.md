@@ -91,9 +91,10 @@ these user decisions have changed the tickets:
   Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
-- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z); `issues/README.md` "Charlie's decisions and upstream
-  state, by bucket" sums them up and each X file records its own. The records were reclassified against upstream later
-  that day (`t3-code-records-reclassify`): seven buckets, from "done on main" to "attempt withdrawn", and an adoption list. Then the user decided (2026-10-08):
+- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z). The records were reclassified against upstream later
+  that day (`t3-code-records-reclassify`): seven buckets, from "done on main" to "attempt withdrawn", and an adoption list.
+  That bucket table is retired (2026-10-10): main moved the open issues into its `issues/` files on 2026-10-09, those
+  files carry the decisions and the live state, and `issues/README.md` maps each X record to its main file. Then the user decided (2026-10-08):
   - `browser-surface`: **build** it on a `WKWebView` inside the clone's own module (X1's path B: no CDP, Safari Web
     Inspector, injected-script automation, X1's deviation table declared). #100 was closed as not planned, so this is
     clone-side work, not a framework wait; X1 is closed. It starts after `app-contract-root-rewrite` (root line cap).
@@ -137,7 +138,7 @@ these user decisions have changed the tickets:
   `examples/t3-code/STATUS.md`.
 - Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
   #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);
-  its audit's disposition for each of our issues is in `issues/README.md` and the X files. Main merged #309 (#101),
+  its audit's disposition for each of our issues is now in main's `issues/` files. Main merged #309 (#101),
   #313 (#269, partial), #314 (#235, partial) and #325 (closes #286) the same day; #324 (refs #282) was closed unmerged.
 - Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
   test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320), still open after #327), and it
@@ -233,8 +234,9 @@ Blocked:
   builds option (a) as a draft PR; the user decides by merging it (build) or closing it (keep out).
 - [blocked-theme-usage-highlight](tasks/20261009-blocked-theme-usage-highlight.md): S1-7. Waits for X69 on `main`.
 
-New issue: [X69](issues/20261009-x69-paint-role-node-query.md) (a read that lists the nodes a paint role reaches), a local
-draft. `issue-open` reproduces it and checks it against #321. Publication needs the user's approval.
+New issue: [X69](issues/closed/20261009-x69-paint-role-node-query.md) (a read that lists the nodes a paint role reaches), a local
+draft. `issue-open` reproduces it and checks it against #321. Publication needs the user's approval. (Filed on main on
+2026-10-10 by #386 as `issues/20261010-paint-role-node-list-read.md`, with X70, X71 and X11's backdrop case.)
 
 Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
 draft PR (option a of the blocked record).
@@ -245,7 +247,7 @@ user's decision once Charlie's acceptance list passed). Records are in `tasks/cl
 usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
 and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/closed/20261010-audit-wave-followups-2.md),
 then [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
-flatten after the fix waves). New local framework draft: [X70](issues/20261010-x70-aria-disabled-focusable.md) (kept
+flatten after the fix waves). New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
 real lane accounts; #227/#228 stay with the user.
@@ -418,7 +420,7 @@ Task files own mutable status. Links must be updated when a task closes or reope
 | Attended real input | Final checklist (handoff "Manual verification checklist", updated) | macOS with real keyboard/trackpad | Every row passes or is recorded with evidence | session log, screenshots |
 | Repository gates | `main` head | macOS | Five checks, `caps.mjs`, clone checks, all AppKit binaries | logs |
 | Coverage | `research.md` ID tables; the reference test map from `reference-logic-tests-done-areas` | — | Every research ID marked missing or partial maps to a verified ticket and its evidence; the reference test map has no `later-ticket` rows left, and every `port` and `swift` row is `ported` with a passing test | coverage table in `AGENT-HANDOFF.md`, map |
-| Issues closed | `issues/README.md` | — | Every issue is closed: resolved upstream, adopted in the app and verified by `issue-close` (workaround removed, its rows pass at parity), or closed by the user's decision with the reason recorded | issue records, `EXACT2-GAPS.md` |
+| Issues closed | `issues/README.md` | — | Every issue is closed: resolved upstream, adopted in the app and verified by `issue-close` (workaround removed, its rows pass at parity), or closed by the user's decision with the reason recorded; a record moved to main counts once its main `issues/` file is closed and adopted | issue records, main's `issues/` files, `EXACT2-GAPS.md` |
 | Interface font size | Settings at 12, 16 and 20 px | macOS 1280×840 and 840×620 | Every surface scales where the reference uses `rem` and keeps its `px` sizes; 16 px equals the pre-conversion matrix | shot pairs at each size |
 
 Completion also needs: every ticket verified and merged into `main`, except the
@@ -430,7 +432,7 @@ resolved upstream and adopted in the app (verified by `issue-close`), or closed 
 user's decision. Criteria blocked today: X3 (if reproduced), X7 (one `media-actions`
 criterion), X4 (only if the archive workaround fails), X32 (pinned diff headers, declared until #131 lands on main),
 X33–X34 (their rows wait for main fix of #274 and #272), X68 (the Inspect row, U18), and any criterion whose ticket
-marks it blocked. A permanent declared difference (the issues README, "Charlie's decisions and upstream state, by bucket", bucket 6) closes its row as declared.
+marks it blocked. A permanent declared difference (the issues README's workaround column, or a record closed here) closes its row as declared.
 
 ## Apparatus requiring approval
 

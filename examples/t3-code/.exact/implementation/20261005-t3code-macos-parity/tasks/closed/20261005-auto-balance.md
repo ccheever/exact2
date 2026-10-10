@@ -96,10 +96,10 @@ Checked sources and time: {{at prepare}}; draft records only.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | 5 s freshness and 15 s sample age | `EXACT2-GAPS.md` X19 | nonblocking (workaround: pure functions take `now`; a root `every` task ticks only while an Auto draft is unresolved) | none |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | Request/response per candidate over each environment's socket | X21 | nonblocking (workaround: Swift transports; fleet routing) | none |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | 5 s freshness and 15 s sample age | `EXACT2-GAPS.md` X19 | nonblocking (workaround: pure functions take `now`; a root `every` task ticks only while an Auto draft is unresolved) | none |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | Request/response per candidate over each environment's socket | X21 | nonblocking (workaround: Swift transports; fleet routing) | none |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap (`20261005-hot-file-split` makes room) | Keep the choice in the draft context, not new root state |
-| [X17](../../issues/20261005-x17-popover-position-try.md), [X11](../../issues/20261005-x11-shadow-blur-parity.md) | Popover placement and shadow | X17, X11 | nonblocking (declared visible difference) | Declare |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md), [X11](../../issues/closed/20261005-x11-shadow-blur-parity.md) | Popover placement and shadow | X17, X11 | nonblocking (declared visible difference) | Declare |
 
 ## Implementation notes
 

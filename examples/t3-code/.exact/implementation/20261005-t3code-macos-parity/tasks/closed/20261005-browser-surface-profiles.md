@@ -72,7 +72,7 @@ Parent specification: [spec](../spec.md); engine decisions and declared differen
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
-| framework issue | [X66](../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the profile submenu opens from its chevron, not on hover, until a popover can open from an action | — |
+| framework issue | [X66](../../issues/closed/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the profile submenu opens from its chevron, not on hover, until a popover can open from an action | — |
 | task PR, reverted and re-landed | `20261005-browser-surface-navigation` (part 2) | [#348](https://github.com/ccheever/exact2/pull/348), reverted by #351, re-landed as [#352](https://github.com/ccheever/exact2/pull/352) | Part 2 re-lands on `feat(example)/t3-code`; this branch then merges the base again | re-landed as `ab220bfdb` (2026-10-10); merged here at `e075de6e6` |
 | task PR | `20261009-fix-settings-integrations-loop` | [#353](https://github.com/ccheever/exact2/pull/353) | Settings › Integrations reads the subscribed config; part 4's Browser rows keep that | merged as `950e8e2e5`; merged here at `e075de6e6`, both sides kept |
 
