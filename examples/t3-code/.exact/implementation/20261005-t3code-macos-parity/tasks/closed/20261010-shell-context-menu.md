@@ -1,14 +1,14 @@
 ---
 name: 20261010-shell-context-menu
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
+implementation: done
+verification: partial
 delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-shell-context-menu'
 pr_url: https://github.com/ccheever/exact2/pull/407
-verified_commit: null
+verified_commit: 6bac646cca0cc705378f653dd43f39d64467cd08
 ---
 
 # The desktop shell's context menu wherever the page shows none
@@ -28,7 +28,7 @@ T3 Code's desktop shell (`apps/desktop/src/window/DesktopWindow.ts:529-604`, `in
 It is installed on the main window, on windows the page opens, and on every attached `<webview>` (the Browser panel's
 pages).
 
-[realinput-1010d-followups](closed/20261010-realinput-1010d-followups.md) RD-4 (#400) built the read-only selected
+[realinput-1010d-followups](../closed/20261010-realinput-1010d-followups.md) RD-4 (#400) built the read-only selected
 text case: a local right-click monitor (`T3TextContextMenu.swift`) replaces ExactKit's read-only text menu (Look Up,
 Copy, Speech, Services) with Cut (disabled), Copy, Paste (disabled), Select All. Elsewhere the clone still differs:
 a right-click on unselected text or an empty area shows nothing, a link shows ExactKit's or nothing, the composer and
@@ -256,6 +256,16 @@ clone-side workaround for S2 (drawing a table cell's link one node per run costs
 ellipsis at the column edge, a new difference), so a table cell's link keeps the shell's menu with Copy Link until S2 is
 fixed on main. The record stays open for the real-input steps 1–8.
 
+## Real-input results (realinput-1010g)
+
+On the bundle of `6bac646cc` ([notes](https://raw.githubusercontent.com/ccheever/exact2/eb35a6a4fa4d21f56032512841efaccfadb772ac/realinput-1010g/G0-1010g-notes.txt)):
+steps 1 (empty timeline, Select All, Copy, paste), 3 (the app's link menu, Copy Link, Open in integrated browser), 4
+(spelling suggestions replace the word, Paste), 6 (Browser page: Copy Link, a word selected and copied, empty area; no
+WebKit items), 7 (the empty field's Select All disabled in every frame, no flicker) and 8 (the thread row keeps its own
+menu) pass. Step 2 fails (the tool icon has no Copy Image) → RG-1; step 5 is partial (the right-click capitalized the
+field's word and Cut did nothing) → RG-2; the spelling menu's AutoFill → RG-3; "Services ›" on every menu over a
+selection is RF-1. All in [realinput-1010g-followups](../20261010-realinput-1010g-followups.md).
+
 ## Next action
 
-Real-input steps 1–8 join the next session. Close this record after it.
+Closed. RG-1..RG-3 continue in realinput-1010g-followups.
