@@ -68,6 +68,7 @@ mod native_buttons;
 mod navigation_detent;
 mod negative_margin;
 mod notify;
+mod overlay;
 mod packages;
 mod pan;
 mod pan_release;

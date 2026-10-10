@@ -137,6 +137,10 @@ pub struct Module {
     canvas_surfaces: Vec<(String, usize)>,
     /// A background round is out: the host holds its ticket (LLP 1097 D5).
     background_out: bool,
+    /// The sources whose worker realm can't overlay synchronously, each
+    /// said once in the journal, and what is still to say.
+    told_overlay: Vec<String>,
+    overlay_notes: Vec<String>,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -154,6 +158,8 @@ impl Module {
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
             background_out: false,
+            told_overlay: Vec::new(),
+            overlay_notes: Vec::new(),
         }
     }
 
@@ -464,6 +470,95 @@ impl DataSource for Module {
             },
         })
     }
+    /// The module's `overlay` in its realm, in this turn: an overlay awaits
+    /// nothing. A worker realm can't run one synchronously, so its answer shows.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if !self.ready {
+            return Ok(None);
+        }
+        let Some((params, result)) = self.signatures.get(source) else {
+            return Err(DataError::UnknownSource(source.into()));
+        };
+        let encode = |v: &Value, s: &Shape| json::encode(v, s).map_err(unavailable);
+        let args = args
+            .iter()
+            .zip(params)
+            .map(|(v, s)| encode(v, s))
+            .collect::<Result<Vec<_>, _>>()?;
+        let answer = encode(answer, result)?;
+        let mut list = Vec::with_capacity(writes.len());
+        for w in writes {
+            let Some((wparams, wresult)) = self.signatures.get(w.source) else {
+                return Err(DataError::UnknownSource(w.source.into()));
+            };
+            let wargs = w
+                .args
+                .iter()
+                .zip(wparams)
+                .map(|(v, s)| encode(v, s))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut entry: json::Object = [
+                ("id".to_string(), Json::from(w.id)),
+                ("mutation".to_string(), Json::from(w.mutation)),
+                ("source".to_string(), Json::from(w.source)),
+                ("args".to_string(), Json::Array(wargs)),
+                ("answered".to_string(), Json::from(w.answered)),
+            ]
+            .into_iter()
+            .collect();
+            if let Some(reply) = w.reply {
+                entry.insert("reply".into(), encode(reply, wresult)?);
+            }
+            list.push(Json::Object(entry));
+        }
+        let bytes = call(object([
+            ("op", "overlay".into()),
+            ("id", self.id.into()),
+            ("source", source.into()),
+            ("args", Json::Array(args)),
+            ("answer", answer),
+            ("writes", Json::Array(list)),
+        ]))?;
+        let reply = json::reply(&bytes, result).map_err(|e| unavailable(e.to_string()))?;
+        let fields = reply.fields;
+        match fields["tag"].as_u64() {
+            Some(0) => {
+                let value = reply
+                    .value
+                    .unwrap_or_else(|| json::decode(&Json::Null, result))
+                    .map_err(|e| {
+                        DataError::Failed(
+                            exact_runner::failure::FailureCode::Shape,
+                            format!("`{source}`'s overlay is outside its shape: {e}"),
+                        )
+                    })?;
+                let keep = fields["keep"]
+                    .as_array()
+                    .map(|ids| ids.iter().filter_map(Json::as_u64).collect())
+                    .unwrap_or_default();
+                Ok(Some(exact_runner::Overlaid { value, keep }))
+            }
+            Some(4) => {
+                if fields["worker"] == true && !self.told_overlay.iter().any(|s| s == source) {
+                    self.told_overlay.push(source.to_string());
+                    self.overlay_notes.push(format!(
+                        "overlay: {source} runs in a worker, so its writes show when answered"
+                    ));
+                }
+                Ok(None)
+            }
+            _ => Err(unavailable(format!(
+                "`{source}`'s overlay failed: {}",
+                fields["message"].as_str().unwrap_or("")
+            ))),
+        }
+    }
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
         let mut json = String::from("[");
         for (i, (canvas, generation)) in retired.iter().enumerate() {
@@ -622,18 +717,13 @@ impl DataSource for Module {
         if !self.ready {
             return Vec::new();
         }
-        let Ok(reply) = self.realm("journal") else {
-            return Vec::new();
-        };
-        reply["lines"]
-            .as_array()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .filter_map(|l| l.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut lines = std::mem::take(&mut self.overlay_notes);
+        if let Ok(reply) = self.realm("journal") {
+            if let Some(more) = reply["lines"].as_array() {
+                lines.extend(more.iter().filter_map(|l| l.as_str().map(str::to_string)));
+            }
+        }
+        lines
     }
 
     fn discard(&mut self, token: u64) {

@@ -210,7 +210,7 @@ function diffPng(a, b, sideBySide, masks = []) {
   return share;
 }
 // The document's head too: the active head's fields, as every runner reports them (runner/src/head.rs).
-const STATE_KEYS = ['slots', 'derives', 'resources', 'head', 'reorder', 'sounds', 'sessionCore'];
+const STATE_KEYS = ['slots', 'derives', 'resources', 'writes', 'head', 'reorder', 'sounds', 'sessionCore'];
 // The media session (LLP 1098 D10) by testId (each target numbers its views its own way) and the artwork's path (each
 // page has its own port): what every host records (`sessionCore`, Linux's too), and what the pages publish (`session`).
 const addSession = s => {
@@ -321,6 +321,8 @@ async function drive(t, report, fail, dir, ws, js) {
       let linuxReport = null;
       driveAt = `${step} state`;
       const [sw, sj] = await pair(() => W.state(), () => J.state().catch(e => ({ error: e.message })));
+      // A write's id orders it within one runtime; the two number them apart, so the mutations and states compare.
+      for (const s of [sw, sj]) if (s?.writes) s.writes = s.writes.map(w => ({ mutation: w.mutation, landed: w.landed }));
       addSession(sw); addSession(sj);
       if (sj.error) { fail(step, `state: ${other} ${sj.error}`); st++; }
       else if (crossBrowser) {

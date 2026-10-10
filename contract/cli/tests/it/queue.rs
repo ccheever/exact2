@@ -564,7 +564,9 @@ fn a_next_refused_by_a_task_key_keeps_its_head_and_stalls() {
 /// (`commit_again`) — and a key that is no key refuses that commit.
 #[test]
 fn a_task_key_refuses_a_reply_and_a_commit_made_again() {
-    // A reply whose answer makes the key no key: refused, the slot as it was.
+    // A reply whose answer makes the key no key: its commit is refused, the
+    // slot as it was. The reply is spent, so its request is let go in a
+    // commit of its own, as a failed reply's is.
     let src = APP.replace(
         "  view\n",
         "  task watch key=recd == \"bad\" ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
@@ -578,10 +580,11 @@ fn a_task_key_refuses_a_reply_and_a_commit_made_again() {
     );
     r.act("record", vec![Value::str("bad")]).unwrap();
     let t = tickets(&mut r);
-    assert!(matches!(
-        r.fulfill(t[0], reply("ok")),
-        Err(RunnerError::TaskKey { task }) if task == "watch"
-    ));
+    r.fulfill(t[0], reply("ok")).unwrap();
+    assert!(r
+        .journal()
+        .any(|l| l.contains("refused: TaskKey { task: \"watch\" }")));
+    assert!(r.in_flight().is_empty(), "the spent request is let go");
     assert_eq!(r.derive("recd"), Some(&Value::str("-")));
     assert_eq!(r.timer_due_ms(), Some(100_000.0), "the timer as it was");
     // A failed reply's release commits again; that commit's key is no key
@@ -740,10 +743,12 @@ fn data_ready_s_sends_open_a_gate_and_a_bad_key_refuses_them() {
     ));
     r.act("open", vec![]).unwrap();
     loaded.set(true);
-    assert!(matches!(
-        r.data_ready(),
-        Err(RunnerError::TaskKey { task }) if task == "poll"
-    ));
+    // Refused, said in the journal; the host applies the commit that ends
+    // the send it dropped, as after a failed reply.
+    assert!(r.data_ready().unwrap().is_some());
+    assert!(r
+        .journal()
+        .any(|l| l.contains("TaskKey { task: \"poll\" }")));
     assert_eq!(r.slot("loaded"), Some(&Value::NONE), "the commit as it was");
 }
 

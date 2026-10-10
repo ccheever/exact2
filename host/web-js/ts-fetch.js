@@ -1,8 +1,8 @@
 // App-module bindings, injected by the bundler, never installed as page-wide
 // globals. Host modules keep the browser's functions at every load time.
-import { coversPath, FetchError, fetchWith } from './admission.js';
+import { coversPath, FetchError, fetchWith, inOverlay, overlaying } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => options?.exactStream === undefined ? (options?.exactBodyFrom === undefined ? fetchWith(tsGrantSet, input, options) : fromFile(input, options))
+export const fetch = (input, options) => overlaying.on ? Promise.reject(inOverlay('fetch()')) : options?.exactStream === undefined ? (options?.exactBodyFrom === undefined ? fetchWith(tsGrantSet, input, options) : fromFile(input, options))
   : options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options);
 
 // `exactBodyFrom` (LLP 1108 D6 R2), with Hermes's checks and words
@@ -129,9 +129,16 @@ const guarded = {
   requestAnimationFrame: noTimers('requestAnimationFrame()'), requestIdleCallback: noTimers('requestIdleCallback()'),
   clearTimeout() {}, clearInterval() {}, cancelAnimationFrame() {}, cancelIdleCallback() {},
   performance: Object.freeze({ now: () => refuse('performance.now()') }),
+  // The page's own, but no draw while an overlay runs.
+  crypto: Object.freeze({ subtle: globalThis.crypto?.subtle && new Proxy(globalThis.crypto.subtle, { get(target, name) {
+      const v = target[name];
+      return typeof v !== 'function' ? v : (...a) => overlaying.on ? Promise.reject(inOverlay(`crypto.subtle.${String(name)}()`)) : v.apply(target, a);
+    } }),
+    getRandomValues: a => { if (overlaying.on) throw inOverlay('crypto.getRandomValues()'); return globalThis.crypto.getRandomValues(a); },
+    randomUUID: () => { if (overlaying.on) throw inOverlay('crypto.randomUUID()'); return globalThis.crypto.randomUUID(); } }),
 };
 export const { Date, Math, Intl, setTimeout, setInterval, requestAnimationFrame, requestIdleCallback, clearTimeout, clearInterval,
-  cancelAnimationFrame, cancelIdleCallback, performance, XMLHttpRequest, WebSocket, EventSource } = guarded;
+  cancelAnimationFrame, cancelIdleCallback, performance, XMLHttpRequest, WebSocket, EventSource, crypto } = guarded;
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

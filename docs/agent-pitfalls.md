@@ -191,8 +191,9 @@ guide's rules don't make obvious.
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
   Fix: in a test or drive put `clock settle` between drags. Showing the move in
-  the drop's own commit (the board in state the action writes, saved through the
-  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  the drop's own commit (an `overlay` on the cards' source, or the board in state the
+  action writes, saved through the mutation) only removes the wait for storage, which
+  shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
@@ -433,9 +434,13 @@ guide's rules don't make obvious.
   out and checked only when the refreshed answer lands, so a slow store shows no tick,
   and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
   macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
-  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
-  `send`), and seed that state from the saved record as a form does. (Authoring bench,
-  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+  the answer. Fix: give the mutation `refreshes form` and export an `overlay` that lays
+  the pending save over `form`'s answer (the agent guide's "Optimistic writes: the
+  overlay"), so `form.terms` reads the new value from the click until the refreshed
+  answer has it; or bind the box to state the
+  action writes at once (`terms = value`, then `send`), seeded from the saved record as
+  a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
+  checked on the web with a save that never answers, 2026-10-09.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats

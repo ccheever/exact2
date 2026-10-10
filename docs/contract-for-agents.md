@@ -572,6 +572,7 @@ Choose the mechanism from its lifetime:
 | Explicit command with a reply | `mutation reply as shape T`, then `send reply = source(args)` |
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
+| Show a write before its reply (optimistic) | `refreshes` on the mutation, and the source's `overlay` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
@@ -648,17 +649,98 @@ in flight or waits: send while it is pending, since `not pending(m)` means the
 spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
 nothing — every reply still lands over it — so a mutation that must drop a late
 reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
-65th refuses its action. `refreshes` re-reads
-its resources when the mutation is sent (an answer the source gives at once shows
-immediately) and forces them again when the reply lands; a mutation the source
-answers at once has landed, so its resources are forced in the sending commit (an
-async read is asked again, not dropped). `then` is parameterless,
+65th refuses its action. `refreshes` asks its resources again when the reply
+lands; a mutation the source answers synchronously (without a request) has
+landed, so its resources are asked in the sending commit. A send still in flight
+does not ask them; what it writes shows before its reply only through the data
+module's `overlay`, if it exports one (below). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
 own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
+
+### Optimistic writes: the overlay
+
+To show a write before its reply, the mutation declares `refreshes` and the data
+module exports an `overlay`:
+
+```contract
+shape Item
+  text: string
+
+component List
+  resource items = loadItems() as shape list<Item>
+  mutation added as shape Item refreshes items
+  action add(text: string)
+    send added = addItem(text)
+  view
+    column
+      each item in items key=item.text
+        text item.text
+```
+
+```ts
+import type { Overlay } from './app.contract.d.ts';
+type Item = { text: string };
+export const overlay: Overlay = (source, args, answer, writes) => {
+  if (source !== 'loadItems') return undefined;    // other resources show their answers
+  const shown = [...(answer as Item[])];
+  for (const w of writes) {
+    if (w.source !== 'addItem') continue;
+    const [text] = w.args as [string];
+    if (shown.some(i => i.text === text)) continue; // the answer has it
+    if (w.answered) w.keep();                       // the server has not caught up yet
+    shown.push({ text });
+  }
+  return shown as never; // `Result<S>` cannot be narrowed from a generic `S`
+};
+```
+
+From the send, derives and views read `items` as the overlay's value. Without an
+overlay they read the answer, and the write shows only once a refreshed answer
+has it. The runner calls `overlay` for each resource a write affects, with:
+
+- `source` and `args`: the resource's source name and arguments. Resources can
+  share a source with different arguments; check `args` when a write belongs to
+  one of them.
+- `answer`: the resource's current answer. Copy it rather than changing it.
+- `writes`: the sends that affect it, in send order. Each has `id`, `mutation`
+  (the mutation's name), `source` and `args` (the send's), `reply` once its reply
+  has landed, and `answered`: its reply has landed and `answer` was asked after
+  that, so `answer` should include it.
+
+A write shows until the first answer asked after its reply landed. If that
+answer does not include it yet (a server that is not read-after-write
+consistent), call `keep()` on it to go on showing it. The runner does not ask
+again on its own, so a kept write shows until a later answer (from `refresh`,
+another write's reply, or new arguments) that the overlay does not keep it over.
+Returning `undefined`, throwing, or returning a value outside the resource's
+shape shows the answer and stops showing every answered write; the journal says
+why for the last two.
+
+A write that ends without landing stops showing in that commit, with no undo
+code, and the resource is asked again: its reply fails, a newer send to the same
+mutation replaces it (a `queue` mutation's sends all stay), or an action assigns
+the mutation's slot. If that ask fails, `failed(items)` is true and `items` keeps
+its last answer.
+
+- The overlay runs synchronously inside the commit, so it cannot await, and it
+  has no effects: `fetch`, storage, the store (`get` included), `native` and
+  `crypto` (`crypto.getRandomValues()`, `crypto.randomUUID()` and every
+  `crypto.subtle` call) refuse with an error naming the call, the same on every
+  host: a call that returns a promise rejects, any other throws. The
+  runner reuses its value while its inputs are unchanged, so compute it from
+  them alone.
+- Writes are not saved: after a relaunch or a reload only answers show, and a
+  resource a write was showing in is asked again.
+- A source whose module runs on a worker shows answers only, said once in the
+  journal.
+- A Rust source implements `DataSource::overlay`, returning
+  `Ok(Some(Overlaid { value, keep }))`, or `Ok(None)` to show the answer.
+- The agent's `state` shows what the overlay shows; `state.writes` lists the
+  writes still showing, as `{ id, mutation, landed }`, when there are any.
 
 A failed resource retains its value or placeholder, with `pending=false` and
 `failed=true`. Argument changes, refresh, or successful answers clear the failure.
