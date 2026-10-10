@@ -1,0 +1,54 @@
+realinput-1010e row 4: #399 steps 1-6 (tasks/20261010-realinput-1010c-fixes.md), lane com.exact.t3code.macos.ri1010e-3
+Bundle: target/clients/59162dd9bd2b20489cc6c0e4/com.exact.t3code.macos/macos/T3 Code (Exact).app (development, head a1ade42f9, built 17:29:41),
+lane copy launched with open -n --env, lane HOME with the work project inside it, codex/claude/browser-home from realinput-1010c-fixes.
+Window 1280x840, dark (system); RC-2 also run in the lane app's Light mode, then set back to Follow system.
+
+RC-2 model trigger (PASS). AX name of the trigger after each Shift+click; the painted label matched each (sheets):
+  dark : +Sonnet 'Claude Fable 5.1, Claude Sonnet 5.5' | -Fable 'Claude Sonnet 5.5' | +Opus 'Claude Sonnet 5.5, Claude Opus 5.5' | -Opus 'Claude Sonnet 5.5'
+  light: +Opus 'Claude Sonnet 5.5, Claude Opus 5.5' | -Sonnet 'Claude Opus 5.5' | +Fable 'Claude Opus 5.5, Claude Fable 5.1' | -Fable 'Claude Opus 5.5'
+  Two-model labels paint truncated with an ellipsis in the trigger's box; single labels paint whole, nothing of the old label left.
+  Long-label (>205 pt) collapse check: skipped, no such model at hand (the record says add none).
+
+RC-3 Filters' last Escape (PASS). Author: click in "Search authors", Escape: Author closed, Filters open, no row lit, no ring;
+  Down: nothing moves; Escape: Filters closed, focus and ring on the Filters button. State with the pointer on "Closed": the same.
+
+RC-4 chip's Escape (PARTIAL: (a) caret FAIL, rest PASS).
+  (a) heading, chip: details open; Escape: closed, prompt unchanged ('$frontend-design now'). PASS.
+      Click after "now" (AXSelectedTextRange 20,0), click the chip: range becomes 0,0; Escape: closed, range still 0,0,
+      no caret painted after "now"; typing "x" gives 'x$frontend-design now' (caret before the chip). Reproduced twice. FAIL.
+      r9 log: the chip press is "down ... hit=TextArea:composer responder=TextArea" (E4-RC4-r9-input.log).
+      Chip, Cmd+K: details stay above the palette; Escape closes only the palette; Escape again closes the details. PASS.
+  (b) Settings > Appearance sample chip: Escape closes the details and Settings stays; Escape again closes Settings. PASS.
+      (A first click on the sample never reached the app, not in the r9 log; the second did.)
+  (c) The chip button 'Skill Frontend Design. Show details': AXEnabled=1, parent AXTextArea 'Message', read through the
+      AX API (the attribute Accessibility Inspector shows; the Inspector app itself was not opened). PASS.
+  (d) Files panel open, heading, chip: Escape closes the details, panel stays; Escape again closes the panel. PASS.
+      No notice stack was showing, so the expanded-stack repeat was not run.
+
+RC-6 Add profile by keys (PASS). Click Add profile, Escape: ring on Add profile; Down opens on Blank profile; Down: Chrome,
+  Brave, Arc, Safari, Firefox; Down from Firefox wraps to Blank profile; Up goes back to Firefox. Return on Chrome opens
+  "Import from Chrome" (fixture profiles Personal 5 / Work 1 from T3_BROWSER_IMPORT_HOME); Cancel, nothing imported.
+  Down on the ringed Add profile opens the menu on Blank profile; Escape closes it, ring back on Add profile.
+  Observation (not in the step's criteria): after Cancel by mouse, focus goes to no element (AXFocusedUIElement is the
+  window), not back to Add profile, so a following Escape closed Settings.
+
+RC-5 unpriced popover gap (diagnostic; trace NOT taken). Usage > Cost > 30 days: "4 sessions · API estimate (i)",
+  popover "API estimate excludes 20.0% unpriced records." (popup ~y131-154, (i) y160-172, gap y155-159).
+  Clean runs (fresh Usage view, pointer moved by a guarded no-activation mover, 1 pt per step):
+   (a) slow, 1 pt per 250 ms up from the (i) into the popup: stays open at every step and after a 1.5 s rest. 
+   (b) one quick move (2-4 ms per pt): stays open.
+   (c) re-open, leave the (i) and enter the popup from its left edge: closed on leaving the (i) (both a 450 ms and a
+       70 ms detour) and does not reopen in the popup.
+   (d) from inside the popup down into the gap, rest 2-2.5 s at y=155, 156, 157, 158, 159: stays open.
+  A bad state seen twice in the session (films): any 1-2 pt move on the (i) closed the popover for ~250 ms before it
+  reopened, so (a) closed at its first step; and later hover stopped opening it at all (resting, leaving and re-entering)
+  until the (i) was clicked and Escape pressed. Not reproduced in 3 targeted attempts after that.
+  Save Trace: this bundle has no Develop menu (the menu bar is Apple | T3 Code | File | Edit | View | Window | Help, from
+  examples/t3-code/modules/apple/T3Menus.swift, which replaces the host's DevMenu bar); Opt+Cmd+T reaches the view as
+  "key chars=† code=17" (r9 log) and no trace file was written. No hover in/out trace for 808/1019.
+
+RC-8 Diff repository and composer click (PASS). Lane thread "lane thread rc8" in work (claude pinned to a lane fake that
+  answers --version and refuses the rest, so the turn failed: "Provider turn failed."; no network, no keychain).
+  Diff > Changes: feature/audit -> main, +6 -1, docs/notes.md +1 and src/app.ts -1 +5 = the work repo's own
+  git diff main / untracked file, not the exact2 checkout. Comment on line 5: the comment box takes focus; one click in
+  the composer's empty area below the placeholder: AXFocusedUIElement = the composer (range 0,0); typed "x" landed in it.
