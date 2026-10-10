@@ -68,6 +68,27 @@ final class GroupedListIOSTests: XCTestCase {
         return try XCTUnwrap(l.cell(id) as? UICollectionViewListCell, "row \(id) has a cell")
     }
 
+    func testTheNativeListAnswersTheStatusBarAndYieldsToAScrollingPage() throws {
+        let p = presenter(height: 180) { self.model() }
+        let native = try list(p).collection
+        p.viewport.contentSize = CGSize(width: 402, height: 180)
+        p.syncScrollsToTop()
+        XCTAssertTrue(p.scrollsToTopTarget() === native, "the visible native list is the target")
+        XCTAssertTrue(native.scrollsToTop)
+        XCTAssertFalse(p.viewport.scrollsToTop, "a page that fits must not compete")
+
+        p.viewport.contentSize.height = 2000
+        p.syncScrollsToTop()
+        XCTAssertTrue(p.scrollsToTopTarget() === p.viewport, "the scrolling page takes priority")
+        XCTAssertTrue(p.viewport.scrollsToTop)
+        XCTAssertFalse(native.scrollsToTop, "the nested native list must not compete")
+
+        p.viewport.contentSize.height = 180
+        p.syncScrollsToTop()
+        XCTAssertTrue(native.scrollsToTop, "the native list takes ownership again")
+        XCTAssertFalse(p.viewport.scrollsToTop)
+    }
+
     func testTheCollectionIsTheListsOnlyScrollView() throws {
         let p = presenter { self.model() }
         let l = try list(p)
