@@ -44,8 +44,13 @@ func runPermissionHelperChecks() {
     expect(seen == [.absent, .window(main, frontmost: true)], "a new Settings window is reported within a second")
     reading = .window(main.offsetBy(dx: 40, dy: 0), frontmost: true); spin(0.6)
     expect(seen.count == 3, "a frontmost Settings window is polled every 0.5 s")
+    // realinput-1010e-followups RE-2: the reference polls in its own process, so a drag from the helper (AppKit's
+    // event-tracking loop) or an open menu never holds a reading back; the watcher's timer runs in the common modes.
+    reading = .window(main, frontmost: false)
+    RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.6))
+    expect(seen.count == 4 && seen.last == .window(main, frontmost: false), "a change is reported while a drag's tracking loop runs")
     watcher.stop(); reading = .unavailable; spin(1.1)
-    expect(seen.count == 3, "a stopped watcher reports nothing more")
+    expect(seen.count == 4, "a stopped watcher reports nothing more")
 
     // App bundle (reference macAppBundlePath).
     expect(T3PermissionHelper.appBundle(executable: "/Applications/T3 Code.app/Contents/MacOS/T3 Code")?.path == "/Applications/T3 Code.app", "resolves a bundle with spaces")
@@ -75,10 +80,11 @@ func runPermissionHelperChecks() {
     // realinput-1010c RC-1: the panel is an activating window, as the reference's ordinary BrowserWindow is, so a click
     // in it activates T3 Code; the non-activating panel left T3 Code inactive and its reveal behind System Settings.
     expect(!panel.styleMask.contains(.nonactivatingPanel), "a click in the panel activates T3 Code (no .nonactivatingPanel), as the reference's window is activating")
-    // Declared difference (RC-1): the reference's window keeps Electron's macOS default acceptFirstMouse false, so its
-    // first click from System Settings only activates T3 Code and a second press reveals or drags; the row accepts the
-    // first mouse (since #359), so the activating click also reveals or drags, as RC-1 asks.
-    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.content.appRow.acceptsFirstMouse(for: nil), "the click that activates T3 Code makes the panel key and also reaches the row (the reference's first click only activates)")
+    // realinput-1010e-followups RE-1: the click that activates T3 Code also reaches the row and the close button, as in the
+    // reference: its always-on-top page view accepts the first mouse (Chromium's kAlways above the normal window level;
+    // asked inside the reference's Electron 44.4.2: true, and false for the same window at the normal level).
+    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.level == .floating && panel.content.appRow.acceptsFirstMouse(for: nil) && panel.content.closeButton.acceptsFirstMouse(for: nil),
+           "the click that activates T3 Code makes the panel key and also reaches the row, as the reference's always-on-top page")
     let content = panel.content
     content.pointer = { NSPoint(x: -10_000, y: -10_000) } // the real pointer may rest where the panel docks
     expect(content.title.stringValue == "↑ Drag T3 Code into the list above" && content.appRow.label.stringValue == "T3 Code", "reference header and app row text")

@@ -32,8 +32,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool { !disabled.contains(item.title) }
 }
 final class DevTarget: NSObject {
-    var reloads = 0, infos = 0
+    var reloads = 0, infos = 0, traces = 0
     @objc func reload(_ sender: Any?) { reloads += 1 }
+    @objc func trace(_ sender: Any?) { traces += 1 }
     @objc func info(_ sender: Any?) { infos += 1 }
 }
 final class Recorder: NSObject { var closes = 0; @objc func performClose(_ sender: Any?) { closes += 1 } }
@@ -69,6 +70,9 @@ private func hostBar(_ host: ShortcutHost, _ dev: DevTarget) -> NSMenu {
     develop.addItem(withTitle: "Reload", action: #selector(DevTarget.reload(_:)), keyEquivalent: "r").target = dev
     develop.addItem(withTitle: "Open Project…", action: #selector(DevTarget.info(_:)), keyEquivalent: "o").target = dev
     develop.addItem(withTitle: "App Info…", action: #selector(DevTarget.info(_:)), keyEquivalent: "d").target = dev
+    let trace = develop.addItem(withTitle: "Save Trace", action: #selector(DevTarget.trace(_:)), keyEquivalent: "t")
+    trace.keyEquivalentModifierMask = [.command, .option]
+    trace.target = dev
     return bar
 }
 private func key(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [.command], window: NSWindow? = nil, at time: TimeInterval = 0) -> NSEvent {
@@ -115,6 +119,12 @@ final class R8KeysTests: XCTestCase {
         XCTAssertTrue(menus.keys.validateMenuItem(reload))
         _ = reload.target!.perform(reload.action!, with: reload)
         XCTAssertEqual(dev.reloads, 1, "View › Reload runs the host's reload")
+        // realinput-1010e-followups RE-6: the host's Save Trace stays a hidden ⌥⌘T in a development build, once.
+        let traces = view.items.filter { $0.title == "Save Trace" }
+        XCTAssertEqual(traces.count, 1)
+        XCTAssertTrue(traces.allSatisfy { $0.isHidden && $0.allowsKeyEquivalentWhenHidden && $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask == [.command, .option] })
+        XCTAssertTrue(bar.performKeyEquivalent(with: key("t", 17, [.command, .option])))
+        XCTAssertEqual(dev.traces, 1, "⌥⌘T saves a trace")
     }
 
     func testKeystrokesReachTheWindowsCommands() {
