@@ -1,0 +1,44 @@
+#!/bin/zsh
+# shell-context-menu: one agent drive per build (not committed). Usage: drive.sh before|after
+# before: the evidence base (feature tip c03d7e908, prebuilt); after: this task's worktree. Lane base 16660 (embedded
+# server 16662; the Browser fixture page on 16664). The window cases only for before: there AppKit's and WebKit's own
+# menus track in the agent's never-key window (an op that never answers), so the inputs and the Browser are after-only.
+MODE=${1:?before|after}
+S0=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/shell-context-menu
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+OUT=$S0/runs/$MODE; rm -rf $OUT; mkdir -p $OUT/shots; S=$OUT/shots
+if [ $MODE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=shell-context-menu-before
+else ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-shell-context-menu; LANE=shell-context-menu; fi
+case_() { OPS+=("tap t3-code contextmenu at $1 $2" "clock +600 real" "logs"); }
+OPS=("clock +20000 real" "clock +3000 real" "tap thread-verify-timeline" "clock +3000 real" "screenshot $S/01-thread.png window" "logs")
+case_ 600 450   # C1 an empty timeline area
+case_ 300 125   # C2 unselected text ("Known")
+case_ 780 125   # C3 an inline http link ("linked $verify")
+case_ 349 159   # C4 "parser" (an <a> without href in the reference)
+case_ 289 90    # C5 the work group's tool icon (an image)
+case_ 120 400   # C6 the sidebar's empty area
+OPS+=("tap thread-verify-timeline contextmenu" "clock +800 real" "screenshot $S/07-row-menu.png window" "logs" "type t3-code key Escape" "clock +600 real")
+if [ $MODE = before ]; then  # the composer typed (no right-click: AppKit's menu would track)
+  OPS+=("type composer Plese chek the parsr today" "clock +1000 real" "screenshot $S/10-composer.png window")
+fi
+if [ $MODE = after ]; then
+  OPS+=("tap t3-code clicks 2 at 300 125" "clock +600 real" "logs")
+  case_ 300 125   # C8 selected text (RD-4)
+  OPS+=("tap composer contextmenu" "clock +600 real" "logs")  # C9 the empty composer
+  OPS+=("type composer Plese chek the parsr today" "clock +1000 real" "screenshot $S/10-composer.png window")
+  case_ 348 705   # C10 a misspelled word ("chek")
+  case_ 448 705   # C11 a correct word ("today")
+  OPS+=("screenshot $S/11-composer-selected.png window")
+  OPS+=("tap toggle-right-panel" "clock +1500 real" "tap surface-browser" "clock +2500 real" "tap browser-url" "type browser-url http://127.0.0.1:16664/"
+        "type browser-url key Enter" "clock +4000 real" "screenshot $S/12-browser.png window" "logs")
+  for p in "40 52" "80 157" "270 261" "60 366" "270 471" "60 576" "270 700"; do  # C12-C18 text, link, image, field word, empty field, own menu, empty area
+    OPS+=("tap browser-page contextmenu at $p" "clock +1200 real" "logs")
+  done
+  OPS+=("tap connection-settings" "clock +2500 real" "screenshot $S/19-settings.png window")
+  OPS+=("tap settings-search contextmenu" "clock +600 real" "logs")  # C19 the empty Settings search field
+  OPS+=("type settings-search theme" "clock +800 real" "tap settings-search contextmenu at 14 10" "clock +600 real" "logs" "screenshot $S/20-settings-word.png window")  # C20 a word in it
+fi
+OPS+=("logs" "state")
+cd $OUT
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16660 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" >> $OUT/agent.err
