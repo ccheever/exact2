@@ -351,6 +351,15 @@ Fixes from main's 2026-10-10 merge (`bc357d03c`, 247 commits past round 6's `e20
 | LLP 1104: buttons native by default | — | none: every clone button has a background or border, so all stay bare |
 | X67 (#320): the 2 MiB test stack | flattened in #382 | main's sweep passes; `view-depth.test.ts` re-measured on main's `contract-lower` |
 
+Fixes from main's 2026-10-10 merge (`d413487a8`, 26 commits past round 7's `bc357d03c`), task `20261010-adopt-main-fixes-r8`:
+
+| Fixed or changed on main | What the clone did | Now |
+|---|---|---|
+| LLP 1012 §1: a tap that names a node presses that node | the lanes' drives and three agent-run Contract tests tap by `testId` | nothing to move: 13 of 13 Contract tests pass and no drive tap is refused or `avoided` |
+| LLP 1115: a heading with no `aria-level` is level 2 (the Mac host shows it as AXHeading) | two headings wrote no level (static text on the Mac until now) | the device tools section title is the reference's `<h3>` (`aria-level=3`); "Import from t3.json" is Base UI's `role="presentation"` group label; `headings.test.ts` holds every heading to a level |
+| LLP 1041: six workers for independent HTTP | no `exactIndependentHttp` request; reads are native calls | unchanged |
+| Canvas host passes (`lean`, `collection_shown`) | — | unchanged: only the Linux host sets them; the Apple host's reports carry bits 0–2 |
+
 ## X20–X30 detail
 
 Source: a map of every clone hook and native component to the exact2 gap behind it, checked on main `d2cb661eb`.
@@ -580,10 +589,33 @@ world.
   in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`). For the same reason the
   right panel's toggle declares Escape only while the shown tab is not annotating, so a person's Escape reaches the page,
   whose overlay cancels the pick and keeps the panel, as PickPreload's does (realinput-1010c).
-- **Floating player's pill.** The handle's hover box grows to the pill's box while the pill shows, and the pill's buttons
-  hear no hover of their own: on macOS a hover node over another trades the hover with it on every move and a child
-  outside its parent's box hears none (X62, [#322](https://github.com/ccheever/exact2/issues/322)), so the pill hid as a
-  real pointer reached its buttons. The buttons' tooltips follow the pointer's place in that box (`pointermove`).
+- **Floating player's pill.** Whether the pointer is on the handle (the reference's 12 px `group`) or, while the pill shows,
+  on the pill's box is read from the player's own hover and `pointermove` (`bcPlayerZone`), not from a hover of the handle
+  or of the pill's buttons: on macOS a hover node over another trades the hover with it on every move and a child
+  outside its parent's box hears none (X62, [#322](https://github.com/ccheever/exact2/issues/322); main
+  `issues/20261009-macos-subtree-hover.md`), so the pill hid as a real pointer reached its buttons; and a real pointer
+  that came to rest on the 12 pt handle showed its grab cursor but no pill until it moved again (realinput-1010d RD-1, 3
+  of 3; the handle's own tracking area heard no enter, which an agent drive cannot reproduce: the agent's hover is a
+  hit-test, not the window server's tracking). The player's box has heard the pointer since it crossed the page, so the
+  arrival is a move there. The buttons' tooltips follow the pointer's place in the pill's box. One-file repro for the next
+  real-input session (an app from `bun scripts/exact.mjs new <dir>`, its `app.contract`): post 8 mouse moves 20 ms apart
+  from the window's middle onto the small box's centre (the session's `move x y 8`), rest, and read `log`: the miss shows
+  as no `S+` at rest (`S+` comes with the next move). If `S+` comes at once, the miss needs what lies under the clone's
+  handle (the floating page's `WKWebView`), which this plain box does not have.
+
+  ```text
+  component SmallHover
+    state log = ""
+    state n = 0
+    action ev(name: string, over: bool)
+      n = n + 1
+      log = `${n}${name}${over ? "+" : "-"} ${log}`
+    view
+      main width="100%" height="100%" position="relative" background-color="#ffffff" color="#111111"
+        text `log: ${log}` font-size=13 testId="log"
+        box position="absolute" left=200 top=120 width=480 height=320 background-color="#e4e4e7" testId="big"
+          box position="absolute" top=8 right=8 width=12 height=12 border-radius=6 background-color="#71717a" hover=ev("S") testId="small"
+  ```
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
   (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
   the person's clipboard.
@@ -694,6 +726,21 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
   `title` in `PresenterMac`), as Electron shows the native one. An agent drive reads it in the node's props (`tree
   usage-metric-cost`: `"title": "Cost (C)"`; `tree usage-period-1`: `"title": "Past 24h (⇧⌘1)"`), not in `tree --ax`,
   whose description is `aria-description`'s. The tooltip itself shows only under a real pointer in an active app.
+
+## Text context menu: the desktop shell's, over selected text (workaround)
+
+Task `20261010-realinput-1010d-followups` (RD-4). The T3 desktop shell answers a right-click the page leaves alone with its
+own menu (`DesktopWindow.ts` `installContextMenu`: spelling suggestions, Copy Link, Copy Image, then Cut, Copy, Paste and
+Select All by the page's edit flags). ExactKit answers a right-click on selected text with no authored `contextmenu` with the
+menu an NSTextView shows for read-only text (Look Up, Copy, Speech, Services; LLP 1115 D8). Contract cannot replace that
+menu short of a `contextmenu` on every text node, and an action has no command that copies the window's text selection.
+So the clone's module (`T3TextContextMenu.swift`) takes the right-click in a local monitor wherever ExactKit would show its
+text menu (the menu that carries Look Up) and pops the shell's in its place, on the same text node: Cut and Paste disabled,
+Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). The monitor ends the click
+there, so ExactKit's menu does not follow (the `contextmenu` AppKit rows send the click through `NSApp.sendEvent`, as the
+agent does). Under the agent it logs the items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
+ExactKit shows none (a right-click on text without a selection or on an empty area, which the reference answers with Cut,
+Copy and Paste disabled and Select All) and Copy Link over a link; a `contextmenu` on the window's root could carry them.
 
 ## Not exact2 asks (stay in the app module)
 

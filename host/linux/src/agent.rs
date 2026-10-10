@@ -365,7 +365,18 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let r = match wheel {
                 Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
-                None => p.tap(id),
+                // `at`: a point in the target, whatever a press there reaches (LLP 1012 §1).
+                None => match request.get("at") {
+                    Some(at) => match at
+                        .as_array()
+                        .filter(|v| v.len() == 2)
+                        .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)))
+                    {
+                        Some(point) => p.tap_at(id, Some(point)),
+                        None => Err("tap at needs two finite numbers".into()),
+                    },
+                    None => p.tap(id),
+                },
             };
             // The named modifiers come up in reverse, each without its own bit (#140).
             for name in named.split('+').filter(|n| !n.is_empty()).rev() {

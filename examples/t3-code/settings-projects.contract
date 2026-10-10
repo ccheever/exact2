@@ -283,7 +283,7 @@ component ProjectActionsSection
                   CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
                 KeyMenuOpen(menuId="import-scripts-menu", armed=keyArmed, opened=keyOpened)
                 CnMenu(menuId="import-scripts-menu", label="Import scripts", width=442, endAlign=111, offsetX=0, offsetY=0, items=(busy ? [] : map(data.importable, (script) => KmItem(id=`import-script-${script.name}`, label=script.name))), keyed=keyed)
-                  text "Import from t3.json" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)" role="heading"
+                  text "Import from t3.json" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)" role="presentation"
                   text "Add actions declared by this checkout without editing them first." font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)"
                   CnSeparator()
                   each script in data.importable key=script.key

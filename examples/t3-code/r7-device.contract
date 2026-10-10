@@ -178,7 +178,7 @@ component R7DevSection
   slot
   view
     column gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" border-bottom-width=(last ? 0 : 1) border-bottom-style="solid" border-color=r7devBorder()
-      text title font-size="0.75rem" font-weight=500 line-height="1rem" color=r7devMuted() role="heading"
+      text title font-size="0.75rem" font-weight=500 line-height="1rem" color=r7devMuted() role="heading" aria-level=3
       children
 
 component R7DevRow

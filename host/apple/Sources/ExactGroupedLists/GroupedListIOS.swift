@@ -267,6 +267,7 @@ final class GroupedListHost: GroupedLists {
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
+    var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
 }
 
 /// One projected list.
@@ -464,6 +465,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
+            // A route's bar follows the scroller its `navigationScroll` names;
+            // this list is drawn in that scroller's place, so the bar follows
+            // the list (a large title over a hidden scroll never showed).
+            let controller = sequence(first: owner as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
+            if let controller, controller.contentScrollView(for: .top) === scroll {
+                controller.setContentScrollView(collection, for: .top)
+            }
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {

@@ -435,13 +435,23 @@ ordered capacity. It adds no worker, grant, timer, or larger queue.
 
 Native requests now stay ordered by default. A source can explicitly promise
 that an HTTP operation **and its settlement** may overlap/reorder, with a declared
-response ceiling. Storage and native continuations cannot opt in. Two independent
-HTTP owners use separate transports; the original ordered owner retains control
-capacity. Completion Storm opts its held data requests in and keeps release
+response ceiling. Storage and native continuations cannot opt in. Six independent
+HTTP owners use separate transports (two until 2026-10-09; see below); the
+original ordered owner retains control capacity. Completion Storm opts its held data requests in and keeps release
 controls ordered. No independence is inferred from GET or matching origins.
 
 Independent admission counts queued, running and undrained outcomes against
-128 requests / 32 MiB. The ordered lane has one worker and a 512 MiB budget.
+128 requests / 64 MiB. (Amended 2026-10-09, the Bluesky clone: with two
+owners a source's `Promise.all` of 19 feed reads finished strictly two at a
+time, 50–100 ms apart; six owners, a browser's connections a host, overlap
+them, and the lane's bytes doubled from 32 MiB so that six 4 MiB-ceiling reads,
+each charged twice its ceiling while running, fit. The process bound is
+sixteen executors' workers. Measured on the simulator, cold launches signed
+out, eight interleaved pairs: runtime zero to the first post 822 → 662 ms
+median, worst 1295 → 808. Six bounds an executor's concurrent independent
+requests across origins, not connections per origin; each owner's transport
+is its own session pool, so a cold `Promise.all` opens a connection per busy
+owner, and one multiplexed HTTP/2 session is the further step.) The ordered lane has one worker and a 512 MiB budget.
 As built 2026-10-08 (issue #286), a plain HTTP `GET`/`HEAD` without opaque work
 may be admitted up to 128 total ordered tickets; other work retains the
 16-ticket total-lane admission bound. The request buffers of all admitted
@@ -483,7 +493,8 @@ begun, and releases when it ends; none holds a later ordered completion back.
 
 Retirement clears interest, aborts HTTP and drops queued work on its executor
 owner. It never joins arbitrary native closures on the UI thread. Each native
-host implementation limits live and retiring executor workers to 48 until exit.
+host implementation limits live and retiring executor workers to sixteen
+executors' worth (48 until 2026-10-09, 112 since) until exit.
 Opaque Rust closure captures and transient allocations remain **count-bounded
 only**, outside the transport byte reservation. D2 is not fully satisfied for
 arbitrary native work; this is no absolute heap bound. Nor does one transaction
