@@ -27,6 +27,50 @@ function clientFor(rows: Obj[]) {
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, value: {}, generation: 1 }; } };
 const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
 
+test('native command paragraphs appear only for an expanded command call', () => {
+  const row = projected({ input: '/bin/zsh -lc pwd', output: 'actual directory' }), client = clientFor([row]);
+  expect(mobileThreadActivity(activity, row, client, now, false, '', 'visit')).toMatchObject({
+    nativeCommandDetail: true, nativeWorkDetail: false, body: '/bin/zsh -lc pwd', output: 'actual directory', result: '',
+  });
+  expect(mobileThreadActivity({ ...activity, detailOpen: false }, row, client, now, false, '', 'visit')).toMatchObject({
+    nativeCommandDetail: false, body: '', output: '',
+  });
+  for (const item of [{ type: 'dynamic_tool', toolName: 'Read', input: { file_path: '/repo/a.ts' } }, { type: 'dynamic_tool', toolName: 'unknown', input: { value: 1 } },
+    { type: 'reasoning', text: 'Actual reasoning' }, { type: 'error', status: 'failed' }]) {
+    const other = projected(item);
+    expect(mobileThreadActivity(activity, other, clientFor([other]), now, false, '', 'visit').nativeCommandDetail).toBe(false);
+  }
+});
+
+test('native command paragraphs preserve actual loading, missing, empty and error output states', async () => {
+  for (const state of ['missing', 'empty', 'error']) {
+    const row = projected({ input: 'pwd', outputOmitted: true }), client = clientFor([row]);
+    const shown = () => mobileThreadActivity(activity, row, client, now, false, '', 'visit');
+    expect(shown()).toMatchObject({ nativeCommandDetail: true, body: 'pwd', output: 'Loading output…', loading: true });
+    client.rpc = async () => {
+      if (state === 'error') throw new Error('Actual output read failed');
+      return { item: state === 'missing' ? null : { ...obj(row.item), outputOmitted: false, output: '' } };
+    };
+    setTurnItemOpen(client, activity.id, true); await refreshNextOpenTurnItemDetail(client, native, now);
+    expect(shown()).toMatchObject({ nativeCommandDetail: true, body: 'pwd', loading: false,
+      output: state === 'missing' ? 'Output is no longer available.' : state === 'empty' ? 'No output.' : "Couldn't load output: Actual output read failed" });
+  }
+});
+
+test('fetched command paragraphs stay separate from original header copy, exit annotation and draft ownership', async () => {
+  const row = projected({ input: 'original command', outputOmitted: true }), client = clientFor([row]);
+  client.local.drafts[client.draftKey] = '  '; const before = JSON.stringify(client.projection);
+  const shown = () => mobileThreadActivity(activity, row, client, now, false, '', 'visit');
+  const copy = JSON.parse(shown().nativeWorkRow).copyText;
+  const output = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join('\n') + '\n';
+  client.rpc = async () => ({ item: { ...obj(row.item), input: 'actual fetched command', outputOmitted: false, output, exitCode: 7 } });
+  setTurnItemOpen(client, activity.id, true); await refreshNextOpenTurnItemDetail(client, native, now);
+  expect(shown()).toMatchObject({ nativeCommandDetail: true, body: 'actual fetched command', output, result: 'exit 7' });
+  expect(JSON.parse(shown().nativeWorkRow).copyText).toBe(copy);
+  expect(copy).not.toContain('actual fetched command'); expect(copy).not.toContain('line 30');
+  expect(JSON.stringify(client.projection)).toBe(before); expect(client.threadId).toBe('thread'); expect(client.draft).toBe('  ');
+});
+
 test('command Copy uses original wire data and schema order before and after fetching output', async () => {
   const row = projected({ input: '/bin/zsh -lc pwd', output: 'withheld inline output', outputOmitted: true, exitCode: 0,
     nativeItemRef: { strength: 'strong', nativeId: 'exec-id', driver: 'codex' } });

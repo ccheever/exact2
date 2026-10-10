@@ -40,6 +40,9 @@ final class T3MobileWorkLog {
     }
     func makeDetail(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         guard alive else { throw ExactNativeRefusal("The work log session has ended.") }
+        if props["detail-kind"] == "command" {
+            let result = T3CommandWorkDetail(owner: self, events: events); try result.setProps(props); return result
+        }
         let result = T3WorkDetail(owner: self, events: events); try result.setProps(props); return result
     }
     func allows(_ key: String) -> Bool {
@@ -158,6 +161,7 @@ final class T3SelectableWorkText: UILabel, UIEditMenuInteractionDelegate {
     var allowsCopy: (() -> Bool)?
     private var menu: UIEditMenuInteraction!
     private var hold: UILongPressGestureRecognizer!
+    private var menuRevision: UInt = 0
     override init(frame: CGRect) {
         super.init(frame: frame)
         numberOfLines = 0; lineBreakMode = .byWordWrapping; isUserInteractionEnabled = true; isAccessibilityElement = true
@@ -174,16 +178,17 @@ final class T3SelectableWorkText: UILabel, UIEditMenuInteractionDelegate {
     func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
         suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard allowsCopy?() == true else { return nil }
-        return UIMenu(children: [UIAction(title: "Copy") { [weak self] _ in self?.copyParagraph() }])
+        let revision = menuRevision
+        return UIMenu(children: [UIAction(title: "Copy") { [weak self] _ in self?.copyParagraph(revision: revision) }])
     }
-    private func copyParagraph() {
-        guard allowsCopy?() == true, let attributedText else { return }
+    private func copyParagraph(revision: UInt) {
+        guard revision == menuRevision, allowsCopy?() == true, let attributedText else { return }
         var item: [String: Any] = [UTType.utf8PlainText.identifier: attributedText.string]
         if let data = try? attributedText.data(from: NSRange(location: 0, length: attributedText.length),
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]) { item[UTType.flatRTFD.identifier] = data }
         UIPasteboard.general.items = [item]
     }
-    func cancelMenu() { menu.dismissMenu(); resignFirstResponder(); hold.isEnabled = false; hold.isEnabled = true }
+    func cancelMenu() { menuRevision &+= 1; menu.dismissMenu(); resignFirstResponder(); hold.isEnabled = false; hold.isEnabled = true }
 }
 
 private final class T3WorkDetailScroll: UIScrollView {
@@ -232,6 +237,94 @@ final class T3WorkDetail: ExactNativeInstance {
     }
     override func destroy() {
         alive = false; scroll.text.cancelMenu(); scroll.text.allowsCopy = nil; scroll.text.text = ""; config = nil; content = ""
+    }
+}
+
+// Pinned ThreadWorkLogRow renders input/output as separate selectable paragraphs;
+// the exit annotation is ordinary text. The Contract owns the 210pt scroll cap.
+private final class T3CommandDetailScroll: UIScrollView {
+    let input = T3SelectableWorkText(frame: .zero), output = T3SelectableWorkText(frame: .zero), result = UILabel()
+    var preferredWidth: CGFloat = 1
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        for label in [input, output, result] { label.numberOfLines = 0; addSubview(label) }
+        result.isAccessibilityElement = true; result.accessibilityTraits = .staticText
+        backgroundColor = .clear; showsVerticalScrollIndicator = true; isDirectionalLockEnabled = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    private func textHeight(_ label: UILabel, width: CGFloat) -> CGFloat {
+        guard let text = label.attributedText, !text.string.isEmpty, width > 0 else { return 0 }
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0; container.lineBreakMode = .byClipping
+        let layout = NSLayoutManager(); layout.usesFontLeading = false; layout.addTextContainer(container)
+        let storage = NSTextStorage(attributedString: text); storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        let scale = max(1, window?.screen.scale ?? traitCollection.displayScale)
+        return ceil((layout.usedRect(for: container).height + 0.001) * scale) / scale
+    }
+    private func arrange(width: CGFloat, assign: Bool) -> CGSize {
+        let textWidth = max(0, width - 8), inputHeight = textHeight(input, width: textWidth)
+        var y: CGFloat = 0
+        for (index, label) in [input, output, result].enumerated() {
+            let height = textHeight(label, width: textWidth)
+            if height > 0 && (index == 1 && inputHeight > 0 || index == 2) { y += 5.25 }
+            if assign { label.frame = CGRect(x: 0, y: y, width: textWidth, height: height) }
+            y += height
+        }
+        if assign { contentSize = CGSize(width: width, height: y) }
+        return CGSize(width: width, height: y)
+    }
+    var preferredSize: CGSize { arrange(width: preferredWidth, assign: false) }
+    override func layoutSubviews() { super.layoutSubviews(); _ = arrange(width: bounds.width, assign: true) }
+}
+
+private final class T3CommandWorkDetail: ExactNativeInstance {
+    private let scroll = T3CommandDetailScroll(frame: .zero)
+    private weak var owner: T3MobileWorkLog?
+    private var config: T3WorkRowConfiguration?
+    private var inputText = "", outputText = "", alive = true
+    override var view: UIView { scroll }
+    init(owner: T3MobileWorkLog, events: ExactNativeEvents) {
+        self.owner = owner; super.init(events: events)
+        for label in [scroll.input, scroll.output] { label.allowsCopy = { [weak self] in self?.canCopy() == true } }
+    }
+    private func canCopy() -> Bool {
+        guard alive, let config, scroll.window != nil, !scroll.isHidden,
+              scroll.bounds.width > 0, scroll.bounds.height > 0 else { return false }
+        return owner?.allows(config.routeKey) == true
+    }
+    private func attributed(_ text: String, color: UIColor) -> NSAttributedString {
+        let font = UIFont(name: "Menlo", size: 12) ?? .monospacedSystemFont(ofSize: 12, weight: .regular)
+        let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = 18; paragraph.maximumLineHeight = 18
+        return NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color,
+            .paragraphStyle: paragraph, .baselineOffset: (18 - font.lineHeight) / 2])
+    }
+    override func setProps(_ props: [String: String]) throws {
+        let next = try T3WorkRowConfiguration.read(props)
+        guard let width = Double(props["preferred-width"] ?? ""), width.isFinite, width > 0 else {
+            throw ExactNativeRefusal("Command detail requires a positive feed width.")
+        }
+        let input = props["detail-text"] ?? "", output = props["detail-output"] ?? ""
+        let foreground = try T3SymbolView.color(props["detail-foreground"] ?? "#27272a")
+        let muted = try T3SymbolView.color(props["detail-muted"] ?? "#6f6f79")
+        let resultColor = try T3SymbolView.color(props["detail-result-foreground"] ?? "#c10007")
+        let scopeChanged = config?.owner != next.owner
+        if scopeChanged || inputText != input { scroll.input.cancelMenu() }
+        if scopeChanged || outputText != output { scroll.output.cancelMenu() }
+        if scopeChanged { scroll.setContentOffset(.zero, animated: false) }
+        config = next; inputText = input; outputText = output; scroll.preferredWidth = CGFloat(width)
+        scroll.input.attributedText = attributed(input, color: foreground)
+        scroll.output.attributedText = attributed(output, color: muted)
+        scroll.result.attributedText = attributed(props["detail-result"] ?? "", color: resultColor)
+        scroll.input.accessibilityIdentifier = "thread-work-input-\(next.id)"
+        scroll.output.accessibilityIdentifier = "thread-work-output-\(next.id)"
+        scroll.result.accessibilityIdentifier = "thread-work-result-\(next.id)"
+        scroll.setNeedsLayout(); events.intrinsicSize(scroll.preferredSize)
+    }
+    override func destroy() {
+        alive = false; config = nil
+        for label in [scroll.input, scroll.output] { label.cancelMenu(); label.allowsCopy = nil; label.attributedText = nil }
+        scroll.result.attributedText = nil; inputText = ""; outputText = ""
     }
 }
 #endif

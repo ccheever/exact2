@@ -61,6 +61,10 @@ component ThreadToolRow
                           text file.name font-family="DM Sans" font-size=14 line-height="19px" color=colors.foreground text-decoration-line="underline"
             when activity.nativeWorkDetail
               t3-work-detail configuration=activity.nativeWorkRow detail-text=activity.body detail-muted=colors.muted height=210 min-width=0 testId=`thread-work-detail-${activity.id}`
+            else when activity.nativeCommandDetail
+              t3-work-detail configuration=activity.nativeWorkRow detail-kind="command" preferred-width=workWidth
+                detail-text=activity.body detail-output=activity.output detail-result=activity.result detail-foreground=colors.foreground detail-muted=colors.muted
+                detail-result-foreground=colors.dangerForeground max-height=210 min-width=0 testId=`thread-work-detail-${activity.id}`
             else
               scroll max-height=210 overflow-y="auto"
                 column padding-right=8
