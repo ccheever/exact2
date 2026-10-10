@@ -46,7 +46,7 @@ hover tooltip and use it in both rows.
 Excluded:
 - The Icon submenu's placement (S2-9): X17, Charlie's decision: T3 waits for main fix of
   [#112](https://github.com/ccheever/exact2/issues/112) and adds no per-site flip arithmetic
-  ([X17](../issues/20261005-x17-popover-position-try.md), line 13; main file `issues/20261009-popover-css-flip-fallbacks.md`).
+  ([X17](../../issues/closed/20261005-x17-popover-position-try.md), line 13; main file `issues/20261009-popover-css-flip-fallbacks.md`).
 - The number fields (Days of inactivity, Run every, Port): X60, waits for main fix of #301.
 - Framework code.
 

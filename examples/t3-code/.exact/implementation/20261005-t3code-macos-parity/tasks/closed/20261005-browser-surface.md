@@ -128,7 +128,7 @@ How part 1 is built (the seams the later parts extend):
 | merged task PR | [20261008-app-contract-root-rewrite](20261008-app-contract-root-rewrite.md) | [#332](https://github.com/ccheever/exact2/pull/332) | Merged: the surface adds root resources and state, and the root was at its line cap | merged into `feat(example)/t3-code` as `f633671b7`; this branch starts there |
 | merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | #99 | Merged | not a blocker for part 1 (the branch builds on the feature branch's adopted main) |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | — | Merged into the T3 branch | merged |
-| framework issue | [X66](../../issues/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the "+" menu's profile submenu opens from its chevron, not on hover | declared in `EXACT2-GAPS.md` |
+| framework issue | [X66](../../issues/closed/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the "+" menu's profile submenu opens from its chevron, not on hover | declared in `EXACT2-GAPS.md` |
 | not a prerequisite | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | none | Not built (user decision, 2026-10-06): oracle and trace rows are recorded "not run — user decision 2026-10-06" | — |
 
 ## Acceptance and reproduction (part 1)

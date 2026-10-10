@@ -67,10 +67,10 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X17](../../issues/20261005-x17-popover-position-try.md) | Menu and popover flips near window edges (More menu, freshness popover, stack menu) | Fixed placement | nonblocking (workaround: fixed placement; the near-edge difference is declared) | Declare in `EXACT2-GAPS.md` |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md) | Menu and popover flips near window edges (More menu, freshness popover, stack menu) | Fixed placement | nonblocking (workaround: fixed placement; the near-edge difference is declared) | Declare in `EXACT2-GAPS.md` |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` near its cap | 1,327/1,500 lines | nonblocking | Child components in new files |
-| [X21](../../issues/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
-| [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | Escape/Return inside a dialog while a button has focus | Key handlers on dialogs | nonblocking (workaround: `key=` handler with `preventDefault()` on the dialog column) | Prove with the keyboard row |
+| [X21](../../issues/closed/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
+| [X25](../../issues/closed/20261005-x25-keyboard-keyup-code-capture.md) | Escape/Return inside a dialog while a button has focus | Key handlers on dialogs | nonblocking (workaround: `key=` handler with `preventDefault()` on the dialog column) | Prove with the keyboard row |
 
 ## Implementation notes
 

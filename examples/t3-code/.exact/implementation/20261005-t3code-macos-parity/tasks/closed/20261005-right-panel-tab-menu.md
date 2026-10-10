@@ -82,8 +82,8 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views and native menus | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | The agent can open the menu with a context-menu tap and run items by command; the visible menu and middle-click are attended |
-| [X26](../../issues/20261005-x26-app-menu-control.md) | Menu at the pointer | `EXACT2-GAPS.md` X26 | nonblocking (workaround: `T3ContextMenu.swift`) | Show the native menu at the pointer |
-| [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts for the editor and the keyboard menu | `EXACT2-GAPS.md` X25 | nonblocking (workaround: native key monitors) | Follow what `20261005-main-fix-adoption` establishes for the context-menu key on rows; if the host cannot deliver it, declare it |
+| [X26](../../issues/closed/20261005-x26-app-menu-control.md) | Menu at the pointer | `EXACT2-GAPS.md` X26 | nonblocking (workaround: `T3ContextMenu.swift`) | Show the native menu at the pointer |
+| [X25](../../issues/closed/20261005-x25-keyboard-keyup-code-capture.md) | Key facts for the editor and the keyboard menu | `EXACT2-GAPS.md` X25 | nonblocking (workaround: native key monitors) | Follow what `20261005-main-fix-adoption` establishes for the context-menu key on rows; if the host cannot deliver it, declare it |
 | [X1](../../issues/closed/20261005-x01-chromium-cdp-browser-surface.md) | Browser surface | `EXACT2-GAPS.md` X1 | excluded feature | Mute slot kept, never rendered |
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components | Line cap | nonblocking until the cap | State in a TS module, not `app.contract` |
 

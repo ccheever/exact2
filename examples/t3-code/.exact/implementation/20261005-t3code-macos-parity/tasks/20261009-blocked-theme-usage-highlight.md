@@ -49,7 +49,7 @@ Evidence paths are under the repository root. They stay local and are not commit
   Its current scope (Charlie's transfer, 2026-10-09): "Design the action-only elementsFromPoint structural read". It does
   not list nodes by paint. The closed [settings-scoped-controls-and-theme-editor](closed/20261005-settings-scoped-controls-and-theme-editor.md)
   excluded Inspect only (line 31). So this is a new framework gap: local draft
-  [X69](../issues/20261009-x69-paint-role-node-query.md).
+  [X69](../issues/closed/20261009-x69-paint-role-node-query.md).
 
 ## What was compared
 

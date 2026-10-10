@@ -62,7 +62,7 @@ Checked sources and time: {{at prepare}}.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X19](../../issues/20261005-x19-data-source-timers.md) | Timers in data sources | `EXACT2-GAPS.md` X19 | nonblocking (workaround: `now` argument) | record in each converted file header |
+| [X19](../../issues/closed/20261005-x19-data-source-timers.md) | Timers in data sources | `EXACT2-GAPS.md` X19 | nonblocking (workaround: `now` argument) | record in each converted file header |
 
 ## Implementation notes
 

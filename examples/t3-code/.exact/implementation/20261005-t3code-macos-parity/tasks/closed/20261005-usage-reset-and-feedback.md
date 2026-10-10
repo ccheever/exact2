@@ -48,7 +48,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X19](../../issues/20261005-x19-data-source-timers.md), [X11](../../issues/20261005-x11-shadow-blur-parity.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../../issues/closed/20261005-x21-two-way-websocket.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X19](../../issues/closed/20261005-x19-data-source-timers.md), [X11](../../issues/closed/20261005-x11-shadow-blur-parity.md), [X17](../../issues/closed/20261005-x17-popover-position-try.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

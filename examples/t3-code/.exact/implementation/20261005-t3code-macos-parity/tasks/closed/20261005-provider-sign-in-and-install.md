@@ -53,7 +53,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/closed/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/closed/20261005-x21-two-way-websocket.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X17](../../issues/closed/20261005-x17-popover-position-try.md), [X5](../../issues/closed/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/closed/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
@@ -130,7 +130,7 @@ eight scope items. What was built and where:
 - Deviation kept: terminal-type sign-in methods are not offered (scope of
   `20261005-sign-in-terminals`). The Runtime row's bar has `role="progressbar"` with its
   percentage as `aria-description`: Contract has no progress value (local draft
-  [X49](../../issues/20261007-x49-progress-value-accessibility.md)).
+  [X49](../../issues/closed/20261007-x49-progress-value-accessibility.md)).
 
 Attended row (2026-10-07/08, real input through `orca computer` under the real-input lock, lane
 copy `T3 Code (Lane PSI).app` with its own bundle id, lane server `t3` 0.0.46-nightly on port
@@ -217,6 +217,6 @@ Review and merge PR #238 into `feat(example)/t3-code`. The remaining verificatio
 item's disposition are tracked in [provider sign-in verification follow-up](../20261008-provider-sign-in-verification-followup.md).
 The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
 Cursor remains unverified until tested with a Pro account; Google/ACP and real-account
-sign-out/change also remain unverified. Publishing [X49](../../issues/20261007-x49-progress-value-accessibility.md)
+sign-out/change also remain unverified. Publishing [X49](../../issues/closed/20261007-x49-progress-value-accessibility.md)
 upstream still needs the user's approval. Merging this implementation does not complete
 these follow-ups.

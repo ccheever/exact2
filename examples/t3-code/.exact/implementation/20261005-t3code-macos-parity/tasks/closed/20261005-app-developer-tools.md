@@ -107,7 +107,7 @@ Checked 2026-10-08 against the feature branch at `732f0e3f3` (merged to `84a52dd
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X2](../../issues/closed/20261005-x02-app-developer-tools.md), #101 | Inspector for the app UI; DEFERRED rule | decided 2026-10-08 | resolved for this task: only the app-side web view flag is allowed, and that needs no framework change | none; #101 stays open upstream for its bounded scope |
-| [X26](../../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | none: no menu item is added | none |
+| [X26](../../issues/closed/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | none: no menu item is added | none |
 
 ## Implementation notes
 

@@ -104,8 +104,8 @@ Checked sources and time: {{at prepare}}; draft records only.
 | [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap; a second sidebar is large | 1,327 of 1,500 lines | nonblocking until the cap, then blocking | Put the whole legacy sidebar in new `.contract` files with child state; add one `when` in the root |
 | [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan (project drag) | `EXACT2-GAPS.md` X13 | nonblocking (workaround: the sweep code in `sidebar-drop.ts`; Escape cancel differs) | Declare |
 | [X24](../../issues/closed/20261005-x24-still-pointer-rehover.md) | Hover under a still pointer after the list changes | X24 | nonblocking (workaround: `t3-rehover` hook) | none Update 2026-10-07 (adopt-main-fixes-shell): fixed on main #174; `t3-rehover` removed from the legacy project list. |
-| [X17](../../issues/20261005-x17-popover-position-try.md) | Sidebar options menu flips | X17 | nonblocking (declared visible difference) | Declare |
-| [X26](../../issues/20261005-x26-app-menu-control.md) | Native menus at a point | X26 | nonblocking (workaround: `T3ContextMenu.swift`) | none |
+| [X17](../../issues/closed/20261005-x17-popover-position-try.md) | Sidebar options menu flips | X17 | nonblocking (declared visible difference) | Declare |
+| [X26](../../issues/closed/20261005-x26-app-menu-control.md) | Native menus at a point | X26 | nonblocking (workaround: `T3ContextMenu.swift`) | none |
 
 ## Implementation notes
 

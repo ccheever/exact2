@@ -70,7 +70,7 @@ retain keyboard controls, visible focus, Escape dismissal and trigger focus retu
 - [Settings scopes and theme editor](20261005-settings-scoped-controls-and-theme-editor.md)
   owns the floating editor's app-wide lifetime, drag, resize, minimize and save notices. Its D16
   scope does not include the color picker's missing controls.
-- [X30](../../issues/20261005-x30-ts-announce-readback-picker.md) tracks Inspect/pixel readback.
+- [X30](../../issues/closed/20261005-x30-ts-announce-readback-picker.md) tracks Inspect/pixel readback.
   Choosing a color in the editor does not require screen inspection.
 - No framework blocker was demonstrated; the example already has hue/plane controls for
   provider accents. Pure spacing and color differences remain in the audit's shared visual task.

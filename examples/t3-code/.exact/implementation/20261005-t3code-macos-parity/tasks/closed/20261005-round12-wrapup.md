@@ -135,7 +135,7 @@ already carries the uncommitted framework edit `js/src/parking.rs` + `js/src/lib
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X23](../../issues/20261005-x23-scroll-restore-offsets.md) | Scroll restore by key (F1 wheel, thread switch) | `EXACT2-GAPS.md` X23; clone `R9Input.swift` settle tail | nonblocking (workaround exists; the real-wheel check stays attended) | keep the workaround; record the attended result in X23 |
+| [X23](../../issues/closed/20261005-x23-scroll-restore-offsets.md) | Scroll restore by key (F1 wheel, thread switch) | `EXACT2-GAPS.md` X23; clone `R9Input.swift` settle tail | nonblocking (workaround exists; the real-wheel check stays attended) | keep the workaround; record the attended result in X23 |
 | [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan (sweep rows) | `EXACT2-GAPS.md` X13 | nonblocking (not in this ticket's scope) | none |
 | [X14](../../issues/closed/20261005-x14-parked-native-reply.md) | Native replies after a let-go answer | mc-orch tree carries the framework edit at `c1522fdac` | nonblocking here (the old base already includes the edit); matters in `20261005-clone-on-exact2-main` | none |
 | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input into native views (F2 Files editor click) | `EXACT2-GAPS.md` X8 | nonblocking (AppKit test + attended row) | none |

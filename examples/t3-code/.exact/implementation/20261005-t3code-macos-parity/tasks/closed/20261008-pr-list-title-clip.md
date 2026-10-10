@@ -42,7 +42,7 @@ Two halves, both reproduced:
   inherited centre was invisible while a title fit its column and cut its start once it did not.
   Editing was incidental: #149 ("Link the FAQ from the usage notes", 33 characters) read
   "#149 k the FAQ from the us…" ("Lin" and half the "k" cut) on its first read in the same column, no edit. One-file repro, macOS
-  beside web: [X57](../../issues/20261008-x57-overflowing-centred-line.md).
+  beside web: [X57](../../issues/closed/20261008-x57-overflowing-centred-line.md).
 
 Alignment it was; not a scroll offset (the title is a paragraph, which never gets a scroll view,
 `NodeViewMac.swift`) and not the truncation itself (the ellipsis is made at the box's width).
