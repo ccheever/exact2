@@ -351,7 +351,7 @@ Fixes from main's 2026-10-10 merge (`bc357d03c`, 247 commits past round 6's `e20
 | LLP 1104: buttons native by default | — | none: every clone button has a background or border, so all stay bare |
 | X67 (#320): the 2 MiB test stack | flattened in #382 | main's sweep passes; `view-depth.test.ts` re-measured on main's `contract-lower` |
 
-Fixes from main's 2026-10-10 merge (`a10050516`, 25 commits past round 7's `bc357d03c`), task `20261010-adopt-main-fixes-r8`:
+Fixes from main's 2026-10-10 merge (`d413487a8`, 26 commits past round 7's `bc357d03c`), task `20261010-adopt-main-fixes-r8`:
 
 | Fixed or changed on main | What the clone did | Now |
 |---|---|---|
