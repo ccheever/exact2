@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r8'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/402
 verified_commit: 922ba1b5bf7743f86ffcae638be723aed9298275
 ---
 
@@ -141,6 +141,6 @@ No row needs real input.
 
 ## Next action
 
-The coordinator reviews the draft PR, syncs `STATUS.md` and `plan.md` (round 8 done, main `d413487a8` adopted), merges
+The coordinator reviews the draft PR [#402](https://github.com/ccheever/exact2/pull/402), syncs `STATUS.md` and `plan.md` (round 8 done, main `d413487a8` adopted), merges
 it, and decides on the Settings headings follow-up above. Round 9 starts with `git merge -s ours d413487a8` and takes
 #327's retirements once it lands.
