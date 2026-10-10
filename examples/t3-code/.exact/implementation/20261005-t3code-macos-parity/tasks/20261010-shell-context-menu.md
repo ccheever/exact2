@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-shell-context-menu'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/407
 verified_commit: null
 ---
 
@@ -192,6 +192,10 @@ the clipboard empty first:
 Should the coordinator file S1–S3 (ExactKit: select the word under a secondary click; dispatch `contextmenu` for an
 inline run; expose a node's `href` to modules)? Each has a one-file repro in EXACT2-GAPS.md. If they are filed, the
 entries take their numbers; otherwise they stay declared differences. Nothing else in this task depends on it.
+
+## Delivery
+
+Draft PR [#407](https://github.com/ccheever/exact2/pull/407) into `feat(example)/t3-code`.
 
 ## Next action
 
