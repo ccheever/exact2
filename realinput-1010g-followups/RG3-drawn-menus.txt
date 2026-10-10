@@ -1,0 +1,38 @@
+realinput-1010g-followups RG-3: system items (AutoFill, Services, Writing Tools) in the shell's menus
+
+== Reference
+DesktopWindow.ts installContextMenu builds the template only (suggestions, Copy Link, Copy Image, Cut, Copy, Paste,
+Select All) and Electron pops it with popUpMenuPositioningItem:atLocation:inView:, which adds nothing (#407 read every
+case's menu from the main process; realinput-1010f RF-1). The <webview> (Browser) menus are the same template.
+
+== How it was read in the clone
+AppKit adds AutoFill and Services to the menu it draws, never to menu.items, so the AppKit tests read the item labels
+of the open menu window (NSPopupMenuWindow's text fields) from a timer in the menu's tracking loop, then close it.
+'AppKit's pop-up (6bac646cc)' is the same menu popped with NSMenu.popUpContextMenu and nothing switched off, as the
+session's build did. Labels only: separators draw no label.
+
+-- before: the feature tip's T3TextContextMenu.swift / T3ShellWebView.swift (RF-1, #413, already turns plug-ins off on
+   the shell's own menus)
+   target/rg/before/tests/realinput-1010g.swift:173: error: -[T3contextmenuTests.RealInput1010gTests testTheDrawnShellMenuHasNoAutoFillServicesOrWritingTools] : XCTAssertFalse failed - no Writing Tools where Apple Intelligence is on
+   target/rg/before/tests/realinput-1010g.swift:237: error: -[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill] : XCTAssertEqual failed: ("Optional(["Cut", "Copy", "Paste", "Select All", "Services"])") is not equal to ("Optional(["Cut", "Copy", "Paste", "Select All"])") - a word: selected, Copy (#407 step 6)
+   target/rg/before/tests/realinput-1010g.swift:238: error: -[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill] : XCTAssertEqual failed: ("Optional(["Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"])") is not equal to ("Optional(["Cut", "Copy", "Paste", "Select All"])") - a word in a field (#407 step 7)
+   Test Case '-[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill]' failed (2.268 seconds).
+   t3.rg3: composer "chek", AppKit's pop-up (6bac646cc): ["check", "chef", "Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["check", "chef", "Cut", "Copy", "Paste", "Select All"]
+   t3.rg3: field "theme", AppKit's pop-up (6bac646cc): ["Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["Cut", "Copy", "Paste", "Select All"]
+   t3.rg3: Browser page, a word: ["Cut", "Copy", "Paste", "Select All", "Services"]; a word in a field: ["Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]
+
+Reading: the composer's spelling menu and the field's menu lost AutoFill and Services with RF-1 (#413, 1d620b880),
+after the session's build; the session's AutoFill was 6bac646cc's. A Browser page's menu (WebKit's, rebuilt in
+willOpenMenu) still had Services (#407 steps 6 and 7 noted 'Services: YES') and AutoFill in a field: RF-1 switched
+plug-ins off only where the shell pops its own menus (`present`), and AppKit reads the switch when the pop-up starts,
+before willOpenMenu (tried: the switch set in willOpenMenu left both items drawn). Writing Tools
+(macOS 15.2+, where Apple Intelligence is on) was not switched off anywhere; it does not show on this Mac.
+
+-- after (this branch, final head; contextmenu 53 run, 0 failed):
+   Test Case '-[T3contextmenuTests.RealInput1010gTests testCutTakesTheWordTheRightClickSelectedInAField]' passed (0.057 seconds).
+   Test Case '-[T3contextmenuTests.RealInput1010gTests testTheDrawnShellMenuHasNoAutoFillServicesOrWritingTools]' passed (1.715 seconds).
+   Test Case '-[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage]' passed (0.041 seconds).
+   Test Case '-[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill]' passed (2.278 seconds).
+   t3.rg3: composer "chek", AppKit's pop-up (6bac646cc): ["check", "chef", "Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["check", "chef", "Cut", "Copy", "Paste", "Select All"]
+   t3.rg3: field "theme", AppKit's pop-up (6bac646cc): ["Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["Cut", "Copy", "Paste", "Select All"]
+   t3.rg3: Browser page, a word: ["Cut", "Copy", "Paste", "Select All"]; a word in a field: ["Cut", "Copy", "Paste", "Select All"]
