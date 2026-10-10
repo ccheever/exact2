@@ -7,6 +7,11 @@
 // Escape inline too, and its launcher handed Escape to the panel, which hid it: both closed the inline panel.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import type { T3Client } from './client';
+import type { Native } from './protocol';
+import { panelState, panelView, surfaceLocal } from './r4-surfaces-panel';
+import { filesLocal } from './r4-surfaces-files';
+import { decodeClientPrefs } from './settings-core';
 
 const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
 const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
@@ -43,7 +48,7 @@ function keysOf(row: string): (facts: Record<string, boolean>) => string {
   };
 }
 
-const holders = ['panel.deviceSetup', 'panel.files.editorsOpen', 'panel.files.editing', 'panel.browser.capture.pickActive'];
+const holders = ['panel.deviceSetup', 'panel.files.editorsOpen', 'panel.files.editing', 'panel.files.searchFocused', 'panel.browser.capture.pickActive'];
 const none = Object.fromEntries(holders.map(name => [name, false]));
 
 describe('right-panel-escape: the right panel takes Escape only as a sheet', () => {
@@ -73,6 +78,15 @@ describe('right-panel-escape: the right panel takes Escape only as a sheet', () 
     expect(launcher({ sheet: true })).toBe('Escape');
   });
 
+  test('the Files search\'s own Escape closes the search and blurs the field (FileSearchField onKeyDown), and closes a sheet', () => {
+    const explorer = block(source('r4-surfaces-files.contract'), 'component R4Explorer', '//');
+    expect(explorer).toContain('  action searchKey(k: string)\n    if k == "Escape"\n      local("surface-files-search-key", sheet ? "sheet" : "", k)\n      preventDefault()\n      blur()');
+    expect(line(explorer, 'testId="files-search"')).toContain('key=searchKey focus=local("surface-files-search-focus", "", "true") blur=local("surface-files-search-focus", "", "false")');
+    // The sheet's Escape closes the dialog after closeSearch: the window's half of the close (rightPanelStore.close).
+    const chatLocal = source('app.contract').split('\n').find(row => row.includes('op == "surface-browser-float"')) ?? '';
+    expect(chatLocal).toContain('(op == "surface-files-search-key" and id == "sheet" and value == "Escape")');
+  });
+
   test('the Files editor\'s own Escape leaves it (installFileEditorDismissal), and its blur ends the editing', () => {
     const preview = block(source('r4-surfaces-files.contract'), 'component R4FilePreview', '//');
     expect(preview).toContain('  action editorKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      blur()');
@@ -92,5 +106,70 @@ describe('right-panel-escape: the launcher\'s Escape hides nothing (RightPanelEm
       expect(body).not.toContain('id == "Escape"');
       expect(body).toContain('what == "toggle" or what == "close" or what == "tab-close"');
     }
+  });
+});
+
+const native = { available: true } as unknown as Native;
+function filesClient() {
+  const calls: string[] = [];
+  const client = {
+    environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false, origin: 'http://127.0.0.1:9',
+    get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
+    config: {}, presentation: {}, local: { clientSettings: { ...decodeClientPrefs({}), wordWrap: true } },
+    shell: { projects: [{ id: 'p1', title: 'demo', workspaceRoot: '/repo' }], threads: [{ id: 't1', projectId: 'p1', branch: 'main' }] },
+    rpc: async () => ({}),
+    restAccess: () => ({
+      request: async (method: string, payload: Record<string, unknown>) => {
+        calls.push(`${method} ${String(payload.query ?? payload.relativePath ?? '')}`.trim());
+        if (method === 'projects.listEntries') return { entries: [{ path: 'src', kind: 'directory' }, { path: 'README.md', kind: 'file' }] };
+        if (method === 'projects.searchEntries') return { entries: [{ path: 'README.md', kind: 'file' }], truncated: false };
+        return {};
+      },
+      call: async () => ({}),
+    }),
+  } as unknown as T3Client;
+  return { client, calls };
+}
+
+describe('right-panel-escape: the Files search holds Escape while it has the focus', () => {
+  test('its focus is the open Files surface\'s; Escape clears the search, and inline the panel stays', async () => {
+    const { client } = filesClient();
+    await surfaceLocal(client, native, 'open', '', 'files');
+    await filesLocal(client, native, 'search', '', 'read');
+    expect((await panelView(client, native, 1)).files).toMatchObject({ query: 'read', searchFocused: false });
+    await filesLocal(client, native, 'search-focus', '', 'true');
+    expect((await panelView(client, native, 1)).files.searchFocused).toBe(true);
+    await surfaceLocal(client, native, 'files-search-key', '', 'Escape');
+    const view = await panelView(client, native, 1);
+    expect(view.files).toMatchObject({ query: '', searchFocused: false });
+    expect(view.open).toBe(true);
+  });
+
+  test('a sheet\'s Escape in the search clears it and closes the panel (the dialog after closeSearch)', async () => {
+    const { client } = filesClient();
+    await surfaceLocal(client, native, 'open', '', 'files');
+    await filesLocal(client, native, 'search', '', 'read');
+    await filesLocal(client, native, 'search-focus', '', 'true');
+    await surfaceLocal(client, native, 'files-search-key', 'sheet', 'Escape');
+    expect(panelState(client).visible).toBe(false);
+    await surfaceLocal(client, native, 'show', '', '');
+    expect((await panelView(client, native, 1, true)).files).toMatchObject({ query: '', searchFocused: false });
+  });
+
+  test('a focus the field never gave back does not outlive the panel, the explorer or the surface', async () => {
+    const { client } = filesClient();
+    await surfaceLocal(client, native, 'open', '', 'files');
+    await filesLocal(client, native, 'search-focus', '', 'true');
+    await surfaceLocal(client, native, 'hide', '', '');
+    await surfaceLocal(client, native, 'show', '', '');
+    expect((await panelView(client, native, 1)).files.searchFocused).toBe(false);
+    await filesLocal(client, native, 'search-focus', '', 'true');
+    await filesLocal(client, native, 'explorer', '', '');
+    await filesLocal(client, native, 'explorer', '', '');
+    expect((await panelView(client, native, 1)).files.searchFocused).toBe(false);
+    await filesLocal(client, native, 'search-focus', '', 'true');
+    await surfaceLocal(client, native, 'file', 'README.md', 'tree');
+    const beside = await panelView(client, native, 1);
+    expect(beside.files).toMatchObject({ path: 'README.md', showExplorer: true, searchFocused: false });
   });
 });

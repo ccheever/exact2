@@ -163,8 +163,10 @@ component R4HeaderBar
       // the key reach the document: the URL field and the Files search close it too. What keeps it there keeps it here: a
       // nested dialog (device setup) or menu (the file's editor menu), the file editor (installFileEditorDismissal blurs
       // it first), and the Browser pick, which focuses the page (PickPreload cancels it). Checked on the reference over CDP.
+      // The Files search clears itself before its sheet closes (FileSearchField's onKeyDown runs first), so while it has
+      // the focus the field takes the key and closes the sheet (R4Explorer searchKey).
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((sheet and not (panel.deviceSetup or panel.files.editorsOpen or panel.files.editing or panel.files.searchFocused or panel.browser.capture.pickActive)) ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 

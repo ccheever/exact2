@@ -1132,7 +1132,8 @@ component T3Code
     if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
     // browser-surface part 3: Float preview closes the right panel too (handlePictureInPicture: rightPanelStore.close).
-    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating)
+    // right-panel-escape: so does a sheet's Files search Escape (the dialog closes after FileSearchField's closeSearch).
+    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
     // audit-wave-followups FU-3: a Files preview comment's ops have their own queued send. Its save inserts the composer's
     // chip, whose text change is the composer's `draft` write on localChanged: on one send, that write replaced the
