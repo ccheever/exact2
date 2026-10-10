@@ -1,0 +1,77 @@
+1791621024.479568 down at=1083,643 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791621024.5459728 up at=1083,643 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621025.654753 key chars=, ignoring=, code=43 chord=, responder=ExactWindow composerFocused=false marked=false source=-
+1791621027.6967468 down at=128,616 clicks=1 hit=NodeView:settings-snap-shot responder=ExactWindow marked=false source=- key=true
+1791621027.763373 up at=128,616 clicks=1 hit=NodeView:settings-snap-shot responder=NodeView marked=false source=- key=true
+1791621029.6797981 down at=1160,681 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621029.746057 up at=1160,681 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621036.95071 down at=866,397 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621037.017185 up at=866,397 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621049.300538 down at=237,49 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=false
+1791621049.376337 up at=237,49 clicks=0 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=true
+1791621121.547678 down at=237,49 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=false
+1791621125.056026 down at=174,37 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=true
+1791621125.6561189 up at=196,302 clicks=0 hit=nil: responder=T3PermissionHelperClose marked=false source=- key=false
+1791621233.637319 down at=110,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621233.704 up at=110,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621242.704452 down at=366,382 clicks=1 hit=NodeView:model-picker-label responder=ExactWindow marked=false source=- key=true
+1791621242.7711282 up at=366,382 clicks=1 hit=NodeView:model-picker-label responder=NodeView marked=false source=- key=true
+1791621244.229303 down at=306,256 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621244.3042521 up at=306,256 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621253.821374 down at=451,240 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621253.8882551 up at=451,240 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621255.709083 down at=451,193 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621255.775445 up at=451,193 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621257.5846438 down at=452,287 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621257.651264 up at=452,287 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621259.459087 down at=452,287 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621259.5257812 up at=452,287 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621371.641626 focus-bridge marked=false
+1791621372.440484 key chars=, ignoring=, code=43 chord=, responder=TextArea composerFocused=true marked=false source=com.apple.keylayout.ABC
+1791621377.027451 down at=128,688 clicks=1 hit=NodeView:settings-appearance responder=ExactWindow marked=false source=- key=true
+1791621377.094322 up at=128,688 clicks=1 hit=NodeView:settings-appearance responder=NodeView marked=false source=- key=true
+1791621383.3715591 down at=768,642 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621383.434023 up at=768,642 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621390.0657191 down at=373,382 clicks=1 hit=NodeView:model-picker-label responder=ExactWindow marked=false source=- key=true
+1791621390.132417 up at=373,382 clicks=1 hit=NodeView:model-picker-label responder=NodeView marked=false source=- key=true
+1791621396.590913 down at=452,287 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621396.657526 up at=452,287 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621398.391074 down at=451,240 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621398.4574761 up at=451,240 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621400.1827478 down at=451,193 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621400.24931 up at=451,193 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621401.982425 down at=451,193 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621402.049017 up at=451,193 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621410.570929 focus-bridge marked=false
+1791621411.3784518 key chars=, ignoring=, code=43 chord=, responder=TextArea composerFocused=true marked=false source=com.apple.keylayout.ABC
+1791621413.04057 down at=128,688 clicks=1 hit=NodeView:settings-appearance responder=ExactWindow marked=false source=- key=true
+1791621413.107648 up at=128,688 clicks=1 hit=NodeView:settings-appearance responder=NodeView marked=false source=- key=true
+1791621414.4531322 down at=481,642 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621414.5182219 up at=481,642 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621420.875733 down at=60,20 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791621420.942935 up at=60,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621426.541476 down at=1097,747 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791621426.608694 up at=1097,747 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621431.025137 down at=1048,643 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621431.0916429 up at=1048,643 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621438.150466 down at=853,638 clicks=1 hit=NSTextView: responder=NSTextView marked=false source=com.apple.keylayout.ABC key=true
+1791621447.783782 down at=1097,747 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621447.850206 up at=1097,747 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621449.200467 down at=1048,708 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621449.26669 up at=1048,708 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621475.8254728 down at=109,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791621475.892043 up at=109,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791621483.443543 down at=616,458 clicks=1 hit=NodeView:composer-placeholder responder=ExactWindow marked=false source=- key=true
+1791621483.501543 up at=616,458 clicks=1 hit=NodeView:composer-placeholder responder=NodeView marked=false source=- key=true
+1791621484.3085861 focus-bridge marked=false
+1791621494.50343 down at=524,559 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
+1791621494.567733 up at=524,559 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621495.527096 down at=357,464 clicks=1 hit=TextArea:composer responder=NodeView marked=false source=- key=true
+1791621495.5445728 focus-bridge marked=false
+1791621525.352878 down at=504,464 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
+1791621526.4284248 down at=357,464 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
+1791621566.454204 down at=357,464 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
+1791621567.810945 key chars=k ignoring=k code=40 chord=k responder=TextArea composerFocused=true marked=false source=com.apple.keylayout.ABC
+1791621569.670428 focus-bridge marked=false
+1791621582.6166902 down at=504,464 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
+1791621583.6673908 down at=357,464 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.keylayout.ABC key=true
