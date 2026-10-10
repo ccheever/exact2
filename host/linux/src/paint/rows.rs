@@ -367,8 +367,13 @@ impl Painter {
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);
-            self.backend
-                .image(img, dst, &[Shape::rect(content), outer], ts, tint);
+            self.backend.image(
+                img,
+                img.placed(dst),
+                &[Shape::rect(content), outer],
+                ts,
+                tint,
+            );
         }
     }
 

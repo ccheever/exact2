@@ -609,6 +609,7 @@ impl RasterSession {
                 height: 0,
             },
             variant: 0,
+            crop: Crop::default(),
         };
         let to = RasterKey {
             source,
@@ -618,12 +619,22 @@ impl RasterSession {
                 height: u32::MAX,
             },
             variant: u32::MAX,
+            crop: Crop {
+                x: u32::MAX,
+                y: u32::MAX,
+                full: PixelSize {
+                    width: u32::MAX,
+                    height: u32::MAX,
+                },
+            },
         };
         session
             .entries
             .range(from..=to)
             .filter(|(key, entry)| {
+                // A part of the picture serves only the view it was cut for.
                 key.variant == variant
+                    && key.crop.whole()
                     && key.pixels.width >= at_least.width
                     && key.pixels.height >= at_least.height
                     && u64::from(key.pixels.width) * u64::from(key.pixels.height) <= max_pixels
