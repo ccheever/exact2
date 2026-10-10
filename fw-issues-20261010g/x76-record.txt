@@ -1,0 +1,122 @@
+X76 record: a right-click on unselected page text selects no word on macOS
+main 42fd5d99e4c884a366483aecd226f08442dee793 (origin/main, 2026-10-10); macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports empty sources. Built with 'bun exact.mjs mac'; driven with
+'bun exact.mjs agent <web|macos> --size 520x420 ...' (the web is the JS target in Chrome).
+
+== app.contract ==
+// T3 clone S1-S3 repro: a secondary click on unselected text, an inline
+// run's contextmenu, and a link node's href.
+component X76app
+  state sel = ""
+  state runCtx = 0
+  state nodeCtx = 0
+  state linkCtx = 0
+  state runPresses = 0
+  action selected(s: Selection)
+    sel = s.text
+  action runMenu
+    runCtx = runCtx + 1
+  action runPress
+    runPresses = runPresses + 1
+  action nodeMenu
+    nodeCtx = nodeCtx + 1
+  action linkMenu
+    linkCtx = linkCtx + 1
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=12
+      text "Known words here" testId="t" selectionchange=selected font-size=24
+      text `selected=[${sel}]` testId="sel"
+      text testId="p" font-size=24
+        text "Visit the "
+        text "site" href="https://example.com" contextmenu=runMenu testId="run"
+        text " today"
+      text `run contextmenu=${runCtx}` testId="runctx"
+      text testId="p2" font-size=24
+        text "Visit the "
+        text "site" press=runPress testId="run2"
+        text " today"
+      text `run press=${runPresses}` testId="runpress"
+      text "node" href="https://example.com" contextmenu=nodeMenu testId="node" font-size=24
+      text `node contextmenu=${nodeCtx}` testId="nodectx"
+      link href="https://example.com" contextmenu=linkMenu testId="l"
+        text "Example link" font-size=24
+      text `link contextmenu=${linkCtx}` testId="linkctx"
+
+== web: "tap t contextmenu at 30 14" tree ==
+{"at":[46,30],"tapped":2,"target":"t","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+epoch 2 · incarnation 1 · clock 0 ms · 18 nodes
+View#1 [root]
+  Text#2 [t] "Known words here" (selectionchange)
+  Text#3 [sel] "selected=[Known]"
+  Text#4 [p]
+    Text#5 "Visit the "
+    Text#6 [run] "site" (contextmenu)
+    Text#7 " today"
+  Text#8 [runctx] "run contextmenu=0"
+  Text#9 [p2]
+    Text#10 "Visit the "
+    Text#11 [run2] "site" (press)
+    Text#12 " today"
+  Text#13 [runpress] "run press=0"
+  Text#14 [node] "node" (contextmenu)
+  Text#15 [nodectx] "node contextmenu=0"
+  Pressable#16 [l] (contextmenu)
+    Text#17 "Example link"
+  Text#18 [linkctx] "link contextmenu=0"
+{"clock":0,"epoch":2,"incarnation":1,"screenshot":"<scratch>/ev/web-s1.png","w":520,"h":420}
+
+== macos: "tap t contextmenu at 30 14" tree ==
+{"tapped":2,"at":[30,14],"delivery":"platform","contextmenu":true,"target":"t","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+epoch 2 · incarnation 1 · clock 0 ms · 18 nodes
+View#1 [root]
+  Text#2 [t] "Known words here" (selectionchange)
+  Text#3 [sel] "selected=[]"
+  Text#4 [p]
+    Text#5 "Visit the "
+    Text#6 [run] "site" (contextmenu)
+    Text#7 " today"
+  Text#8 [runctx] "run contextmenu=0"
+  Text#9 [p2]
+    Text#10 "Visit the "
+    Text#11 [run2] "site" (press)
+    Text#12 " today"
+  Text#13 [runpress] "run press=0"
+  Text#14 [node] "node" (contextmenu)
+  Text#15 [nodectx] "node contextmenu=0"
+  Pressable#16 [l] (contextmenu)
+    Text#17 "Example link"
+  Text#18 [linkctx] "link contextmenu=0"
+{"epoch":2,"incarnation":1,"screenshot":"<scratch>/ev/macos-s1.png","clock":0,"w":520,"h":420}
+
+== macos control: "tap t clicks 2 at 30 14" tree (a double click selects the word and fires selectionchange) ==
+{"at":[30,14],"tapped":2,"delivery":"platform","target":"t","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+epoch 3 · incarnation 1 · clock 0 ms · 18 nodes
+View#1 [root]
+  Text#2 [t] "Known words here" [focused] (selectionchange)
+  Text#3 [sel] "selected=[Known]"
+  Text#4 [p]
+    Text#5 "Visit the "
+    Text#6 [run] "site" (contextmenu)
+    Text#7 " today"
+  Text#8 [runctx] "run contextmenu=0"
+  Text#9 [p2]
+    Text#10 "Visit the "
+    Text#11 [run2] "site" (press)
+    Text#12 " today"
+  Text#13 [runpress] "run press=0"
+  Text#14 [node] "node" (contextmenu)
+  Text#15 [nodectx] "node contextmenu=0"
+  Pressable#16 [l] (contextmenu)
+    Text#17 "Example link"
+  Text#18 [linkctx] "link contextmenu=0"
+
+== platform oracle (hand-built AppKit, swiftc; a read-only selectable NSTextView and a WKWebView, each sent rightMouseDown/Up via NSWindow.sendEvent on the middle of 'Known'; the menu read at NSMenu.didBeginTracking, then cancelled) ==
+NSTextView: selection before = []
+NSTextView: selection after right-click = [Known]; menu = ["Look Up “Known”", "Translate “Known”", "Search With Google", "Cut", "Copy", "Paste", "Paste and Match Style", "Share…", "Font", "Spelling and Grammar", "Substitutions", "Speech"]
+NSTextView: selection after menu closed = [Known]
+WKWebView: selection before = []
+WKWebView: menu = ["Look Up “Known”", "Translate “Known”", "Search with Google", "Copy", "Copy Link with Highlight", "Share…", "Speech"]
+WKWebView: selection after right-click = [Known]
+
+Host code (main): TextSelectionMac.swift NodeView.menu(for:) returns super's (nil) unless a paragraph already has a selection;
+NodeViewMac.swift rightMouseDown dispatches contextmenu, else super. Neither selects a word.

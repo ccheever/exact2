@@ -1,0 +1,75 @@
+// S1 platform oracle: a right-click on an unselected word in a hand-built
+// AppKit read-only NSTextView and in a WKWebView (Safari's engine).
+import AppKit
+import WebKit
+
+let app = NSApplication.shared
+app.setActivationPolicy(.regular)
+
+func window(_ x: CGFloat, _ view: NSView) -> NSWindow {
+    let w = NSWindow(contentRect: NSRect(x: x, y: 300, width: 420, height: 160), styleMask: [.titled], backing: .buffered, defer: false)
+    w.contentView = view
+    w.makeKeyAndOrderFront(nil)
+    return w
+}
+
+let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: 420, height: 160))
+tv.isEditable = false
+tv.isSelectable = true
+tv.string = "Known words here"
+tv.font = NSFont.systemFont(ofSize: 24)
+let tw = window(100, tv)
+
+let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 160))
+web.loadHTMLString("<p id=t style='font:24px system-ui;margin:8px'>Known words here</p>", baseURL: nil)
+let ww = window(560, web)
+
+var phase = "textview"
+NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+    guard let menu = note.object as? NSMenu, menu.supermenu == nil, menu !== NSApp.mainMenu else { return }
+    let items = menu.items.filter { !$0.isSeparatorItem }.map { $0.title }
+    if phase == "textview" {
+        let sel = (tv.string as NSString).substring(with: tv.selectedRange())
+        print("NSTextView: selection after right-click = [\(sel)]; menu = \(items)")
+    } else {
+        print("WKWebView: menu = \(items)")
+    }
+    DispatchQueue.main.async { menu.cancelTracking() }
+    RunLoop.current.perform(inModes: [.eventTracking]) { menu.cancelTracking() }
+}
+
+func rightClick(_ w: NSWindow, at p: NSPoint) {
+    let down = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                  windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    let up = NSEvent.mouseEvent(with: .rightMouseUp, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+    w.sendEvent(down)
+    w.sendEvent(up)
+}
+
+app.activate(ignoringOtherApps: true)
+DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+    let lm = tv.layoutManager!, tc = tv.textContainer!
+    let r = lm.boundingRect(forGlyphRange: NSRange(location: 1, length: 1), in: tc)
+    let p = tv.convert(NSPoint(x: r.midX + tv.textContainerOrigin.x, y: r.midY + tv.textContainerOrigin.y), to: nil)
+    print("NSTextView: selection before = [\((tv.string as NSString).substring(with: tv.selectedRange()))]")
+    tw.makeKeyAndOrderFront(nil)
+    rightClick(tw, at: p)
+    print("NSTextView: selection after menu closed = [\((tv.string as NSString).substring(with: tv.selectedRange()))]")
+    phase = "web"
+    ww.makeKeyAndOrderFront(nil)
+    web.evaluateJavaScript("(()=>{const r=document.createRange();r.setStart(t.firstChild,1);r.setEnd(t.firstChild,2);const b=r.getBoundingClientRect();return [b.left+b.width/2,b.top+b.height/2, getSelection().toString()]})()") { result, _ in
+        guard let a = result as? [Any], let x = a[0] as? Double, let y = a[1] as? Double else { print("web: no rect"); exit(1) }
+        print("WKWebView: selection before = [\(a[2])]")
+        let p = web.convert(NSPoint(x: x, y: y), to: nil)
+        rightClick(ww, at: p)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            web.evaluateJavaScript("getSelection().toString()") { sel, _ in
+                print("WKWebView: selection after right-click = [\(sel ?? "nil")]")
+                exit(0)
+            }
+        }
+    }
+}
+DispatchQueue.main.asyncAfter(deadline: .now() + 15) { print("timeout"); exit(2) }
+app.run()

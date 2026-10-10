@@ -1,0 +1,116 @@
+X77 record: an inline run's contextmenu is never dispatched on macOS
+main 42fd5d99e4c884a366483aecd226f08442dee793 (origin/main, 2026-10-10); macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports empty sources. Built with 'bun exact.mjs mac'; driven with
+'bun exact.mjs agent <web|macos> --size 520x420 ...' (the web is the JS target in Chrome). The compiler accepts
+contextmenu= on the run (contract build: 4 slots, 5 actions, 18 nodes, no warning).
+
+== app.contract ==
+// T3 clone S1-S3 repro: a secondary click on unselected text, an inline
+// run's contextmenu, and a link node's href.
+component X76app
+  state sel = ""
+  state runCtx = 0
+  state nodeCtx = 0
+  state linkCtx = 0
+  state runPresses = 0
+  action selected(s: Selection)
+    sel = s.text
+  action runMenu
+    runCtx = runCtx + 1
+  action runPress
+    runPresses = runPresses + 1
+  action nodeMenu
+    nodeCtx = nodeCtx + 1
+  action linkMenu
+    linkCtx = linkCtx + 1
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=12
+      text "Known words here" testId="t" selectionchange=selected font-size=24
+      text `selected=[${sel}]` testId="sel"
+      text testId="p" font-size=24
+        text "Visit the "
+        text "site" href="https://example.com" contextmenu=runMenu testId="run"
+        text " today"
+      text `run contextmenu=${runCtx}` testId="runctx"
+      text testId="p2" font-size=24
+        text "Visit the "
+        text "site" press=runPress testId="run2"
+        text " today"
+      text `run press=${runPresses}` testId="runpress"
+      text "node" href="https://example.com" contextmenu=nodeMenu testId="node" font-size=24
+      text `node contextmenu=${nodeCtx}` testId="nodectx"
+      link href="https://example.com" contextmenu=linkMenu testId="l"
+        text "Example link" font-size=24
+      text `link contextmenu=${linkCtx}` testId="linkctx"
+
+== web: "tap p2 at 106 14" "tap p contextmenu at 106 14" "tap node contextmenu" "tap l contextmenu" tree logs ==
+{"at":[122,170],"tapped":9,"target":"p2","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+{"at":[122,100],"tapped":4,"target":"p","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+{"at":[42.140625,240],"tapped":14,"target":"node","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":4,"incarnation":1}
+{"at":[80.3984375,310],"tapped":16,"target":"l","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+epoch 5 · incarnation 1 · clock 0 ms · 18 nodes
+View#1 [root]
+  Text#2 [t] "Known words here" (selectionchange)
+  Text#3 [sel] "selected=[]"
+  Text#4 [p]
+    Text#5 "Visit the "
+    Text#6 [run] "site" (contextmenu)
+    Text#7 " today"
+  Text#8 [runctx] "run contextmenu=1"
+  Text#9 [p2]
+    Text#10 "Visit the "
+    Text#11 [run2] "site" (press)
+    Text#12 " today"
+  Text#13 [runpress] "run press=1"
+  Text#14 [node] "node" (contextmenu)
+  Text#15 [nodectx] "node contextmenu=1"
+  Pressable#16 [l] [focused] (contextmenu)
+    Text#17 "Example link"
+  Text#18 [linkctx] "link contextmenu=1"
+{"clock":0,"epoch":5,"incarnation":1,"screenshot":"<scratch>/ev/web-s2.png","w":520,"h":420}
+t=0 boot: 18 nodes, epoch 1
+
+== macos: same drive ==
+{"delivery":"platform","tapped":9,"at":[106,14],"target":"p2","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"tapped":4,"delivery":"platform","contextmenu":true,"at":[106,14],"target":"p","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+{"tapped":14,"at":[42.14,234],"contextmenu":true,"delivery":"platform","target":"node","carrier":"macos","mode":"agent","epoch":4,"incarnation":1,"clock":0}
+{"tapped":16,"delivery":"platform","contextmenu":true,"at":[80.41,302],"target":"l","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+epoch 5 · incarnation 1 · clock 0 ms · 18 nodes
+View#1 [root]
+  Text#2 [t] "Known words here" (selectionchange)
+  Text#3 [sel] "selected=[]"
+  Text#4 [p]
+    Text#5 "Visit the "
+    Text#6 [run] "site" (contextmenu)
+    Text#7 " today"
+  Text#8 [runctx] "run contextmenu=0"
+  Text#9 [p2] [focused]
+    Text#10 "Visit the "
+    Text#11 [run2] "site" (press)
+    Text#12 " today"
+  Text#13 [runpress] "run press=1"
+  Text#14 [node] "node" (contextmenu)
+  Text#15 [nodectx] "node contextmenu=1"
+  Pressable#16 [l] (contextmenu)
+    Text#17 "Example link"
+  Text#18 [linkctx] "link contextmenu=1"
+{"h":420,"screenshot":"<scratch>/ev/macos-s2.png","epoch":5,"incarnation":1,"clock":0,"w":520}
+t=0 boot: 18 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~7)
+t=0 press view 11 (runPress) → epoch 3 (+0 −0 ~1)
+t=0 contextmenu view 14 (nodeMenu) → epoch 4 (+0 −0 ~1)
+t=0 contextmenu view 16 (linkMenu) → epoch 5 (+0 −0 ~1)
+
+== web: "tap run contextmenu" (a right-click aimed at the run itself) ==
+{"at":[122.90625,100],"tapped":6,"target":"run","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+  Text#8 [runctx] "run contextmenu=1"
+
+== macos: "tap run contextmenu" (same, earlier drive on the same build) ==
+{"delivery":"host-activation","tapped":6,"native":"inline-text","target":"run","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+  Text#8 [runctx] "run contextmenu=0"
+(AgentMac.swift:496-499 takes an inline run with no at/mouse/clicks to node.activateInline, which presses the run or follows its href;
+ the 'contextmenu' word is not checked there.)
+
+Host code (main): MouseEventsMac.swift dispatchContextMenu runs a NodeView's own contextmenu/contextPopover only;
+NodeViewMac.swift rightMouseDown calls it on the paragraph's view. A run is not a view: inlineTarget(at:handler:) is
+asked for 'press' (mouseUp) and 'hover' (mouseMoved), never 'contextmenu'.

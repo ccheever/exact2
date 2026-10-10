@@ -1,0 +1,37 @@
+S3 record (not filed): a link node's href as seen from outside ExactKit on macOS
+main 42fd5d99e4c884a366483aecd226f08442dee793; macOS 26.6.2 (25G83). The same X76/X77 app, launched directly; read with
+AXUIElementCopyAttributeValue from another process (AXIsProcessTrusted true), the window's subtree only.
+
+== AX tree (AXLink rows print AXURL) ==
+AXWindow "X76app"
+  AXScrollArea ""
+    AXStaticText "Known words here" id=t
+    AXStaticText "selected=[]" id=sel
+    AXStaticText "Visit the site today" id=p
+      ? ""
+    AXStaticText "run contextmenu=0" id=runctx
+    AXStaticText "Visit the site today" id=p2
+      ? ""
+    AXStaticText "run press=0" id=runpress
+    AXStaticText "node" id=node
+    AXStaticText "node contextmenu=0" id=nodectx
+    AXLink "Example link" id=l AXURL=nil
+    AXStaticText "link contextmenu=0" id=linkctx
+  AXButton ""
+  AXButton ""
+    AXGroup ""
+  AXButton ""
+  AXStaticText "X76app"
+
+== the inline run element under 'p' (Visit the [site](https://example.com) today) ==
+p children: 1
+attribute names: -25202 []
+AXRole err -25202 nil
+AXDescription err -25202 nil
+AXURL err -25202 nil
+AXIdentifier err -25202 nil
+(-25202 is kAXErrorInvalidUIElement.)
+
+Host code (main): TextInteraction.swift InlineAccessibility sets accessibilityURL from a run's href;
+NodeViewMac.swift updateRoleAccessibility sets no URL for a node that acts as a button or link.
+Contract path that works on macOS today: a contextmenu action on the link node (this app: 'link contextmenu=1', x77-record.txt).
