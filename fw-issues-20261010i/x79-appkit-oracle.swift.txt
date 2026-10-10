@@ -1,0 +1,110 @@
+// X79 oracle: what a hand-built AppKit window does with Tab and Shift+Tab
+// from a focused view that is not in the key-view loop. Five views in a
+// column: Before (button), Box (a custom view that accepts first responder),
+// First and Last (buttons inside Box, the "popup"), After (button).
+// Each case sends a real Tab key event through NSWindow.sendEvent with Box
+// as first responder, and reports where the first responder lands.
+import AppKit
+
+final class Box: NSView {
+    var keyView = true
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { keyView && super.canBecomeKeyView }
+    override var description: String { "Box" }
+}
+final class Button: NSButton {
+    // Every button is a key view whatever System Settings' "Keyboard navigation" says.
+    override var canBecomeKeyView: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var description: String { title }
+}
+
+func name(_ r: NSResponder?) -> String {
+    guard let r else { return "nil" }
+    if let b = r as? Button { return b.title }
+    if r is Box { return "Box" }
+    if r is NSWindow { return "window" }
+    return String(describing: type(of: r))
+}
+
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)
+
+func make() -> (NSWindow, Button, Box, Button, Button, Button) {
+    let w = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+    let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 320))
+    w.contentView = content
+    let before = Button(title: "Before", target: nil, action: nil); before.frame = NSRect(x: 20, y: 270, width: 120, height: 30)
+    let box = Box(frame: NSRect(x: 20, y: 110, width: 200, height: 140))
+    let first = Button(title: "First", target: nil, action: nil); first.frame = NSRect(x: 10, y: 80, width: 120, height: 30)
+    let last = Button(title: "Last", target: nil, action: nil); last.frame = NSRect(x: 10, y: 20, width: 120, height: 30)
+    box.addSubview(first); box.addSubview(last)
+    let after = Button(title: "After", target: nil, action: nil); after.frame = NSRect(x: 20, y: 60, width: 120, height: 30)
+    content.addSubview(before); content.addSubview(box); content.addSubview(after)
+    w.orderFront(nil)
+    return (w, before, box, first, last, after)
+}
+
+func tab(_ w: NSWindow, shift: Bool) {
+    let chars = shift ? "\u{19}" : "\t"
+    let flags: NSEvent.ModifierFlags = shift ? [.shift] : []
+    let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: 48)!
+    w.sendEvent(down)
+}
+
+func run(_ label: String, setup: (NSWindow, Button, Box, Button, Button, Button) -> Void) {
+    for shift in [false, true] {
+        let (w, before, box, first, last, after) = make()
+        setup(w, before, box, first, last, after)
+        let took = w.makeFirstResponder(box)
+        let start = name(w.firstResponder)
+        tab(w, shift: shift)
+        let viaEvent = name(w.firstResponder)
+        print("\(label) | \(shift ? "Shift+Tab" : "Tab") | makeFirstResponder(Box)=\(took) start=\(start) | Box.nextKeyView=\(name(box.nextKeyView)) nextValidKeyView=\(name(box.nextValidKeyView)) previousValidKeyView=\(name(box.previousValidKeyView)) | after key event: \(viaEvent)")
+        w.orderOut(nil)
+    }
+}
+
+// A: AppKit's own loop (autorecalculatesKeyViewLoop), Box focusable but not a key view (canBecomeKeyView false):
+// the closest AppKit has to tabindex=-1.
+run("A auto loop, Box not a key view") { w, _, box, _, _, _ in
+    box.keyView = false
+    w.autorecalculatesKeyViewLoop = true
+    w.recalculateKeyViewLoop()
+}
+// B: AppKit's own loop, Box a key view (the default for a view that accepts first responder).
+run("B auto loop, Box a key view") { w, _, _, _, _, _ in
+    w.autorecalculatesKeyViewLoop = true
+    w.recalculateKeyViewLoop()
+}
+// C: an explicit loop Before→First→Last→After→Before that never links Box (Exact's macOS host's shape:
+// Box.nextKeyView nil, as AppKit's first-display loop is replaced), no initialFirstResponder.
+run("C explicit loop without Box, no initialFirstResponder") { w, before, box, first, last, after in
+    box.keyView = false
+    w.autorecalculatesKeyViewLoop = false
+    before.nextKeyView = first; first.nextKeyView = last; last.nextKeyView = after; after.nextKeyView = before
+    box.nextKeyView = nil
+}
+// D: the same with an initialFirstResponder (Before).
+run("D explicit loop without Box, initialFirstResponder=Before") { w, before, box, first, last, after in
+    box.keyView = false
+    w.autorecalculatesKeyViewLoop = false
+    before.nextKeyView = first; first.nextKeyView = last; last.nextKeyView = after; after.nextKeyView = before
+    box.nextKeyView = nil
+    w.initialFirstResponder = before
+}
+// E: the explicit loop, Box pointing on to the next stop after it and no stop pointing to it
+// (what the host already does for a clicked paragraph).
+run("E explicit loop, Box.nextKeyView=First") { w, before, box, first, last, after in
+    box.keyView = false
+    w.autorecalculatesKeyViewLoop = false
+    before.nextKeyView = first; first.nextKeyView = last; last.nextKeyView = after; after.nextKeyView = before
+    box.nextKeyView = first
+}
+// F: as E, with Box a key view of its own (canBecomeKeyView true) but still linked by no stop.
+run("F explicit loop, Box.nextKeyView=First, Box a key view") { w, before, box, first, last, after in
+    w.autorecalculatesKeyViewLoop = false
+    before.nextKeyView = first; first.nextKeyView = last; last.nextKeyView = after; after.nextKeyView = before
+    box.nextKeyView = first
+}
+print("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")

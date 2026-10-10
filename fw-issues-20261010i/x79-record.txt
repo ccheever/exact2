@@ -1,0 +1,173 @@
+X79 record: on macOS, Tab from a focused box that is no Tab stop (tabindex=-1) goes nowhere
+main 474999b9fe95610fdde7b99314cec8b82723de1e (origin/main, 2026-10-10); macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports empty sources. Built with 'bun exact.mjs mac'; driven with
+'bun exact.mjs agent <web|macos> --size 520x520 ...' (the web is the JS target in Chrome). 'contract build app.contract':
+1 slot, 2 actions, 20 nodes, no warning. First attempt reproduced it.
+
+The agent's 'type <target> key Tab' makes the target the focus first only when it is not already; here the target is the
+focused box itself, so the key goes to the box that holds the focus (macOS: AgentMac.swift type(), makeFirstResponder only
+when firstResponder !== owner; web: the page's focus() on the focused element, then a CDP key). The macOS reply names the key
+"Tab" for Shift+Tab too; the event carries Shift and U+0019 (BackTab), and the Shift+Tab control below moves the focus.
+
+== app.contract ==
+// X79 repro: Tab from a focused box that is no Tab stop (tabindex=-1).
+// "popup" takes the focus by autofocus and holds two buttons; "box2" takes
+// it by focus() and is followed by two sibling buttons.
+component X79app
+  state at = "-"
+  action seen(name: string)
+    at = name
+  action focusBox2
+    focus("box2")
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=10
+      text `focus=${at}` testId="log" font-size=22
+      button "Before" testId="before" focus=seen("before")
+      column id="popup" testId="popup" tabindex=-1 autofocus focus=seen("popup") padding=10 gap=8 border-width=1 border-style="solid" border-color="#888"
+        text "popup, tabindex=-1, autofocus"
+        button "First" testId="first" focus=seen("first")
+        button "Last" testId="last" focus=seen("last")
+      button "After" testId="after" focus=seen("after")
+      button "Focus box2" testId="go2" press=focusBox2 focus=seen("go2")
+      column id="box2" testId="box2" tabindex=-1 focus=seen("box2") padding=10 border-width=1 border-style="solid" border-color="#888"
+        text "box2, tabindex=-1, focus()"
+      button "Next A" testId="nexta" focus=seen("nexta")
+      button "Next B" testId="nextb" focus=seen("nextb")
+
+== web: tree state (launch) ==
+  Text#2 [log] "focus=popup"
+  View#5 [popup] [focused] (focus)
+== web: "type popup key Tab" tree ==
+{"at":[137.578125,138],"typed":5,"target":"popup","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+  Text#2 [log] "focus=first"
+    Control#7 [first] [focused] (focus)
+== web: "type popup key Shift+Tab" tree ==
+{"at":[137.578125,138],"typed":5,"target":"popup","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":3,"incarnation":1}
+  Text#2 [log] "focus=before"
+  Control#3 [before] [focused] (focus)
+== web: "tap go2" "type box2 key Tab" tree ==
+{"at":[65.796875,246],"tapped":13,"target":"go2","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+{"at":[121.8828125,288],"typed":15,"target":"box2","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":6,"incarnation":1}
+  Text#2 [log] "focus=nexta"
+  Control#17 [nexta] [focused] (focus)
+== web: "tap go2" "type box2 key Shift+Tab" tree ==
+{"at":[65.796875,246],"tapped":13,"target":"go2","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":5,"incarnation":1}
+{"at":[121.8828125,288],"typed":15,"target":"box2","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":6,"incarnation":1}
+  Text#2 [log] "focus=go2"
+  Control#13 [go2] [focused] (press, focus)
+
+== macos: tree logs (launch) ==
+  Text#2 [log] "focus=popup"
+  View#5 [popup] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+== macos: "type popup key Tab" tree logs ==
+{"value":"","typed":5,"key":"Tab","target":"popup","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=popup"
+  View#5 [popup] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+== macos: "type popup key Shift+Tab" tree logs ==
+{"typed":5,"value":"","key":"Tab","target":"popup","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=popup"
+  View#5 [popup] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+== macos: "tap go2" "type box2 key Tab" tree logs ==
+{"at":[63,244],"delivery":"platform","tapped":13,"target":"go2","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+{"key":"Tab","value":"","typed":15,"target":"box2","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=box2"
+  View#15 [box2] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 13 (seen) → epoch 4 (+0 −0 ~1)
+t=0 command focus("box2")
+t=0 press view 13 (focusBox2) → epoch 4 (+0 −0 ~0)
+t=0 focus view 15 (seen) → epoch 5 (+0 −0 ~1)
+== macos: "tap go2" "type box2 key Shift+Tab" tree logs ==
+{"tapped":13,"delivery":"platform","at":[63,244],"target":"go2","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+{"key":"Tab","value":"","typed":15,"target":"box2","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=box2"
+  View#15 [box2] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 13 (seen) → epoch 4 (+0 −0 ~1)
+t=0 command focus("box2")
+t=0 press view 13 (focusBox2) → epoch 4 (+0 −0 ~0)
+t=0 focus view 15 (seen) → epoch 5 (+0 −0 ~1)
+== macos: "type before key Tab" tree logs ==
+{"key":"Tab","typed":3,"value":"","target":"before","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=first"
+    Control#7 [first] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 3 (seen) → epoch 4 (+0 −0 ~1)
+t=0 focus view 7 (seen) → epoch 5 (+0 −0 ~1)
+== macos: "type first key Tab" tree logs ==
+{"value":"","key":"Tab","typed":7,"target":"first","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=last"
+    Control#9 [last] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 7 (seen) → epoch 4 (+0 −0 ~1)
+t=0 focus view 9 (seen) → epoch 5 (+0 −0 ~1)
+== macos: "type last key Tab" tree logs ==
+{"typed":9,"key":"Tab","value":"","target":"last","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=after"
+  Control#11 [after] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 9 (seen) → epoch 4 (+0 −0 ~1)
+t=0 focus view 11 (seen) → epoch 5 (+0 −0 ~1)
+== macos: "type after key Shift+Tab" tree logs ==
+{"key":"Tab","value":"","typed":11,"target":"after","delivery":"platform","carrier":"macos","mode":"agent","epoch":5,"incarnation":1,"clock":0}
+  Text#2 [log] "focus=last"
+    Control#9 [last] [focused] (focus)
+t=0 boot: 20 nodes, epoch 1
+t=0 root font size (0 asked again) → epoch 2 (+0 −0 ~12)
+t=0 focus view 5 (seen) → epoch 3 (+0 −0 ~1)
+t=0 focus view 11 (seen) → epoch 4 (+0 −0 ~1)
+t=0 focus view 9 (seen) → epoch 5 (+0 −0 ~1)
+
+== Hand-built AppKit oracle (swiftc; source x79-appkit-oracle.swift.txt beside this record) ==
+One window, accessory app: Before (button), Box (a custom NSView that accepts first responder; First and Last buttons inside
+it), After (button). Box is made first responder, then a Tab (or Shift+Tab: U+0019 with Shift) key event goes through
+NSWindow.sendEvent. Buttons answer canBecomeKeyView true whatever System Settings' Keyboard navigation says.
+A auto loop, Box not a key view | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: First
+A auto loop, Box not a key view | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: Before
+B auto loop, Box a key view | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: First
+B auto loop, Box a key view | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: Before
+C explicit loop without Box, no initialFirstResponder | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=nil nextValidKeyView=nil previousValidKeyView=Before | after key event: Box
+C explicit loop without Box, no initialFirstResponder | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=nil nextValidKeyView=nil previousValidKeyView=Before | after key event: Before
+D explicit loop without Box, initialFirstResponder=Before | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=nil nextValidKeyView=nil previousValidKeyView=Before | after key event: Box
+D explicit loop without Box, initialFirstResponder=Before | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=nil nextValidKeyView=nil previousValidKeyView=Before | after key event: Before
+E explicit loop, Box.nextKeyView=First | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: First
+E explicit loop, Box.nextKeyView=First | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: Before
+F explicit loop, Box.nextKeyView=First, Box a key view | Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: First
+F explicit loop, Box.nextKeyView=First, Box a key view | Shift+Tab | makeFirstResponder(Box)=true start=Box | Box.nextKeyView=First nextValidKeyView=First previousValidKeyView=Before | after key event: Before
+macOS Version 26.6.2 (Build 25G83)
+Reading:
+- A, B: AppKit's own key-view loop (autorecalculatesKeyViewLoop): a focused view goes on to the next key view after it in
+  the window's order and back to the one before it, whether or not it is a key view itself (A: canBecomeKeyView false,
+  AppKit's nearest thing to tabindex=-1). Tab -> First, Shift+Tab -> Before, as Chrome.
+- C, D: an explicit loop that links only the stops and leaves Box's nextKeyView nil (the macOS host's shape): Tab leaves
+  the focus on Box, with or without an initialFirstResponder. (Their Shift+Tab reaches Before only through the
+  previousKeyView that AppKit's first-display loop left on Box; the Exact host's Shift+Tab stays on the box.)
+- E, F: the same explicit loop with Box.nextKeyView = First and no stop pointing to Box (what syncKeyViewLoop already does
+  for a clicked paragraph): Tab -> First.
+
+== Host code (main 474999b9f) ==
+NodeViewMac.swift:232-235: a focused NodeView's Tab calls flushKeyViewLoop(), then window.selectNextKeyView(self) (Shift:
+selectPreviousKeyView). PresenterMac.swift:1254-1285 syncKeyViewLoop: walks the tree (or the active dialog); a Tab stop
+(Presenter.tabbable, :1289) joins 'listed', a paragraph that is not one joins 'starts' and gets nextKeyView = the next stop
+after it (:1274-1276); every other node is left unlinked. Presenter.tabbable is false for an explicit negative tabindex
+(:1291), while acceptsFirstResponder (FocusMac.swift:15-19) is true for any explicit tabindex, so autofocus, focus() and a
+click put the focus on such a box and its nextValidKeyView is nil.
