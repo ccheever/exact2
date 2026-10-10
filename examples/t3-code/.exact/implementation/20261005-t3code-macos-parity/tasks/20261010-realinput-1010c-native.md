@@ -88,7 +88,7 @@ Included: RC-1, RC-7 and RC-9 (RC-7 and RC-9 start as checks). The UI rows are i
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| RC-1 | implemented, not verified (real input). Before: the panel was `.nonactivatingPanel`, so a click left T3 Code inactive and its own activation request was refused (B2). After: the panel has no `.nonactivatingPanel`, so a click in it is expected to activate T3 Code; the row takes that activating click (`acceptsFirstMouse`, unchanged), and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. One press reveals here; the reference's first press only activates (Electron's default `acceptFirstMouse` false): a declared difference, Decision needed in #398. Open until real-input batch steps 1-3 run. | [rc1-activation-readback-v2.txt](RB2_URL), [rc1-appkit-snapshot-v2.txt](SNAP2_URL) |
+| RC-1 | implemented, not verified (real input). Before: the panel was `.nonactivatingPanel`, so a click left T3 Code inactive and its own activation request was refused (B2). After: the panel has no `.nonactivatingPanel`, so a click in it is expected to activate T3 Code; the row takes that activating click (`acceptsFirstMouse`, unchanged), and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. One press reveals here; the reference's first press only activates (Electron's default `acceptFirstMouse` false): a declared difference, Decision needed in #398. Open until real-input batch steps 1-3 run. | [rc1-activation-readback-v2.txt](https://raw.githubusercontent.com/ccheever/exact2/d8fe5cb5d4234b779eace8fa6642e5f9a602fe94/realinput-1010c-native/rc1-activation-readback-v2.txt), [rc1-appkit-snapshot-v2.txt](https://raw.githubusercontent.com/ccheever/exact2/39d82f66c6e6a40414827b56726f45812915021c/realinput-1010c-native/rc1-appkit-snapshot-v2.txt) |
 | RC-7 | pass by check, no change: the accessor is codex (and claude, git) run by the T3 server in a lane home inside a git worktree whose gitdir is in `~/Documents`; the reference lane makes the same access; a lane outside any repository makes none. | [rc7-documents-access.txt](https://raw.githubusercontent.com/ccheever/exact2/55bf6a49ba06d3ccf74bfcafcfc22780c2b4e096/realinput-1010c-native/rc7-documents-access.txt) |
 | RC-9 | pass by reference comparison, no change: both default to Hold, and Hold quits on a 1.2 s hold or two presses within 0.5 s. | [rc9-quit-default.txt](https://raw.githubusercontent.com/ccheever/exact2/93df05a1efd938c9ab5d81423ace87e4158fbc92/realinput-1010c-native/rc9-quit-default.txt) |
 
@@ -131,9 +131,13 @@ CLIs read the worktree's gitdir in `~/Documents` and raise a Documents prompt fo
   (activate T3 Code first). Public AppKit API only: review round 1 dropped a key-value read of AppKit's private
   `preventsActivation`, which would raise and stop the whole binary on an AppKit without it.
 
-Checks (final head `c326c090d`, all exit 0): bun test 4242 pass / 1 skip / 0 fail; strict tsc; contract build (`app.contract` 1329
-lines); `cargo test -p t3-code-macos --lib` 17 pass; AppKit `snapshot`; caps; the five checks (cargo test 3675 pass, 0 fail);
-the bundle build. Live drive (agent mode, once): the app launches and connects
+Checks (review round 1, code head `5aba0e1fb`: the fix merged with `feat(example)/t3-code` `7195f10b6`; all exit 0):
+bun test 4355 pass / 1 skip / 0 fail (294 files); strict tsc; contract build (`app.contract` 1341 lines); `cargo test -p
+t3-code-macos --lib` 17 pass; AppKit `snapshot` (57 permission helper checks,
+[rc1-appkit-snapshot-v2.txt](https://raw.githubusercontent.com/ccheever/exact2/39d82f66c6e6a40414827b56726f45812915021c/realinput-1010c-native/rc1-appkit-snapshot-v2.txt));
+caps; the five checks (cargo test 3675 pass, 0 fail). Round 1 changed only the test, comments and this record, so the
+bundle build and the live drive were not repeated. First round (head `c326c090d`): the same checks and the bundle build
+passed; live drive (agent mode, once): the app launches and connects
 ([live-main.png](https://raw.githubusercontent.com/ccheever/exact2/c7bb0e0a07a16e2a37cd9eacaea994ee82cf81ce/realinput-1010c-native/live-main.png)).
 
 ## Next action
