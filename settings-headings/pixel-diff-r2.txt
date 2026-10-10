@@ -1,0 +1,24 @@
+settings-headings, review round 2: before (evidence base c03d7e908) vs after (this PR) window screenshots, 2560x1680,
+same drive steps (r2/drive.sh). Nothing masked: both drives dismissed the Nightly beta-app toast, and the provider update
+toast is off in both lanes (enableProviderUpdateChecks false). general-s1..s4 scroll General down 700pt each (s4 is the
+page bottom, Legacy features closed); general-legacy-open is Legacy features open.
+page | differing pixels | bbox | max channel diff
+general | 0 | None | 0
+general-s1 | 0 | None | 0
+general-s2 | 0 | None | 0
+general-s3 | 0 | None | 0
+general-s4 | 0 | None | 0
+general-legacy-open | 0 | None | 0
+appearance | 0 | None | 0
+keybindings | 0 | None | 0
+snap-shot | 0 | None | 0
+providers | 0 | None | 0
+integrations | 0 | None | 0
+scheduled-tasks | 0 | None | 0
+source-control | 0 | None | 0
+storage | 0 | None | 0
+connections | 0 | None | 0
+archived | 0 | None | 0
+diagnostics | 16460 | (617, 593, 2282, 1164) | 216
+open-source-licenses | 0 | None | 0
+projects | 0 | None | 0
