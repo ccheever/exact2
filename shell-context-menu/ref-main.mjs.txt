@@ -1,0 +1,29 @@
+// Evaluate JS in the reference's Electron main process over its Node inspector (shell-context-menu lane; not committed).
+// Usage: node ref-main.mjs <inspectPort> install|log|clear
+const [port, cmd] = process.argv.slice(2);
+const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+const ws = new WebSocket(list[0].webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener('open', r, { once: true }));
+let id = 0; const pending = new Map();
+ws.addEventListener('message', (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+const call = (method, params) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+const install = `(() => {
+  const { Menu, webContents, app } = process.mainModule.require('electron');
+  const g = globalThis;
+  if (!g.__ctx) {
+    g.__ctx = [];
+    Menu.prototype.popup = function (opts) {
+      const walk = (items) => items.map((i) => ({ label: i.label, role: i.role, type: i.type, enabled: i.enabled, accelerator: i.accelerator, sub: i.submenu ? walk(i.submenu.items) : undefined }));
+      g.__ctx.push({ kind: 'popup', items: walk(this.items) });
+      try { opts && opts.callback && setTimeout(opts.callback, 0); } catch {}
+    };
+    const hook = (wc) => { if (wc.__ctxHooked) return; wc.__ctxHooked = true; wc.on('context-menu', (_e, p) => g.__ctx.push({ kind: 'params', wc: wc.getType(), url: wc.getURL().slice(0, 80), misspelledWord: p.misspelledWord, dictionarySuggestions: p.dictionarySuggestions, linkURL: p.linkURL, mediaType: p.mediaType, srcURL: (p.srcURL || '').slice(0, 80), isEditable: p.isEditable, selectionText: p.selectionText, editFlags: p.editFlags, x: p.x, y: p.y })); };
+    for (const wc of webContents.getAllWebContents()) hook(wc);
+    app.on('web-contents-created', (_e, wc) => hook(wc));
+  }
+  return webContents.getAllWebContents().map((w) => w.getType() + ' ' + w.getURL().slice(0, 80));
+})()`;
+const exprs = { install, log: 'JSON.stringify(globalThis.__ctx ?? null)', clear: '(globalThis.__ctx = [], "cleared")' };
+const res = await call('Runtime.evaluate', { expression: exprs[cmd] ?? cmd, returnByValue: true });
+console.log(typeof res.result?.result?.value === 'string' ? res.result.result.value : JSON.stringify(res.result ?? res));
+ws.close(); process.exit(0);
