@@ -1,0 +1,26 @@
+1791635177.059284 helper open screen-recording
+1791635177.062583 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: true)
+1791635177.063339 helper show at (555.0, 100.0, 475.0, 140.0) (frontmost true, key false)
+1791635205.946326 helper key (active true)
+1791635206.003286 helper reveal (active true)
+1791635206.113896 helper blur
+1791635206.2506251 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: false)
+1791635206.2531738 helper hide: Settings covered, helper not key
+1791635208.2592301 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: true)
+1791635208.259608 helper show at (555.0, 100.0, 475.0, 140.0) (frontmost true, key false)
+1791635229.744269 helper key (active true)
+1791635229.9336019 helper drag starts (active true, key true)
+1791635232.3921971 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: false)
+1791635232.476902 helper drag ends (active true, key true)
+1791635232.956067 helper blur
+1791635232.956229 helper hide: Settings covered, helper not key
+1791635233.395227 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: true)
+1791635233.395654 helper show at (555.0, 100.0, 475.0, 140.0) (frontmost true, key false)
+1791635236.290812 helper key (active true)
+1791635236.596089 helper drag starts (active true, key true)
+1791635237.421447 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: false)
+1791635237.739969 helper drag ends (active true, key true)
+1791635238.498283 helper blur
+1791635238.498437 helper hide: Settings covered, helper not key
+1791635239.4267159 helper reading window((323.0, 169.0, 723.0, 625.0), frontmost: true)
+1791635239.4271 helper show at (555.0, 100.0, 475.0, 140.0) (frontmost true, key false)
