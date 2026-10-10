@@ -1,0 +1,48 @@
+#!/bin/zsh
+# One agent drive of the clone for realinput-1010e-followups. Usage: drive.sh before|after
+# before: the feature-branch tip built in t3-code-realinput-1010e-before; after: this worktree's bundle. Same steps, same size.
+# Pairs the GitHub lane's primary server (started with `bun lane.mjs start primary --port 16643`) with a fresh single-use link.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010e-followups
+S=$W/target/re1010e/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010e-before; LANE=realinput-1010e-followups-before; else ROOTDIR=$W; LANE=realinput-1010e-followups; fi
+G=$W/examples/t3-code/tools/github-lane
+( cd $G && PATH=$HOME/.bun-1.4.2/bin:$PATH T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane bun lane.mjs pair primary >/dev/null )
+PAIR=$(cat $W/target/github-lane/servers/primary/pairing-url); rm -f $W/target/github-lane/servers/primary/pairing-url
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  # RE-3: `$frontend-design now`, the caret at the end; a press on the chip; Escape; the key x.
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "screenshot $S/re3-1-chip-pressed.png window"
+  "type chip-popover key Escape" "clock +800 real"
+  "type composer key x" "clock +800 real"
+  "screenshot $S/re3-2-typed-x.png window"
+  "state"
+  # RE-4: Settings › Integrations › Add profile › Chrome, then Cancel by the pointer: where the focus goes.
+  "tap connection-settings" "clock +1500 real"
+  "tap settings-integrations" "clock +2000 real"
+  "tap browser-profiles-add" "clock +2500 real"
+  "tap browser-import-source-chrome" "clock +2500 real"
+  "screenshot $S/re4-1-wizard.png window"
+  "tap browser-import-cancel mouse" "clock +1000 real"
+  "state"
+  "screenshot $S/re4-2-after-cancel.png window"
+  # RE-5: pair the GitHub lane's server (the embedded one stays focused), then #168's Code tab.
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +1000 real"
+  "type server-origin $PAIR" "clock +500 real"
+  "tap connect" "clock +12000 real"
+  "screenshot $S/re5-0-paired.png window"
+  "type t3-code key Escape" "clock +1500 real"
+  "tap open-pull-requests" "clock +6000 real"
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "screenshot $S/re5-1-code-tab.png window"
+  "logs"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+T3_BROWSER_IMPORT_HOME=$A/lanes/realinput-1010e-followups/browser-home EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16640 --epoch 2026-10-10T09:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
