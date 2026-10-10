@@ -104,13 +104,15 @@ restored afterwards. The reference shots are from the running reference at 1280Ã
 - `headings.test.ts`: new test "Settings section titles are h2 and row titles h3, as the reference"; the existing rule
   that every `role="heading"` says its level still holds (167 heading lines, 162 before).
 
-## Checks (head `91f6ddbd9`, after merging `origin/feat(example)/t3-code` `4c13b440f`)
+## Checks (head `0f4f79fa3`, review round 2; `origin/feat(example)/t3-code` `4c13b440f` is already merged)
 
 `bun test examples/t3-code --timeout 60000` 0 (4363 pass, 1 skip, 0 fail); strict `tsc` 0; `contract build
 examples/t3-code/app.contract` 0; `git add -A && bun scripts/caps.mjs` 0; `cargo build --all-targets --keep-going` 0;
 `cargo test --lib --bins --tests --no-fail-fast` 0 (3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets
 --keep-going -- -D warnings` 0; `cargo fmt --all -- --check` 0; `bun scripts/boot.mjs` 0. No Rust or Swift changed, so
-no `cargo test -p t3-code-macos` or AppKit binary. `app.contract`: 1,341 lines. Later commits change only this record.
+no `cargo test -p t3-code-macos` or AppKit binary. The bundle was built once before round 2's drives (exit 0).
+`app.contract`: 1,341 lines. Later commits change only this record. Round 1's checks (head `91f6ddbd9`) had the same
+results.
 
 ## Real-input batch steps
 
