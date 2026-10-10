@@ -617,6 +617,11 @@ impl Batch {
             s.push_str(",\"bodyFrom\":");
             quote(path, &mut s);
         }
+        // Absent is `follow` (http-body.js)
+        if r.request.redirect != exact_runner::Redirect::Follow {
+            s.push_str(",\"redirect\":");
+            quote(r.request.redirect.name(), &mut s);
+        }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");

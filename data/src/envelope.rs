@@ -4,7 +4,9 @@
 
 use exact_plan::Value;
 use exact_runner::failure::FailureCode;
-use exact_runner::{Answer, DataError, HttpScheduling, Outcome, Request, Response, Store};
+use exact_runner::{
+    Answer, DataError, HttpScheduling, Outcome, Redirect, Request, Response, Store,
+};
 use serde_json::{json, Value as Json};
 
 /// The header that marks a response as a turn's reply, not a host's.
@@ -160,6 +162,7 @@ fn request_json(request: &Request) -> Json {
         "stream": request.stream,
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
+        "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
     })
 }
 
@@ -217,6 +220,8 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
             Json::String(path) => Some(path.clone()),
             _ => return Err(unavailable("turn reply: an invalid exactBodyFrom")),
         },
+        redirect: Redirect::parse(json["redirect"].as_str())
+            .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
     })
 }
 

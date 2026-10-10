@@ -662,6 +662,14 @@
         return Promise.reject(new TypeError("exactTimeout must be an integer number of milliseconds from 1 to 3600000"));
       if (stream) return Promise.reject(new TypeError("exactTimeout: a stream has no timeout"));
     }
+    // `redirect` (Fetch §5.4, the Request constructor): read and checked once,
+    // before the signal, and a throw rejects. Rust follows redirects, checking
+    // each hop's grant, so "manual" answers with the 3xx and its Location.
+    var redirect;
+    try { var asked = init ? init.redirect : undefined; redirect = asked !== undefined ? String(asked) : undefined; }
+    catch (e) { return Promise.reject(e); }
+    if (redirect !== undefined && redirect !== "follow" && redirect !== "manual" && redirect !== "error")
+      return Promise.reject(new TypeError("redirect must be follow, manual or error"));
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
@@ -671,7 +679,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout, body_from: bodyFrom, redirect: redirect }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;

@@ -1,9 +1,17 @@
 // App-module bindings, injected by the bundler, never installed as page-wide
 // globals. Host modules keep the browser's functions at every load time.
-import { coversPath, FetchError, fetchWith, inOverlay, overlaying } from './admission.js';
+import { coversPath, FetchError, fetchWith, inOverlay, overlaying, ownWithout, redirectOf } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-export const fetch = (input, options) => overlaying.on ? Promise.reject(inOverlay('fetch()')) : options?.exactStream === undefined ? (options?.exactBodyFrom === undefined ? fetchWith(tsGrantSet, input, options) : fromFile(input, options))
-  : options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options);
+// A stream or an upload takes the redirect mode as `fetch` is called, as Hermes
+// does: a bad one rejects before a file is read or a stream registered.
+export function fetch(input, options) {
+  if (overlaying.on) return Promise.reject(inOverlay('fetch()'));
+  if (options?.exactStream === undefined && options?.exactBodyFrom === undefined) return fetchWith(tsGrantSet, input, options);
+  let redirect;
+  try { redirect = redirectOf(input, options); } catch (e) { return Promise.reject(e); }
+  if (options.exactStream === undefined) return fromFile(input, options, redirect);
+  return options.exactTimeout !== undefined ? Promise.reject(new TypeError('exactTimeout: a stream has no timeout')) : stream(input, options, redirect);
+}
 
 // `exactBodyFrom` (LLP 1108 D6 R2), with Hermes's checks and words
 // (js/src/prelude.js): the app file at that path is the body, read from the
@@ -29,10 +37,10 @@ export function readBodyFile(path, grantSet) {
     .then(m => m.requestBody(files.appId, grantSet, path))
     .catch(error => { throw Object.assign(new FetchError(error?.code === 'agent' ? 'Unsupported' : 'Refused', error?.message ?? error), { code: error?.code }); });
 }
-async function fromFile(input, init) {
+async function fromFile(input, init, redirect) {
   const refusal = bodyFromRefusal(input, init);
   if (refusal) throw new TypeError(refusal);
-  const { exactBodyFrom: path, ...rest } = init, ms = init.exactTimeout;
+  const path = init.exactBodyFrom, rest = ownWithout(init, ['exactBodyFrom', 'redirect']), ms = init.exactTimeout;
   if (ms !== undefined && (!Number.isInteger(ms) || ms < 1 || ms > 3600000)) throw new TypeError('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
   // The read counts against the deadline and yields to the caller's abort,
   // as the exchange does: nothing is sent once either has ended it. (This
@@ -58,7 +66,7 @@ async function fromFile(input, init) {
   const spent = clock.now() - started;
   if (ms !== undefined && spent >= ms) throw new FetchError('Timeout', `the request timed out after ${ms} ms`);
   const left = ms === undefined ? undefined : Math.max(1, Math.ceil(ms - spent));
-  return fetchWith(tsGrantSet, input, { ...rest, body, ...(left === undefined ? {} : { exactTimeout: left }) }, ms === undefined ? null : { at: started + ms, ms });
+  return fetchWith(tsGrantSet, input, { ...rest, body, ...(left === undefined ? {} : { exactTimeout: left }) }, ms === undefined ? null : { at: started + ms, ms }, redirect);
 }
 
 // An answer that keeps coming (LLP 1016.000), with Hermes's words
@@ -66,14 +74,14 @@ async function fromFile(input, init) {
 // the answer is asked (`answering`, set by ts-data.js), which opens it. Its
 // promise never settles: the answer is what `exactStream` maps each event to.
 export const answering = { call: null };
-function stream(input, init) {
+function stream(input, init, redirect) {
   const call = answering.call;
   // Hermes also claims a stream started after an await; this page has no
   // turn to tie one to, so it says where to start it.
   if (!call) return Promise.reject(new Error('fetch() with exactStream outside an answer: on the web a stream starts as its answer is asked, before the answer\'s first await'));
   if (call.stream) return Promise.reject(new Error('an answer streams one request'));
   // Checked and opened by ts-stream.js, which only a streaming module loads.
-  call.stream = { input, init };
+  call.stream = { input, init, redirect };
   return new Promise(() => {});
 }
 
