@@ -23,7 +23,7 @@ that the reference with no feed still draws three controls that the clone does n
 goes up as a draft PR). Merging it means (a); closing it means (b). Until the user decides, this record stays open with
 `implementation: implemented-pending-decision`.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build (no update feed). Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -40,7 +40,7 @@ Evidence paths are under the repository root. They stay local and are not commit
 - **The user's scope decision (binding).** On 2026-10-08 the user closed X38–X41 ("close all"). X40 is "The T3 desktop
   update feed and its UI: check, download, install, channels" (`../issues/closed/20261005-x40-app-update-feed.md`,
   status `closed-by-decision`). `plan.md:106-108` records it: `app-update-feed` is "closed by that decision, not built".
-  [app-update-feed](closed/20261005-app-update-feed.md) "Next action" (lines 117-121): "The clone has no desktop update
+  [app-update-feed](20261005-app-update-feed.md) "Next action" (lines 117-121): "The clone has no desktop update
   feed and no update UI of its own".
 - **The closed record's claim does not hold.** `app-update-feed` line 19: "the disabled updater stays as the final
   state, which equals the reference in a build without a feed". Its "Disabled parity" row (line 91) expected "no pill".

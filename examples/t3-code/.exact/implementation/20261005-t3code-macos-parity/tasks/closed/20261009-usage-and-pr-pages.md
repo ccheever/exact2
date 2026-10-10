@@ -22,7 +22,7 @@ verified_commit: 7c3708cf72c34da11a249badee86e01372fd46f5
 - Pull Requests › Filters › Author has its search field.
 - Escape leaves the Pull Requests page for the page before it, unless a menu, a popover or a focused editor field holds it.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -228,7 +228,7 @@ on `e74a541ad`; the final head adds only the `256c189d8` merge (#371, Markdown l
 
 The coordinator reviews the draft PR [#375](https://github.com/ccheever/exact2/pull/375), runs real-input steps 1 and 2 in the next batch, and merges it. Seen on both
 builds, not this task's finding: the Usage page draws the Codex dot and chart series in their dark-scheme colour
-(#f5f5f5) in a light window in agent mode (PG-1's area, [app-color-scheme](closed/20261009-app-color-scheme.md)).
+(#f5f5f5) in a light window in agent mode (PG-1's area, [app-color-scheme](20261009-app-color-scheme.md)).
 Also seen on the reference in review round 1, not this task's findings and not fixed: Escape in a Filters submenu
 closes only the submenu and gives the focus back to its row (the clone's closes the whole Filters menu, every
 submenu, since fix-keyboard-focus); the reference draws no check on the Author submenu's Anyone while no author is

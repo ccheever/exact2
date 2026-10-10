@@ -141,7 +141,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | PA-11 | Terminal dark while the app is light | [app-color-scheme](../tasks/closed/20261009-app-color-scheme.md) |
 | PA-12 | ⌘Enter does not save a diff comment | [diff-panel-parity](../tasks/closed/20261009-diff-panel-parity.md) (regression) |
 | PA-13 | Launcher Browser row has no profile chevron | existing: [browser-surface-profiles](../tasks/closed/20261005-browser-surface-profiles.md) (#354) |
-| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/closed/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/closed/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
+| PA-14 | Browser parts 2–4 rows missing or disabled | existing: [browser-surface-navigation](../tasks/closed/20261005-browser-surface-navigation.md) (#352), [browser-surface-capture](../tasks/closed/20261005-browser-surface-capture.md) (#349), [browser-surface-profiles](../tasks/closed/20261005-browser-surface-profiles.md) (#354); Open DevTools is declared (`EXACT2-GAPS.md:430`) |
 | S1-1 | Escape in a field's popup closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (one root cause with S1-2, S2-1) |
 | S1-2 | Escape in the custom model field closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) (regression) |
 | S1-3 | Escape while recording closes Settings | [settings-escape-and-nav](../tasks/closed/20261009-settings-escape-and-nav.md) |

@@ -243,11 +243,14 @@ draft PR (option a of the blocked record).
 
 Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, #360, #364, #366, #370, #369,
 #368 (the user decided to build the no-feed update controls), #367, plus #353 and Browser part 2 (#352, merged on the
-user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. In flight: markdown-links-and-files-preview,
-usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
-and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/closed/20261010-audit-wave-followups-2.md),
-then [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
-flatten after the fix waves). New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
+user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. Then merged: #371, #372, #373,
+#374, #375, #354 (Browser part 4), #376, #378, #379, #382 (the flatten), #383, #384 (main adoption round 7, main
+`bc357d03c`, `afe62dfeb`; closed) and #349 (Browser part 3, `70e2ddd4b`). `realinput-1010d` passed #349's rows, #383's
+and #384's steps 1-3 and #346's ⌘-click, and closed #296 U6 (real input cannot time its race); #308's gutter drag waits
+for a retry (the lane's Code tab answered 503). Open fix tasks: [realinput-1010c-fixes](tasks/20261010-realinput-1010c-fixes.md)
+(draft #399), [realinput-1010c-native](tasks/20261010-realinput-1010c-native.md) (draft #398) and
+[realinput-1010d-followups](tasks/20261010-realinput-1010d-followups.md) (RD-1 to RD-5, planned).
+New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
 real lane accounts; #227/#228 stay with the user.
@@ -258,8 +261,7 @@ Coordinator additions:
 - [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
   2 MiB test-thread limit (X67, main `issues/20261009-compiler-small-stack-depth.md`), which unblocks main adoption
   round 7 and #99's clean candidate. After the wave that is in flight when it starts (it touches many `.contract` files).
-- Open Browser PRs: #352 waits for one real-input row (Rotate/Lock on `26f5c9066`; the 2026-10-09 evening try stopped when
-  the screen locked) and for Charlie's check; #349 and #354 merge the base after #352 lands, then re-drive.
+- Browser parts: all five have merged (#337, #352, #349, #354, #346).
 
 ## Implementation order
 
@@ -564,6 +566,6 @@ integrated server effects/retry/lifecycle incomplete). The new reference runtime
 provisioned and getTurnItem works; the older-runtime limitation no longer applies to
 this attempt. Main migration and oracle delivery tasks remain separate work.
 
-Evidence: [live attempt](evidence/parallel/20261006-live-verification/attempt.md),
+Evidence: live attempt,
 [independent review](reviews/20261006-parallel-verification.md). No code repairs,
 framework edits, remote issue writes, task closure or publication occurred.

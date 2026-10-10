@@ -24,7 +24,7 @@ verified_commit: 22dff6be3b6511012f754301ede9004e9ff55cfb
   all-environments scope" until then.)
 - The Project page opens scoped to all environments.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -63,7 +63,7 @@ Reference (`target/t3-ref/src-1e2ecbd975/apps/web/src`): `components/settings/Di
 `components/CommandPalette.tsx:2286-2290`.
 
 Clone (`examples/t3-code`): `app.contract:444` (the `diagnostics` resource), `app.contract:336-349` (the Project page's
-scope), `settings-core.ts:433`. Related, merged: [fix-settings-integrations-loop](closed/20261009-fix-settings-integrations-loop.md)
+scope), `settings-core.ts:433`. Related, merged: [fix-settings-integrations-loop](20261009-fix-settings-integrations-loop.md)
 (#353) fixed the same pattern for Settings › Integrations (a resource keyed on `data.revision`).
 
 Shared files: `app.contract` with [shell-sidebar-palette-keys](20261009-shell-sidebar-palette-keys.md) (SH-1 may touch
