@@ -308,7 +308,20 @@ export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
   action:'event'|'rich'|'pick'|'dismiss'|'retry',payload:string,native:Native,storage:Files,clock:()=>number):Promise<EditorResult> {
   const runtime=actionRuntime(client,route),owner=runtime.owner;
   try {
-    if(action==='rich')throw new ClientError('Rich paste and context actions are not integrated yet.','unsupported');
+    if(action==='rich'){
+      let callback:Obj;try{callback=obj(JSON.parse(payload))}catch{callback={}}
+      if(callback.kind==='contentSize'){
+        const size=obj(callback.payload),identity=mounted(owner);
+        if(!identity.mountId||Object.entries(identity).some(([key,value])=>callback[key]!==value)
+          ||!str(callback.richEventId)||!Number.isSafeInteger(callback.eventCount)||Number(callback.eventCount)<0
+          ||typeof size.width!=='number'||!Number.isFinite(size.width)||size.width<0
+          ||typeof size.height!=='number'||!Number.isFinite(size.height)||size.height<0)throw superseded();
+        // Native layout observations are not paste/context requests. They never
+        // publish a document, clear an existing notice or claim a pending effect.
+        return {...result(client,runtime),effect:null};
+      }
+      throw new ClientError('Rich paste and context actions are not integrated yet.','unsupported');
+    }
     if(action==='event'){
       const accepted=mobileComposerEditorAccept(owner.state,payload);if(!accepted.accepted)throw superseded();owner.state=accepted.state;
       return await consume(client,runtime,native,storage);
