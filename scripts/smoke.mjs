@@ -427,7 +427,9 @@ if (host === 'host' || host === 'host-ios') {
         let shown = 0;
         for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
         s.session = 'a';
-        await s.tap('caltrain-main');
+        // Its ground, a point at its top left: a plain tap names `main`, which has no press, and is refused when its
+        // middle holds a control (LLP 1012 §1) — the departure card a finger there would press.
+        await s.tap('caltrain-main', { at: [2, 2] });
         s.session = 'b';
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();
@@ -1397,7 +1399,7 @@ if (existsSync(appTests)) {
 // 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
 if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
   const { nativeSmoke } = await import('./smoke-native.mjs');
-  await nativeSmoke({ host, open, check, webDist: selectedWebDist });
+  await nativeSmoke({ host, open, check, webDist: selectedWebDist, device });
 }
 // A painting host loads no module; the fixture's hatches run there (LLP 1075.003.000.001 §8 stage 4).
 if (app.modules.tags.includes('exact-fixture') && host === 'linux') await (await import('./smoke-native.mjs')).paintingHatchSmoke({ host, open, check });

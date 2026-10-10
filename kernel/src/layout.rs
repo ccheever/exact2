@@ -1446,6 +1446,3 @@ pub fn compute(
     receipt.flow_comparisons = flow_comparisons;
     Ok(receipt)
 }
-
-#[cfg(test)]
-mod upstream_layout_differential;

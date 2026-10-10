@@ -63,7 +63,7 @@ typedef struct ExactRasterStats {
 uint64_t exact_raster_session_create(uint64_t budget);
 /* Update capacity without releasing displayed or in-flight backings. */
 void exact_raster_session_budget(uint64_t session, uint64_t budget);
-/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
+/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim, 5 wake a worker (a source to read). */
 void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
@@ -356,6 +356,14 @@ uint32_t exact_location_of(ExactRuntime rt, size_t len);
  * link to it navigates in the app), else 0. */
 uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
+/* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
+ * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
+ * for a route with no authored Back control. Not a batch. */
+uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
+ * authored Back control under a root with no `navigate` handler: the
+ * router's `back` as a commit of its own. A batch. */
+uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),

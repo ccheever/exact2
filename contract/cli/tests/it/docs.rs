@@ -14,6 +14,10 @@ pub(crate) struct Block {
     pub(crate) info: String,
     pub(crate) body: String,
     pub(crate) contract: Option<String>,
+    /// The `<!-- check: … -->` marker on the line before the fence, if any:
+    /// `app`, `route <name>` or `file`. Marked blocks are parts of one app
+    /// and are compiled assembled, not one by one.
+    pub(crate) check: Option<String>,
 }
 
 impl Block {
@@ -48,6 +52,8 @@ pub(crate) fn blocks() -> Vec<Block> {
             .to_path_buf();
         let mut open: Option<(usize, String, String)> = None;
         let mut contract: Option<String> = None;
+        let mut marker: Option<String> = None;
+        let mut pending: Option<String> = None;
         for (index, line) in text.lines().enumerate() {
             match &mut open {
                 Some((start, info, body)) => {
@@ -58,6 +64,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             info: std::mem::take(info),
                             body: std::mem::take(body),
                             contract: contract.clone(),
+                            check: pending.take(),
                         };
                         if block.info == "contract" {
                             contract = Some(block.body.clone());
@@ -71,9 +78,17 @@ pub(crate) fn blocks() -> Vec<Block> {
                 }
                 None => {
                     if let Some(info) = line.strip_prefix("```") {
+                        pending = marker.take();
                         open = Some((index + 1, info.trim().to_string(), String::new()));
-                    } else if line.starts_with('#') {
-                        contract = None;
+                    } else {
+                        marker = line
+                            .trim()
+                            .strip_prefix("<!-- check:")
+                            .and_then(|rest| rest.strip_suffix("-->"))
+                            .map(|m| m.trim().to_string());
+                        if line.starts_with('#') {
+                            contract = None;
+                        }
                     }
                 }
             }
@@ -95,6 +110,7 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
         // fence's plus it.
         let at = |line: u32| format!("{}:{}", block.doc.display(), block.line + line as usize);
         match block.info.as_str() {
+            "contract" if block.check.is_some() => {}
             "contract" => {
                 compiled += 1;
                 // A declared sound the example names is a short WAV here
@@ -132,6 +148,127 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// Blocks marked `<!-- check: app -->`, `<!-- check: route <name> -->` and
+/// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7,
+/// docs/start-here.md): the `app` blocks in order, each `route` block in
+/// place of the placeholder under `when e.name == "<name>"`, and each `file`
+/// block appended. The assembled app compiles with no diagnostics.
+#[test]
+fn every_split_app_in_the_guides_compiles_assembled() {
+    let dir = std::env::temp_dir().join(format!("exact-docs-app-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    let mut docs: Vec<(PathBuf, Vec<Block>)> = Vec::new();
+    for block in blocks() {
+        if block.info != "contract" || block.check.is_none() {
+            continue;
+        }
+        match docs.last_mut() {
+            Some((doc, list)) if *doc == block.doc => list.push(block),
+            _ => docs.push((block.doc.clone(), vec![block])),
+        }
+    }
+    assert!(
+        !docs.is_empty(),
+        "no split apps found (docs/start-here.md has one)"
+    );
+    let mut failures = Vec::new();
+    for (doc, list) in &docs {
+        let mut app = String::new();
+        for b in list.iter().filter(|b| b.check.as_deref() == Some("app")) {
+            app.push_str(&b.body);
+        }
+        let mut filled = std::collections::HashSet::new();
+        for b in list {
+            let check = b.check.as_deref().unwrap_or("");
+            let known = check == "app"
+                || check == "file"
+                || check
+                    .strip_prefix("route ")
+                    .is_some_and(|n| !n.trim().is_empty());
+            if !known {
+                failures.push(format!(
+                    "{}: unknown check marker `{check}` (use `app`, `file` or `route <name>`)",
+                    b.at()
+                ));
+                continue;
+            }
+            if let Some(name) = check.strip_prefix("route ") {
+                let name = name.trim();
+                if !filled.insert(name.to_string()) {
+                    failures.push(format!("{}: route `{name}` is filled twice", b.at()));
+                    continue;
+                }
+                match fill_route(&app, name, &b.body) {
+                    Some(filled) => app = filled,
+                    None => failures.push(format!(
+                        "{}: no `when e.name == \"{name}\"` placeholder in the app blocks",
+                        b.at()
+                    )),
+                }
+            }
+        }
+        for b in list.iter().filter(|b| b.check.as_deref() == Some("file")) {
+            app.push('\n');
+            app.push_str(&b.body);
+        }
+        if let Err(all) = contract::compile_path_source_all(&path, &app, false) {
+            let lines: Vec<&str> = app.lines().collect();
+            for e in all {
+                let at = lines
+                    .get(e.span.line.saturating_sub(1) as usize)
+                    .copied()
+                    .unwrap_or("");
+                failures.push(format!(
+                    "{} (assembled line {}: `{}`): [{}] {}",
+                    doc.display(),
+                    e.span.line,
+                    at.trim(),
+                    e.id,
+                    e.message
+                ));
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        failures.is_empty(),
+        "{} failures in assembled guide apps:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The app with the route's block in place of the lines under
+/// `when e.name == "<name>"` (the placeholder screen and its comment).
+fn fill_route(app: &str, name: &str, route: &str) -> Option<String> {
+    let lines: Vec<&str> = app.lines().collect();
+    let head = format!("when e.name == \"{name}\"");
+    let at = lines.iter().position(|l| l.trim() == head)?;
+    let depth = lines[at].len() - lines[at].trim_start().len();
+    let mut end = at + 1;
+    while end < lines.len() {
+        let l = lines[end];
+        if !l.trim().is_empty() && l.len() - l.trim_start().len() <= depth {
+            break;
+        }
+        end += 1;
+    }
+    let pad = " ".repeat(depth + 2);
+    let mut out: Vec<String> = lines[..=at].iter().map(|l| l.to_string()).collect();
+    for l in route.lines() {
+        out.push(if l.trim().is_empty() {
+            String::new()
+        } else {
+            format!("{pad}{l}")
+        });
+    }
+    out.extend(lines[end..].iter().map(|l| l.to_string()));
+    let mut s = out.join("\n");
+    s.push('\n');
+    Some(s)
 }
 
 /// A 10 ms, 48 kHz, 16-bit mono WAV of silence.

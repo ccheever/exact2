@@ -431,12 +431,14 @@ impl Gate {
             drop(sequence);
             return self.next_decode();
         }
-        let (sequence, _) = self
-            .inner
-            .wake
-            .changed
-            .wait_timeout(sequence, timeout)
-            .unwrap();
+        // Counted, as in `wait_decode`: `Wake::notify` signals only a
+        // counted waiter.
+        let wake = &self.inner.wake;
+        wake.waiters
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (sequence, _) = wake.changed.wait_timeout(sequence, timeout).unwrap();
+        wake.waiters
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(sequence);
         self.next_decode()
     }

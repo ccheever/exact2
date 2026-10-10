@@ -235,9 +235,15 @@ public final class Agent {
             // `close`'s does, since nothing is left to read after it.
             if wasOpen, r["error"] == nil, req["close"] == nil, presenter.viewport.window?.isVisible != true { r["closed"] = true }
             #endif
+            // The touch runner's observation reads (`aim`, `log`) are not
+            // inputs: they answer at once, within its own deadline.
+            if req["aim"] == nil, req["log"] == nil { r = completingInput(r) }
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
-        case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "type":
+            let r = completingInput(releaseCanvasKey(req) ?? type(req))
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
         case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
@@ -523,7 +529,8 @@ public final class Agent {
             session.apply(batch)
             session.apply(session.runtime.tick(now: from))
             if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
-            return ["clock": from]
+            // A `then` that opened or closed a sheet: up before the reply.
+            return completingInput(["clock": from])
         }
         if req["data"] as? Bool == true { return landData(at: from) }
         let settle = req["settle"] as? Bool == true
@@ -635,6 +642,19 @@ public final class Agent {
             if rounds >= 16 { return reply(landed, false) }
             to = next
         }
+    }
+
+    /// An input's reply under frozen timing, once a sheet it opened or
+    /// closed has been presented or dismissed (`awaitModalTransitions`,
+    /// LLP 1035.003 D5); past the bound it says so, as `clock settle` does
+    /// (`settled: false`, `reason: "transition"`). An error reply is as it
+    /// was; platform timing leaves the wait to `clock settle`.
+    func completingInput(_ reply: [String: Any]) -> [String: Any] {
+        guard ExactEnv.agentFreezes, reply["error"] == nil, !awaitModalTransitions() else { return reply }
+        var out = reply
+        out["settled"] = false
+        out["reason"] = "transition"
+        return out
     }
 
     /// To `to`, and what is in flight lands before a timer fires — the

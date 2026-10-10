@@ -393,7 +393,13 @@ not hide the popover) logs
 `confirmation <id> refused: <why>` and opens nothing; it is no longer silent.
 The popover's `aria-label` titles the `UIMenu`, and titles the sheet only
 when it is a chooser: more than one action and no explanatory text. A
-confirmation keeps no title row, as the native prompts it matches have none. A menu row's
+confirmation keeps no title row, as the native prompts it matches have none.
+*Superseded by LLP 1115 D6 (2026-10-09):* a confirmation with text, one
+cancel and at most three buttons is `UIAlertController(.alert)`, its
+`aria-label` the title (else its first line) and its Cancel kept; any other
+shape is an action sheet titled by its label, unanchored on a compact
+screen when it has a cancel and the popover below when it has none.
+`showModal(id)` from an action presents either with no invoker. A menu row's
 item image is its symbol, else its `img` once that has loaded, fitted to 24
 points. The menu reads the bitmap the hidden row already holds, so opening it
 never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.

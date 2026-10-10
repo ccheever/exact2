@@ -22,9 +22,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const EXPECTED_EVENTS = 'press;change:changed;hover:true;focus;blur;key:Enter;submit;message:hello;';
 const NOTE = 'quote " slash \\ tab\t<&>';
 
-export async function nativeSmoke({ host, open, check: record, webDist, shots }) {
+export async function nativeSmoke({ host, open, check: record, webDist, shots, device = false }) {
   let checks = 0, failed = 0;
   const check = (ok, what) => { checks += 1; if (!ok) failed += 1; return record(ok, what); };
+  // A tap that names a node presses that node (LLP 1012 §1), on Detail: the post row beside the card at its middle,
+  // never the card; the box with no press refuses rather than press the Like at its middle; a point presses what is
+  // there. `how` is the session's input: the agent's, or the touch runner's real touches.
+  const namedTaps = async (s, how) => {
+    const slots = async () => { const st = (await s.state()).slots; return { post: st.postOpens, card: st.cardOpens, likes: st.likes }; };
+    const before = await slots();
+    const row = await s.tap('post-row'); await settle(s);
+    let now = await slots();
+    check(now.post === before.post + 1 && now.card === before.card && row.avoided?.pressing != null && (how === 'agent' || row.delivery === 'platform'),
+      `${host} native (${how}): tap post-row presses the row beside the card at its middle: ${JSON.stringify({ before, now, avoided: row.avoided, at: row.at, delivery: row.delivery })}`);
+    const refused = await s.tap('post-actions').then((r) => `pressed: ${JSON.stringify(r)}`, (e) => e.message);
+    now = await slots();
+    check(/^tap post-actions would press post-like inside it/.test(refused) && now.likes === before.likes, `${host} native (${how}): tap post-actions refuses, naming post-like: ${refused}; likes ${before.likes} → ${now.likes}`);
+    const b = (await s.layout()).nodes.find((n) => n.testId === 'post-row');
+    await s.tap('post-row', { at: [b.w / 2, b.h / 2] }); await settle(s);
+    await s.tap('post-like'); await settle(s);
+    now = await slots();
+    check(now.card === before.card + 1 && now.likes === before.likes + 1 && now.post === before.post + 1, `${host} native (${how}): a point presses the card there, and post-like named is Like: ${JSON.stringify({ before, now })}`);
+  };
   const t0 = Date.now();
   const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
   const module = (t, id) => byTestId(t, id)?.module;
@@ -147,6 +166,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     }
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    await namedTaps(s, 'agent');
     // Hatched nodes (LLP 1075.003.000): the tree shows each word, the hatch
     // hears a node's mount and its data-* change (`state` counts them; on the
     // web the fixture's page module does), and a development build journals a
@@ -282,6 +302,22 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
     // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends (LLP 1035.003 D5).
     await s.clock('settle');
+    // A sheet over a sheet (the Bluesky clone's prompt over its muted words
+    // sheet), tapped back to back as a drive sends its taps: an input replies
+    // once the sheet it opened or closed is up (LLP 1035.003 D5), so the next
+    // tap finds its target. Close returns to the sheet under it; Close both
+    // closes the two.
+    const onScreen = async (id) => {
+      const error = await s.tap(id).then((r) => r?.error, (e) => String(e?.message ?? e));
+      check(!error, `${host} native: sheet over sheet: ${id} taps${error ? `: ${error}` : ''}`);
+    };
+    // `sheet-ask` and `ask-sheets` push by their answer's `then`, which lands
+    // at the input's end (`clock land`): the menu over Sheet, and from home
+    // Sheet and the menu over it, up for the next tap too.
+    for (const id of ['sheet', 'sheet-menu', 'menu-more', 'menu-close', 'sheet-ask', 'menu-close', 'sheet-menu', 'menu-home',
+      'ask-sheets', 'menu-more', 'menu-home']) await onScreen(id);
+    await s.clock('settle');
+    check(!(await sheetShown()), `${host} native: Close both dismisses the two sheets`);
     // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
     await s.tap('tab-second'); await settle(s); await s.clock('settle');
     await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');
@@ -493,6 +529,59 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
+  // A real touch that names a row presses the row (LLP 1012 §1, LLP 1080.000): the runner's aim lands beside the
+  // card at its middle, and its dispatch log confirms where. A simulator only (the touch runner).
+  if (host === 'ios' && !device) {
+    const d = await open({ host, touch: 'platform' });
+    try {
+      await d.tap('detail'); await settle(d); await d.clock('settle');
+      await namedTaps(d, 'touch platform');
+    } finally { await d.close(); }
+  }
+
+  // A route pushed in a sheet's own stack (Detail over Sheet), popped by
+  // UIKit's bar Back and by the edge swipe, real touches both (a session
+  // with UIKit's bars, `--chrome platform`, and the touch runner): each is
+  // one Back, and the router's stack and the native one agree after it.
+  // The sheet is a modal route the root names, never popped by a bar; the
+  // route over it is (Astra's review of 84009baad). A simulator only: the
+  // touch runner's drag is refused on a phone.
+  if (host === 'ios' && !device) {
+    const d = await open({ host, chrome: 'platform', touch: 'drag' });
+    try {
+      const stacks = async () => {
+        const st = await d.state(), router = st.slots.nav.tabs.find((t) => t.name === st.slots.nav.tab).stack.map((e) => String(e.id));
+        return { router, native: st.navigation?.stack ?? [], presentation: st.navigation?.presentation };
+      };
+      await d.tap('sheet'); await settle(d); await d.clock('settle');
+      for (const how of ['the bar\'s Back', 'the edge swipe']) {
+        await d.tap('sheet-detail'); await settle(d); await d.clock('settle');
+        const before = await stacks();
+        check(before.router.length === 3 && JSON.stringify(before.native) === JSON.stringify(before.router.slice(1)),
+          `${host} native: Detail pushes in Sheet's stack, before ${how}: ${JSON.stringify(before)}`);
+        // The scene's offset of the sheet's viewport, from an aim at a node in it.
+        const at = (await d.carrier.ask({ op: 'tap', id: (await d.target('violate')).id, aim: true })).aim;
+        const dx = at.point[0] - at.at[0], dy = at.point[1] - at.at[1];
+        let r;
+        if (how === 'the bar\'s Back') {
+          const back = (await d.op({ op: 'tree', ax: true })).ax?.elements?.find((e) => e.native?.identifier === 'BackButton')?.frame;
+          check(back, `${host} native: Sheet's bar shows a Back button over Detail`);
+          if (!back) break;
+          r = await d.carrier.touches.ask({ op: 'tap', point: [dx + back.x + back.w / 2, dy + back.y + back.h / 2] });
+        } else {
+          const width = (await d.layout()).viewport?.w ?? 390;
+          r = await d.carrier.touches.ask({ op: 'drag', point: [dx + 4, dy + 150], to: [dx + width - 12, dy + 150], press: 0.1, hold: 0, velocity: 600 }, 10000);
+        }
+        check(r?.done, `${host} native: ${how} in Sheet is a real touch: ${JSON.stringify(r)}`);
+        await settle(d); await d.clock('settle');
+        const after = await stacks();
+        check(JSON.stringify(after.router) === JSON.stringify(before.router.slice(0, 2)) && JSON.stringify(after.native) === JSON.stringify(after.router.slice(1)) && after.presentation === 'modal',
+          `${host} native: ${how} pops Detail in Sheet with one Back, the router's stack and the native one agreeing: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+      }
+    } catch (error) {
+      check(false, `${host} native: the drive in Sheet's stack stopped: ${error.stack ?? error.message}`);
+    } finally { await d.close(); }
+  }
   // Two drives of the same steps agree on what the hatches did (LLP
   // 1075.003.000.001 §4.6, §8 stage 1): every call's count, every counter,
   // each span's count and time on the session clock, and the journal's

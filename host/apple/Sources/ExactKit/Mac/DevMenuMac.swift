@@ -4,8 +4,10 @@
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
-// equivalents, not key bindings; without this they are dead), with
-// Speech ▸ Start Speaking / Stop Speaking; Develop —
+// equivalents, not key bindings; without this they are dead), with Paste
+// and Match Style, Find, Spelling and Grammar, Substitutions,
+// Transformations and Speech as AppKit's template has them; Help, with
+// AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
 // unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
@@ -151,13 +153,23 @@ public enum DevMenu {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let matchStyle = edit.addItem(withTitle: "Paste and Match Style", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
+        matchStyle.keyEquivalentModifierMask = [.command, .option, .shift]
         edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
+        // Find, Spelling and Grammar, Substitutions and Transformations, as
+        // Xcode's macOS app template has them (LLP 1115 D8): the responder
+        // chain's own actions, which a field's `NSTextView` answers and
+        // validates, disabled where nothing does.
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Find", action: nil, keyEquivalent: "").submenu = findMenu()
+        edit.addItem(withTitle: "Spelling and Grammar", action: nil, keyEquivalent: "").submenu = spellingMenu()
+        edit.addItem(withTitle: "Substitutions", action: nil, keyEquivalent: "").submenu = substitutionsMenu()
+        edit.addItem(withTitle: "Transformations", action: nil, keyEquivalent: "").submenu = transformationsMenu()
         // Speech, as Apple's HIG and every AppKit text app have it (#141):
         // the responder chain's own actions, a field's `NSTextView` reading
         // its selection or its text, the session's view the selected text.
-        edit.addItem(.separator())
         let speech = NSMenu(title: "Speech")
         speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
         speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
@@ -192,7 +204,66 @@ public enum DevMenu {
             trace.target = target
             devItem.submenu = dev
         }
+        // Help last, after Develop (LLP 1115 D8): AppKit puts its search
+        // field at the top of the menu it is told is Help, and `showHelp:`
+        // opens the app's help book, or says there is none.
+        let help = NSMenu(title: "Help")
+        help.addItem(withTitle: "\(ExactEnv.appName) Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?")
+        bar.addItem(withTitle: "Help", action: nil, keyEquivalent: "").submenu = help
+        NSApp.helpMenu = help
         return bar
+    }
+
+    /// Edit ▸ Find, as AppKit's template has it: `performTextFinderAction:`
+    /// with `NSTextFinder.Action`'s tags, and Jump to Selection.
+    static func findMenu() -> NSMenu {
+        let menu = NSMenu(title: "Find")
+        let rows: [(String, String, NSEvent.ModifierFlags, NSTextFinder.Action)] = [
+            ("Find…", "f", .command, .showFindInterface),
+            ("Find and Replace…", "f", [.command, .option], .showReplaceInterface),
+            ("Find Next", "g", .command, .nextMatch),
+            ("Find Previous", "g", [.command, .shift], .previousMatch),
+            ("Use Selection for Find", "e", .command, .setSearchString),
+        ]
+        for (title, key, mask, action) in rows {
+            let item = menu.addItem(withTitle: title, action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            item.tag = action.rawValue
+        }
+        menu.addItem(withTitle: "Jump to Selection", action: #selector(NSResponder.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
+        return menu
+    }
+
+    static func spellingMenu() -> NSMenu {
+        let menu = NSMenu(title: "Spelling and Grammar")
+        menu.addItem(withTitle: "Show Spelling and Grammar", action: #selector(NSText.showGuessPanel(_:)), keyEquivalent: ":")
+        menu.addItem(withTitle: "Check Document Now", action: #selector(NSText.checkSpelling(_:)), keyEquivalent: ";")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Check Spelling While Typing", action: #selector(NSTextView.toggleContinuousSpellChecking(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Check Grammar With Spelling", action: #selector(NSTextView.toggleGrammarChecking(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Correct Spelling Automatically", action: #selector(NSTextView.toggleAutomaticSpellingCorrection(_:)), keyEquivalent: "")
+        return menu
+    }
+
+    static func substitutionsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Substitutions")
+        menu.addItem(withTitle: "Show Substitutions", action: #selector(NSTextView.orderFrontSubstitutionsPanel(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Smart Copy/Paste", action: #selector(NSTextView.toggleSmartInsertDelete(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Quotes", action: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Dashes", action: #selector(NSTextView.toggleAutomaticDashSubstitution(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Links", action: #selector(NSTextView.toggleAutomaticLinkDetection(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Data Detectors", action: #selector(NSTextView.toggleAutomaticDataDetection(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Text Replacement", action: #selector(NSTextView.toggleAutomaticTextReplacement(_:)), keyEquivalent: "")
+        return menu
+    }
+
+    static func transformationsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Transformations")
+        menu.addItem(withTitle: "Make Upper Case", action: #selector(NSResponder.uppercaseWord(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Make Lower Case", action: #selector(NSResponder.lowercaseWord(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Capitalize", action: #selector(NSResponder.capitalizeWord(_:)), keyEquivalent: "")
+        return menu
     }
 
     /// File ▸ Open Recent (LLP 1069.010 D5): `NSDocumentController`'s

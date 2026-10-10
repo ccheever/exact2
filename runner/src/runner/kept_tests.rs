@@ -272,24 +272,25 @@ fn refusal_before_readiness_restores_the_seed_and_its_identity_eligibility() {
 }
 
 #[test]
-fn a_refused_activation_restores_seed_provenance_and_does_not_persist_its_answer() {
+fn an_activation_answer_outside_its_shape_fails_it_and_keeps_nothing() {
     let mut r = seeded();
     r.data.ready = true;
     r.data.value = Value::Bool(false);
-    assert!(matches!(r.data_ready(), Err(RunnerError::Shape { .. })));
+    // The answer outside its shape fails the resource, not the activation,
+    // which commits: the seed still shows, is not eligible (D4), and
+    // nothing is persisted.
+    assert!(r.data_ready().is_ok());
     shows(&r, "kept");
-    assert!(state(&r).kept_seed);
+    assert!(r
+        .failed_resources()
+        .iter()
+        .any(|(name, _)| *name == "answer"));
+    assert!(!state(&r).kept_seed);
     assert!(r.stale[0]);
     assert_eq!(answer_writes(&r), 0);
-    r.data.ready = false;
-    r.act("minute", vec![Value::str("200")]).unwrap();
-    shows(&r, "kept");
-    r.data.ready = true;
     r.data.value = Value::str("valid");
     r.data_ready().unwrap();
     shows(&r, "valid");
-    assert!(!state(&r).kept_seed);
-    assert_eq!(r.data.asks.last(), Some(&full("A", "200", 0.)));
     assert_eq!(answer_writes(&r), 1);
 }
 
@@ -656,4 +657,37 @@ fn an_app_granting_health_neither_seeds_nor_keeps_answers() {
     shows(&r, "fresh");
     assert_eq!(r.store.kept(&kept::kept_name("answer")), None);
     assert_eq!(answer_writes(&r), 1, "only the removal");
+}
+
+/// The sources this runner answers are the plan's list, the one the web
+/// build reads too.
+#[test]
+fn the_runner_answers_exactly_the_plan_s_own_sources() {
+    let mut answered = [
+        crate::delivery::SOURCE,
+        crate::viewport::SOURCE,
+        crate::page::SOURCE,
+        crate::surface_record::SOURCE,
+        crate::time::SOURCE,
+    ];
+    let mut listed = exact_plan::RUNNER_OWNED_SOURCES.to_vec();
+    answered.sort_unstable();
+    listed.sort_unstable();
+    assert_eq!(answered.to_vec(), listed);
+}
+
+#[test]
+fn a_kept_seed_failed_by_a_refused_activation_stays_failed_across_context() {
+    let mut r = seeded();
+    r.data.ready = true;
+    r.data.value = Value::str("valid");
+    // Activation refused by the app itself: the seed fails for its
+    // identifying arguments, and a context change asks nothing.
+    r.give_up(&[0], &RunnerError::Cycle);
+    assert!(r.failed_args[0].is_some());
+    let asks = r.data.asks.len();
+    r.act("minute", vec![Value::str("300")]).unwrap();
+    assert_eq!(r.data.asks.len(), asks);
+    assert!(r.failed_args[0].is_some());
+    shows(&r, "kept");
 }

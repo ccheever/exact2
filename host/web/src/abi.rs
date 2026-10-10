@@ -403,6 +403,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `exact_host_back`: the platform's own Back (LLP 1115 D5), a batch.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(h) => h.host_back(id, now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
     /// Whether the location in the input buffer names a declared route
     /// (LLP 1038 §7): the page then follows a same-origin link in place.
     pub fn route_matches(&self, len: usize) -> u32 {
@@ -1121,6 +1130,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_dispatch(view: u32, kind: u32, len: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
+        }
+
+        /// The platform's own Back from visit `id` (LLP 1115 D5); returns
+        /// the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_host_back(id: f64, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().host_back(id as u64, now_ms))
         }
 
         /// Whether a location (the input buffer) names a declared route.

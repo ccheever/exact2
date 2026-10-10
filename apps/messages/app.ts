@@ -1,4 +1,4 @@
-import type { Answer, Storage } from './app.contract.d.ts';
+import type { Answer, Overlay, Storage } from './app.contract.d.ts';
 import { MODELS, blank, fixtures, presentation, time, type Thread, type Message } from './model';
 export const appId = 'com.exact.messages';
 export const grants = 'net.fetch http://127.0.0.1:4318\nfs.read app:/data/messages.json\nfs.write app:/data/messages.json';
@@ -126,6 +126,27 @@ async function catalog(query: string, refresh: number) {
   const q = query.toLowerCase();
   return models.filter(m => `${m.name} ${m.maker} ${m.id}`.toLowerCase().includes(q)).slice(0, 80);
 }
+type Snapshot = ReturnType<typeof snapshot>;
+// A sent message shows in its conversation from the send until an answer has it, as the message the service
+// adds: from "me", with the sent text, at the send's time. One the service ignores (a blank text, or one sent
+// while a reply is coming) shows until its reply, which carries no id. The inbox previews it as the answer
+// will, "Typing…" when a model answers.
+export const overlay: Overlay = (source, args, answer, writes) => {
+  if (source !== 'snapshot') return undefined;
+  const shown = answer as Snapshot, [, , , clock, offset] = args as [string, string, number, number, number];
+  const sent = writes.flatMap(w => {
+    if (w.source !== 'sendMessage' || w.args[0] !== shown.id || w.reply?.id === '') return [];
+    const body = w.args[1].trim(), at = w.args[3];
+    if (!body || shown.messages.some(m => m.from === 'me' && m.at === at && m.body === body)) return [];
+    if (w.answered) w.keep();
+    return [{ id: `sending-${w.id}`, from: 'me', body, at, reply: w.args[2], status: '', reaction: '', fresh: true, edited: false }];
+  });
+  if (!sent.length) return undefined;
+  const messages = presentation({ model: shown.model, messages: [...shown.messages, ...sent] } as Thread, clock, offset);
+  const last = sent[sent.length - 1]!;
+  return { ...shown, messages, count: messages.length, latest: last.id, draft: '',
+    threads: shown.threads.map(t => t.id === shown.id ? { ...t, preview: shown.model ? 'Typing…' : last.body, time: time(last.at, offset), draft: '' } : t) } as never;
+};
 export const answer: Answer = ((source: string, args: any[], _store: unknown, storage: Storage) => {
   if (source === 'snapshot') return snapshot(args[0], args[1], args[3], args[4]);
   if (source === 'pulse') return pulse(args[0], storage);

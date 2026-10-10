@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchFacts, refuseStale, staleError, warnStale, webChanges, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
+import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
@@ -339,8 +340,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const point = kind === 'contextmenu' ? opts.at : null;
-        const x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
+        const point = kind === 'contextmenu' || kind === 'press' ? opts.at : null;
+        let x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press' ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
             : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
@@ -351,6 +352,13 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
           const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
+        }
+        // A plain press presses what it names (LLP 1012 §1): beside a control its middle holds, or refused (agent-aim.mjs).
+        let avoided;
+        if (kind === 'press' && id != null && !point && opts.x == null && opts.y == null && opts.selector == null) {
+          const aim = await page.evaluate(pageAim, { id, x, y });
+          if (aim?.error) throw new Error(aim.error);
+          if (aim?.at) { [x, y] = aim.at; avoided = aim.avoided; }
         }
         let deliveredAt = [x, y];
         if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
@@ -421,7 +429,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         }
         else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
-        return { at: kind === 'wheel' ? deliveredAt : [x, y] };
+        return { at: kind === 'wheel' ? deliveredAt : [x, y], ...(avoided ? { avoided } : {}) };
       },
       async screenshot(path) {
         await frame();

@@ -1,10 +1,13 @@
 # Contract: a complete working guide for agents
 
+> **Lookup reference; start at [start-here.md](start-here.md).** Building an app needs
+> only that page. Open this guide at the section its last table names, or grep it;
+> don't read it front to back.
+
 Use this guide to author, change, inspect, and verify a current Exact application.
-It covers the language implemented on `main` on 2026-10-02. Start here for an
-implementation task; use the [human guide](contract-for-humans.md) for explanations
-and complete examples, and the [grammar reference](contract-grammar.md) for exact
-forms, built-in functions, tags, and event payloads.
+It covers the language implemented on `main` on 2026-10-02. Use the [human guide](contract-for-humans.md)
+for explanations and complete examples, and the [grammar reference](contract-grammar.md)
+for exact forms, built-in functions, tags, and event payloads.
 
 The compiler and executable fixtures are authoritative. Read the repository's
 `AGENTS.md`, `rules/RULES.md`, and `rules/DEFERRED.md` before making changes here.
@@ -572,6 +575,7 @@ Choose the mechanism from its lifetime:
 | Explicit command with a reply | `mutation reply as shape T`, then `send reply = source(args)` |
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
+| Show a write before its reply (optimistic) | `refreshes` on the mutation, and the source's `overlay` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
 | Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
@@ -648,17 +652,98 @@ in flight or waits: send while it is pending, since `not pending(m)` means the
 spinner is off, not that a send may be skipped. Assigning a queue's slot forgets
 nothing — every reply still lands over it — so a mutation that must drop a late
 reply (a session's sign-in) does not declare `queue`. At most 64 sends wait; the
-65th refuses its action. `refreshes` re-reads
-its resources when the mutation is sent (an answer the source gives at once shows
-immediately) and forces them again when the reply lands; a mutation the source
-answers at once has landed, so its resources are forced in the sending commit (an
-async read is asked again, not dropped). `then` is parameterless,
+65th refuses its action. `refreshes` asks its resources again when the reply
+lands; a mutation the source answers synchronously (without a request) has
+landed, so its resources are asked in the sending commit. A send still in flight
+does not ask them; what it writes shows before its reply only through the data
+module's `overlay`, if it exports one (below). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
 own mutation; to repeat, use a task (see "Repeating while a condition holds").
 Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
+
+### Optimistic writes: the overlay
+
+To show a write before its reply, the mutation declares `refreshes` and the data
+module exports an `overlay`:
+
+```contract
+shape Item
+  text: string
+
+component List
+  resource items = loadItems() as shape list<Item>
+  mutation added as shape Item refreshes items
+  action add(text: string)
+    send added = addItem(text)
+  view
+    column
+      each item in items key=item.text
+        text item.text
+```
+
+```ts
+import type { Overlay } from './app.contract.d.ts';
+type Item = { text: string };
+export const overlay: Overlay = (source, args, answer, writes) => {
+  if (source !== 'loadItems') return undefined;    // other resources show their answers
+  const shown = [...(answer as Item[])];
+  for (const w of writes) {
+    if (w.source !== 'addItem') continue;
+    const [text] = w.args as [string];
+    if (shown.some(i => i.text === text)) continue; // the answer has it
+    if (w.answered) w.keep();                       // the server has not caught up yet
+    shown.push({ text });
+  }
+  return shown as never; // `Result<S>` cannot be narrowed from a generic `S`
+};
+```
+
+From the send, derives and views read `items` as the overlay's value. Without an
+overlay they read the answer, and the write shows only once a refreshed answer
+has it. The runner calls `overlay` for each resource a write affects, with:
+
+- `source` and `args`: the resource's source name and arguments. Resources can
+  share a source with different arguments; check `args` when a write belongs to
+  one of them.
+- `answer`: the resource's current answer. Copy it rather than changing it.
+- `writes`: the sends that affect it, in send order. Each has `id`, `mutation`
+  (the mutation's name), `source` and `args` (the send's), `reply` once its reply
+  has landed, and `answered`: its reply has landed and `answer` was asked after
+  that, so `answer` should include it.
+
+A write shows until the first answer asked after its reply landed. If that
+answer does not include it yet (a server that is not read-after-write
+consistent), call `keep()` on it to go on showing it. The runner does not ask
+again on its own, so a kept write shows until a later answer (from `refresh`,
+another write's reply, or new arguments) that the overlay does not keep it over.
+Returning `undefined`, throwing, or returning a value outside the resource's
+shape shows the answer and stops showing every answered write; the journal says
+why for the last two.
+
+A write that ends without landing stops showing in that commit, with no undo
+code, and the resource is asked again: its reply fails, a newer send to the same
+mutation replaces it (a `queue` mutation's sends all stay), or an action assigns
+the mutation's slot. If that ask fails, `failed(items)` is true and `items` keeps
+its last answer.
+
+- The overlay runs synchronously inside the commit, so it cannot await, and it
+  has no effects: `fetch`, storage, the store (`get` included), `native` and
+  `crypto` (`crypto.getRandomValues()`, `crypto.randomUUID()` and every
+  `crypto.subtle` call) refuse with an error naming the call, the same on every
+  host: a call that returns a promise rejects, any other throws. The
+  runner reuses its value while its inputs are unchanged, so compute it from
+  them alone.
+- Writes are not saved: after a relaunch or a reload only answers show, and a
+  resource a write was showing in is asked again.
+- A source whose module runs on a worker shows answers only, said once in the
+  journal.
+- A Rust source implements `DataSource::overlay`, returning
+  `Ok(Some(Overlaid { value, keep }))`, or `Ok(None)` to show the answer.
+- The agent's `state` shows what the overlay shows; `state.writes` lists the
+  writes still showing, as `{ id, mutation, landed }`, when there are any.
 
 A failed resource retains its value or placeholder, with `pending=false` and
 `failed=true`. Argument changes, refresh, or successful answers clear the failure.
@@ -858,7 +943,12 @@ See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
-drawn title bar) is a bug. On iOS:
+drawn title bar) is a bug. [`apps/shelf`](../apps/shelf/app.contract) is the recipe
+to copy for an iPhone app: tabs, a large title with a bar button and header search, a
+segmented filter, rows that push, a long-press menu, swipe to delete, the system
+alert, a sheet with Cancel and Save, pull to refresh, grouped lists, persistence and
+fetch, with its tests, in roles and text styles only. `bun scripts/no-tells.mjs <app>`
+lists any literal colour, font size or weight an app's `.contract` files still write. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
@@ -870,6 +960,7 @@ drawn title bar) is a bug. On iOS:
 | `select` of `option`s | a pop-up button with its menu |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
+| `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
@@ -877,11 +968,68 @@ drawn title bar) is a bug. On iOS:
 `contract vocab <name>` lists each one's props. A route does not scroll by
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
-route's enabled control whose `id` is the root's `navigationBack`; without one
-both are refused, as is the swipe on a sheet with `closedby="none"`. On a pushed iOS
+route's enabled control whose `id` is the root's `navigationBack`. A route with no such
+control still has the platform's back button, edge swipe and swipe down (and the
+browser's Back): they go back through the root's `navigate` handler with the location
+beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the
+router itself, as `nav = back(nav)` would (LLP 1115 D5). A declared but disabled
+control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`.
+
+Say what a thing is and leave how it looks unsaid: no `background-color`, `height`,
+`font-size` or `padding` on these, or the host draws your box instead of its
+control (LLP 1115). Worked forms, each compiled:
+
+```text
+// The navigation bar: buttons before the heading are leading items, after it
+// trailing; a popovertarget button is a menu item (⋯), a search input the bar's
+// search field, a tablist the segmented title.
+column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    text "Inbox" role="heading" aria-level=1
+    row role="tablist"
+      button role="tab" aria-selected=(filter == "all") press=show("all")
+        text "All"
+      button role="tab" aria-selected=(filter == "unread") press=show("unread")
+        text "Unread"
+    input type="search" value=query input=search placeholder="Search"
+    button popovertarget="inbox-menu" aria-label="More"
+      image "symbol:more"
+    button press=compose aria-label="Compose"
+      image "symbol:compose"
+  column id="inbox-menu" popover="auto" role="menu"
+    button press=compose
+      text "New Message"
+  // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
+  // spinner until the reload settles.
+  scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
+    each m in items key=m.id
+      // Swipe actions: a horizontal snap scroll naming its content and actions.
+      scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+        row width="100%"
+          button id=`item-${m.id}` press=open(m.id) width="100%" flex-shrink=0 scroll-snap-align="start" text-align="start"
+            text m.title
+          button id=`delete-${m.id}` destructive=true press=remove(m.id) aria-label="Delete" flex-shrink=0 scroll-snap-align="start"
+            image "symbol:delete"
+
+// A sheet's bar: Cancel is the root's navigationBack control, Done trails.
+column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="form" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    button id="back" press=back
+      text "Cancel"
+    text "New Message" role="heading"
+    button press=save
+      text "Done"
+  scroll id="form" flex=1 min-height=0
+    …
+```
+
+`action reload` is `refresh items`; `pending(items)` is true while it runs.
+A segmented control in the content is the same `row role="tablist"` of text tabs
+outside the header. iOS needs a swipe row's content exactly the scroll's size
+([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
 
 An `image` source is the same string on every host: a path under the app's
 `assets/`, an `http(s)` URL, `symbol:<role>` (the roles are
@@ -1145,9 +1293,15 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     each t in nav.tabs key=t.name
       column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
         each e in t.stack key=e.id
-          column navigationKey=`${e.id}` position="absolute" inset=0 background-color="#fff"
-            …
-  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex") height=56
+          column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
+            header
+              when e.name == "item"
+                button id="back" press=back
+                  text "Home"
+              text e.name role="heading" aria-level=(e.name == "item" ? 2 : 1)
+            scroll id=`content-${e.id}` flex=1 min-height=0
+              …
+  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex")
     button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
       image "symbol:home"
       text "Home"
@@ -1155,6 +1309,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
+- Each route starts with a `header` (its heading, and on a pushed route the
+  `id="back"` control), which iOS makes the navigation bar. Leave the tablist's and the
+  routes' backgrounds, heights and colours unsaid: the platform draws the bars and the
+  page.
 - Each tab names its panel with `aria-controls`; the panels are the stacks, and every
   tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
   a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
@@ -1175,7 +1333,13 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
-  route under it is dimmed.
+  route under it is dimmed. One pushed over a sheet (a confirmation over a dialog)
+  is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
+  under it, and popping both closes both. Under the agent's frozen timing (the
+  default) on iOS, a `tap` or `type` that opens or closes a sheet, its answer's `then`
+  included, waits up to two seconds for UIKit to finish it; a reply with `settled:
+  false, reason: "transition"` says it had not. `--timing platform` leaves that to
+  `clock settle`.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height or `fit-content` (the route's content height; a menu or
   a short dialog), which goes alone or as `"fit-content large"`. A literal with
@@ -1347,6 +1511,35 @@ the node. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
 
+#### A confirmation
+
+"Remove book?" with a message, Cancel and a destructive Remove (React Native's
+`Alert.alert`) is a `dialog role="alertdialog"`: its `aria-label` is the
+title, a `text` the message, each action a `button` with `press` that closes
+it, and one Cancel, a closing `button` without `press`. Open it from a button
+(`commandfor="<id>" command="show-modal"`) or from any action with
+`showModal("<id>")` — a context-menu row's `press` asks before it deletes:
+
+```
+action askRemove(id: string)
+  pending = id
+  showModal("remove")
+…
+dialog id="remove" role="alertdialog" aria-label="Remove book?"
+  text (title + " will be removed from your library.")
+  button press=remove(pending) destructive=true commandfor="remove" command="close"
+    text "Remove"
+  button commandfor="remove" command="close"
+    text "Cancel"
+```
+
+iOS shows the centred alert, its Cancel kept; the web its modal `dialog`;
+macOS its painted dialog. Text, a cancel and at most three buttons make an
+alert; several actions with no text (an "Open in…" chooser) make an action
+sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
+at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
+`close("<id>")` from an action closes it as its Cancel does.
+
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
 on the web and under the agent the nested popover, opened by `tap <row>`. Place
@@ -1382,6 +1575,17 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
+Apple native modules can include asset catalogs beside their Swift sources:
+`modules/apple/*.xcassets`, or `ios/modules/*.xcassets` / `macos/modules/*.xcassets`
+when the app has a platform-local module directory. The local directory replaces
+`modules/apple` for that platform; tvOS uses the iOS directory. The Apple build
+compiles these catalogs together with its generated assets into the main bundle.
+On macOS, a catalog makes the dev build and agent launch the assembled `.app`.
+Load custom symbols with `UIImage(named: "donut", in: .main, with: configuration)`
+or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
+`symbol:sf/...` still looks up system symbols only. Catalog changes require a
+new native build; they are not web assets or live update payloads.
+
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
 trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
@@ -1393,8 +1597,8 @@ An interface size setting is `rem` plus `setRootFontSize(px)`, CSS's `:root {
 font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
 heights, paddings) and what should not in `px`; an action calling
 `setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
-The app's size stands over the host's (the browser's setting, iOS Dynamic Type,
-16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a
+The app's size stands over the host's (the browser's setting, iOS Dynamic Type's
+body, 13 on macOS, 16 on Linux), as an author's `html { font-size: 20px }` stands over a
 browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
 "Default" choice that follows Dynamic Type calls that. A size of 0 or less is
 refused (a literal at compile time, a computed one in `logs`). It is not kept
@@ -1478,6 +1682,9 @@ The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
 `"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
+On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
+for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
+choice among several is refused rather than guessed (another drive's simulator).
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
 `type` also sets a control's value: `type "persona" "bob"` chooses a
@@ -1520,6 +1727,23 @@ A tap aims at the target's middle, or, where the target is not there (a wrapped
 inline run, whose middle can fall between its lines), at the middle of the first
 of its lines that is; a tap whose point lands on something else fails, an
 ancestor that would take the press itself included.
+A tap that names a node presses that node, never a control inside it: a node
+with its own `press` (or a link) whose middle holds another — a post row's link
+card, its Like — is pressed at the nearest point of its box the search finds
+that reaches it (the reply's `avoided` names what the middle holds), or refused
+when it finds none; a node without one is refused when its middle holds a control
+(`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+The search tries a grid of about 12 points, then about 3 points and the box's
+edges 1 point in, so a reachable strip thinner than that, away from the edges,
+can be missed: then name a point. `tap <target> at <x> <y>` presses at a point
+from the target's top left, whatever a finger there reaches, on every host. What
+a press there would deliver counts as a control: a node with its own press, an
+SVG element, an inline run or link, a form control or text field (it toggles,
+opens or takes the focus), a grouped list's row, a surface's action button and a
+canvas that takes input. A disabled node presses nothing (on the web only a
+disabled form control: `disabled` on a box means nothing there). On iOS without
+`--touch platform` a refused tap has still dismissed, or begun to open, a
+painted popover, as the tap's first step.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
@@ -1738,7 +1962,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
-| `background-color: "#fff"` in a `style` | `background-color="#fff"` |
+| `background-color: "Canvas"` in a `style` | `background-color="Canvas"` (or nothing: an unset background is the platform's) |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
 | Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
 
@@ -1815,7 +2039,7 @@ change in the laid-out box using the existing measured projection.
 inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
 where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 
-`font-family` accepts literal CSS fallback lists and choices of them, including
+Omit `font-family` for the platform's font. `font-family` accepts literal CSS fallback lists and choices of them, including
 `"Inter, system-ui, sans-serif"` and quoted names. A family declared with
 `font` uses its bundled faces; other names are local installed families,
 whose own italic and bold faces `font-style` and `font-weight` select by CSS's
@@ -1883,9 +2107,48 @@ content box's width and height after the first layout and whenever they change
 (one more parameter: its `DOMRectReadOnly`), on every host
 ([Events](contract-grammar.md#events)); read other boxes there with `frame(id)`
 rather than polling with a timer. `user-select="none"` prevents
-ordinary text selection; `auto` is the default. Text/all/contain need iOS and
-Linux selection executors and are refused precisely. These rows take literals
+ordinary text selection; `auto` is the default, and on the Mac it is AppKit's:
+a label inside a button, link or other control, or in a `header`, `nav`,
+`footer`, toolbar, tablist or menu, is not selectable, while an `article`'s text
+and other content text is (so put prose a reader copies in `article`, not a
+`header`). Text/all/contain need iOS and Linux selection executors and are
+refused precisely. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
+
+**Colours: say a role, not a value.** Leave a colour unsaid where you can (text,
+tint, page and sheet backgrounds, separators and controls are the platform's).
+Where you must say one, name a role, which each host resolves to its own colour
+for light, dark and Increased Contrast (`labelColor` on iOS, the browser's own on
+the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
+`GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
+`ButtonText`, `Highlight`, `HighlightText`, and Exact's `-exact-label`,
+`-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
+`-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
+`-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
+`-exact-grouped-background`, `-exact-secondary-grouped-background`,
+`-exact-tertiary-grouped-background`, `-exact-fill` (and `secondary-`, `tertiary-`,
+`quaternary-`), and the hues `-exact-system-red`, `-orange`, `-yellow`, `-green`,
+`-mint`, `-teal`, `-cyan`, `-blue`, `-indigo`, `-purple`, `-pink`, `-brown`,
+`-gray` (each `-exact-system-…`). `color="-exact-secondary-label"`, not
+`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. A brand colour
+the platform has no role for is the one place for a literal.
+
+**Type: say a heading, not a size.** Body text is the platform's body size
+already (the root font size: Dynamic Type's body on iOS, 13 on the Mac, the
+browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
+its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
+`title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
+the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
+28/22/20/17 pt, the titles regular and `headline` semibold; the Mac: 22/17/15/13;
+the web reads the ramp at its 16 px root: 27/21/19/16, in `rem`). So omit
+`font-size` on headings; a written `font-size` or `font-weight` on the heading
+wins, an inherited one does not. Other text takes a style by name with `font`,
+as WebKit's `font: -apple-system-headline`: `font="-exact-footnote"` (or
+`"-apple-system-footnote"`) sets the style's size and weight, `normal` style and
+line height. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
+`-exact-title3`, `-exact-headline`, `-exact-body`, `-exact-callout`,
+`-exact-subheadline`, `-exact-footnote`, `-exact-caption1`, `-exact-caption2`;
+`font-size="-exact-caption1"` alone sets only the size. `font` takes nothing else.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB

@@ -13,6 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::{BindingKind, BindingsRow};
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -1242,4 +1243,113 @@ pub(crate) fn multicol_on_flex(
         return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
     }
     Ok(())
+}
+
+impl crate::Lowerer<'_> {
+    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
+    /// unsaid, its colour is the platform's link role (the tint on iOS,
+    /// `linkColor` on macOS, the browser's own on the web), as the UA's
+    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
+    /// or its class wins; a block-level `link` keeps inheriting.
+    pub(crate) fn link_run_color(
+        &mut self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        bindings: &mut Vec<BindingsRow>,
+    ) {
+        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
+            bindings.push(BindingsRow {
+                kind: BindingKind::Style,
+                id: StyleId::TextColor as u16,
+                expr: self.fixed(true, "LinkText"),
+            });
+        }
+    }
+
+    /// @ref LLP 1115 D3 — a heading is the platform's text style for its
+    /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
+    /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
+    /// style's size for the root font size and its weight. A level chosen
+    /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
+    /// styles; any other computed level is 2's. Pushed before the author's
+    /// rows, so a written `font-size` or `font-weight` wins; an inherited one
+    /// is unsaid and does not.
+    pub(crate) fn heading_style(
+        &mut self,
+        tag: &str,
+        attrs: &[contract_syntax::Attr],
+        scope: &crate::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) -> Result<(), crate::LowerError> {
+        use contract_syntax::Expr;
+        let heading = attrs
+            .iter()
+            .any(|a| a.name == "role" && matches!(&a.value, Expr::Str(v, _) if v == "heading"));
+        if tag != "text" || !heading {
+            return Ok(());
+        }
+        let style = |level: f64| {
+            let name = match level {
+                1.0 => "title1",
+                3.0 => "title3",
+                n if n >= 4.0 => "headline",
+                _ => "title2",
+            };
+            let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
+            (
+                name,
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight,
+            )
+        };
+        // The level's literal leaves, each mapped; `None` when one is computed.
+        fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
+            Some(match e {
+                Expr::Number(n, _) => f(*n),
+                Expr::Str(v, _) => f(v.trim().parse().ok()?),
+                Expr::Ternary(c, yes, no, span) => Expr::Ternary(
+                    c.clone(),
+                    Box::new(leaves(yes, f)?),
+                    Box::new(leaves(no, f)?),
+                    *span,
+                ),
+                _ => return None,
+            })
+        }
+        let level = attrs
+            .iter()
+            .find(|a| a.name == "aria-level")
+            .map(|a| &a.value);
+        if level.is_none() {
+            // ARIA's default level, said: a host that reads the level (iOS's
+            // header-shaped route takes only a heading with one) sees 2.
+            let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
+            bindings.push(BindingsRow {
+                kind: BindingKind::Prop,
+                id: p("accessibilityHeadingLevel") as u16,
+                expr,
+            });
+        }
+        let span = level.map_or_else(Default::default, |l| l.span());
+        let two = Expr::Number(2.0, span);
+        let level = level
+            .filter(|l| leaves(l, &|_| two.clone()).is_some())
+            .unwrap_or(&two);
+        let size = leaves(level, &|n| {
+            Expr::Str(format!("-exact-{}", style(n).0), span)
+        })
+        .expect("literal leaves");
+        let weight =
+            leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
+        for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
+            let expr = self.expr_code(&value, scope, locals)?;
+            bindings.push(BindingsRow {
+                kind: BindingKind::Style,
+                id: row as u16,
+                expr,
+            });
+        }
+        Ok(())
+    }
 }

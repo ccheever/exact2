@@ -70,8 +70,35 @@ enum NavigationRules {
             .min { id($0) < id($1) }
     }
 
+    /// How the platform's Back (its button, edge swipe, sheet swipe-down)
+    /// goes from the selected route.
+    enum Back: Equatable {
+        /// Press the authored Back control, this view.
+        case press(UInt32)
+        /// Deliver this location to the navigation root's `navigate`.
+        case navigate(String)
+        /// The runner's own `back` of the router (no `navigate` handler).
+        case pop
+    }
+
+    /// LLP 1115 D5, Back is always there: a route that declares a Back
+    /// control (a live element in it whose `id` is the root's
+    /// `navigationBack`) goes back by pressing it, and is refused while it
+    /// does not resolve (disabled, or no `press`) — the author's say, as
+    /// D1 has it. A route that declares none still goes back, as a
+    /// hand-built UIKit screen does and as the web's history Back does
+    /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
+    /// location of the visit beneath, or with no `navigate` handler the
+    /// runner's own `back` of the router, the same on the web. With no
+    /// visit beneath there is nothing to go back to, and it is refused.
+    static func back(control: UInt32?, declared: Bool, hearsNavigate: Bool, beneath: () -> String?) -> Back? {
+        if let control { return .press(control) }
+        guard !declared, let location = beneath(), !location.isEmpty else { return nil }
+        return hearsNavigate ? .navigate(location) : .pop
+    }
+
     /// D1: whether an interactive pop may begin at all — a stack to pop, no
-    /// transition in flight, no sheet, a resolvable Back control, and no
+    /// transition in flight, no sheet, a way back (`back`), and no
     /// context preview anywhere in the session.
     static func popMayBegin(depth: Int, changing: Bool, modalActive: Bool, hasBackControl: Bool, contextPreviewActive: Bool) -> Bool {
         depth > 1 && !changing && !modalActive && hasBackControl && !contextPreviewActive
@@ -126,6 +153,27 @@ enum NavigationRules {
     /// transition outside a sheet — never to a sheet's vertical dismissal.
     static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
         !modalActive && changing && initiallyInteractive
+    }
+
+    /// D5: a stack change waits a turn when it arrives in a batch that put
+    /// the keyboard away (shown, with no editor of the session's left): the
+    /// viewport's growth is applied after the batch, and a transition begun
+    /// before it keeps the routes at the keyboard's height to its end. Under
+    /// the agent nothing animates, so nothing waits.
+    static func waitsForKeyboardViewport(applying: Bool, keyboardShown: Bool, editing: Bool,
+                                         agentFreezes: Bool, stackChanges: Bool) -> Bool {
+        applying && keyboardShown && !editing && !agentFreezes && stackChanges
+    }
+
+    /// A presentation's background view, back in the home it left: its
+    /// frame then, grown or shrunk on each flexible axis by what its home
+    /// did meanwhile, as autoresizing would have done had it stayed.
+    static func restoredFrame(_ frame: CGRect, homeThen: CGSize, homeNow: CGSize,
+                              flexibleWidth: Bool, flexibleHeight: Bool) -> CGRect {
+        var out = frame
+        if flexibleWidth { out.size.width = max(0, out.width + homeNow.width - homeThen.width) }
+        if flexibleHeight { out.size.height = max(0, out.height + homeNow.height - homeThen.height) }
+        return out
     }
 
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,

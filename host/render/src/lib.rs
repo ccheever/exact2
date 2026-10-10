@@ -773,6 +773,11 @@ pub fn settle<D: DataSource>(
                 }
                 runner.fulfill_measured(ticket, outcome, elapsed_ms)?;
             }
+            // Replies that keep coming (an answer re-asked without end) still
+            // meet the deadline.
+            if Instant::now() >= deadline {
+                return Ok(Settled::Deadline);
+            }
             continue;
         }
         if runner
@@ -808,9 +813,8 @@ struct Held {
 }
 
 fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
-    // The runner holds no refusals in a render, so nothing fences the lane.
     executor.forget(|ticket| runner.holds(ticket));
-    executor.resume_ordered();
+    lift(executor, held);
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
@@ -829,6 +833,24 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
             run(executor, held, r, dispatch);
         }
     }
+    // Again for what this batch put behind a refusal with nothing earlier
+    // in flight: no completion would come to lift it.
+    lift(executor, held);
+}
+
+/// The runner holds no refusals in a render, so the ordered fence lifts once
+/// the work admitted before it has drained, as a refusal settles on a host:
+/// what it held is admitted, or the render is busy. A refusal with nothing
+/// in flight lifts again, until something runs or none is held.
+fn lift(executor: &Executor, held: &mut Held) {
+    while executor.ordered_idle() {
+        let refused = executor.resume_ordered();
+        if refused.is_empty() {
+            return;
+        }
+        held.busy
+            .extend(refused.into_iter().map(|(ticket, _)| ticket));
+    }
 }
 
 fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) {
@@ -841,6 +863,8 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
             }
             Ok(())
         }
+        // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+        Dispatch::Again => executor.again(&r),
         Dispatch::Host(_) | Dispatch::Missing => executor.run(r, None),
     };
     if admitted.is_err() {
@@ -1219,5 +1243,185 @@ mod realm_tests {
         assert!(MADE.with(|m| m.borrow().is_none()));
         retire_renders();
         assert!(RETIRED.with(|r| r.borrow().is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataError, Outcome, Request, Store};
+    use std::sync::atomic::AtomicUsize;
+
+    static GOOD: AtomicUsize = AtomicUsize::new(0);
+
+    /// `bad` asks for a continuation with an independent-HTTP opt-in, which
+    /// the executor refuses; `good` for one it runs.
+    struct Fenced;
+    impl DataSource for Fenced {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(match source {
+                "bad" => Request::continuation(1).independent_http(4096),
+                _ => Request::continuation(2),
+            }))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            GOOD.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    static BURST: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` asks for work it runs at once.
+    struct Burst;
+    impl DataSource for Burst {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap();
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            BURST.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// Eighteen asks with room for sixteen: the seventeenth is refused (the
+    /// render is busy) and the eighteenth, held behind it, runs once a
+    /// completion has made room, not refused at once against the full lane
+    /// (Astra, round 2).
+    #[test]
+    fn a_burst_past_the_limit_refuses_one_and_runs_the_rest() {
+        let mut src = String::from("component App\n");
+        for n in 0..18 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Burst",
+            origin: None,
+        };
+        let rendered = render(&plan, || Burst, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(BURST.load(Ordering::SeqCst), 17, "all but the seventeenth");
+        assert_eq!(rendered.settled, Settled::Busy);
+    }
+
+    static AGAINS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` waits on shared work: every continuation is a re-ask
+    /// (`Dispatch::Again`). `forever` never stops waiting.
+    struct Waiting;
+    impl DataSource for Waiting {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap_or(0);
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn dispatch(&mut self, _: u64, _: &Store) -> Dispatch {
+            Dispatch::Again
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            if source == "forever" {
+                return Ok(Answer::Later(Request::continuation(9999)));
+            }
+            AGAINS.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// 150 waiting answers, past the re-ask markers' window of 128: each is
+    /// settled with no work and the render completes, not busy (LLP 1041
+    /// §8.4, amended 2026-10-09). An answer that never stops waiting keeps
+    /// the render open until its deadline: a pending re-ask is not complete.
+    #[test]
+    fn re_asks_complete_a_render_and_one_still_waiting_meets_the_deadline() {
+        let mut src = String::from("component App\n");
+        for n in 0..150 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Waiting",
+            origin: None,
+        };
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(AGAINS.load(Ordering::SeqCst), 150);
+        assert_eq!(rendered.settled, Settled::Complete);
+        let plan = contract::compile(
+            "component App\n  resource f = forever() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let short = Duration::from_millis(300);
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, short).unwrap();
+        assert_eq!(rendered.settled, Settled::Deadline);
+    }
+
+    /// A refusal with nothing in flight before it fences the next request:
+    /// the hand-out lifts the fence again, so the next one runs at once
+    /// rather than at the deadline (review of the held ordered lane).
+    #[test]
+    fn a_request_fenced_with_nothing_in_flight_runs_without_waiting_for_the_deadline() {
+        let plan = contract::compile(
+            "component App\n  resource bad = bad() as shape number\n  resource good = good() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let site = Site {
+            name: "Fenced",
+            origin: None,
+        };
+        let started = Instant::now();
+        let rendered = render(&plan, || Fenced, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert!(started.elapsed() < DEADLINE / 2, "{:?}", started.elapsed());
+        assert_eq!(GOOD.load(Ordering::SeqCst), 1, "good was answered");
+        assert_eq!(rendered.settled, Settled::Busy);
     }
 }

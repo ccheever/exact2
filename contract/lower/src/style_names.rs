@@ -281,6 +281,9 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("column-count", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
     ("column-rule-width", "css CSS Multi-column Layout 1", AttrTarget::Shorthand),
+    // @ref LLP 1115 D3 — a platform text style, as WebKit's
+    // `font: -apple-system-headline`; no other `font` value.
+    ("font", "css CSS Fonts 4", AttrTarget::Shorthand),
 ];
 
 /// The target of a style attribute, if `name` is one.

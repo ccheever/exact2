@@ -179,6 +179,14 @@ same admission, parse, open and regular-file check, returning the opened
 `File`) is public too, so the embedder reads in chunks and stops between
 them once its request has ended; `read_capped` reads through it.
 
+### 11. host operations in flight
+
+From exact2 LLP 1069.002 A1.5 (2026-10-09): `Context::in_flight` (`bindings.rs`,
+`RuntimeState::in_flight` in `task.rs`) reads the count `task_started` and
+`task_finished` keep, so an embedder's test of giving up waits for the
+`fs.compressImage` it gave up on to return before it reads what that call did
+not write. No behaviour changes.
+
 ### Windows chosen-document EISDIR
 
 `src/stdlib/windows_directory.rs` opens the document relative to its retained

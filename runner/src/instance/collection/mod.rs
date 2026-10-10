@@ -47,16 +47,27 @@ const LEAD_SECONDS: f64 = 0.25;
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
 
+/// What a window that leans ([`CollectionFill::lean`]) keeps behind its
+/// travel, in viewports.
+const LEAN_BEHIND: f64 = 0.5;
+
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
-/// second of that travel more, up to two viewports.
-fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
+/// second of that travel more, up to two viewports. A fill that leans keeps
+/// [`LEAN_BEHIND`] of a viewport on the side it travels from.
+fn lead(viewport: f64, fill: CollectionFill) -> [f64; 2] {
+    let velocity = fill.velocity;
     let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
     let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
-    if velocity > 0.0 {
-        [viewport * k, (viewport + extra) * k]
+    let behind = if fill.lean && velocity != 0.0 {
+        viewport * LEAN_BEHIND
     } else {
-        [(viewport + extra) * k, viewport * k]
+        viewport
+    };
+    if velocity > 0.0 {
+        [behind * k, (viewport + extra) * k]
+    } else {
+        [(viewport + extra) * k, behind * k]
     }
 }
 
@@ -842,7 +853,7 @@ impl Collection {
                 .window_led(
                     g.offset,
                     g.port_main,
-                    lead(g.port_main, fill.velocity),
+                    lead(g.port_main, fill),
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;
@@ -871,6 +882,8 @@ impl Collection {
         let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
         let toward_start = fill.velocity < 0.0;
         let mut pending = false;
+        // Window rows a slice leaves for the next: retiring rows wait for them.
+        let mut more = 0;
         let mut admitted = std::collections::BTreeSet::new();
         // A retire-only report builds what it owes and nothing optional.
         let building = if fill.no_build {
@@ -888,6 +901,9 @@ impl Collection {
             }
             optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
             pending = optional.len() > limit as usize;
+            if !fill.no_build {
+                more = optional.len().saturating_sub(limit as usize);
+            }
             admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
         }
         // With reuse, the rows nothing mounts are built once the retiring
@@ -924,7 +940,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), Vec::new(), None, frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), None, 0, frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -1002,7 +1018,7 @@ impl Collection {
         // Rows still needed after the retiring ones may take the kept rows
         // past the window, farthest first.
         let hold = port.filter(|_| reusing && !update);
-        let kept = self.build_needed(u, needed, retiring, kept, hold, frames)?;
+        let kept = self.build_needed(u, needed, retiring, kept, hold, more, frames)?;
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();

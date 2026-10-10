@@ -110,7 +110,7 @@ struct HeaderTitle: Equatable {
     static func holdsHeading(_ node: NodeView) -> Bool {
         node.container.subviews.contains { child in
             guard let child = child as? NodeView else { return false }
-            return (child.isParagraph && child.props["accessibilityHeadingLevel"] != nil) || holdsHeading(child)
+            return (child.isParagraph && child.headingLevel != nil) || holdsHeading(child)
         }
     }
 }

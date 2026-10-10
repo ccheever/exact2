@@ -596,6 +596,19 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
+    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let at_ms = self.now_ms;
+        match a.error.is_none().then(|| self.runner.host_back(id)) {
+            Some(Ok(r)) => a.receipts.extend(r.map(|receipt| Timed { at_ms, receipt })),
+            Some(Err(e)) => a.error = Some(e),
+            None => {}
+        }
+        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
+    }
+
     /// [`Host::dispatch_at`] at the clock's last value.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> String {
         self.dispatch_at(view, event, self.now_ms)
@@ -1101,6 +1114,8 @@ impl<D: DataSource> Host<D> {
                 batch.request(&r);
             }
             Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            // A re-ask settles at once, as the no-op it replaces did.
+            Dispatch::Again => immediate.push((r.ticket, Dispatch::again_outcome())),
             Dispatch::Run(Work::Later(_)) => immediate.push((
                 r.ticket,
                 Outcome::Failed {

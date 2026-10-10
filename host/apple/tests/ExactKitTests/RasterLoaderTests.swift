@@ -298,7 +298,7 @@ final class RasterLoaderTests: XCTestCase {
     /// test whose event can never come.
     private func settle(file: StaticString = #file, line: UInt = #line, _ predicate: () -> Bool) {
         let hang = Date(timeIntervalSinceNow: 300)
-        while !predicate() && Date() < hang { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while !predicate() && Date() < hang { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertTrue(predicate(), file: file, line: line)
     }
     private func fixture(sourceLimit: Int = 1152, metadataLimit: Int = 64) throws -> (URL, AssetResolver, Presenter, NodeView, RasterLoader, NSWindow) {

@@ -62,6 +62,36 @@ impl Collection {
         mounted.awaiting = !shows;
     }
 
+    /// The rows that waited and overlap the port were it at `offset`: a host
+    /// that leaves its reports for later (it waits for more travel before
+    /// it mounts rows) still says where the view is, so what waits for a
+    /// row to show starts as it does. Nothing else moves: the window, the
+    /// geometry and the rows are the last report's.
+    pub(super) fn reveal_at(&mut self, u: &mut Update<'_>, offset: f64) {
+        if !self.any_awaiting {
+            return;
+        }
+        let Some(port) = self.geometry.as_ref().map(|g| g.port_main) else {
+            return;
+        };
+        let mut left = false;
+        for i in 0..self.mounted.len() {
+            if !self.mounted[i].awaiting {
+                continue;
+            }
+            let position = self.mounted[i].position;
+            let start = self.index.prefix(position).unwrap_or(0.0);
+            let size = self.index.height(position).unwrap_or(0.0);
+            if start < offset + port && start + size > offset {
+                self.mounted[i].awaiting = false;
+                u.shown.revealed.push(self.mounted[i].wrapper);
+            } else {
+                left = true;
+            }
+        }
+        self.any_awaiting = left;
+    }
+
     /// After a report: the rows that waited and now overlap the port.
     pub(super) fn reveal_shown(&mut self, u: &mut Update<'_>) {
         if !self.any_awaiting {

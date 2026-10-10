@@ -102,11 +102,11 @@ pub use runner::{
     CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command, ControlValue, DataError,
     DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent, Event, FieldSelection,
     FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight, Interrupt, KeyModifiers,
-    KeyboardEvent, Limits, ListTextPosition, Native, NativeCall, NativeHandler, Picked,
+    KeyboardEvent, Limits, ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked,
     PickerLinks, PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink,
     Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, StreamCount,
-    SurfaceAnswer, Target, Timed, WheelEvent, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
-    QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    SurfaceAnswer, Target, Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
+    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_images, svg_islands, uses, Capability, Uses};

@@ -5,8 +5,11 @@ as symptom → cause → what to do, with where it was found. Delete the entry i
 change that fixes the footgun, or that makes the compiler, runtime or driver
 diagnose it. **Candidate diagnostic** marks one that could become a check cheaply.
 
-Read [the agent guide](contract-for-agents.md) first. This list holds what that
-guide's rules don't make obvious.
+> **Lookup reference; start at [start-here.md](start-here.md).** Its last section names
+> the pitfalls that cost agents the most. Search this list by symptom (`grep -n`) when
+> something compiles and misbehaves; don't read it front to back.
+
+This list holds what the [agent guide](contract-for-agents.md)'s rules don't make obvious.
 
 ## Layout
 
@@ -38,9 +41,18 @@ guide's rules don't make obvious.
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
-  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: add
-  `object-fit="contain"` to every symbol with a `width`/`height`. (Signal Clone,
-  2026-10-02.)
+  Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
+  it follows its text (in a button, tab or bar item, its title's font; give it a
+  `font-size` if it must differ; a native button refuses its symbol's `width` and
+  `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
+  Clone, 2026-10-02.)
+- **In dark mode the navigation title and status bar turn white on a light page.**
+  Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
+  while the system is dark, so UIKit's bars and the platform's colours go dark
+  around it. Fix: leave the background unsaid (the platform's, LLP 1115), or, for a
+  deliberately light-only design, write `color-scheme="light"` on the root, which
+  holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
+  2026-10-09.)
 - **On iOS the whole window scrolls when the keyboard opens, and the header goes
   with it.** Cause: without `interactive-widget`, the root is not resized for the
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
@@ -189,18 +201,17 @@ guide's rules don't make obvious.
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
   Fix: in a test or drive put `clock settle` between drags. Showing the move in
-  the drop's own commit (the board in state the action writes, saved through the
-  mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
+  the drop's own commit (an `overlay` on the cards' source, or the board in state the
+  action writes, saved through the mutation) only removes the wait for storage, which
+  shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
 
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
-  by the root's `navigationBack`; with no such enabled control in the active route
-  it is refused (the log says "back gesture refused"). Fix: `navigationBack="back"`
-  on the root and an `id="back"` button on every pushed screen (LLP 1038 §6).
-  **Candidate diagnostic:** the compiler could warn on a stacked route with no
-  control of that id.
+  by the root's `navigationBack`, and a route that declares one that is disabled
+  refuses it (the log says "back gesture refused" and why). A route with no such
+  control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -212,19 +223,24 @@ guide's rules don't make obvious.
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
-  dismissal refused: no enabled navigationBack control in the active route").
-  Cause: as for edge-swipe back, the swipe presses the control named by the root's
-  `navigationBack`, and a `navigationPresentation="modal"` route with no enabled
-  control of that id refuses it; `closedby="none"` refuses it too. Fix: an
-  `id="back"` button (Cancel, Done) in every sheet (`ModalIOS.swift`,
-  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+  dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
+  control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
+  control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
-  grouped list). Fix: the native Contract forms
+  grouped list), and values copied from a screenshot: Apple's system colours as hex
+  (`#8e8e93`, `#007aff`, `#f2f2f7`), headings as `font-size=34 font-weight=700`, a
+  large title or a search bar painted in the content. Each is a tell: it misses dark
+  mode, Increased Contrast and the next iOS. Fix: the native Contract forms
   ([the agent guide](contract-for-agents.md#views-layout-and-interaction), "Prefer
-  native controls"); a hand-built lookalike of a system control is a bug. Match a
-  reference's structure and controls, not its pixels. (Exact-new iOS app feedback,
-  2026-10-04.)
+  native controls"): a `header` with a `role="heading" aria-level=1` (the large
+  title) and an `input type="search"` (the bar's search field); a colour role
+  (`-exact-secondary-label`, `AccentColor`, `-exact-grouped-background`) or nothing
+  where you would write a hex. A hand-built lookalike of a system control is a bug.
+  Match a reference's structure and controls, not its pixels; copy
+  [`apps/shelf`](../apps/shelf/app.contract), the recipe, and run `bun
+  scripts/no-tells.mjs <app>`, which lists every literal colour, font size and weight
+  left. (Exact-new iOS app feedback, 2026-10-04; LLP 1115.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -250,7 +266,7 @@ guide's rules don't make obvious.
 - **`role="alertdialog"` refuses a dialog laid out in a `column`.**
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
-  1021: iOS's sheet, macOS's menu), whose rows can only be text, buttons that
+  1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
   close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
   aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
   (x2apps onboarding's Delete account?, 2026-10-04.)
@@ -274,6 +290,23 @@ guide's rules don't make obvious.
   saved record (refresh the resource after each write, or key the child by a string or
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
+- **A grouped-list row you lay out loses its side insets, or its content runs off the
+  card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
+  its padding, and `padding="12px 0"` replaces all four sides, so the row's content
+  starts and ends at the card's edge; its children are a flex row, so a `column` or a
+  bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only, and
+  put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal rows).
+  (Shelf recipe, 2026-10-10.)
+- **A text field or `textarea` in a grouped-list row draws a rounded box inside the
+  card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s
+  rounded rect); a settings-style form's fields have none. Fix: `appearance="none"` on
+  a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
+  **Candidate fix:** the iOS host could drop the border of a field carried into a
+  list cell. (Shelf recipe, 2026-10-10.)
+- **A section `footer`'s colour is ignored.** A validation message written
+  `color="-exact-system-red"` in a footer shows in the footer's grey on iOS: the list
+  reads the footer's text, not its colour. Leave it grey (`apps/shelf` does) or put the
+  message in a row. (Shelf recipe, 2026-10-10.)
 
 ## Actions
 
@@ -402,6 +435,12 @@ guide's rules don't make obvious.
   value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
   codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
   13.)
+- **A field's `change` fires when a tap elsewhere blurs it.** A dialog that adds
+  a word on `change` adds it the moment the person taps a duration or another
+  control, before they meant to submit. Cause: `change` is the commit event, and
+  a text field commits on Enter and on blur, as in HTML. Fix: submit on `submit`
+  (Return, a form's button) and keep `change` for normalizing the draft.
+  (The Bluesky clone's muted words dialog, 2026-10-08.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -419,9 +458,13 @@ guide's rules don't make obvious.
   out and checked only when the refreshed answer lands, so a slow store shows no tick,
   and a test that clicks and reads `checked` before the answer fails. Cause: every host (both web targets, iOS,
   macOS) re-sets the box to its binding, `form.terms`, which is still `false` until
-  the answer. Fix: bind it to state the action writes at once (`terms = value`, then
-  `send`), and seed that state from the saved record as a form does. (Authoring bench,
-  LLP 1087, codex17 t7-wizard, 2026-10-05.)
+  the answer. Fix: give the mutation `refreshes form` and export an `overlay` that lays
+  the pending save over `form`'s answer (the agent guide's "Optimistic writes: the
+  overlay"), so `form.terms` reads the new value from the click until the refreshed
+  answer has it; or bind the box to state the
+  action writes at once (`terms = value`, then `send`), seeded from the saved record as
+  a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
+  checked on the web with a save that never answers, 2026-10-09.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -446,7 +489,8 @@ guide's rules don't make obvious.
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
-  `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
+  `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
+  circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
   not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
   #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
@@ -509,6 +553,16 @@ guide's rules don't make obvious.
   LLP 1108, 2026-10-08.)
 
 ## Driving and testing
+
+- **An alert's action has not run by the next step on iOS.** `tap "remove-confirm"`
+  then `clock data` finds nothing removed, though a drive shows the press. Cause:
+  UIKit runs an alert button's handler after the alert has gone, a transition the
+  tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
+  after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
+  (Shelf recipe, 2026-10-10.)
+- **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
+  driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
+  as the drive's first operation. (Shelf recipe, 2026-10-10.)
 
 - **Asserting a boot loading state against a live backend is a race.** The
   real reply lands on real time, and under load it can arrive before the first
@@ -653,6 +707,28 @@ guide's rules don't make obvious.
   `testId` and drive with `bun exact.mjs agent ios tree "tap <testId>"
   "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
   accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
+
+- **`build.mjs --ios … --phone <udid>` installed onto someone else's simulator.**
+  Cause: a simulator build reads `--sim` (or `EXACT_SIM`); `--phone` is the
+  device's, so it fell back to a booted iPhone, another drive's
+  (2026-10-09). `agent ios` and `smoke.mjs ios` choose the same way. Now a
+  choice among several booted iPhones is refused, naming the caller's way to
+  choose; fix: always pass
+  `--sim <udid>` to `build.mjs` and set `EXACT_SIM=<udid>` for the agent and
+  the smokes.
+
+- **`tap <row>` pressed a link card, Like or Repost inside the row.** Cause: a
+  plain tap aimed at the row's middle, and a finger there presses the deepest
+  control (the Bluesky clone liked and reposted real people's posts,
+  2026-10-09). Now a tap that names a node presses that node: one with its own
+  `press` is pressed beside the control its middle holds (the reply's `avoided`
+  says so, `at` where it landed), or refused when no point of it reaches it; one
+  without a `press` refuses rather than press a control inside it
+  (`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+  Fix: tap the control by its own `testId`, or `tap <row> at <x> <y>` (a point
+  from its top left) for whatever a finger there reaches; name a point too when a
+  refusal says no point reaches the row but a thin strip of it does (the search
+  is a grid). Every host (LLP 1012 §1).
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on

@@ -31,6 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+mod addressed_tap;
 mod arrange;
 mod arrange_geometry;
 mod clock;
@@ -83,6 +84,8 @@ mod typing;
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
 #[path = "presenter/swipe_tests.rs"]
@@ -690,7 +693,10 @@ impl<D: DataSource> Presenter<D> {
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
@@ -802,6 +808,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -1086,60 +1094,6 @@ impl<D: DataSource> Presenter<D> {
                     && self.display.allows(self.host.kernel(), b.id)
             })
             .find_map(|b| self.svg_hit(b, x, y))
-    }
-
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
-    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
-            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
-        }
-        let b = self
-            .box_of(id)
-            .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
-        let mut hit = self.hit(x, y);
-        while hit.is_some() && hit != Some(id) {
-            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
-        }
-        if hit != Some(id) {
-            return Err(format!(
-                "view {id} is covered or not hit at its projected center"
-            ));
-        }
-        let now = self.host.now();
-        let actual = self.hit(x, y).and_then(|hit| {
-            self.control_target(hit)
-                .or_else(|| self.handler_target(hit, EventKind::Press))
-        });
-        if let Some(actual) = actual.filter(|actual| {
-            *actual != id
-                && !self.drawn_in(*actual, id)
-                && self
-                    .control_target(id)
-                    .or_else(|| self.handler_target(id, EventKind::Press))
-                    != Some(*actual)
-        }) {
-            return Err(format!(
-                "view {id} activates view {actual} at its projected center"
-            ));
-        }
-        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
-        let activated = self.press_at(x, y, now);
-        self.hatch_tapped(mark, x, y);
-        if actual.is_some() && activated.is_none() {
-            return Err(format!("view {id} did not accept activation"));
-        }
-        let id = activated.unwrap_or(id);
-        Ok(format!(
-            "{{\"tapped\":{id},\"at\":[{},{}]}}",
-            num(r2(x)),
-            num(r2(y))
-        ))
     }
 
     /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
