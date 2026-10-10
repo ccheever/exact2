@@ -274,8 +274,13 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      closeSub()');
     // The focus goes back to the submenu's row (FloatingFocusManager's return to the trigger), unless the pointer left
     // that row after the submenu opened: the trigger's mouseleave stops the return and the focus drops (BODY on the
-    // reference, from a row or from "Search authors").
-    expect(menu).toContain('action closeSub\n    if subLeft\n      blur()\n    else\n      focus(`pr-filter-${sub}`)\n    sub = ""');
+    // reference, from a row or from "Search authors"). realinput-1010c-fixes RC-3: it drops onto the popup's rest box, not
+    // onto nothing: with the window itself the first responder, the host's popover Escape ignored a real second Escape.
+    expect(menu).toContain('action closeSub\n    if subLeft\n      focus("pr-filters-rest")\n    else\n      focus(`pr-filter-${sub}`)\n    sub = ""');
+    expect(menu).not.toMatch(/^\s+blur\(\)$/m);
+    // The rest box is the popover's own child, before the row that holds the submenu and both KeyMenus (so no `key`
+    // handler hears ↓ there), focusable by script only and never ringed (not pressable).
+    expect(menu).toContain('testId="pr-filters-layer"\n        box id="pr-filters-rest" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="pr-filters-rest"\n        row align-items="flex-start" key=subEscape');
     expect(menu).toContain('action rowLeft(name: string)\n    if sub == name\n      subLeft = true');
     // Each opening, by a press or by the keyboard, starts with the pointer on (or never off) the row.
     expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    subLeft = false\n');
