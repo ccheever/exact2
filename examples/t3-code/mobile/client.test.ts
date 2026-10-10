@@ -193,7 +193,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -217,6 +217,9 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
+      if (name === 'domain.ts') expected = '// Mobile365aa87982: successful older-page adoption excludes expanded history from disk caching.\n' + expected
+        .replace('  latestLocalTurnOrdinal: number | null;\n}', '  latestLocalTurnOrdinal: number | null;\n  /** Absent on a fresh snapshot. Live events preserve successful load-earlier growth. */\n  historyExpanded?: true;\n}')
+        .replace('    ...state, historyCursor, hasMore,', '    ...state, historyCursor, hasMore, historyExpanded: true,');
       if (name === 'protocol.ts') expected = '// Mobile: release the fully assembled native value and fragment references before JSON decoding.\n'
         + '// @ref llp/1109.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10\n' + expected
           .replace('  const fragments: string[] = [];', "  const fragments: string[] = [];\n  let text = '';")

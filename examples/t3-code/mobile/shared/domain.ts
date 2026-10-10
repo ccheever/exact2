@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/domain.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/domain.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile365aa87982: successful older-page adoption excludes expanded history from disk caching.
 // Projection and visibility rules adapted from T3 Code (MIT); see LICENSE-T3.
 // Sources: packages/client-runtime/src/state/{shellReducer,orchestrationV2Projection,
 // threadHistoryMerge}.ts and packages/shared/src/orchestrationV2Timeline.ts.
@@ -14,6 +15,8 @@ export interface ThreadState {
   historyCursor: string | null;
   hasMore: boolean;
   latestLocalTurnOrdinal: number | null;
+  /** Absent on a fresh snapshot. Live events preserve successful load-earlier growth. */
+  historyExpanded?: true;
 }
 export interface Activity { id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string }
@@ -387,7 +390,7 @@ export function mergeHistory(state: ThreadState, value: unknown): ThreadState {
     if ((row.visibility === "local" || row.sourceThreadId === obj(current.thread).id) && !byId.has(row.sourceItemId)) byId.set(row.sourceItemId, obj(row.item));
   }
   return {
-    ...state, historyCursor, hasMore,
+    ...state, historyCursor, hasMore, historyExpanded: true,
     projection: prepended.length === 0 ? current : { ...current, turnItems: [...byId.values()], visibleTurnItems: renumber([...prepended, ...arr(current.visibleTurnItems)]) },
   };
 }

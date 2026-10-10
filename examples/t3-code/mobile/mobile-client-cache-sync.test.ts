@@ -347,12 +347,86 @@ test('unchanged focused snapshots reread native tickets without serializing or r
   const beforeHistory = f.client.thread;
   f.client.thread = mergeHistory(beforeHistory, { snapshotSequence: 21, nextCursor: null, hasMoreHistory: false, items: [] });
   expect(f.client.thread).not.toBe(beforeHistory); expect(f.client.thread.sequence).toBe(beforeHistory.sequence);
-  await f.sync(); expect(persistedKinds(f.calls).at(-1)).toBe('thread');
+  expect(f.client.thread.historyExpanded).toBe(true);
+  await f.sync(); expect(persistedKinds(f.calls)).toHaveLength(6);
   const lastThreadWrite = f.calls.filter(call => call.action === 'write' && call.kind === 'thread').at(-1)!;
-  expect(JSON.parse(JSON.parse(String(lastThreadWrite.payload)).payload).snapshot.historyCursor).toBeNull();
+  expect(JSON.parse(JSON.parse(String(lastThreadWrite.payload)).payload).snapshot.historyCursor).toBe('opaque');
   f.client.thread = f.thread; await f.sync();
   expect(persistedKinds(f.calls).at(-1)).toBe('thread');
-  expect(persistedKinds(f.calls)).toHaveLength(8);
+  expect(persistedKinds(f.calls)).toHaveLength(7);
+});
+
+test.each(['preparing', 'starting', 'running'])('a %s run skips thread publication and retains the prior settled cache', async status => {
+  const f = liveFixture(), prior = f.payloads.thread;
+  f.client.thread = { ...f.thread, projection: { ...f.thread.projection, runs: [{ id: 'active', status }] } };
+  await f.sync();
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config']);
+  expect(f.payloads.thread).toBe(prior);
+  expect(f.calls.some(call => call.kind === 'thread' && ['ticket', 'remove'].includes(String(call.action)))).toBe(false);
+  f.client.thread = applyThread(f.client.thread, { kind: 'event', sequence: 21, event: {
+    type: 'run.updated', threadId: 'thread', occurredAt: '2026-10-10T12:00:00.000Z', payload: { id: 'active', status: 'completed' },
+  } });
+  await f.sync();
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
+  expect(JSON.parse(JSON.parse(String(f.calls.at(-1)!.payload)).payload).snapshot.projection.runs[0].status).toBe('completed');
+});
+
+test.each(['waiting', 'failed', 'interrupted', 'completed'])('source permits settled publication for %s run status', async status => {
+  const f = liveFixture();
+  f.client.thread = { ...f.thread, projection: { ...f.thread.projection, runs: [{ id: 'settled', status }] } };
+  await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
+});
+
+test('expanded history stays lossless in memory, skips disk publication across live events, and a real socket snapshot resets eligibility', async () => {
+  const f = liveFixture(), prior = f.payloads.thread, output = 'command output \u{1f6e0} 漢字\n'.repeat(2000);
+  const tool = { id: 'older-command', threadId: 'thread', runId: null, nodeId: null, ordinal: 1,
+    status: 'completed', type: 'command_execution', input: 'read-only command', output };
+  f.client.thread = mergeHistory(f.thread, { snapshotSequence: 20, nextCursor: null, hasMoreHistory: false,
+    items: [{ position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: tool.id, item: tool }] });
+  expect(f.client.thread.historyExpanded).toBe(true);
+  expect(obj((f.client.thread.projection.turnItems as Obj[])[0]).output).toBe(output);
+  expect(obj(obj((f.client.thread.projection.visibleTurnItems as Obj[])[0]).item).output).toBe(output);
+  await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config']); expect(f.payloads.thread).toBe(prior);
+  f.client.thread = applyThread(f.client.thread, { kind: 'unknown-event', sequence: 21 });
+  expect(f.client.thread.historyExpanded).toBe(true); await f.sync(); expect(persistedKinds(f.calls)).toHaveLength(2);
+  f.client.thread = applyThread(f.client.thread, { kind: 'event', sequence: 22, event: { type: 'thread.metadata-updated',
+    threadId: 'thread', occurredAt: '2026-10-10T12:00:00.000Z', payload: { ...obj(f.thread.projection.thread), title: 'After history' } } });
+  expect(f.client.thread.historyExpanded).toBe(true); await f.sync(); expect(persistedKinds(f.calls)).toHaveLength(2);
+  const fullProjection = f.client.thread.projection;
+  f.client.thread = applyThread(f.client.thread, { kind: 'snapshot', projection: fullProjection, snapshotSequence: 23,
+    historyCursor: 'new-boundary', hasMoreHistory: true, latestLocalTurnOrdinal: 100 });
+  expect(f.client.thread.historyExpanded).toBeUndefined(); expect(f.client.thread.projection).toBe(fullProjection);
+  await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
+  const wire = JSON.parse(JSON.parse(String(f.calls.at(-1)!.payload)).payload).snapshot;
+  expect(wire.projection.turnItems[0].output).toBe(output); expect(wire.historyCursor).toBe('new-boundary');
+});
+
+test('real successful empty earlier page prevents publication, while failure and stale cursor leave the replacement eligible', async () => {
+  const f = liveFixture(), original = f.native.later;
+  f.native.later = async input => obj(input).op === 'http' ? { ok: true, generation: 1, value: {
+    snapshotSequence: 20, nextCursor: null, hasMoreHistory: false, items: [],
+  } } : original(input);
+  await f.client.history(f.native);
+  expect(f.client.thread).toMatchObject({ historyExpanded: true, historyCursor: null, hasMore: false });
+  expect(f.client.historyLoading).toBe(false);
+  await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config']);
+  f.client.thread = f.thread;
+  f.native.later = async input => obj(input).op === 'http' ? { ok: false, generation: 1,
+    error: { kind: 'transport', message: 'History unavailable', uncertain: false } } : original(input);
+  await expect(f.client.history(f.native)).rejects.toThrow('History unavailable');
+  expect(f.client.thread).toBe(f.thread); expect(f.client.thread.historyExpanded).toBeUndefined();
+  const entered = Promise.withResolvers<void>(), finish = Promise.withResolvers<void>();
+  f.native.later = async input => {
+    if (obj(input).op !== 'http') return original(input);
+    entered.resolve(); await finish.promise;
+    return { ok: true, generation: 1, value: { snapshotSequence: 20, nextCursor: null, hasMoreHistory: false, items: [] } };
+  };
+  const pending = f.client.history(f.native); await entered.promise;
+  const replacement = threadSnapshot({ projection: f.thread.projection, snapshotSequence: 22,
+    historyCursor: 'replacement-cursor', hasMoreHistory: true, latestLocalTurnOrdinal: 100 });
+  f.client.thread = replacement; finish.resolve(); await pending;
+  expect(f.client.thread).toBe(replacement); expect(f.client.thread.historyExpanded).toBeUndefined();
+  await f.sync(); expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
 });
 
 test.each(['rejected', 'stale', 'lost answer'])('a %s focused write is retried and only confirmed snapshots become unchanged', async failure => {

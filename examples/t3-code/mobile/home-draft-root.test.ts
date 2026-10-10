@@ -73,3 +73,42 @@ test('actual snapshot shares a later disabled catalog with compact Home and side
     Object.assign(mobileClient, priorClient); Object.assign(fleet, priorFleet);
   }
 });
+
+test('actual inactive and mismatched thread queries preserve scalar metadata without formatting retained transcript bodies', async () => {
+  const prior = { ...mobileClient }, now = Date.parse('2026-10-10T00:00:00Z');
+  const text = 'Complete retained 漢字 \u{1f6e0}\n'.repeat(800), body = `Before\n\n\`\`\`unregistered-language\n${text}\`\`\`\nAfter`;
+  let bodyReads = 0;
+  const item: Obj = { id: 'retained-answer', threadId: 'retained-thread', runId: null, nodeId: null, ordinal: 1,
+    type: 'assistant_message', status: 'completed', messageId: 'answer-message', streaming: false };
+  Object.defineProperty(item, 'text', { enumerable: true, get() { bodyReads++; return body; } });
+  const storage: Files = { fs: { async mkdir() { throw new Error('No storage demand'); },
+    async readFile() { throw new Error('No storage demand'); }, async atomicWriteFile() { throw new Error('No storage demand'); } } };
+  try {
+    Object.assign(mobileClient, new MobileDraftClient());
+    mobileClient.environmentId = 'retained-env'; mobileClient.threadId = 'retained-thread'; mobileClient.projectId = 'retained-project';
+    mobileClient.thread = { sequence: 22, historyCursor: 'older-opaque', hasMore: true, latestLocalTurnOrdinal: 1, projection: {
+      thread: { id: 'retained-thread', projectId: 'retained-project', title: 'Retained thread' }, runs: [], attempts: [], nodes: [],
+      checkpoints: [], runtimeRequests: [], turnItems: [item], visibleTurnItems: [{ position: 0, visibility: 'local',
+        sourceThreadId: 'retained-thread', sourceItemId: 'retained-answer', item }],
+    } };
+    mobileClient.local.drafts[mobileClient.draftKey] = '  ';
+    const canonical = mobileClient.thread;
+    for (const [environment, thread, active, route] of [
+      ['retained-env', 'retained-thread', false, 'home'], ['other-env', 'retained-thread', true, 'thread'],
+      ['retained-env', 'other-thread', true, 'thread'],
+    ]) {
+      const view = obj(await answer('threadView', [22, now, 'light', environment, thread, active, 'inactive-visit', route], {} as never, storage));
+      expect(view).toMatchObject({ title: '', loaded: false, rows: [], approvals: [], readsNeeded: false,
+        environmentId: 'retained-env', threadId: 'retained-thread', hasMore: true, answerFilesRequest: '',
+        composer: { draft: '', canSend: false, canStop: false, canOperate: false } });
+      expect(bodyReads).toBe(0); expect(mobileClient.thread).toBe(canonical);
+    }
+    const visible = obj(await answer('threadView', [22, now, 'light', 'retained-env', 'retained-thread', true,
+      'visible-visit', 'thread'], {} as never, storage));
+    expect(visible.title).toBe('Retained thread'); expect(visible.loaded).toBe(true);
+    expect(bodyReads).toBeGreaterThan(0);
+    const row = arr(visible.rows)[0]!;
+    expect(row.body).toBe(body); expect(arr(row.blocks).find(block => block.kind === 'code')!.text).toBe(text.replace(/\n$/, ''));
+    expect(mobileClient.thread).toBe(canonical); expect(obj(visible.composer).draft).toBe('  ');
+  } finally { Object.assign(mobileClient, prior); }
+});
