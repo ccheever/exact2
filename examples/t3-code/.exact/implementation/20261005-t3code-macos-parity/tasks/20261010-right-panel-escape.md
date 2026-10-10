@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-right-panel-escape
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/403
 verified_commit: null
 ---
 
@@ -101,7 +101,13 @@ No real-input rows: inline nothing declares Escape any more, and the sheet's key
   fails on the base (the old expression reads `urlFocused`, declares Escape inline; `panelUi` hid on Escape).
 - `browser-capture.test.ts`: the annotate pick row checks the new expression.
 
+Checks (head `1ac69c03c`: the fix `22ab9d9d4` merged with `feat(example)/t3-code` `a1ade42f9`; all exit 0, run once):
+bun test 4364 pass / 1 skip / 0 fail (296 files); strict tsc; contract build (`app.contract` 1343 lines); caps; the five
+checks (cargo test 3675 pass, 0 fail, 34 ignored; clippy, fmt, boot clean); the bundle build. No Rust or Swift changed,
+so `cargo test -p t3-code-macos` and the AppKit binaries were not run. Live drive (agent mode, once, this bundle): every
+row of the table; `state.rightPanel` after each Escape matched the reference, and the logs held no errors.
+
 ## Next action
 
-Coordinator review of the draft PR.
+Coordinator review of the draft PR [#403](https://github.com/ccheever/exact2/pull/403).
 
