@@ -593,7 +593,7 @@ export class T3Client {
     this.finishPending(pending);
     return true;
   }
-  private finishPending(pending: Pending, environmentId = this.environmentId): void {
+  protected finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
     // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message (PA-9:

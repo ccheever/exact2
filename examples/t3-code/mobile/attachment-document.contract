@@ -1,0 +1,88 @@
+// AttachmentFileScreen365aa87982. Native HTML; bounded text/table over Contract.
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+use ReviewColors, ReviewRow from "./review-shapes.contract"
+shape AttachmentCell
+  id: string
+  text: string
+shape AttachmentTableRow
+  id: string
+  header: bool
+  cells: list<AttachmentCell>
+shape AttachmentDocumentSnapshot
+  identifier: string
+  name: string
+  subtitle: string
+  kind: string
+  ready: bool
+  error: string
+  text: string
+  hasContent: bool
+  truncated: bool
+  tableTruncated: bool
+  renderedMode: string
+  activeMode: string
+  sourceJSON: string
+  uri: string
+  draft: bool
+  rows: list<ReviewRow>
+  table: list<AttachmentTableRow>
+shape AttachmentDocumentMenu
+  configuration: string
+shape AttachmentDocumentAction
+  identifier: string
+  message: string
+  removed: bool
+  operation: string
+  sourceJSON: string
+component MobileAttachmentDocument
+  props
+    data: AttachmentDocumentSnapshot
+    colors: ReviewColors
+    wrap: bool
+    retry: action
+    nativeEvent: action
+    nativeError: string
+  view
+    column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+      when data.error != "" or nativeError != ""
+        column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+          text "File unavailable" font-size=18 font-weight=700 color=colors.foreground
+          text (nativeError != "" ? nativeError : data.error) font-size=14 line-height="22.75px" text-align="center" color=colors.muted
+          button press=retry min-height=44 padding-left=14 padding-right=14
+            text "Try again" font-size=14 color=colors.foreground
+      else when not data.ready
+        column flex=1 align-items="center" justify-content="center" gap=10.5
+          t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+          text "Loading file..." font-size=14 color=colors.muted
+      else when data.activeMode == "html"
+        t3-document-html media-source=data.sourceJSON change=nativeEvent flex=1 min-height=0
+      else
+        when data.truncated
+          column padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.card
+            text "Partial file" font-size=10 font-weight=500 text-transform="uppercase" color=colors.muted
+            text "Preview limited to the first 1 MB. Save or share the file to read it in full." font-size=10.5 color=colors.muted
+        when data.activeMode == "table"
+          scroll id="attachment-document" flex=1 min-height=0
+            when data.tableTruncated
+              text "Table limited to the first 100 rows and 30 columns. Source shows the rest." padding=14 font-size=10.5 color=colors.muted
+            view overflow-x="auto"
+              column
+                each item in data.table key=item.id
+                  row width=(length(item.cells) * 168) background-color=(item.header ? colors.card : colors.sheet)
+                    each cell in item.cells key=cell.id
+                      text cell.text width=168 box-sizing="border-box" padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-right-width=1 border-bottom-width=1 border-style="solid" border-color=colors.border font-size=12.25 font-weight=(item.header ? 600 : 400) color=colors.foreground
+        else when data.activeMode == "markdown"
+          scroll id="attachment-document" flex=1 min-height=0
+            text data.text markup="markdown" padding=14 font-size=16 line-height="23px" color=colors.foreground
+        else
+          list id="attachment-document" flex=1 min-height=0 virtualized=true estimated-item-height=22
+            each row in data.rows key=row.id
+              row min-height=22 align-items="start" background-color=colors.codeBackground
+                text row.newNumber width=46 box-sizing="border-box" padding-right=10.5 text-align="right" font-family="Menlo" font-size=11 line-height="22px" color=colors.tertiary
+                view flex=1 min-width=0 overflow-x=(wrap ? "hidden" : "auto")
+                  text padding-left=7 padding-top=2 padding-bottom=2 font-family="Menlo" font-size=12 line-height="18px" white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
+                    when length(row.tokens) == 0
+                      text (row.text == "" ? " " : row.text)
+                    else
+                      each token in row.tokens key=token.id
+                        text token.text color=token.color font-weight=token.weight font-style=token.slant

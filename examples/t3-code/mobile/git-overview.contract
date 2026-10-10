@@ -1,0 +1,235 @@
+// GitOverviewSheet/GitCommitSheet/GitConfirmSheet365aa87982 (MIT).
+// Native header/route ownership stays in the root; inspector uses the same body.
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+shape GitColors
+  foreground: string
+  secondary: string
+  muted: string
+  sheet: string
+  card: string
+  border: string
+  subtle: string
+  subtleStrong: string
+  icon: string
+  iconSubtle: string
+  primary: string
+  primaryForeground: string
+  warningForeground: string
+  addition: string
+  deletion: string
+  secondaryBackground: string
+  secondaryBorder: string
+  secondaryForeground: string
+shape MobileGitRow
+  id: string
+  label: string
+  subtitle: string
+  symbol: string
+  disabled: bool
+shape MobileGitLink
+  id: string
+  title: string
+  subtitle: string
+  url: string
+  separator: bool
+shape MobileGitGroup
+  id: string
+  label: string
+  rows: list<MobileGitLink>
+shape MobileGitFile
+  path: string
+  insertions: number
+  deletions: number
+  included: bool
+shape MobileGitSnapshot
+  owner: string
+  revision: number
+  ready: bool
+  branchLabel: string
+  statusSummary: string
+  worktree: string
+  error: string
+  loading: bool
+  busy: bool
+  canWrite: bool
+  canChangeBranch: bool
+  rows: list<MobileGitRow>
+  groups: list<MobileGitGroup>
+  dialog: string
+  defaultBranch: bool
+  editingFiles: bool
+  files: list<MobileGitFile>
+  previewFiles: list<MobileGitFile>
+  extraFiles: number
+  selectedCount: number
+  selectedInsertions: number
+  selectedDeletions: number
+  allSelected: bool
+  commitDisabled: bool
+  featureDisabled: bool
+  confirmTitle: string
+  confirmDescription: string
+  confirmContinue: string
+  confirmDisabled: bool
+  confirmFeatureDisabled: bool
+  needsReconcile: bool
+  needsRefresh: bool
+  progress: string
+  success: string
+  successDescription: string
+shape MobileGitResult
+  requestRoute: string
+  message: string
+  destination: string
+  dismiss: bool
+  data: MobileGitSnapshot
+
+component MobileGitActionButton
+  props
+    label: string
+    symbol: string
+    primary: bool
+    disabled: bool
+    press: action
+    colors: GitColors
+  view
+    button press=press disabled=disabled opacity=(disabled ? 0.45 : 1) border-radius=18 min-height=48 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+      border-width=(primary ? 0 : 1) border-style="solid" border-color=colors.secondaryBorder
+      background-color=(primary ? colors.primary : colors.secondaryBackground) text-align="center"
+      row align-items="center" justify-content="center" gap=7
+        t3-symbol symbol-name=symbol point-size=16 symbol-weight="regular" symbol-tint=(primary ? colors.primaryForeground : colors.secondaryForeground) width=16 height=16
+        text label font-size=12 font-weight=700 text-transform="uppercase" letter-spacing="0.9px" color=(primary ? colors.primaryForeground : colors.secondaryForeground)
+
+component MobileGitOverview
+  props
+    data: MobileGitSnapshot
+    inspector: bool
+    bottomInset: number
+    action: action
+    refresh: action
+    colors: GitColors
+  view
+    scroll id=(inspector ? "inspector-git" : "git-overview-scroll") flex=1 min-height=0 background-color=colors.sheet refresh=refresh
+      column padding-left=(inspector ? 12 : 20) padding-right=(inspector ? 12 : 20) padding-top=8 padding-bottom=bottomInset gap=14 font-family="DM Sans"
+        when data.error != ""
+          text data.error font-size=12 line-height="16.5px" color=colors.warningForeground
+        column border-radius=(inspector ? 16 : 22) border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
+          padding-left=(inspector ? 10.5 : 14) padding-right=(inspector ? 10.5 : 14) padding-top=3.5 padding-bottom=3.5
+          each item in data.rows key=item.id
+            button press=action("select", item.id, "") disabled=item.disabled opacity=(item.disabled ? 0.45 : 1) text-align="left" padding-top=10.5 padding-bottom=10.5 padding-left=3.5 padding-right=3.5
+              row gap=10.5 align-items="center"
+                column width=31.5 height=31.5 border-radius=100 background-color=colors.subtle align-items="center" justify-content="center"
+                  t3-symbol symbol-name=item.symbol point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+                column flex=1 min-width=0 gap=1.75
+                  text item.label font-size=16 font-weight=700 color=colors.foreground
+                  when item.subtitle != ""
+                    text item.subtitle font-size=12 line-height="16.5px" color=colors.muted
+                t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+            when item.id != "branches"
+              view margin-left=42 height=1 background-color=colors.border
+        when length(data.groups) > 0
+          column gap=7
+            text "Linked pull requests" padding-left=3.5 padding-right=3.5 font-size=12 font-weight=700 color=colors.muted
+            each group in data.groups key=group.id
+              column border-radius=16 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=10.5 padding-right=10.5 padding-top=3.5 padding-bottom=3.5 overflow="hidden"
+                when group.label != ""
+                  row align-items="center" gap=7 padding-left=3.5 padding-right=3.5 padding-top=7 padding-bottom=3.5
+                    t3-symbol symbol-name="square.3.layers.3d" point-size=14 symbol-weight="regular" symbol-tint=colors.muted width=14 height=14
+                    text group.label font-size=12 color=colors.muted
+                each link in group.rows key=link.id
+                  when link.separator
+                    view margin-left=42 height=1 background-color=colors.border
+                  button press=action("link", link.id, "") text-align="left" padding-top=10.5 padding-bottom=10.5 padding-left=3.5 padding-right=3.5
+                    row gap=10.5 align-items="center"
+                      column width=31.5 height=31.5 border-radius=100 background-color=colors.subtle align-items="center" justify-content="center"
+                        t3-symbol symbol-name="arrow.triangle.pull" point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+                      column flex=1 min-width=0 gap=1.75
+                        text link.title font-size=16 font-weight=700 color=colors.foreground
+                        text link.subtitle font-size=12 line-height="16.5px" color=colors.muted
+                      t3-symbol symbol-name="chevron.right" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+        when data.worktree != ""
+          column gap=3.5 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+            text "WORKTREE" font-size=10.5 font-weight=700 letter-spacing="0.9px" color=colors.secondary
+            text data.worktree font-size=14 font-weight=500 color=colors.foreground line-clamp=1
+
+component MobileGitCommit
+  props
+    data: MobileGitSnapshot
+    bottomInset: number
+    message: string
+    editMessage: action
+    action: action
+    colors: GitColors
+  view
+    scroll id="git-commit-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column padding-left=20 padding-right=20 padding-top=8 padding-bottom=bottomInset gap=14 font-family="DM Sans"
+        column gap=10.5 padding=14 background-color=colors.card border-radius=22 border-width=1 border-style="solid" border-color=colors.border
+          row align-items="center" justify-content="space-between" gap=10.5
+            text "Branch" font-size=14 font-weight=500 color=colors.muted
+            text data.branchLabel font-size=16 font-weight=700 color=colors.foreground
+          when data.defaultBranch
+            text "Warning: this is the default branch." font-size=12 line-height="18px" color=colors.warningForeground
+        column gap=10.5 padding=14 background-color=colors.card border-radius=22 border-width=1 border-style="solid" border-color=colors.border
+          row align-items="center" justify-content="space-between" gap=10.5
+            column gap=3.5 flex=1
+              text "Files" font-size=16 font-weight=700 color=colors.foreground
+              text `${data.selectedCount} selected · +${data.selectedInsertions} / -${data.selectedDeletions}` font-size=12 line-height="18px" color=colors.muted
+            when not data.allSelected and data.editingFiles
+              button press=action("files-reset", "", "") border-radius=100 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 background-color=colors.subtle
+                text "RESET" font-size=10.5 font-weight=700 color=colors.foreground
+            button press=action("files-edit", "", "") border-radius=100 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 background-color=colors.subtle
+              text (data.editingFiles ? "DONE" : "EDIT") font-size=10.5 font-weight=700 color=colors.foreground
+          when length(data.files) == 0
+            text "No changed files are available to commit." font-size=14 line-height="21px" color=colors.secondary
+          else when data.editingFiles
+            column gap=7
+              each file in data.files key=file.path
+                button press=action("file", file.path, "") role="checkbox" aria-checked=file.included aria-label=file.path text-align="left"
+                  border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=(file.included ? colors.card : colors.subtle) padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+                  row align-items="start" gap=10.5
+                    column flex=1 gap=3.5
+                      text file.path font-size=14 font-weight=700 color=(file.included ? colors.foreground : colors.muted)
+                      when not file.included
+                        text "Excluded from this commit" font-size=10.5 line-height="15.75px" color=colors.muted
+                    column gap=3.5 align-items="end"
+                      text `+${file.insertions}` font-size=12 font-weight=700 color=colors.addition
+                      text `-${file.deletions}` font-size=12 font-weight=700 color=colors.deletion
+          else
+            column gap=7
+              each file in data.previewFiles key=file.path
+                row align-items="center" gap=10.5
+                  text file.path flex=1 min-width=0 font-size=14 font-weight=500 color=colors.foreground line-clamp=1
+                  text `+${file.insertions}` font-size=12 font-weight=700 color=colors.addition
+                  text `-${file.deletions}` font-size=12 font-weight=700 color=colors.deletion
+              when data.extraFiles > 0
+                text `+${data.extraFiles} more files` font-size=12 line-height="16.5px" color=colors.muted
+        column gap=7
+          text "Commit message" font-size=14 font-weight=700 color=colors.foreground
+          textarea value=message input=editMessage aria-label="Commit message" placeholder="Leave empty to auto-generate"
+            min-height=128 padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25 border-radius=20 background-color=colors.card color=colors.foreground font-size=14
+        when data.error != ""
+          text data.error font-size=12 color=colors.warningForeground
+        row gap=10.5
+          column flex=1
+            MobileGitActionButton(label="Commit on new branch", symbol="arrow.branch", primary=false, disabled=data.featureDisabled, press=action("commit", "feature", message), colors=colors)
+          column flex=1
+            MobileGitActionButton(label="Commit", symbol="checkmark.circle", primary=true, disabled=data.commitDisabled, press=action("commit", "continue", message), colors=colors)
+
+component MobileGitConfirm
+  props
+    data: MobileGitSnapshot
+    bottomInset: number
+    action: action
+    colors: GitColors
+  view
+    scroll id="git-confirm-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column font-family="DM Sans"
+        column align-items="center" gap=3.5 padding-left=20 padding-right=20 padding-top=14 padding-bottom=10.5
+          text "CONFIRM" font-size=12 font-weight=700 letter-spacing="1px" color=colors.muted
+          text data.confirmTitle font-size=30 font-weight=700 text-align="center" color=colors.foreground
+          text data.confirmDescription font-size=14 line-height="21px" font-weight=500 text-align="center" color=colors.secondary
+        column gap=10.5 padding-left=20 padding-right=20 padding-top=8 padding-bottom=bottomInset
+          when data.error != ""
+            text data.error font-size=12 color=colors.warningForeground
+          MobileGitActionButton(label=data.confirmContinue, symbol="arrow.right.circle", primary=false, disabled=data.confirmDisabled, press=action("confirm", "continue", ""), colors=colors)
+          MobileGitActionButton(label="Feature branch & continue", symbol="arrow.branch", primary=true, disabled=data.confirmFeatureDisabled, press=action("confirm", "feature", ""), colors=colors)

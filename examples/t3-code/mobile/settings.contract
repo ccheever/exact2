@@ -1,0 +1,123 @@
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// T3 Code 365aa87982 SettingsRow, SettingsSection, SettingsChoiceRow and route screens.
+shape MobilePreferencesResource
+  ready: bool
+  error: string
+  revision: number
+  serialized: string
+shape SettingsColors
+  sheet: string
+  grouped: string
+  card: string
+  foreground: string
+  muted: string
+  border: string
+  borderSubtle: string
+  separator: string
+  subtle: string
+  primary: string
+  primaryForeground: string
+  icon: string
+  iconMuted: string
+  iconSubtle: string
+  chevron: string
+  switchOn: string
+  switchOff: string
+  secondaryBorder: string
+  link: string
+shape SettingsTextRole
+  size: number
+  line: number
+shape SettingsTextRoles
+  micro: SettingsTextRole
+  caption: SettingsTextRole
+  label: SettingsTextRole
+  footnote: SettingsTextRole
+  body: SettingsTextRole
+  headline: SettingsTextRole
+  title: SettingsTextRole
+  largeTitle: SettingsTextRole
+  display: SettingsTextRole
+shape SettingsRowData
+  target: string
+  icon: string
+  label: string
+  value: string
+  disabled: bool
+shape SettingsSectionData
+  title: string
+  rows: list<SettingsRowData>
+shape SettingsRootData
+  bottom: number
+  colors: SettingsColors
+  roles: SettingsTextRoles
+  sections: list<SettingsSectionData>
+shape SettingsChoice
+  value: string
+  label: string
+  description: string
+  selected: bool
+  separated: bool
+shape SettingsChoicesData
+  key: string
+  title: string
+  footer: string
+  ready: bool
+  options: list<SettingsChoice>
+component SettingsRoot
+  props
+    data: SettingsRootData
+    navigate: action
+  view
+    scroll id="settings-scroll" flex=1 min-height=0 background-color=data.colors.sheet
+      column gap=14 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-root"
+        each section in data.sections key=section.title
+          column gap=7
+            SettingsSectionLabel(title=section.title, colors=data.colors, roles=data.roles)
+            column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+              each item in section.rows key=item.target
+                button press=navigate(item.target) disabled=item.disabled padding=0 aria-label=item.label testId=`settings-route-${item.target}`
+                  row gap=14 padding=14 align-items="center" opacity=(item.disabled ? 0.45 : 1)
+                    t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=data.colors.icon width=22 height=22 flex-shrink=0
+                    text item.label font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` color=data.colors.foreground flex-shrink=0 line-clamp=1
+                    column flex=1 min-width=0 align-items="flex-end"
+                      when length(item.value) > 0
+                        text item.value max-width=180 text-align="right" font-size=data.roles.body.size line-height=`${data.roles.body.line}px` color=data.colors.muted line-clamp=1 text-overflow="ellipsis"
+                    t3-symbol symbol-name="chevron.right" point-size=16 symbol-weight="semibold" symbol-tint=data.colors.chevron width=16 height=16 flex-shrink=0
+component SettingsSectionLabel
+  props
+    title: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    text title padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500 color=colors.muted
+component SettingsChoices
+  props
+    data: SettingsChoicesData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+    change: action
+  view
+    scroll id="settings-choice-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column gap=10.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId=`settings-choice-${data.key}`
+        column gap=7
+          SettingsSectionLabel(title=data.title, colors=colors, roles=roles)
+          column border-radius=24 overflow="hidden" background-color=colors.grouped role="radiogroup"
+            each option in data.options key=option.value
+              button press=change(data.key, option.value) disabled=(not data.ready) role="radio" aria-checked=option.selected padding=0 testId=`settings-${data.key}-${option.value}`
+                row gap=14 padding=14 align-items="center" border-top-width=(option.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(data.ready ? 1 : 0.45)
+                  column flex=1 min-width=0 gap=3.5
+                    text option.label font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground text-align="left"
+                    text option.description font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px` color=colors.muted text-align="left"
+                  when option.selected
+                    t3-symbol symbol-name="checkmark" point-size=18 symbol-weight="semibold" symbol-tint=colors.icon width=18 height=18
+        when length(data.footer) > 0
+          text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+// Native title-bar controls send JSON events to the root's scope/navigation action.
+component SettingsHeader
+  props
+    configuration: string
+    event: action
+  view
+    t3-settings-header configuration=configuration change=event width=0 height=0 testId="settings-native-header"

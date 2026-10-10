@@ -1,0 +1,5 @@
+use AddProjectSnapshot, AddProjectAlert from "./add-project.contract"
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// The controller encodes parameters; checked Contract paths own destinations.
+fn addProjectLocation(kind: string, query: string): string = kind == "connections" ? `${path("connect")}${query}` : kind == "source" ? `${path("addProject")}${query}` : kind == "new" ? `${path("addProjectNew")}${query}` : kind == "local" ? `${path("addProjectLocal")}${query}` : kind == "repository" ? `${path("addProjectRepository")}${query}` : kind == "destination" ? `${path("addProjectDestination")}${query}` : kind == "draft" ? `${path("newTaskDraft")}${query}` : ""
+fn addProjectNextAlert(data: AddProjectSnapshot): AddProjectAlert = match first(filter(data.screens, screen => screen.id == data.activeId)) { case some(screen) => match first(screen.alerts) { case some(alert) => alert, case none => AddProjectAlert(id="", title="", message="") }, case none => AddProjectAlert(id="", title="", message="") }

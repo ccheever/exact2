@@ -1,0 +1,118 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "T3 Code",
+  "short_name": "T3 Code",
+  "id": "com.exact.t3code.ios",
+  "start_url": "/",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.exact.t3code.ios",
+    "name": "T3 Code"
+  },
+  "rust": "off",
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "localNetworking": true,
+      "link": [
+        "-lc++",
+        "-lz",
+        "-lsqlite3",
+        "-framework",
+        "IOSurface",
+        "-framework",
+        "Metal",
+        "-framework",
+        "MetalKit",
+        "-framework",
+        "QuartzCore",
+        "-framework",
+        "UIKit"
+      ],
+      "urlSchemes": [
+        "t3code"
+      ]
+    }
+  },
+  "deploy": {
+    "store": {
+      "ios": "0",
+      "macos": "0",
+      "web": "0",
+      "linux": "0"
+    }
+  },
+  "modules": [
+    "t3-symbol",
+    "t3-qr-scanner",
+    "t3-home-chrome",
+    "t3-archive-chrome",
+    "t3-keyboard-commands",
+    "t3-layout-facts",
+    "t3-archive-spinner",
+    "t3-composer-material",
+    "t3-composer-editor",
+    "t3-thread-days",
+    "t3-settings-slider",
+    "t3-settings-header",
+    "t3-media-presenter",
+    "t3-mobile-terminal",
+    "t3-document-menu",
+    "t3-document-html",
+    "t3-document-audio",
+    "t3-information-legal",
+    "t3-information-search",
+    "t3-information-notice",
+    "t3-mobile-browser",
+    "t3-mobile-devices",
+    "t3-preview-menu",
+    "t3-terminal-menu",
+    "t3-workspace-layout",
+    "t3-inspector-chrome",
+    "t3-review-viewport",
+    "t3-thread-header",
+    "t3-home-swipe-events"
+  ],
+  "data": [
+    "mobile-form-sheet",
+    "mobile-scan-action",
+    "mobile-scanner-open",
+    "mobile-voice-owner",
+    "mobile-voice-selection-revision",
+    "mobile-scheduled-editor",
+    "mobile-review-owner",
+    "mobile-review-section",
+    "mobile-review-route",
+    "mobile-review-path",
+    "mobile-home-menu",
+    "mobile-home-menu-id",
+    "mobile-home-surface",
+    "mobile-home-foreground",
+    "mobile-home-primary",
+    "mobile-home-danger",
+    "mobile-home-background",
+    "mobile-swipe-owner",
+    "mobile-swipe-row",
+    "mobile-swipe-enabled",
+    "mobile-swipe-open"
+  ],
+  "hatches": [
+    "mobile-voice-editor",
+    "mobile-review-list",
+    "mobile-review-row",
+    "mobile-home-row",
+    "mobile-home-swipe-list",
+    "mobile-home-snooze"
+  ]
+}

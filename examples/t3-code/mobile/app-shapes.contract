@@ -1,0 +1,186 @@
+// Root data records. Resources and mutations remain in app.contract.
+use SettingsRootData from "./settings.contract"
+use HomeItem from "./home.contract"
+use HomeArrangementData from "./home-arrangement.contract"
+use ConnectionColors from "./connect.contract"
+use EnvironmentRow, GitHubRoutingRow from "./environments.contract"
+
+shape AppLink
+  location: string
+  ignore: bool
+  requestRoute: string
+
+shape MediaCompletion
+  identifier: string
+  message: string
+shape Appearance
+  enterBehavior: string
+  scheme: string
+  themeId: string
+  themeMode: string
+  baseFontSize: number
+  terminalFontSize: number
+  groupingMode: string
+shape SettingsView
+  serverScope: string
+  environmentIds: string
+  root: SettingsRootData
+  header: string
+shape SettingsScopeEvent
+  selection: string
+  close: bool
+shape MobileLayout
+  displayScale: number
+  safeTop: number
+  safeBottom: number
+  liquidGlass: bool
+  keyboardDocked: bool
+shape HomeChromeView
+  configuration: string
+  environmentId: string
+  projectKey: string
+  bottomClearance: number
+  emptyClearance: number
+  toolbarContentInset: number
+shape ChromeEvent
+  kind: string
+  value: string
+shape ThreadSelection
+  requestRoute: string
+  revision: number
+  message: string
+  environmentId: string
+  threadId: string
+shape HomeView
+  nextSwipeRefreshAt: number
+  arrangement: HomeArrangementData
+  items: list<HomeItem>
+  emptyTitle: string
+  emptyDetail: string
+  loading: bool
+  addEnvironment: bool
+shape HomePreferences
+  loaded: bool
+  workingEnabled: bool
+  workingExpanded: bool
+  snoozedExpanded: bool
+  settledExpanded: bool
+shape Time
+  epochAtZero: number
+shape Viewport
+  width: number
+  height: number
+  prefersColorScheme: string
+  prefersReducedMotion: bool
+shape PairingFields
+  source: string
+  host: string
+  code: string
+shape Theme
+  screen: string
+  sheet: string
+  foreground: string
+  secondary: string
+  secondaryForeground: string
+  colors: ConnectionColors
+shape Camera
+  status: string
+shape Notice
+  choice: string
+shape Snapshot
+  faviconRevision: number
+  nativeAvailable: bool
+  revision: number
+  ready: bool
+  busy: bool
+  error: string
+  environmentId: string
+  threadId: string
+  projectId: string
+  generation: number
+  environmentLabel: string
+  status: string
+  projectCount: number
+  threadCount: number
+  environments: list<EnvironmentRow>
+  routing: list<GitHubRoutingRow>
+shape ScheduledHeader
+  configuration: string
+shape AutomationChange
+  revision: number
+  message: string
+  route: string
+  closed: bool
+  refresh: bool
+  debounce: bool
+  accountKey: string
+  windowId: string
+  windowKind: string
+  requestRoute: string
+shape VoiceFocus
+  owner: string
+  label: string
+shape PreviewOwner
+  owner: string
+shape PreviewMenus
+  selection: string
+  options: string
+shape InformationRoute
+  active: bool
+  title: string
+shape InformationRead
+  revision: number
+shape InformationConfiguration
+  configuration: string
+shape InformationChange
+  revision: number
+  message: string
+  requestRoute: string
+shape Change
+  revision: number
+  message: string
+
+shape TerminalAttachChange
+  revision: number
+  message: string
+  accepted: bool
+  key: string
+  text: string
+  start: number
+  end: number
+  routeVisit: string
+
+shape StreamingAssistant
+  routeId: string
+  environmentId: string
+  threadId: string
+  owner: string
+  id: string
+  textLength: number
+  key: string
+shape StreamingHapticState
+  routeId: string
+  owner: string
+  id: string
+  textLength: number
+  lastAt: number
+
+shape SettingsWrite
+  revision: number
+  requestRoute: string
+  message: string
+  saved: bool
+
+shape AccountEntry
+  kind: string
+  route: string
+  requestRoute: string
+
+shape HomeActionResult
+  revision: number
+  requestRoute: string
+  message: string
+  alertTitle: string
+  nextLocation: string
+  archiveChanged: bool
+  uncertain: bool

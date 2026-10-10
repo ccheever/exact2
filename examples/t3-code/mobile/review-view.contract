@@ -1,0 +1,131 @@
+// ReviewSheet/nativeReviewDiffAdapter at365aa87982. Native geometry acceptance pending.
+// @ref llp/1109.006-review-and-files.decision.md#mobile-presentation
+use ReviewColors, ReviewSnapshot, ReviewRow from "./review-shapes.contract"
+
+component ReviewView
+  props
+    data: ReviewSnapshot
+    colors: ReviewColors
+    wrap: bool
+    action: action
+    refresh: action
+    loadMore: action
+    routeId: string
+    focused: bool
+  action visibleFile(value: string)
+    action("viewport", value, 0)
+  view
+    column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+      when data.error != ""
+        column padding=14 background-color=colors.card border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border
+          text "Review unavailable" font-size=12.25 font-weight=700 color=colors.foreground
+          text data.error font-size=10.5 line-height="15.75px" color=colors.muted
+      when data.notice != ""
+        column padding=14 background-color=colors.warning
+          text "Partial diff" text-transform="uppercase" font-size=10.5 font-weight=700 color=colors.warningForeground
+          text data.notice font-size=10.5 line-height="15.75px" color=colors.warningForeground
+      when length(data.rows) == 0
+        scroll flex=1 min-height=0 refresh=refresh
+          column padding-left=14 padding-right=14 padding-top=17.5 padding-bottom=17.5 background-color=colors.card
+            when data.loading
+              column align-items="center" gap=10.5 padding=7
+                t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+                text "Loading diff…" font-size=10.5 color=colors.muted
+            else
+              when data.error == ""
+                text data.emptyTitle font-size=12.25 font-weight=700 color=colors.foreground
+                text data.emptyDetail font-size=10.5 line-height="15.75px" color=colors.muted
+              when data.raw != ""
+                view overflow-x="auto" margin-top=10.5
+                  text data.raw font-family="Menlo" font-size=10.5 line-height="17px" white-space="pre" color=colors.foreground
+      else
+        t3-review-viewport width=0 height=0 review-owner=data.owner review-section=data.sectionId review-route=routeId
+          review-navigation-revision=`${data.navigationRevision}` review-focused=focused change=visibleFile
+        list id="review-diff" hatch="mobile-review-list" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId data-mobile-review-route=routeId flex=1 min-height=0 virtualized=true estimated-item-height=22 refresh=refresh reachend=loadMore
+          each row in data.rows key=row.id
+            column hatch="mobile-review-row" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId
+              data-mobile-review-route=routeId data-mobile-review-path=row.filePath
+              when row.kind == "file"
+                row margin-left=8 margin-right=8 margin-top=6 margin-bottom=6 min-height=44
+                  border-radius=10 background-color=colors.card align-items="center" padding-left=10 padding-right=10 gap=5
+                  button press=action("toggle", row.path, 0) flex=1 min-width=0 aria-label=(row.expanded ? "Collapse " + row.path : "Expand " + row.path)
+                    row align-items="center" gap=7
+                      t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
+                      column flex=1 min-width=0
+                        text row.title font-size=11 font-weight=600 color=colors.foreground line-clamp=1
+                        when row.detail != ""
+                          text row.detail font-size=11 color=colors.muted line-clamp=1
+                  text `+${row.additions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.addition
+                  text `-${row.deletions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.deletion
+                  button press=action("viewed", row.path, 0) aria-label=(row.viewed ? "Mark unviewed" : "Mark viewed") width=28 height=32
+                    t3-symbol symbol-name=(row.viewed ? "checkmark.circle.fill" : "circle") point-size=16 symbol-weight="regular" symbol-tint=colors.iconMuted width=16 height=16
+              else
+                when row.kind == "line"
+                  ReviewCodeRow(row=row, colors=colors, wrap=wrap, select=action)
+                else
+                  when row.kind == "hunk"
+                    text row.text padding-left=53 padding-top=4 padding-bottom=4 font-family="Menlo" font-size=11 color=colors.muted background-color=colors.subtle
+                  else
+                    column padding=14 gap=7
+                      when row.kind == "comment"
+                        row align-items="center" gap=7
+                          t3-symbol symbol-name="text.bubble" point-size=14 symbol-weight="regular" symbol-tint=colors.iconMuted width=14 height=14
+                          text row.text flex=1 font-size=14 line-height="19px" color=colors.foreground
+                          button press=action("delete-comment", row.path, 0) width=32 height=32 aria-label="Remove comment"
+                            t3-symbol symbol-name="trash" point-size=14 symbol-weight="regular" symbol-tint=colors.iconMuted width=14 height=14
+                      when row.title != ""
+                        text row.title font-size=11 font-weight=600 color=colors.foreground
+                      text row.detail font-size=12 line-height="16px" color=colors.muted
+                      when row.action != "" and row.kind != "comment"
+                        button press=action(row.action, row.path, 0) align-self="start" border-radius=20 padding-left=14 padding-right=14 min-height=38.5 background-color=colors.subtle
+                          text (row.action == "reveal" ? "Load diff" : "Try again") font-size=12.25 color=colors.foreground
+      when data.selectionTitle != ""
+        row margin-left=18 margin-right=18 margin-top=10 margin-bottom=18 gap=10
+          button press=action("comment", "", 0) disabled=not data.canComment flex=1 min-height=42 border-radius=100 background-color=colors.primary
+            row align-items="center" justify-content="center" gap=7
+              t3-symbol symbol-name="text.bubble" point-size=16 symbol-weight="regular" symbol-tint=colors.primaryForeground width=16 height=16
+              text data.selectionTitle font-size=14 font-weight=700 color=colors.primaryForeground
+          button press=action("clear", "", 0) width=42 height=42 border-radius=100 background-color=colors.primary aria-label="Clear selection"
+            t3-symbol symbol-name="xmark" point-size=16 symbol-weight="regular" symbol-tint=colors.primaryForeground width=16 height=16
+
+component ReviewCodeRow
+  props
+    row: ReviewRow
+    colors: ReviewColors
+    wrap: bool
+    select: action
+  view
+    row min-height=22 align-items="start"
+      background-color=(row.selected ? colors.selection : row.change == "addition" ? colors.additionBackground : row.change == "deletion" ? colors.deletionBackground : colors.codeBackground)
+      view width=4 align-self="stretch" background-color=(row.change == "addition" ? colors.additionBar : row.change == "deletion" ? colors.deletionBar : "transparent")
+      button press=select("line", row.path, row.lineIndex) contextmenu=select("range-start", row.path, row.lineIndex) width=46 min-height=22 padding=0 aria-label=("Select line " + (row.newNumber == "" ? row.oldNumber : row.newNumber))
+        text (row.newNumber == "" ? row.oldNumber : row.newNumber) text-align="right" padding-right=7 font-family="Menlo" font-size=11 line-height="22px" color=colors.tertiary
+      view flex=1 min-width=0 overflow-x=(wrap ? "hidden" : "auto")
+        text padding-left=7 padding-top=2 padding-bottom=2 font-family="Menlo" font-size=12 line-height="18px" white-space=(wrap ? "pre-wrap" : "pre") color=colors.foreground
+          when length(row.tokens) == 0
+            text (row.text == "" ? " " : row.text)
+          else
+            each token in row.tokens key=token.id
+              text token.text color=token.color font-weight=token.weight font-style=token.slant
+
+component ReviewCommentComposer
+  props
+    data: ReviewSnapshot
+    value: string
+    colors: ReviewColors
+    change: action
+    submit: action
+  view
+    column flex=1 min-height=0 padding=14 gap=14 background-color=colors.sheet font-family="DM Sans"
+      when not data.commentOpen
+        text "No selection" font-size=16 font-weight=700 color=colors.foreground
+        text "Select a diff line or range first." font-size=14 color=colors.muted
+      else
+        text data.commentPath font-size=14 font-weight=700 line-clamp=1 color=colors.foreground
+        text data.commentRange font-size=12 color=colors.muted
+        scroll max-height=176 border-radius=14 background-color=colors.card
+          text data.commentPreview padding=10.5 font-family="Menlo" font-size=12 line-height="22px" white-space="pre" color=colors.foreground
+        textarea value=value input=change placeholder="Leave a comment..." aria-label="Review comment" flex=1 min-height=120
+          padding=14 border-radius=14 background-color=colors.card color=colors.foreground font-family="DM Sans" font-size=16 line-height="23px"
+        button retainFocus=true press=submit disabled=(value == "" or not data.canComment) align-self="end" width=42 height=42 border-radius=100 background-color=colors.primary aria-label="Add comment"
+          t3-symbol symbol-name="arrow.up" point-size=18 symbol-weight="bold" symbol-tint=colors.primaryForeground width=18 height=18

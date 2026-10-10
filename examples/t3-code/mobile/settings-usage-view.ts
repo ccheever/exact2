@@ -1,0 +1,51 @@
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// Pinned UsageRouteScreen/UsageLimitsPooled projection. Clock supplied by route owner.
+import { arr, obj, str, type Obj } from './shared/domain';
+import { formatCount, formatTokens, formatUsd, formatPercent, formatDayShort, formatHourShort, mergeUsage, windowPeriods, isModelCostUnknown, type UsageWindow } from './shared/pages-usage';
+import { collectLimitAccounts, collectLimitPools, collectLimitNotices, collectExternalUsageLinks, displayLimitWindows, remainingPercent, formatResetsIn, formatDuration, type LimitPresentations } from './settings-usage-limits';
+export interface UsageSourceView {id:string;label:string;connected:boolean;summary:Obj|null;error:string;canRead:boolean;canWrite:boolean;canManage:boolean;config:Obj}
+interface Prepared {tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean}
+export const MOBILE_USAGE_PROVIDERS=[
+  {id:'codex',driver:'codex',label:'Codex',light:'#3c3c43',dark:'#e6e6e6'}, {id:'claude',driver:'claudeAgent',label:'Claude Code',light:'#d97757',dark:'#d97757'},
+  {id:'grok',driver:'grok',label:'Grok Build',light:'#52525b',dark:'#a1a1aa'}, {id:'cursor',driver:'cursor',label:'Cursor',light:'#8b8b8b',dark:'#8b8b8b'},
+  {id:'opencode',driver:'opencode',label:'OpenCode',light:'#5b9bbd',dark:'#5b9bbd'}, {id:'antigravity',driver:'antigravity',label:'Antigravity',light:'#8c7bd1',dark:'#8c7bd1'}];
+const provider=(id:string)=>MOBILE_USAGE_PROVIDERS.find(provider=>provider.id===id||provider.driver===id)??{id,driver:id,label:id,light:'#737373',dark:'#a3a3a3'};
+const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
+export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
+const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
+const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
+export function mobileUsagePresentation(input:Prepared|null){
+  detailPrepared=input;if(!input)reveals.clear();
+  const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
+  const accounts=collectLimitAccounts(input?.presentations??new Map()),pools=collectLimitPools(accounts,input?.now??0),periods=input?windowPeriods(input.window):[],byPeriod=new Map((input?.window.resolution==='hour'?merged.hourly:merged.daily).map(period=>[period.key,period]));
+  const peak=Math.max(0,...periods.map(key=>{const period=byPeriod.get(key);return period?(tokens?period.totalTokens:period.costUsd):0;}));
+  const hasCursorAccount=sources.some(source=>arr(source.summary?.sources).some(item=>obj(item.fingerprint).provider==='cursor'&&obj(item.fingerprint).hostId==='cursor.com'));
+  return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,
+    emptyMessage:!input?'':!sources.length?'Select an environment to see usage.':!actual&&input.tab==='usage'?'No usage summary is available for these environments.':'',
+    environments:sources.map(source=>({id:source.id,label:source.label,status:source.error||(!source.connected?'Waiting for connection…':''),connected:source.connected})),
+    notices:[...collectLimitNotices(input?.presentations??new Map()),...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[]))].map((text,index)=>({id:String(index),text})),
+    duplicateMessage:merged.duplicates.length?`Counted once across environments sharing a transcript directory: ${merged.duplicates.join(', ')}`:'',
+    links:collectExternalUsageLinks(input?.presentations??new Map()).map(link=>({...link,accounts:link.accounts.join(', '),message:link.message??'',disabled:!input?.external})),
+    cursor:hasCursorAccount?[]:sources.filter(source=>arr(source.summary?.sources).some(item=>item.action==='enableCursorKeychain')&&arr(source.config.providers).some(provider=>provider.driver==='cursor'&&provider.status==='ready')).map(source=>({id:source.id,label:source.label,disabled:!source.connected||!source.canWrite})),
+    pools:pools.map(pool=>({id:pool.driver,label:provider(pool.driver).label,light:provider(pool.driver).light,dark:provider(pool.driver).dark,windows:displayLimitWindows(pool).map(window=>({id:`${window.kind}:${window.id}`,windowId:window.id,kind:window.kind,label:window.label,remaining:window.remainingPercent,pace:paceLabel(window.pace),
+      columns:window.columns.map(({account,window:own})=>({key:account.key,label:account.displayName||provider(account.driver).label,present:!!own,remaining:own?remainingPercent(own):0,email:masked(account.email,account.key)})),
+      resets:window.resets.map(reset=>({key:reset.member.account.key,text:`${reset.member.account.displayName||provider(reset.member.account.driver).label} · ${formatResetsIn(reset.member.window,input?.now??0)} · restores ${reset.restoresPercent}%`}))}))})),
+    limitsEmpty:input?.tab==='limits'&&pools.length===0?'No subscription limits reported.':'',
+    total:actual?(tokens?formatTokens(merged.totalTokens):formatUsd(merged.costUsd)):'',chartTitle:`${input?.window.resolution==='hour'?'Hourly':'Daily'} ${tokens?'processed tokens':'cost'}`,
+    chart:periods.map((key,index)=>{const period=byPeriod.get(key);return {id:key,label:input?.window.resolution==='hour'?formatHourShort(key):formatDayShort(key),showLabel:index===0||index===Math.floor(periods.length/2)||index===periods.length-1,
+      bands:[...MOBILE_USAGE_PROVIDERS].reverse().map(provider=>{const band=period?.byProvider.get(provider.id),value=band?(tokens?band.totalTokens:band.costUsd):0;return {id:provider.id,light:provider.light,dark:provider.dark,height:peak?value/peak*180:0,value:tokens?formatTokens(value):formatUsd(value)};})};}),
+    providers:MOBILE_USAGE_PROVIDERS.flatMap(item=>{const total=merged.providers.find(total=>total.provider===item.id);return total&& (total.costUsd>0||total.totalTokens>0)?[{id:item.id,label:item.label,light:item.light,dark:item.dark,value:tokens?formatTokens(total.totalTokens):formatUsd(total.costUsd),share:formatPercent(tokens?total.tokenShare:total.costShare),detail:tokens?formatUsd(total.costUsd):`${formatTokens(total.totalTokens)} tokens`}]:[];}),
+    totals:[{id:'tokens',label:'Tokens',value:formatTokens(merged.totalTokens)},{id:'sessions',label:'Sessions',value:formatCount(merged.sessions)},{id:'input',label:'Input',value:formatTokens(merged.uncachedInputTokens)},{id:'cache-read',label:'Cache read',value:formatTokens(merged.cachedInputTokens)},{id:'cache-write',label:'Cache write',value:formatTokens(merged.cacheCreationTokens)},{id:'output',label:'Output',value:formatTokens(merged.outputTokens)}],
+    costs:[{id:'cost',label:'Total cost',value:formatUsd(merged.costUsd)},{id:'savings',label:'Cache savings',value:formatUsd(merged.cacheSavingsUsd)},{id:'unpriced',label:'Unpriced records',value:formatPercent(merged.unpricedShare)},...Object.entries(merged.categoryCost).map(([id,value])=>({id:`category-${id}`,label:{input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',output:'Output',unsplit:'Unsplit'}[id]??id,value:formatUsd(value)})),...Object.entries(merged.speedCost).map(([id,value])=>({id:`speed-${id}`,label:id,value:formatUsd(value)}))],
+    models:[...merged.models].sort((a,b)=>tokens?b.totalTokens-a.totalTokens:b.costUsd-a.costUsd).map(model=>({id:JSON.stringify([model.provider,model.model]),label:model.model,provider:provider(model.provider).label,value:tokens?formatTokens(model.totalTokens):isModelCostUnknown(model)?'—':formatUsd(model.costUsd),detail:`${formatPercent(tokens?model.tokenShare:model.costShare)} · ${formatTokens(model.totalTokens)} tokens`,unpriced:model.unpricedRecords>0?`${formatCount(model.unpricedRecords)} unpriced records`:''}))};
+}
+export function mobileUsageAccount(key:string,windowId:string,kind:string,now:number){
+  const input=detailPrepared,account=collectLimitAccounts(input?.presentations??new Map()).find(account=>account.key===key),pool=collectLimitPools(account?[account]:[],now)[0],window=account?.limits.windows.find(window=>window.id===windowId&&window.kind===kind),credits=account?.limits.resetCredits;
+  const pooled=collectLimitPools(collectLimitAccounts(input?.presentations??new Map()),now).find(pool=>pool.driver===account?.driver)?.windows.find(window=>window.id===windowId&&window.kind===kind);
+  return {present:!!account,error:account?'':'This account is no longer reporting limits on the selected environments.',key,label:account?.displayName||provider(account?.driver??'').label,email:masked(account?.email,key),hasEmail:!!account?.email,revealed:reveals.has(key),plan:account?.plan??'',
+    windowLabel:window?.label??'',remaining:window?`${remainingPercent(window)}% remaining`:'',resets:window?.resetsAt?new Date(window.resetsAt).toLocaleString():'',restores:window&&pooled?`Restores ${Math.round(window.usedPercent/pooled.members.length)}% of the pool`:'',
+    source:account?.environments.length?`Signed in on ${account.environments.map(env=>env.label).join(', ')}`:account?.sourceLabel?`Source: ${account.sourceLabel}`:'',
+    credits:credits?credits.availableCount===0?'No reset credits banked':`${credits.availableCount} ${credits.availableCount===1?'reset credit':'reset credits'} banked${credits.nextExpiresAt?` · next expires in ${formatDuration(Date.parse(credits.nextExpiresAt)-now)}`:''}`:'',
+    canRedeem:!!account?.redeem&&!!credits?.availableCount&&!!input?.sources.find(source=>source.id===account.redeem?.environmentId&&source.connected&&source.canManage),environmentId:account?.redeem?.environmentId??'',
+    light:provider(pool?.driver??'').light,dark:provider(pool?.driver??'').dark};
+}

@@ -1,0 +1,391 @@
+// @ref llp/1109.002-design-system-parity.spec.md#motion
+// T3 Code 365aa87982: LocalEnvironmentList, ConnectionEnvironmentRow,
+// ConnectionStatusDot and EnvironmentMachineSymbol. Root supplies live state.
+use ConnectionColors, ConnectionField from "./connect.contract"
+
+shape EnvironmentRow
+  environmentId: string
+  state: string
+  machine: string
+  id: string
+  label: string
+  url: string
+  status: string
+  statusColor: string
+  statusHaloColor: string
+  machineSymbol: string
+  enabled: bool
+  unsupported: bool
+  relayManaged: bool
+  hasError: bool
+  retrying: bool
+
+keyframes connectionPulse
+  from scale=0.78 opacity=0.44
+  to scale=1.94 opacity=0.14
+
+component Environments
+  props
+    items: list<EnvironmentRow>
+    expandedId: string
+    opensDetails: bool
+    toggle: action
+    setEnabled: action
+    reconnect: action
+    remove: action
+    save: action
+    colors: ConnectionColors
+  view
+    column border-radius=24
+      background-color=colors.groupedCard
+      overflow="hidden"
+      font-family="DM Sans"
+      testId="environments-list"
+      when length(items) == 0
+        column align-items="center"
+          gap=10.5
+          padding-left=21
+          padding-right=21
+          padding-top=28
+          padding-bottom=28
+          column width=42
+            height=42
+            align-items="center"
+            justify-content="center"
+            border-radius=16
+            background-color=colors.subtle
+            t3-symbol symbol-name="point.3.connected.trianglepath.dotted"
+              point-size=20
+              symbol-weight="regular"
+              symbol-tint=colors.iconMuted
+              width=20
+              height=20
+          text text-align="center"
+            font-size=14
+            line-height="21px"
+            color=colors.muted
+            testId="environments-empty"
+            text "No environments connected yet.\nTap "
+            text "+" font-weight=700 color=colors.foreground
+            text " to add one."
+      else
+        each environment in items key = environment.id
+          EnvironmentItem(
+            environment=environment,
+            expanded=expandedId == environment.id,
+            opensDetails=opensDetails,
+            toggle=toggle,
+            setEnabled=setEnabled,
+            reconnect=reconnect,
+            remove=remove,
+            save=save,
+            colors=colors
+          )
+
+component EnvironmentItem
+  props
+    environment: EnvironmentRow
+    expanded: bool
+    opensDetails: bool
+    toggle: action
+    setEnabled: action
+    reconnect: action
+    remove: action
+    save: action
+    colors: ConnectionColors
+  state editedLabel = environment.label
+  state editedUrl = environment.url
+  derive enabled = environment.enabled and not environment.unsupported
+  action editLabel(value: string)
+    editedLabel = value
+  action editUrl(value: string)
+    editedUrl = value
+  view
+    column background-color=colors.groupedCard testId=`environment-${environment.id}`
+      row align-items="center"
+        gap=10.5
+        padding-left=14
+        padding-right=14
+        padding-top=12.25
+        padding-bottom=12.25
+        button press=toggle(environment.id)
+          flex=1
+          min-width=0
+          padding=0
+          text-align="left"
+          aria-label=`Manage ${environment.label}`
+          testId=`environment-open-${environment.id}`
+          column gap=1.75 align-items="stretch"
+            row align-items="center" gap=5.25
+              column position="relative"
+                width=16
+                height=16
+                align-items="center"
+                justify-content="center"
+                flex-shrink=0
+                when environment.retrying and enabled
+                  view position="absolute"
+                    width=12
+                    height=12
+                    border-radius=6
+                    background-color=environment.statusHaloColor
+                    animation="connectionPulse 1100ms cubic-bezier(0.333333, 1, 0.666667, 1) infinite"
+                view width=8 height=8 border-radius=4 background-color=environment.statusColor
+              t3-symbol symbol-name=environment.machineSymbol
+                point-size=14
+                symbol-weight="regular"
+                symbol-tint=colors.muted
+                width=14
+                height=14
+                flex-shrink=0
+              text environment.label font-size=16
+                line-height="22px"
+                font-weight=700
+                color=colors.foreground
+                min-width=0
+                flex-shrink=1
+                line-clamp=1
+                text-overflow="ellipsis"
+            when not environment.relayManaged and length(trim(environment.url)) > 0
+              text environment.url font-size=13
+                line-height="17px"
+                color=colors.muted
+                line-clamp=1
+                text-overflow="ellipsis"
+            when length(environment.status) > 0
+              text environment.status font-size=13
+                line-height="17px"
+                color=(environment.hasError ? colors.dangerForeground : colors.muted)
+                line-clamp=(expanded ? 0 : 1)
+                text-overflow="ellipsis"
+                testId=`environment-status-${environment.id}`
+        input type="checkbox" switch
+          checked=enabled
+          disabled=environment.unsupported
+          change=setEnabled(environment.id)
+          aria-label=`Enable ${environment.label}`
+          testId=`environment-enabled-${environment.id}`
+          margin=0
+          flex-shrink=0
+          accent-color=colors.switchActiveTrack
+        button press=toggle(environment.id) padding=0 aria-label=`Manage ${environment.label}`
+          t3-symbol symbol-name=(opensDetails ? "chevron.right" : "chevron.down")
+            point-size=12
+            symbol-weight="regular"
+            symbol-tint=colors.iconSubtle
+            width=12
+            height=12
+            rotate=(expanded ? 180 : 0)
+      when expanded
+        column gap=10.5 padding-left=14 padding-right=14 padding-bottom=14
+          when environment.relayManaged
+            text "Managed by T3 Connect. Tunnel details update automatically." font-size=14
+              line-height="19px"
+              color=colors.muted
+          else
+            ConnectionField(
+              label="Label",
+              value=editedLabel,
+              placeholder="My MacBook",
+              kind="text",
+              change=editLabel,
+              colors=colors,
+              fieldId=`environment-label-${environment.id}`
+            )
+            ConnectionField(
+              label="URL",
+              value=editedUrl,
+              placeholder="192.168.1.100:8080",
+              kind="url",
+              change=editUrl,
+              colors=colors,
+              fieldId=`environment-url-${environment.id}`
+            )
+          row justify-content="flex-end" gap=7
+            when not environment.relayManaged
+              button press=save(environment.id, trim(editedLabel), trim(editedUrl))
+                min-height=42
+                flex=1
+                border-radius=14
+                box-sizing="border-box"
+                padding-left=12.25
+                padding-right=12.25
+                padding-top=8.75
+                padding-bottom=8.75
+                background-color=colors.primary
+                aria-label="Save environment"
+                testId=`environment-save-${environment.id}`
+                row align-items="center" justify-content="center" gap=5.25
+                  image "symbol:checkmark" width=13 height=13 -exact-tint-color=colors.primaryForeground
+                  text "Save" text-transform="uppercase"
+                    font-size=13
+                    line-height="17px"
+                    font-weight=700
+                    letter-spacing=0.8
+                    color=colors.primaryForeground
+            button press=reconnect(environment.id)
+              disabled=not enabled
+              width=42
+              height=42
+              border-radius=14
+              box-sizing="border-box"
+              align-items="center"
+              justify-content="center"
+              padding=0
+              border-width=1
+              border-style="solid"
+              border-color=colors.inputBorder
+              background-color=colors.input
+              opacity=(enabled ? 1 : 0.4)
+              aria-label="Reconnect environment"
+              testId=`environment-reconnect-${environment.id}`
+              t3-symbol symbol-name="arrow.clockwise"
+                point-size=14
+                symbol-weight="regular"
+                symbol-tint=colors.iconSubtle
+                width=14
+                height=14
+            button press=remove(environment.id)
+              width=42
+              height=42
+              border-radius=14
+              box-sizing="border-box"
+              align-items="center"
+              justify-content="center"
+              padding=0
+              border-width=1
+              border-style="solid"
+              border-color=colors.dangerBorder
+              background-color=colors.danger
+              aria-label="Remove environment"
+              testId=`environment-remove-${environment.id}`
+              image "symbol:delete" width=14 height=14 -exact-tint-color=colors.dangerForeground
+
+// T3 Code 365aa87982, GitHubRoutingSettings and SettingsSection. Permissions
+// are persisted by the shared github-routing command, keyed to saved endpoints.
+shape GitHubRoutingRow
+  id: string
+  label: string
+  url: string
+  permission: string
+  disabled: bool
+
+fn routingLabel(permission: string): string = permission == "read-write" ? "Read and act" : permission == "read" ? "Read PRs" : "Off"
+
+component GitHubRoutingSettings
+  props
+    items: list<GitHubRoutingRow>
+    saving: bool
+    change: action
+    colors: ConnectionColors
+  state expandedId = ""
+  action toggleRow(id: string)
+    expandedId = expandedId == id ? "" : id
+  view
+    column font-family="DM Sans" testId="github-routing"
+      when length(items) > 0
+        column margin-top=17.5 gap=10.5
+          column gap=7
+            text "GitHub routing" padding-left=7
+              padding-right=7
+              font-size=14
+              line-height="19px"
+              font-weight=500
+              color=colors.muted
+            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+              each entry in items key = entry.id
+                column
+                  button press=toggleRow(entry.id)
+                    padding=14
+                    aria-label=`${entry.label} GitHub routing`
+                    testId=`routing-open-${entry.id}`
+                    text-align="left"
+                    row align-items="center" gap=10.5
+                      column flex=1 min-width=0 gap=1.75
+                        text entry.label font-size=16
+                          line-height="23px"
+                          font-weight=700
+                          color=colors.foreground
+                        text entry.url font-size=13
+                          line-height="17px"
+                          color=colors.muted
+                          line-clamp=1
+                          text-overflow="ellipsis"
+                      text routingLabel(entry.permission) font-size=14
+                        line-height="19px"
+                        color=colors.muted
+                      t3-symbol symbol-name=(expandedId == entry.id ? "chevron.up" : "chevron.down")
+                        point-size=12
+                        symbol-weight="regular"
+                        symbol-tint=colors.iconMuted
+                        width=12
+                        height=12
+                  when expandedId == entry.id
+                    RoutingOption(
+                      id=entry.id,
+                      value="off",
+                      label="Off",
+                      description="Keep GitHub requests on this environment.",
+                      selected=entry.permission == "off",
+                      disabled=entry.disabled or saving,
+                      change=change,
+                      colors=colors
+                    )
+                    RoutingOption(
+                      id=entry.id,
+                      value="read",
+                      label="Read PRs",
+                      description="Share PR data with other enabled environments.",
+                      selected=entry.permission == "read",
+                      disabled=entry.disabled or saving,
+                      change=change,
+                      colors=colors
+                    )
+                    RoutingOption(
+                      id=entry.id,
+                      value="read-write",
+                      label="Read and act",
+                      description="Actions may use broader GitHub permissions than the original environment.",
+                      selected=entry.permission == "read-write",
+                      disabled=entry.disabled or saving,
+                      change=change,
+                      colors=colors
+                    )
+          text "Choose environments you trust to share PR data and use each other's GitHub access. Enable both environments. This applies only to this client."
+            padding-left=7
+            padding-right=7
+            font-size=14
+            line-height="19px"
+            color=colors.muted
+
+component RoutingOption
+  props
+    id: string
+    value: string
+    label: string
+    description: string
+    selected: bool
+    disabled: bool
+    change: action
+    colors: ConnectionColors
+  view
+    button press=change(id, value)
+      disabled=disabled
+      padding=14
+      opacity=(disabled ? 0.5 : 1)
+      role="radio"
+      aria-checked=selected
+      aria-label=label
+      testId=`routing-${value}-${id}`
+      text-align="left"
+      row align-items="center" gap=14
+        column flex=1 min-width=0 gap=3.5
+          text label font-size=16 line-height="23px" color=colors.foreground
+          text description font-size=14 line-height="21px" color=colors.muted
+        when selected
+          t3-symbol symbol-name="checkmark"
+            point-size=18
+            symbol-weight="semibold"
+            symbol-tint=colors.foreground
+            width=18
+            height=18

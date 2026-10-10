@@ -1,0 +1,150 @@
+use ProjectFaviconTarget from "./project-favicon.contract"
+// Strict mobile settings/new task resource responses.
+// @ref llp/1109.005-composer-and-transcript.decision.md#root-seam
+use ThreadComposerState from "./thread-shapes.contract"
+shape ComposerCatalogRow
+  key: string
+  kind: string
+  id: string
+  providerId: string
+  label: string
+  subtitle: string
+  driver: string
+  iconUrl: string
+  selected: bool
+  disabled: bool
+  reason: string
+  favorite: bool
+  legacy: bool
+  isDefault: bool
+  collapsed: bool
+  count: number
+  first: bool
+  last: bool
+shape ComposerChoice
+  id: string
+  label: string
+  description: string
+  selected: bool
+  disabled: bool
+  last: bool
+shape ComposerOption
+  id: string
+  label: string
+  value: string
+  boolean: bool
+  on: bool
+  choices: list<ComposerChoice>
+shape ComposerSettingsSnapshot
+  revision: number
+  open: bool
+  busy: bool
+  canEdit: bool
+  canSave: bool
+  saveLabel: string
+  query: string
+  filter: string
+  showLegacy: bool
+  hasLegacy: bool
+  empty: string
+  pending: bool
+  models: list<ComposerCatalogRow>
+  filters: list<ComposerChoice>
+  options: list<ComposerOption>
+  runtimes: list<ComposerChoice>
+  runtimeLabel: string
+  error: string
+  environmentId: string
+  threadId: string
+shape ComposerActionResult
+  requestRoute: string
+  revision: number
+  message: string
+  closed: bool
+  environmentId: string
+  threadId: string
+shape NewTaskProject
+  faviconTarget: ProjectFaviconTarget
+  favicon: string
+  iconKind: string
+  iconText: string
+  iconColor: string
+  iconSurface: string
+  iconSize: number
+  id: string
+  environmentId: string
+  projectId: string
+  title: string
+  subtitle: string
+  path: string
+  selected: bool
+  disabled: bool
+  last: bool
+shape NewTaskEnvironment
+  id: string
+  label: string
+  machine: string
+  selected: bool
+  disabled: bool
+  last: bool
+shape NewTaskBranch
+  id: string
+  label: string
+  badge: string
+  selected: bool
+  disabled: bool
+  last: bool
+shape NewTaskSnapshot
+  pendingEditor: bool
+  revision: number
+  environmentId: string
+  projectId: string
+  threadId: string
+  projectTitle: string
+  environmentLabel: string
+  projects: list<NewTaskProject>
+  environments: list<NewTaskEnvironment>
+  branches: list<NewTaskBranch>
+  query: string
+  branchQuery: string
+  emptyTitle: string
+  emptyDetail: string
+  branchEmpty: string
+  error: string
+  busy: bool
+  branchLoaded: bool
+  branchHasMore: bool
+  canSelect: bool
+  canAddProject: bool
+  canStartScratch: bool
+  scratchTarget: string
+  hasProjects: bool
+  draft: bool
+  scratch: bool
+  workspaceMode: string
+  workspaceLabel: string
+  branchLabel: string
+  originOn: bool
+  composer: ThreadComposerState
+shape NewTaskResult
+  revision: number
+  message: string
+  submitted: bool
+  environmentId: string
+  projectId: string
+  threadId: string
+shape NewTaskPreparation
+  revision: number
+  loaded: bool
+shape ComposerColors
+  sheet: string
+  groupedCard: string
+  foreground: string
+  secondary: string
+  muted: string
+  icon: string
+  iconSubtle: string
+  borderSubtle: string
+  subtle: string
+  primary: string
+  danger: string

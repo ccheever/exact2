@@ -1,0 +1,94 @@
+// @ref llp/1109.007-mobile-terminal.decision.md#root-seam
+shape MobileTerminalTab
+  id: string
+  label: string
+  status: string
+  selected: bool
+  running: bool
+  cwd: string
+shape MobileTerminalColors
+  background: string
+  foreground: string
+  mutedForeground: string
+  border: string
+  cursor: string
+  config: string
+  sheetBackground: string
+  sheetForeground: string
+  sheetSubtle: string
+shape MobileTerminalSnapshot
+  revision: number
+  environmentId: string
+  threadId: string
+  terminalId: string
+  sessionKey: string
+  title: string
+  subtitle: string
+  ready: bool
+  readOnly: bool
+  sourceJSON: string
+  error: string
+  emptyTitle: string
+  emptyDetail: string
+  tabs: list<MobileTerminalTab>
+  hostPlatform: string
+  colors: MobileTerminalColors
+shape MobileTerminalResult
+  revision: number
+  message: string
+  terminalId: string
+  closed: bool
+  choice: string
+  environmentId: string
+  threadId: string
+shape MobileTerminalEvent
+  type: string
+  key: string
+  text: string
+  message: string
+  action: string
+shape MobileTerminalLine
+  id: number
+  text: string
+  selected: bool
+shape MobileTerminalCapture
+  lines: list<MobileTerminalLine>
+  start: number
+  end: number
+  text: string
+  tooLarge: bool
+  canAttach: bool
+component MobileTerminal
+  props
+    mountReady: bool
+    data: MobileTerminalSnapshot
+    event: action
+    action: action
+  view
+    column flex=1 min-height=0 background-color=data.colors.background color=data.colors.foreground
+      when data.subtitle != ""
+        text data.subtitle padding-left=16 padding-bottom=8 font-size=13 color=data.colors.mutedForeground
+      when data.ready and mountReady
+        t3-mobile-terminal terminal-source=data.sourceJSON change=event flex=1 min-height=0 aria-label="Terminal" testId="terminal-surface"
+      else
+        column flex=1 align-items="center" justify-content="center" padding=24 gap=8
+          text data.emptyTitle font-size=18
+          text (data.error != "" ? data.error : data.emptyDetail) font-size=14 color=data.colors.mutedForeground text-align="center"
+component MobileTerminalCaptureView
+  props
+    data: MobileTerminalCapture
+    colors: MobileTerminalColors
+    select: action
+    attach: action
+  view
+    column flex=1 min-height=0 background-color=colors.sheetBackground color=colors.sheetForeground
+      text "Tap the first and last line to select a range." padding-left=16 padding-right=16 padding-bottom=12 color=colors.mutedForeground
+      scroll flex=1 min-height=0 id="terminal-capture-lines"
+        column padding=16
+          each line in data.lines key=line.id
+            button press=select(line.id) aria-label=`Line ${line.text}` aria-pressed=line.selected background-color=(line.selected ? colors.sheetSubtle : "transparent") padding-top=4 padding-bottom=4
+              text line.text font-family="monospace" font-size=14 white-space="pre-wrap"
+      when data.tooLarge
+        text "Select fewer lines to fit the context limit." padding-left=16 padding-right=16 color=colors.mutedForeground
+      button press=attach disabled=not data.canAttach margin=16 margin-bottom=40 padding=16 border-radius=12 background-color=colors.sheetSubtle aria-label="Attach selected output"
+        text "Attach selected output" text-align="center"

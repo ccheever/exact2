@@ -1,0 +1,123 @@
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// Pinned mobile server controls, choice/switch rows and project override panel.
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape ServerSettingsRow
+  key: string
+  kind: string
+  label: string
+  description: string
+  icon: string
+  value: string
+  selected: bool
+  mixed: bool
+  disabled: bool
+  separated: bool
+  placeholder: string
+shape ServerSettingsSection
+  title: string
+  mixed: bool
+  rows: list<ServerSettingsRow>
+shape ServerSettingsData
+  ready: bool
+  page: string
+  title: string
+  error: string
+  pending: bool
+  emptyMessage: string
+  project: bool
+  projectLabel: string
+  supportsOverrides: bool
+  hasOverrides: bool
+  clearDisabled: bool
+  sections: list<ServerSettingsSection>
+component SettingsServer
+  props
+    data: ServerSettingsData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    change: action
+    environment: action
+  view
+    scroll id="settings-server-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId=`settings-server-${data.page}`
+        when length(data.error) > 0
+          text data.error role="alert" color=danger font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+        when length(data.emptyMessage) > 0
+          text data.emptyMessage padding-left=7 padding-right=7 color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+        else
+          when data.project
+            column gap=7
+              SettingsSectionLabel(title="Project", colors=colors, roles=roles)
+              column border-radius=24 overflow="hidden" background-color=colors.grouped
+                row min-height=56 box-sizing="border-box" align-items="center" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+                  text data.projectLabel flex=1 min-width=0 line-clamp=2 font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
+                  when not data.pending and data.supportsOverrides and data.hasOverrides
+                    button press=change("clear", "") disabled=data.clearDisabled padding=7 aria-label="Use environment defaults"
+                      text "Use defaults" font-weight=500 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.link
+                when not data.supportsOverrides
+                  text "Update the selected environments to edit project overrides." padding-left=14 padding-right=14 padding-bottom=10.5 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+          each section in data.sections key=section.title
+            column gap=7
+              row align-items="center"
+                SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
+                view flex=1
+                when section.mixed
+                  text "Mixed" padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted aria-label=(data.project ? "Selected project checkouts use different values" : "Selected environments use different values")
+              column border-radius=24 overflow="hidden" background-color=colors.grouped
+                each item in section.rows key=`${item.key}:${item.value}`
+                  SettingsServerRow(item=item, colors=colors, roles=roles, change=change, environment=environment)
+component SettingsServerRow
+  props
+    item: ServerSettingsRow
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    change: action
+    environment: action
+  state draft = item.value
+  state edited = false
+  action edit(value: string)
+    draft = value
+    edited = true
+  action commit()
+    if edited and not item.disabled
+      change(item.key, draft)
+      edited = false
+  action toggle(value: bool)
+    change(item.key, value ? "true" : "false")
+  view
+    column border-top-width=(item.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(item.disabled and item.kind == "switch" ? 0.45 : 1)
+      when item.kind == "choice"
+        button press=change(item.key, item.value) disabled=item.disabled padding=0 role="radio" aria-checked=item.selected testId=`settings-server-${item.key}-${item.value}`
+          row gap=14 padding=14 align-items="center"
+            column flex=1 min-width=0 gap=3.5
+              text item.label text-align="left" color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+              text item.description text-align="left" color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px`
+            when item.selected
+              t3-symbol symbol-name="checkmark" point-size=18 symbol-weight="semibold" symbol-tint=colors.icon width=18 height=18
+      else when item.kind == "switch"
+        row gap=14 padding=14 align-items="center"
+          t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22 flex-shrink=0
+          column flex=1 min-width=0
+            text item.label color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+            text item.description color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          when item.mixed
+            button press=change(item.key, "true") disabled=item.disabled border-radius=99 background-color=colors.subtle padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 aria-label=`Set ${item.label} on for selected environments`
+              text "Mixed · Set on" color=colors.foreground font-size=roles.footnote.size line-height=`${roles.footnote.line}px` font-weight=500
+          else
+            input type="checkbox" switch checked=item.selected disabled=item.disabled change=toggle aria-label=item.label accent-color=colors.switchOn background-color=colors.switchOff margin=0
+      else when item.kind == "navigate"
+        button press=environment(item.value) disabled=item.disabled padding=0
+          row gap=14 padding=14 align-items="center"
+            t3-symbol symbol-name=item.icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+            text item.label color=colors.foreground font-size=roles.headline.size line-height=`${roles.headline.line}px`
+            text item.description flex=1 min-width=0 text-align="right" line-clamp=1 text-overflow="ellipsis" color=colors.muted font-size=roles.body.size line-height=`${roles.body.line}px`
+            t3-symbol symbol-name="chevron.right" point-size=16 symbol-weight="semibold" symbol-tint=colors.chevron width=16 height=16
+      else
+        column gap=7 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
+          text item.description color=colors.muted font-size=roles.footnote.size line-height=`${roles.footnote.line}px`
+          when item.kind == "textarea"
+            textarea value=draft input=edit blur=commit disabled=item.disabled placeholder=item.placeholder aria-label=item.label min-height=84 border-radius=10.5 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-family="DM Sans" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground background-color="transparent" border-width=0 autocapitalize="sentences"
+          else
+            input value=draft input=edit blur=commit disabled=item.disabled placeholder=item.placeholder aria-label=item.label min-height=35 border-radius=10.5 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-family="DM Sans" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground background-color="transparent" border-width=0 autocapitalize="none" autocomplete="off"

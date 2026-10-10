@@ -1,0 +1,186 @@
+use ComposerRootView from "./composer-root.contract"
+use ComposerCommandPopover from "./composer-command-popover.contract"
+use ThreadSubmission from "./thread-send-root.contract"
+// ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1109.008-mobile-voice.decision.md#presentation
+use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
+use ProviderIcon from "./provider-icon.contract"
+use MobileQueueTrigger from "./queue-trigger.contract"
+use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
+component ThreadComposer
+  props
+    submission: ThreadSubmission
+    liquidGlass: bool
+    displayScale: number
+    rich: ComposerRootView
+    richAction: action
+    richEvent: action
+    richMessage: action
+    editorId: string
+    showQueue: bool
+    showBackdrop: bool
+    data: ThreadComposerState
+    expanded: bool
+    enterBehavior: string
+    dark: bool
+    bottomInset: number
+    contentMaxWidth: number
+    editDraft: action
+    focusChanged: action
+    action: action
+    pickAttachments: action
+    openModelSettings: action
+    colors: ThreadColors
+    voice: VoiceSnapshot
+    voiceColors: VoiceColors
+    voiceOwner: string
+    voiceAction: action
+    voiceDisabled: bool
+  derive richHere = rich.enabled and rich.editorId == editorId
+  action pickCommand(admission: string, id: string)
+    richAction("pick", admission, rich.menuRevision, id)
+  derive canSend = submission.ordinary ? submission.canSend : data.canSend
+  derive showStop = data.showStop and (not submission.ordinary or not submission.hasContent)
+  derive sendLabel = submission.ordinary ? submission.sendLabel : data.sendLabel
+  derive sendSymbol = submission.ordinary ? submission.sendSymbol : data.sendSymbol
+  derive blockedReason = submission.ordinary ? submission.reason : data.blockedReason
+  derive dictating = voice.busy and voice.owner == voiceOwner
+  derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
+  action typedDraft(value: string)
+    if not dictating and not (data.editing and not data.canCancel)
+      editDraft(value, data.contentOwner)
+  // Software Return remains a newline; every hardware Send also observes the voice lock.
+  action typedKey(key: string)
+    if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
+      preventDefault()
+      if canSend and not dictating
+        action("send", data.contentOwner, "")
+    else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
+      preventDefault()
+      if canSend and not dictating
+        action("send-alternate", data.contentOwner, "")
+  view
+    column position="relative" padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
+      when showBackdrop
+        view position="absolute" inset=0 background-image=colors.composerBackdrop pointer-events="none" aria-hidden=true
+      column position="relative" width="100%" max-width=contentMaxWidth align-self="center"
+        when showQueue and data.queueCount > 0
+          MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
+          view height=8
+        when data.editing
+          row align-items="center" gap=7 padding-left=14 padding-right=14 padding-bottom=7
+            t3-symbol symbol-name="pencil" point-size=12 symbol-tint=colors.muted width=12 height=12
+            text "Editing queued message" flex=1 min-width=0 line-clamp=1 font-size=12 color=colors.muted
+            button press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
+              text "Cancel" font-size=12 font-weight=500 color=colors.primary
+        when data.editNotice != ""
+          text data.editNotice padding-left=14 padding-right=14 padding-bottom=7 font-size=13 color=colors.muted
+        when data.editPendingId != ""
+          button press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
+            text "Retry queued message save" font-size=13 color=colors.primary
+        when data.modelUnavailable
+          button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
+            text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
+        column position="relative" border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
+          overflow="hidden" box-sizing="border-box" padding-top=(expanded ? 14 : 2) padding-bottom=(expanded ? 6 : 2)
+          box-shadow=(dark ? "0px 6px 28px 0px rgba(0,0,0,0.35)" : "0px 6px 28px 0px rgba(0,0,0,0.15)")
+          t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+            material-appearance=(dark ? "dark" : "light") material-radius=(expanded ? 26 : 27)
+            material-surface=colors.composerSurface material-border=colors.composerBorder
+          row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
+            when not expanded and not voicePresented
+              button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
+                column width=44 height=44 align-items="center" justify-content="center"
+                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+            // Keep the native editor at one plan site while the compact toolbar covers it.
+            when richHere
+              t3-composer-editor id=editorId configuration=rich.configuration change=richEvent message=richMessage
+                opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto") aria-hidden=(voicePresented and not expanded)
+                height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? "none" : "1") min-width=0
+                padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4)
+                padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6) box-sizing="border-box" testId="thread-composer"
+            else
+              textarea id=editorId value=data.draft input=typedDraft key=typedKey focus=focusChanged(true, data.contentOwner, editorId) blur=focusChanged(false, data.contentOwner, editorId) placeholder=data.placeholder
+                readonly=(dictating or (data.editing and not data.canCancel)) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+                data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+                opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
+                aria-hidden=(voicePresented and not expanded)
+                height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
+                padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
+                box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
+                border-width=0 background-color="transparent" testId="thread-composer"
+            when expanded
+              view height=3.5
+              when not voicePresented
+                row align-items="center" gap=0 retainFocus=true
+                  button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
+                    column width=44 height=44 align-items="center" justify-content="center"
+                      t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+                  button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
+                    row min-width=0 align-items="center" gap=7 justify-content="flex-end"
+                      ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
+                      text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                      t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+                  VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+                  ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
+            else when not voicePresented
+              VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+              ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
+            when voicePresented
+              row position=(expanded ? "relative" : "absolute") left=0 right=0 bottom=0 height=44 align-items="center"
+                when dictating
+                  column flex=1 min-width=0
+                    VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
+                  when showStop
+                    ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
+                else
+                  column flex=1 min-width=0
+                    VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
+                  VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+                  ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
+        when richHere
+          ComposerCommandPopover(data=rich.menu, colors=rich.colors, dark=dark, liquidGlass=liquidGlass, hairline=1 / max(1, displayScale), pick=pickCommand)
+          when rich.files.message != ""
+            button press=richAction("retry", rich.admission, "files", "") padding=7
+              text rich.files.message font-size=13 color=colors.muted
+          when rich.message != ""
+            text rich.message padding=7 font-size=13 color=colors.muted
+          when rich.pendingCommandKey != ""
+            button press=richAction("retry", rich.admission, rich.pendingCommandKey, "") padding=7
+              text "Retry editor action" font-size=13 color=colors.primary
+        when data.showReadOnlyNotice
+          text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
+
+component ThreadSendButton
+  props
+    sendLabel: string
+    sendSymbol: string
+    canSend: bool
+    showStop: bool
+    blockedReason: string
+    data: ThreadComposerState
+    action: action
+    colors: ThreadColors
+  derive disabled = showStop ? not data.canStop : not canSend
+  view
+    button press=action((showStop ? "stop" : "send"), data.contentOwner, "")
+      disabled=disabled width=44 height=44 padding=0 flex-shrink=0
+      aria-label=(showStop ? "Stop agent" : length(blockedReason) > 0 ? blockedReason : sendLabel)
+      testId="thread-send"
+      column width=44 height=44 align-items="center" justify-content="center"
+        column width=30 height=30 border-radius=15 align-items="center" justify-content="center"
+          background-color=(showStop ? colors.danger : colors.primary) opacity=(disabled ? 0.15 : 1)
+          t3-symbol symbol-name=(showStop ? "stop.fill" : sendSymbol) point-size=14 symbol-weight="semibold"
+            symbol-tint=(showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
+
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-focus-restoration
+shape ComposerFocusReturn
+  editorId: string
+  owner: string
+  sheetId: string
+  phase: string
+  attempts: number
+// GAP 010: source dismissal fallback 300ms, then at most 20 focus attempts 50ms apart.
+fn composerReturnValid(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool): bool = capture.editorId != "" and capture.owner != "" and capture.owner == owner and includes(routeIds, capture.editorId) and (editorId == capture.editorId or (settings and includes(routeIds, capture.sheetId)))
+fn composerReturnPhase(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool, focused: bool): string = not composerReturnValid(capture, editorId, owner, routeIds, settings) ? "" : editorId != capture.editorId ? capture.phase : focused or capture.phase == "expanded" ? "" : capture.phase == "pending" ? "restoring" : capture.phase

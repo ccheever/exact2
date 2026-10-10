@@ -1,0 +1,26 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#source-helpers
+// Scalar projection from adaptive-workspace.ts. Root owns navigation and pane content.
+shape AdaptiveWorkspace
+  variant: string
+  usesSplitView: bool
+  shellPadding: number
+  sidebarMounted: bool
+  sidebarVisible: bool
+  sidebarSuppressedByAuxiliary: bool
+  sidebarContentWidth: number
+  sidebarTargetWidth: number
+  emptyWorkspaceDetail: bool
+  contentPaneWidth: number
+  contentSettledWidth: number
+  auxiliaryPaneRole: string
+  auxiliaryPaneSupported: bool
+  auxiliaryPaneVisible: bool
+  auxiliaryPaneWidth: number
+  fileInspectorSupported: bool
+  fileInspectorWidth: number
+  inspectorMounted: bool
+  inspectorVisible: bool
+  inspectorTargetWidth: number
+  chatContentMaxWidth: number
+  chatHorizontalPadding: number
+  userBubbleMaxWidth: number

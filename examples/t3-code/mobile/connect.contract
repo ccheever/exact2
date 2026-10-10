@@ -1,0 +1,141 @@
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+// Presentation adapted from T3 Code 365aa87982, ConnectionsNewRouteScreen,
+// ConnectionFormField and ConnectionSheetButton. Root owns requests and navigation.
+shape ConnectionColors
+  groupedCard: string
+  input: string
+  inputBorder: string
+  foreground: string
+  muted: string
+  placeholder: string
+  primary: string
+  primaryForeground: string
+  border: string
+  iconSubtle: string
+  danger: string
+  dangerBorder: string
+  dangerForeground: string
+  subtle: string
+  iconMuted: string
+  statusConnected: string
+  statusRetrying: string
+  switchActiveTrack: string
+
+component Connect
+  props
+    host: string
+    code: string
+    error: string
+    submitting: bool
+    changeHost: action
+    changeCode: action
+    submit: action
+    colors: ConnectionColors
+  derive connectDisabled = submitting or length(trim(host)) == 0
+  view
+    column padding=14
+      gap=14
+      border-radius=24
+      background-color=colors.groupedCard
+      box-sizing="border-box"
+      font-family="DM Sans"
+      testId="pairing-form"
+      ConnectionField(
+        label="Host",
+        value=host,
+        placeholder="192.168.1.100:8080",
+        kind="url",
+        change=changeHost,
+        colors=colors,
+        fieldId="pairing-host"
+      )
+      ConnectionField(
+        label="Pairing code",
+        value=code,
+        placeholder="abc-123-xyz",
+        kind="text",
+        change=changeCode,
+        colors=colors,
+        fieldId="pairing-code"
+      )
+      when length(error) > 0
+        column border-radius=14
+          border-width=1
+          border-style="solid"
+          border-color=colors.dangerBorder
+          background-color=colors.danger
+          padding-left=12.25
+          padding-right=12.25
+          padding-top=10.5
+          padding-bottom=10.5
+          text error font-size=14
+            line-height="19px"
+            font-weight=500
+            color=colors.dangerForeground
+            testId="pairing-error"
+      button press=submit
+        disabled=connectDisabled
+        aria-label=(submitting ? "Pairing..." : "Add environment")
+        min-height=48
+        border-radius=16
+        padding-left=14
+        padding-right=14
+        padding-top=10.5
+        padding-bottom=10.5
+        background-color=colors.primary
+        opacity=(connectDisabled ? 0.5 : 1)
+        box-sizing="border-box"
+        box-shadow="0px 3px 6px rgba(0, 0, 0, 0.14)"
+        testId="pairing-submit"
+        row align-items="center" justify-content="center" gap=7
+          image "symbol:add" width=14 height=14 -exact-tint-color=colors.primaryForeground
+          text (submitting ? "Pairing..." : "Add environment") text-transform="uppercase"
+            font-size=13
+            line-height="17px"
+            font-weight=700
+            letter-spacing=0.8
+            color=colors.primaryForeground
+
+component ConnectionField
+  props
+    label: string
+    value: string
+    placeholder: string
+    kind: string
+    change: action
+    colors: ConnectionColors
+    fieldId: string
+  view
+    column gap=5.25
+      text label text-transform="uppercase"
+        font-family="DM Sans"
+        font-size=12
+        line-height="16px"
+        font-weight=700
+        letter-spacing=0.8
+        color=colors.muted
+        aria-hidden=true
+      input type=kind
+        value=value
+        input=change
+        placeholder=placeholder
+        aria-label=label
+        autocorrect="off"
+        autocapitalize=(label == "Label" ? "words" : "none")
+        spellcheck=false
+        testId=fieldId
+        min-height=47.25
+        padding-left=14
+        padding-right=14
+        padding-top=12.25
+        padding-bottom=12.25
+        border-radius=14
+        border-width=1
+        border-style="solid"
+        border-color=colors.inputBorder
+        background-color=colors.input
+        color=colors.foreground
+        font-family="DM Sans"
+        font-size=16
+        line-height="23px"
+        box-sizing="border-box"

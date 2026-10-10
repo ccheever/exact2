@@ -1,0 +1,75 @@
+// @ref llp/1109.004-home-projection.decision.md#decision
+// Pinned 365aa87982 thread-list-v2-items. Root owns every command and prompt.
+shape HomeMenuItem
+  id: string
+  parentId: string
+  label: string
+  operation: string
+  value: string
+  symbol: string
+  subtitle: string
+  destructive: bool
+  checked: bool
+  disabled: bool
+
+component HomeMenu
+  props
+    menuId: string
+    items: list<HomeMenuItem>
+    environmentId: string
+    threadId: string
+    action: action
+    foreground: string
+    muted: string
+    danger: string
+    background: string
+  view
+    column id=menuId popover="auto" role="menu" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=background
+      each entry in items key=entry.id
+        when entry.parentId == ""
+          when entry.operation == ""
+            button popovertarget=`${menuId}-${entry.id}` disabled=entry.disabled role="menuitem" aria-label=entry.label
+              testId=`${menuId}-${entry.id}-open` padding=10.5 gap=10.5 display="flex" flex-direction="row" align-items="center" text-align="left"
+              HomeMenuLabel(entry=entry, foreground=foreground, muted=muted, danger=danger)
+              text "›" aria-hidden=true color=muted
+          else
+            HomeMenuChoice(menuId=menuId, entry=entry, environmentId=environmentId, threadId=threadId, action=action, foreground=foreground, muted=muted, danger=danger)
+      each parent in items key=parent.id
+        when parent.parentId == "" and parent.operation == ""
+          column id=`${menuId}-${parent.id}` popover="auto" role="menu" position="absolute" top=0 left=0 position-area="right span-bottom" min-width=240 padding=7 border-radius=12 background-color=background
+            each entry in items key=entry.id
+              when entry.parentId == parent.id
+                HomeMenuChoice(menuId=menuId, entry=entry, environmentId=environmentId, threadId=threadId, action=action, foreground=foreground, muted=muted, danger=danger)
+
+component HomeMenuChoice
+  props
+    menuId: string
+    entry: HomeMenuItem
+    environmentId: string
+    threadId: string
+    action: action
+    foreground: string
+    muted: string
+    danger: string
+  view
+    button id=`${menuId}-${entry.id}` press=action(environmentId, threadId, entry.operation, entry.value)
+      popovertarget=menuId popovertargetaction="hide"
+      disabled=entry.disabled destructive=entry.destructive aria-checked=entry.checked
+      role=(entry.parentId == "auto-settle" ? "menuitemradio" : "menuitem") aria-label=entry.label
+      testId=`${menuId}-${entry.id}` padding=10.5 gap=10.5 display="flex" flex-direction="row" align-items="center" text-align="left"
+      HomeMenuLabel(entry=entry, foreground=foreground, muted=muted, danger=danger)
+
+component HomeMenuLabel
+  props
+    entry: HomeMenuItem
+    foreground: string
+    muted: string
+    danger: string
+  view
+    when entry.symbol != ""
+      image `symbol:sf/${entry.symbol}` width=19 height=19 color=(entry.destructive ? danger : foreground) aria-hidden=true
+    column flex=1 align-items="flex-start"
+      text entry.label font-size=16 line-height="22px" color=(entry.destructive ? danger : foreground)
+      when entry.subtitle != ""
+        // Native UIMenu currently extracts titles only; do not merge the subtitle into its title.
+        text entry.subtitle aria-hidden=true font-size=13 line-height="17px" color=muted

@@ -1,0 +1,100 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+use FileTreeSnapshot, MobileFileTree from "./file-tree.contract"
+use ReviewFile, ReviewColors from "./review-shapes.contract"
+use GitColors, MobileGitSnapshot, MobileGitOverview from "./git-overview.contract"
+shape InspectorState
+  serialized: string
+  focusOwner: string
+  mode: string
+  roleJSON: string
+  registrationJSON: string
+  contentOwner: string
+  contentRouteId: string
+  contentMode: string
+  contentEnvironmentId: string
+  contentThreadId: string
+  contentGeneration: number
+  kind: string
+  cwd: string
+  selectedPath: string
+  active: bool
+  mounted: bool
+  mountedFiles: bool
+  mountedGit: bool
+  mountedRoute: bool
+  exitToken: string
+  exitAt: number
+  prewarmToken: string
+  prewarmAt: number
+shape InspectorContext
+  focusOwner: string
+  serialized: string
+  key: string
+  hasWorkspace: bool
+shape InspectorChange
+  before: string
+  contextKey: string
+  serialized: string
+  content: string
+  revealInspector: bool
+shape WorkspaceEvent
+  kind: string
+  owner: string
+  token: string
+  phase: string
+  value: string
+  width: number
+shape ReviewNavigatorAppearance
+  addition: string
+  deletion: string
+  labelSize: number
+  labelLine: number
+  countSize: number
+  countLine: number
+shape InspectorPresentation
+  navigator: ReviewNavigatorAppearance
+  title: string
+  files: FileTreeSnapshot
+  reviewFiles: list<ReviewFile>
+  reviewSelected: string
+  git: MobileGitSnapshot
+  showFiles: bool
+  showChanges: bool
+  showGit: bool
+  configuration: string
+component MobileInspectorContent
+  props
+    gitColors: GitColors
+    state: InspectorState
+    data: InspectorPresentation
+    visible: bool
+    gitBottomInset: number
+    colors: ReviewColors
+    toggleDirectory: action
+    openFile: action
+    refreshFiles: action
+    reviewFile: action
+    gitAction: action
+    refreshGit: action
+  derive firstReviewFile = match first(data.reviewFiles) { case some(file) => file.id, case none => "" }
+  derive lastReviewFile = match at(data.reviewFiles, -1) { case some(file) => file.id, case none => "" }
+  view
+    column flex=1 min-height=0 position="relative"
+      when state.mountedFiles or (state.mountedRoute and state.kind != "changed-files")
+        column position="absolute" inset=0 visibility=(data.showFiles ? "visible" : "hidden") pointer-events=(data.showFiles and visible ? "auto" : "none") aria-hidden=(not data.showFiles or not visible)
+          MobileFileTree(listId="inspector-files", data=data.files, colors=colors, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
+      when state.mountedGit
+        column position="absolute" inset=0 visibility=(data.showGit ? "visible" : "hidden") pointer-events=(data.showGit and visible ? "auto" : "none") aria-hidden=(not data.showGit or not visible)
+          MobileGitOverview(data=data.git, inspector=true, bottomInset=gitBottomInset, action=gitAction, refresh=refreshGit, colors=gitColors)
+      when state.mountedRoute and state.kind == "changed-files"
+        list id="inspector-changes" flex=1 min-height=0 virtualized=true estimated-item-height=54 font-family="DM Sans"
+          padding-left=8 padding-right=8 aria-hidden=(not visible) pointer-events=(visible ? "auto" : "none")
+          each file in data.reviewFiles key=file.id
+            column padding-top=(file.id == firstReviewFile ? 8 : 0) padding-bottom=(file.id == lastReviewFile ? 8 : 0)
+              button press=reviewFile(file.path == data.reviewSelected ? "" : file.path) min-height=42 box-sizing="border-box" margin-top=3.5 border-radius=10.5 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 justify-content="center"
+                aria-label=file.path aria-selected=(file.path == data.reviewSelected) background-color=(file.path == data.reviewSelected ? colors.subtleStrong : "transparent")
+                text file.path line-clamp=2 font-size=data.navigator.labelSize line-height=`${data.navigator.labelLine}px`
+                  font-weight=(file.path == data.reviewSelected ? 700 : 500) color=(file.path == data.reviewSelected ? colors.foreground : colors.secondary)
+                row margin-top=3.5 gap=7
+                  text `+${file.additions}` color=data.navigator.addition font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700
+                  text `-${file.deletions}` color=data.navigator.deletion font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700

@@ -1,0 +1,88 @@
+// @ref llp/1109.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// Child owns presentation/actions. Contract resources/mutations stay in the app root.
+use SettingsColors, SettingsTextRoles from "./settings.contract"
+use SettingsScheduledTasks, SettingsScheduledEditor, SettingsScheduledModel, SettingsScheduledBranch, ScheduledTasksData, ScheduledEditorData from "./settings-scheduled.contract"
+use SettingsUsage, SettingsUsageAccount, MobileUsageData, MobileUsageAccountData from "./settings-usage.contract"
+shape AutomationPrepared
+  revision: number
+shape AutomationData
+  revision: number
+  route: string
+  error: string
+  days: number
+  tab: string
+  selection: string
+  now: number
+  scheduled: ScheduledTasksData
+  editor: ScheduledEditorData
+  usage: MobileUsageData
+  account: MobileUsageAccountData
+shape AutomationResult
+  revision: number
+  message: string
+  route: string
+  closed: bool
+  refresh: bool
+  debounce: bool
+  accountKey: string
+  windowId: string
+  windowKind: string
+component SettingsAutomation
+  props
+    data: AutomationData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    dark: bool
+    command: action
+  action open(environment: string, task: string)
+    command("edit", environment, task, "")
+  action taskMenu(environment: string, task: string)
+    command("task-menu", environment, task, "")
+  action field(key: string, value: string)
+    if key == "baseRef" and data.route == "settingsScheduledBranch"
+      command("branch-select", "", value, "")
+    else
+      command("field", key, value, "")
+  action menu(key: string)
+    command("menu", key, "", "")
+  action navigate(route: string)
+    command("navigate", route, "", "")
+  action save
+    command("save", "", "", "")
+  action copy
+    command("copy", "", "", "")
+  action rotate
+    command("rotate", "", "", "")
+  action search(query: string)
+    command("branch-query", "", query, "")
+  action more
+    command("branch-more", "", "", "")
+  action local(key: string, value: string)
+    command("usage-local", key, value, "")
+  action usage(op: string, environment: string, key: string)
+    command("usage-command", op, environment, key)
+  action account(key: string, window: string, kind: string)
+    command("usage-account", key, window, kind)
+  action reveal(key: string)
+    command("usage-reveal", key, "", "")
+  action redeem(environment: string, key: string)
+    command("usage-redeem", environment, key, "")
+  view
+    column flex=1 min-height=0
+      when length(data.error) > 0
+        text data.error color=danger role="alert" padding=14 font-family="DM Sans" font-size=roles.body.size
+      when data.route == "settingsScheduledTasks"
+        SettingsScheduledTasks(data=data.scheduled, colors=colors, roles=roles, danger=danger, bottom=bottom, open=open, menu=taskMenu)
+      else when data.route == "settingsScheduledNew" or data.route == "settingsScheduledEdit"
+        SettingsScheduledEditor(data=data.editor, colors=colors, roles=roles, danger=danger, bottom=bottom, field=field, menu=menu, navigate=navigate, save=save, copyWebhook=copy, rotateWebhook=rotate)
+      else when data.route == "settingsScheduledModel"
+        SettingsScheduledModel(data=data.editor, colors=colors, roles=roles, bottom=bottom, field=field, menu=menu)
+      else when data.route == "settingsScheduledBranch"
+        SettingsScheduledBranch(data=data.editor, colors=colors, roles=roles, danger=danger, bottom=bottom, field=field, search=search, more=more)
+      else when data.route == "settingsUsage"
+        SettingsUsage(data=data.usage, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, days=data.days, local=local, command=usage, account=account)
+      else when data.route == "settingsUsageAccount"
+        SettingsUsageAccount(data=data.account, colors=colors, roles=roles, danger=danger, bottom=bottom, reveal=reveal, redeem=redeem)

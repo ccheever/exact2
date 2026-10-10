@@ -1,0 +1,36 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// Project a settled answer; root retains each mutation and its alert effect.
+use Change, InformationChange, SettingsWrite, AutomationChange from "./app-shapes.contract"
+use VoiceResult from "./voice-controls.contract"
+use FileTreeResult from "./file-tree.contract"
+
+fn changeNoticeMessage(reply: option<Change>): string = match reply {
+  case some(result) => result.message,
+  case none => ""
+}
+fn voiceNoticeMessage(reply: option<VoiceResult>): string = match reply {
+  case some(result) => result.message,
+  case none => ""
+}
+fn filesNoticeMessage(reply: option<FileTreeResult>): string = match reply {
+  case some(result) => result.message,
+  case none => ""
+}
+fn informationNoticeMessage(reply: option<InformationChange>, route: string): string = match reply {
+  case some(result) => result.requestRoute == route ? result.message : "",
+  case none => ""
+}
+fn settingNoticeMessage(reply: option<SettingsWrite>, route: string): string = match reply {
+  case some(result) => result.requestRoute == route ? result.message : "",
+  case none => ""
+}
+fn automationNoticeMessage(reply: option<AutomationChange>, route: string): string = match reply {
+  case some(result) => result.requestRoute == route ? result.message : "",
+  case none => ""
+}
+
+use ThreadSubmissionResult from "./thread-send-root.contract"
+fn threadSubmissionNoticeMessage(reply: option<ThreadSubmissionResult>, visit: string, owner: string): string = match reply {
+  case some(result) => result.visit == visit and result.owner == owner ? result.message : "",
+  case none => ""
+}

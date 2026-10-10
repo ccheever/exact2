@@ -1,0 +1,83 @@
+// FileTreeBrowser365aa87982. Native header/search and navigation belong to root.
+// @ref llp/1109.006-review-and-files.decision.md#root-seam
+use ReviewColors from "./review-shapes.contract"
+use FileTypeIcon from "./file-icons.contract"
+
+shape FileTreeItem
+  id: string
+  path: string
+  name: string
+  directory: bool
+  expanded: bool
+  selected: bool
+  ignored: bool
+  depth: number
+  loaded: bool
+  count: string
+  token: string
+
+shape FileTreeSnapshot
+  owner: string
+  revision: number
+  title: string
+  query: string
+  selectedPath: string
+  rows: list<FileTreeItem>
+  loading: bool
+  error: string
+  truncated: bool
+  emptyTitle: string
+  emptyDetail: string
+
+shape FileTreeResult
+  message: string
+  data: FileTreeSnapshot
+
+component MobileFileTree
+  props
+    listId: string
+    data: FileTreeSnapshot
+    colors: ReviewColors
+    toggle: action
+    select: action
+    refresh: action
+  action pick(path: string, directory: bool)
+    if directory
+      toggle(path)
+    else
+      select(path)
+  view
+    column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+      when data.error != "" and length(data.rows) > 0
+        text data.error margin-left=14 margin-right=14 margin-top=7 margin-bottom=7 font-size=10.5 color=colors.muted
+      when data.truncated
+        text "More search results available. Refine your search to see them." margin-left=14 margin-right=14 margin-top=7 margin-bottom=7 font-size=10.5 color=colors.muted
+      when length(data.rows) == 0
+        scroll flex=1 refresh=refresh
+          column padding-left=14 padding-right=14 padding-top=17.5 padding-bottom=17.5
+            when data.loading and data.error == ""
+              t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+            else
+              text data.emptyTitle font-size=12.25 font-weight=700 color=colors.foreground
+              text data.emptyDetail margin-top=3.5 font-size=10.5 line-height="15.75px" color=colors.muted
+              when data.error != ""
+                button press=refresh disabled=data.loading min-height=38.5 margin-top=10.5 align-self="start" border-radius=100 padding-left=14 padding-right=14 background-color=colors.subtle
+                  text "Try again" font-size=12.25 font-weight=500 color=colors.foreground
+      else
+        list id=listId flex=1 min-height=0 virtualized=true estimated-item-height=42 refresh=refresh
+          each item in data.rows key=item.id
+            button press=pick(item.path, item.directory)
+              aria-label=item.path margin-left=7 margin-right=7 min-height=42
+              border-radius=12 padding-left=(8 + item.depth * 18) padding-right=7
+              background-color=(item.selected ? colors.subtleStrong : "transparent")
+              row align-items="center" gap=7 min-height=42
+                when item.directory
+                  t3-symbol symbol-name=(item.expanded ? "chevron.down" : "chevron.right") point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
+                  t3-symbol symbol-name="folder" point-size=17 symbol-weight="regular" symbol-tint=colors.iconSubtle width=17 height=17
+                else
+                  view width=10.5
+                  FileTypeIcon(token=item.token, size=17)
+                text item.name flex=1 min-width=0 line-clamp=1 font-size=12.25 line-height="18.375px"
+                  font-weight=(item.selected ? 700 : 500) color=(item.selected ? colors.foreground : item.ignored ? colors.tertiary : colors.secondary)
+                when item.directory and item.loaded
+                  text item.count font-size=10 font-weight=500 color=colors.tertiary

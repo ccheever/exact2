@@ -1,0 +1,73 @@
+// T3 Code 365aa87982 ProjectCloneBanner and its NewTaskDraftScreen wrapper.
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+// Pure presentation. Root owns the shared stream projection and native commands.
+shape NewTaskCloneSnapshot
+  owner: string
+  requestRoute: string
+  revision: number
+  environmentId: string
+  projectId: string
+  visible: bool
+  blocked: bool
+  pending: bool
+  phase: string
+  title: string
+  description: string
+  error: string
+  cancel: bool
+  retry: bool
+  remove: bool
+  busy: bool
+shape NewTaskCloneColors
+  foreground: string
+  muted: string
+  border: string
+  card: string
+  background: string
+  iconMuted: string
+  danger: string
+  dangerBorder: string
+  dangerForeground: string
+  warning: string
+  warningBorder: string
+  warningForeground: string
+
+component MobileNewTaskClone
+  props
+    data: NewTaskCloneSnapshot
+    colors: NewTaskCloneColors
+    action: action
+  action perform(op: string)
+    if not data.busy
+      action(op, data.projectId, data.environmentId)
+  view
+    when data.visible
+      column padding-left=3.5 padding-right=3.5 padding-bottom=7 font-family="DM Sans" testId="new-task-clone-wrapper"
+        when data.phase == "running"
+          row align-items="center" gap=10.5 min-width=0 border-radius=14 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 box-sizing="border-box" testId="new-task-clone-banner"
+            t3-archive-spinner width=20 height=20 flex-shrink=0 spinner-tint=colors.iconMuted
+            column min-width=0 flex=1
+              text data.title font-size=14 line-height="19px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
+              text data.description font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+            when data.cancel
+              NewTaskCloneAction(label="Cancel", press=perform("clone-cancel"), target="new-task-clone-cancel", colors=colors)
+        else
+          column min-width=0 border-radius=14 border-width=1 border-style="solid" border-color=(data.phase == "cancelled" ? colors.warningBorder : colors.dangerBorder) background-color=(data.phase == "cancelled" ? colors.warning : colors.danger) padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 box-sizing="border-box" testId="new-task-clone-banner"
+            text data.title font-size=14 line-height="19px" font-weight=500 color=(data.phase == "cancelled" ? colors.warningForeground : colors.dangerForeground) line-clamp=1 text-overflow="ellipsis"
+            when data.error != ""
+              text data.error margin-top=1.75 font-size=13 line-height="17px" color=colors.dangerForeground line-clamp=3 text-overflow="ellipsis"
+            row margin-top=7 justify-content="flex-end" gap=7
+              when data.remove
+                NewTaskCloneAction(label="Remove project", press=perform("clone-remove"), target="new-task-clone-remove", colors=colors)
+              when data.retry
+                NewTaskCloneAction(label="Retry", press=perform("clone-retry"), target="new-task-clone-retry", colors=colors)
+
+component NewTaskCloneAction
+  props
+    label: string
+    press: action
+    target: string
+    colors: NewTaskCloneColors
+  view
+    button press=press aria-label=label testId=target border-radius=999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.background padding-left=10.5 padding-right=10.5 padding-top=5.25 padding-bottom=5.25 flex-shrink=0 box-sizing="border-box"
+      text label font-size=13 line-height="17px" font-weight=500 color=colors.foreground

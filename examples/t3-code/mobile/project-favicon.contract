@@ -1,0 +1,42 @@
+// @ref llp/1109.009-mobile-settings.decision.md#offline-cache-storage
+// Pinned365aa87982 ProjectFavicon: hidden loading image and folder fallback.
+shape ProjectFaviconTarget
+  key: string
+  environmentId: string
+  cwd: string
+  faviconPath: string
+shape ProjectFaviconImage
+  mountId: string
+  key: string
+  requestKey: string
+  url: string
+  loaded: bool
+  failed: bool
+shape ProjectFaviconImages
+  revision: number
+  items: list<ProjectFaviconImage>
+shape ProjectFaviconAdmission
+  revision: number
+shape ProjectFaviconPrepared
+  revision: number
+  nextDeadline: number
+component ProjectFavicon
+  props
+    mountId: string
+    target: ProjectFaviconTarget
+    title: string
+    size: number
+    tint: string
+  inject
+    projectFaviconVisit: string
+    projectFaviconImages: list<ProjectFaviconImage>
+    projectFaviconEvent: action
+  derive activeMount = startsWith(mountId, "sidebar-list:") ? mountId : `${projectFaviconVisit}:${mountId}`
+  derive requests = filter(projectFaviconImages, image => image.mountId == activeMount and image.key == target.key and length(image.url) > 0)
+  derive shown = length(filter(requests, image => image.loaded and not image.failed)) > 0
+  view
+    column width=size height=size position="relative" align-items="center" justify-content="center" flex-shrink=0
+      when not shown
+        t3-symbol symbol-name="folder.fill" point-size=size symbol-tint=tint width=size height=size
+      each item in requests key=item.requestKey
+        image item.url width=size height=size object-fit="contain" border-radius=(size * 0.16) position="absolute" top=0 left=0 opacity=(item.loaded and not item.failed ? 1 : 0) aria-label=`${title} favicon` load=projectFaviconEvent(item.mountId, item.requestKey, item.url, "load", "") error=projectFaviconEvent(item.mountId, item.requestKey, item.url, "error")

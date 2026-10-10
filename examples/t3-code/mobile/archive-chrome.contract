@@ -1,0 +1,21 @@
+// @ref llp/1109.004-home-projection.decision.md#decision
+// Native header search on wide/olderOS; compact iOS26 toolbar occupies only its band.
+shape ArchiveChromeSnapshot
+  routeKey: string
+  configuration: string
+  toolbarHeight: number
+shape ArchiveChromeEvent
+  routeKey: string
+  kind: string
+  value: string
+component ArchiveChrome
+  props
+    data: ArchiveChromeSnapshot
+    routeKey: string
+    focused: bool
+    event: action
+  view
+    when focused and data.routeKey == routeKey and routeKey != ""
+      t3-archive-chrome configuration=data.configuration change=event
+        position="absolute" height=data.toolbarHeight right=0 bottom=0 left=0
+        testId="archive-chrome"

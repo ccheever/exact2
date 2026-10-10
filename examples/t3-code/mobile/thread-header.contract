@@ -1,0 +1,35 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md
+shape ThreadHeaderOptions
+  routeKey: string
+  routeIdentity: string
+  focused: bool
+  split: bool
+  sidebarVisible: bool
+  canGoBack: bool
+  returnToChat: bool
+  foreground: string
+shape ThreadHeaderSnapshot
+  owner: string
+  routeKey: string
+  version: string
+  configuration: string
+  ready: bool
+  needsPrepare: bool
+  error: string
+  pendingLaunch: string
+  pendingTerminalId: string
+shape ThreadHeaderRead
+  owner: string
+  revision: number
+  message: string
+shape ThreadHeaderResult
+  revision: number
+  message: string
+  requestRoute: string
+  environmentId: string
+  threadId: string
+  navigation: string
+  location: string
+  sourceAction: string
+  key: string
+  pendingLaunch: string

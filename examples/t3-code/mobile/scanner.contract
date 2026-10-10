@@ -1,0 +1,65 @@
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// T3 Code 365aa87982 ConnectionsNewRouteScreen. The root requests permission
+// before opening the scanner and validates raw payloads through the pairing parser.
+use ConnectionColors from "./connect.contract"
+
+component Scanner
+  props
+    permission: string
+    active: bool
+    request: action
+    received: action
+    permissionChanged: action
+    colors: ConnectionColors
+    secondary: string
+    secondaryForeground: string
+  view
+    column font-family="DM Sans" testId="pairing-scanner"
+      when permission == "granted"
+        column width="100%" aspect-ratio=1 border-radius=24 overflow="hidden"
+          t3-qr-scanner active=active
+            message=received
+            change=permissionChanged
+            width="100%"
+            height="100%"
+            testId="qr-camera"
+      else
+        column align-items="center"
+          gap=10.5
+          border-radius=24
+          background-color=colors.groupedCard
+          padding-left=17.5
+          padding-right=17.5
+          padding-top=28
+          padding-bottom=28
+          text "Camera permission is required to scan a QR code." text-align="center"
+            font-size=14
+            line-height="21px"
+            color=colors.muted
+          button press=request
+            min-height=42
+            border-radius=14
+            box-sizing="border-box"
+            padding-left=12.25
+            padding-right=12.25
+            padding-top=8.75
+            padding-bottom=8.75
+            border-width=1
+            border-style="solid"
+            border-color=colors.border
+            background-color=secondary
+            aria-label="Allow camera"
+            testId="allow-camera"
+            row align-items="center" justify-content="center" gap=5.25
+              t3-symbol symbol-name="camera"
+                point-size=13
+                symbol-weight="regular"
+                symbol-tint=secondaryForeground
+                width=13
+                height=13
+              text "Allow camera" text-transform="uppercase"
+                font-size=13
+                line-height="17px"
+                font-weight=700
+                letter-spacing=0.8
+                color=secondaryForeground

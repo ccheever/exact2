@@ -1,0 +1,61 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
+use MobileThreadLocalDockData from "./thread-local-dock.contract"
+use ThreadColors from "./thread-shapes.contract"
+shape ThreadSubmissionInput
+  editorAdmission: string
+  visit: string
+  url: string
+  active: bool
+  environmentId: string
+  threadId: string
+  preferencesReady: bool
+  preferencesJSON: string
+  contextImporting: bool
+  now: number
+  viewportHeight: number
+  dark: bool
+shape ThreadSubmissionResult
+  revision: number
+  message: string
+  visit: string
+  owner: string
+shape ThreadSubmissionAction
+  key: string
+  label: string
+shape ThreadSubmissionRecovery
+  visible: bool
+  message: string
+  actions: list<ThreadSubmissionAction>
+shape ThreadSubmission
+  revision: number
+  ordinary: bool
+  expectedOwner: string
+  canSend: bool
+  hasContent: bool
+  sendLabel: string
+  sendSymbol: string
+  reason: string
+  busy: bool
+  needsRead: bool
+  readKey: string
+  recovery: ThreadSubmissionRecovery
+  dock: MobileThreadLocalDockData
+shape ThreadLocalColors
+  card: string
+  tertiary: string
+  subtleStrong: string
+component ThreadSubmissionRecoveryNotice
+  props
+    data: ThreadSubmissionRecovery
+    colors: ThreadColors
+    card: string
+    busy: bool
+    command: action
+  view
+    when data.visible
+      column padding-left=14 padding-right=14 padding-bottom=10.5 flex-shrink=0
+        column padding=14 gap=7 border-radius=20 background-color=card
+          text data.message font-size=13 line-height="17px" color=colors.muted aria-live="polite"
+          each item in data.actions key=item.key
+            button press=command("recovery-action", item.key, "") disabled=busy padding-top=7 padding-bottom=7 retainFocus=true
+              text item.label font-size=14 line-height="19px" color=colors.primary

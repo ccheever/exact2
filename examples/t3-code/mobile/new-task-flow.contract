@@ -1,0 +1,30 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+use NewTaskRecovery from "./new-task-recovery.contract"
+shape NewTaskFlowSnapshot
+  pendingEditor: bool
+  owner: string
+  requestRoute: string
+  status: string
+  title: string
+  subtitle: string
+  reservedProject: string
+  shareAttempt: number
+  message: string
+  draftOwner: string
+  ready: bool
+  fileReady: bool
+  chooser: bool
+  needsPrepare: bool
+  busy: bool
+  nextLocation: string
+  recovery: NewTaskRecovery
+shape NewTaskFlowResult
+  revision: number
+  requestRoute: string
+  nextLocation: string
+  message: string
+  alertTitle: string
+  submitted: bool
+  environmentId: string
+  projectId: string
+  threadId: string

@@ -1,0 +1,67 @@
+// @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
+// Presentation only; the root keeps the router, resources and all actions.
+use MobileWorkspace from "./mobile-workspace.contract"
+use HomeView, HomeChromeView, Theme, MobileLayout from "./app-shapes.contract"
+use Home, HomeColors from "./home.contract"
+use HomeChrome from "./home-chrome.contract"
+use InspectorState, InspectorPresentation, MobileInspectorContent from "./workspace-inspector.contract"
+use GitColors from "./git-overview.contract"
+use ReviewColors from "./review-shapes.contract"
+component MobileSidebarPanel
+  props
+    workspace: MobileWorkspace
+    look: Theme
+    sidebarHome: HomeView
+    sidebarChrome: HomeChromeView
+    homeLook: HomeColors
+    routeId: string
+    homeEpochAtZero: number
+    refreshHomeClock: action
+    reducedMotion: bool
+    chooseThread: action
+    homeMenuAction: action
+    toggleHomeShelf: action
+    showMoreSidebar: action
+    addEnvironment: action
+    sidebarChromeEvent: action
+  view
+    column id="sidebar-panel" role="tabpanel" pointer-events="none" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
+      column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=homeLook.drawer
+        header
+          text "T3 Code" role="heading" aria-level=2
+        when workspace.sidebarMounted
+          Home(routeId=routeId, active=workspace.sidebarVisible, refreshAt=sidebarHome.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=reducedMotion, listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
+          HomeChrome(configuration=sidebarChrome.configuration, event=sidebarChromeEvent, height=0)
+component MobileInspectorPanel
+  props
+    workspace: MobileWorkspace
+    reviewLook: ReviewColors
+    gitLook: GitColors
+    inspectorPresentation: InspectorPresentation
+    inspectorState: InspectorState
+    layout: MobileLayout
+    toggleDirectory: action
+    openFile: action
+    refreshFiles: action
+    reviewFile: action
+    gitAction: action
+    refreshGit: action
+    inspectorEvent: action
+  view
+    column id="inspector-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.inspectorContentWidth height="100%" flex-shrink=0 min-width=0
+      column navigationKey="t3-workspace-inspector" pointer-events="auto" position="absolute" inset=0 background-color=reviewLook.sheet navigationScroll=(inspectorPresentation.showFiles ? "inspector-files" : inspectorPresentation.showChanges ? "inspector-changes" : "inspector-git")
+        header
+          text inspectorPresentation.title role="heading" aria-level=2
+        MobileInspectorContent(gitColors=gitLook, state=inspectorState, data=inspectorPresentation, visible=workspace.inspectorVisible, gitBottomInset=(max(layout.safeBottom, 18) + 18), colors=reviewLook, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit)
+        t3-inspector-chrome inspector-configuration=inspectorPresentation.configuration change=inspectorEvent width=0 height=0 aria-hidden=true
+
+component MobileWorkspaceMarkers
+  view
+    // GAP 007: hidden panel markers carry native stacks; they are not controls.
+    row role="tablist" display="none"
+      view role="tab" aria-controls="sidebar-panel" aria-selected=false
+        text "Sidebar"
+      view role="tab" aria-controls="workspace-panel" aria-selected=true
+        text "Workspace"
+      view role="tab" aria-controls="inspector-panel" aria-selected=false
+        text "Inspector"

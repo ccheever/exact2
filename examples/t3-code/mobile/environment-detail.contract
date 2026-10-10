@@ -1,0 +1,339 @@
+// @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
+// T3 Code 365aa87982 SettingsEnvironmentDetailRouteScreen and EnvironmentRoutesSection.
+use ConnectionColors from "./connect.contract"
+use EnvironmentRow, EnvironmentItem from "./environments.contract"
+use ProviderIcon from "./provider-icon.contract"
+
+shape EnvironmentDetailRoute
+  id: string
+  label: string
+  address: string
+  icon: string
+  active: bool
+  removable: bool
+  learned: bool
+  position: number
+  count: number
+  moveUp: string
+  moveDown: string
+
+shape EnvironmentDetailProvider
+  id: string
+  driver: string
+  label: string
+  version: string
+  updateMessage: string
+  updateFailed: bool
+  compatibility: string
+  message: string
+  manualUpdate: bool
+  canUpdate: bool
+  disabled: bool
+
+shape EnvironmentDetailData
+  loaded: bool
+  found: bool
+  key: string
+  environmentId: string
+  title: string
+  connected: bool
+  configPresent: bool
+  version: string
+  busy: bool
+  disabled: bool
+  refreshDisabled: bool
+  permissionNote: string
+  error: string
+  notice: string
+  updateMessage: string
+  updateFailed: bool
+  releaseMessage: string
+  updateConfirmation: string
+  targetVersion: string
+  showUpdate: bool
+  manualUpdate: string
+  routesHeight: number
+  routes: list<EnvironmentDetailRoute>
+  providers: list<EnvironmentDetailProvider>
+
+component EnvironmentDetail
+  props
+    data: EnvironmentDetailData
+    connection: EnvironmentRow
+    colors: ConnectionColors
+    dark: bool
+    pending: bool
+    toggleConnection: action
+    setEnabled: action
+    reconnect: action
+    remove: action
+    save: action
+    action: action
+  state connectionExpanded = false
+  state editingRoutes = false
+  action expandConnection(id: string)
+    connectionExpanded = not connectionExpanded
+  action reorderRoute(id: string, before: option<string>)
+    match before
+      case some(next)
+        action("route-move", data.key, `${id}>${next}`)
+      case none
+        action("route-move", data.key, `${id}>`)
+  action editRoutes
+    editingRoutes = not editingRoutes
+  view
+    column gap=21
+      padding-left=17.5
+      padding-right=17.5
+      padding-top=14
+      font-family="DM Sans"
+      testId="environment-detail"
+      when not data.found
+        text "This environment is no longer saved on this device." font-size=16 color=colors.muted
+      else
+        column gap=7
+          DetailSectionTitle(label="Connection", colors=colors)
+          column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+            EnvironmentItem(
+              environment=connection,
+              expanded=connectionExpanded,
+              opensDetails=false,
+              toggle=expandConnection,
+              setEnabled=setEnabled,
+              reconnect=reconnect,
+              remove=remove,
+              save=save,
+              colors=colors
+            )
+        column gap=7
+          row align-items="center" justify-content="space-between"
+            DetailSectionTitle(label="Routes", colors=colors)
+            when length(data.routes) > 1
+              button press=editRoutes
+                padding-left=7
+                padding-right=7
+                padding-top=3.5
+                padding-bottom=3.5
+                testId="environment-routes-edit"
+                text (editingRoutes ? "Done" : "Edit") font-size=14
+                  line-height="19px"
+                  font-weight=500
+                  color=colors.foreground
+          column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+            list id="mobile-environment-routes"
+              reorderdrop=reorderRoute
+              virtualized=true
+              height=data.routesHeight
+              estimated-item-height=71.75
+              width="100%"
+              overflow-x="hidden"
+              each route in data.routes key = route.id
+                row gap=14
+                  padding-left=14
+                  align-items="center"
+                  testId=`environment-route-${route.id}`
+                  when editingRoutes
+                    when route.removable
+                      button press=action("route-remove", data.key, route.id)
+                        disabled=pending
+                        padding=0
+                        aria-label=`Remove ${route.label}`
+                        t3-symbol symbol-name="xmark.circle.fill"
+                          point-size=20
+                          symbol-weight="regular"
+                          symbol-tint=colors.dangerForeground
+                          width=20
+                          height=20
+                    else
+                      view width=20 height=20
+                  row flex=1
+                    min-width=0
+                    gap=14
+                    padding-top=14
+                    padding-bottom=14
+                    padding-right=(editingRoutes ? 0 : 14)
+                    align-items="center"
+                    t3-symbol symbol-name=route.icon
+                      point-size=22
+                      symbol-weight="regular"
+                      symbol-tint=colors.foreground
+                      width=22
+                      height=22
+                    column flex=1 min-width=0 gap=1.75
+                      row gap=7 align-items="center"
+                        text route.label font-size=18
+                          line-height="23px"
+                          color=colors.foreground
+                          line-clamp=1
+                          text-overflow="ellipsis"
+                          flex-shrink=1
+                        when route.active
+                          text "In use" font-size=12
+                            line-height="16px"
+                            font-weight=700
+                            color="light-dark(oklch(50.8% 0.118 165.612), oklch(84.5% 0.143 164.978))"
+                            background-color="light-dark(oklch(69.6% 0.17 162.48 / 12%), oklch(69.6% 0.17 162.48 / 16%))"
+                            border-radius=999
+                            padding-left=8.75
+                            padding-right=8.75
+                            padding-top=3.5
+                            padding-bottom=3.5
+                      when length(route.address) > 0
+                        text (route.learned ? `${route.address} · found automatically` : route.address) font-size=14
+                          line-height="19px"
+                          color=colors.muted
+                          line-clamp=1
+                          text-overflow="ellipsis"
+                  when editingRoutes
+                    box reorderFor="mobile-environment-routes"
+                      disabled=pending
+                      touch-action="none"
+                      aria-label=`Reorder ${route.label}, position ${route.position}`
+                      width=48
+                      align-self="stretch"
+                      display="flex"
+                      align-items="center"
+                      justify-content="center"
+                      t3-symbol symbol-name="line.3.horizontal"
+                        point-size=20
+                        symbol-weight="regular"
+                        symbol-tint=colors.muted
+                        width=20
+                        height=20
+            DetailActionRow(
+              label="Add route",
+              icon="plus",
+              disabled=pending,
+              press=action("route-add", data.key, data.environmentId),
+              colors=colors,
+              rowId="environment-route-add"
+            )
+        when length(data.permissionNote) > 0
+          DetailMessage(message=data.permissionNote, error=false, colors=colors)
+        when length(data.error) > 0
+          DetailMessage(message=data.error, error=true, colors=colors)
+        when length(data.notice) > 0
+          DetailMessage(message=data.notice, error=false, colors=colors)
+        when data.configPresent
+          column gap=7
+            DetailSectionTitle(label="T3 Code", colors=colors)
+            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+              column padding=14 gap=3.5
+                text `Version ${data.version}` font-size=16
+                  line-height="23px"
+                  color=colors.foreground
+                when length(data.updateMessage) > 0
+                  text data.updateMessage font-size=14
+                    line-height="19px"
+                    color=(data.updateFailed ? colors.dangerForeground : colors.muted)
+                when length(data.releaseMessage) > 0
+                  text data.releaseMessage font-size=14 line-height="19px" color=colors.muted
+                when length(data.manualUpdate) > 0
+                  text data.manualUpdate font-size=14 line-height="19px" color=colors.muted
+              DetailActionRow(
+                label="Check for updates",
+                icon="arrow.clockwise",
+                disabled=data.disabled or pending,
+                press=action("check-updates", data.key, ""),
+                colors=colors,
+                rowId="environment-check-updates"
+              )
+              when data.showUpdate
+                DetailActionRow(
+                  label=`Update to ${data.targetVersion}`,
+                  icon="arrow.up.circle",
+                  disabled=data.disabled or pending,
+                  press=action("update-server", data.key, ""),
+                  colors=colors,
+                  rowId="environment-update"
+                )
+          column gap=7
+            DetailSectionTitle(label="Providers", colors=colors)
+            column border-radius=24 background-color=colors.groupedCard overflow="hidden"
+              DetailActionRow(
+                label="Refresh providers",
+                icon="arrow.clockwise",
+                disabled=data.refreshDisabled or pending,
+                press=action("refresh-providers", data.key, ""),
+                colors=colors,
+                rowId="environment-refresh-providers"
+              )
+              each provider in data.providers key = provider.id
+                column
+                  column padding=14 gap=3.5
+                    row align-items="center" gap=7
+                      ProviderIcon(driver=provider.driver, size=18, dark=dark, iconUrl="")
+                      text provider.label font-size=16
+                        line-height="23px"
+                        font-weight=500
+                        color=colors.foreground
+                    text provider.version font-size=14 line-height="19px" color=colors.muted
+                    when length(provider.updateMessage) > 0
+                      text provider.updateMessage font-size=14
+                        line-height="19px"
+                        color=(provider.updateFailed ? colors.dangerForeground : colors.muted)
+                    when length(provider.compatibility) > 0
+                      text provider.compatibility font-size=14 line-height="19px" color=colors.muted
+                    when length(provider.message) > 0
+                      text provider.message font-size=14 line-height="19px" color=colors.muted
+                    when provider.manualUpdate
+                      text "Update this provider on the environment's machine." font-size=14
+                        line-height="19px"
+                        color=colors.muted
+                  when provider.canUpdate
+                    DetailActionRow(
+                      label=`Update ${provider.label}`,
+                      icon="arrow.up.circle",
+                      disabled=provider.disabled or pending,
+                      press=action("update-provider", data.key, provider.id),
+                      colors=colors,
+                      rowId=`environment-update-provider-${provider.id}`
+                    )
+
+component DetailSectionTitle
+  props
+    label: string
+    colors: ConnectionColors
+  view
+    text label padding-left=7
+      padding-right=7
+      font-size=14
+      line-height="19px"
+      font-weight=500
+      color=colors.muted
+
+component DetailMessage
+  props
+    message: string
+    error: bool
+    colors: ConnectionColors
+  view
+    text message padding-left=7
+      padding-right=7
+      font-size=14
+      line-height="19px"
+      color=(error ? colors.dangerForeground : colors.muted)
+
+component DetailActionRow
+  props
+    label: string
+    icon: string
+    disabled: bool
+    press: action
+    colors: ConnectionColors
+    rowId: string
+  view
+    button press=press
+      disabled=disabled
+      opacity=(disabled ? 0.4 : 1)
+      padding=14
+      text-align="left"
+      testId=rowId
+      row align-items="center" gap=14
+        t3-symbol symbol-name=icon
+          point-size=22
+          symbol-weight="regular"
+          symbol-tint=colors.foreground
+          width=22
+          height=22
+        text label font-size=18 line-height="23px" color=colors.foreground flex=1

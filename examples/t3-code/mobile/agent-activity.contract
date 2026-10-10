@@ -1,0 +1,140 @@
+// @ref llp/1109.004-home-projection.decision.md#decision
+// T3 Code 365aa87982 ThreadAgentsSheet and SubagentRow. Native sheet header belongs to root.
+use ProviderIcon from "./provider-icon.contract"
+
+shape AgentActivityColors
+  foreground: string
+  muted: string
+  iconSubtle: string
+  iconMuted: string
+  border: string
+  working: string
+  completed: string
+  failed: string
+
+shape AgentWorkspace
+  label: string
+  value: string
+  symbol: string
+
+shape AgentActivityRow
+  id: string
+  environmentId: string
+  childThreadId: string
+  title: string
+  detail: string
+  status: string
+  tone: string
+  elapsed: string
+  canOpen: bool
+  driver: string
+  iconUrl: string
+  metadata: string
+  workspace: list<AgentWorkspace>
+
+shape AgentActivityData
+  rows: list<AgentActivityRow>
+  runId: string
+  turnActive: bool
+  liveCount: number
+  settledCount: number
+
+component AgentActivity
+  props
+    data: AgentActivityData
+    colors: AgentActivityColors
+    dark: bool
+    bottomInset: number
+    open: action
+  view
+    scroll flex=1 min-height=0 testId="agents-sheet"
+      column padding-left=17.5
+        padding-right=17.5
+        padding-bottom=(max(bottomInset, 16) + 8)
+        font-family="DM Sans"
+        when length(data.rows) == 0
+          text "No agents in this turn." padding-top=21
+            text-align="center"
+            font-size=14
+            line-height="19px"
+            color=colors.muted
+        each row in data.rows key = row.id
+          when row.canOpen
+            button press=open(row.environmentId, row.childThreadId)
+              aria-label=row.title
+              testId=`agent-${row.id}`
+              AgentActivityItem(row=row, colors=colors, dark=dark)
+          else
+            box aria-label=`${row.title}. Provider-managed agent. Its work appears in the transcript.`
+              testId=`agent-${row.id}`
+              AgentActivityItem(row=row, colors=colors, dark=dark)
+
+component AgentActivityItem
+  props
+    row: AgentActivityRow
+    colors: AgentActivityColors
+    dark: bool
+  derive tone = row.tone == "working" ? colors.working : row.tone == "completed" ? colors.completed : row.tone == "failed" ? colors.failed : colors.muted
+  view
+    row gap=10.5
+      padding-top=12.25
+      padding-bottom=12.25
+      border-bottom-width=1
+      border-bottom-style="solid"
+      border-bottom-color=colors.border
+      column height=17.5 justify-content="center" flex-shrink=0
+        box width=7 height=7 border-radius=9999 background-color=tone aria-hidden=true
+      column flex=1 min-width=0 gap=3.5
+        row min-height=17.5 align-items="center" gap=7
+          row flex=1 min-width=0 align-items="baseline" gap=5.25
+            text row.title min-width=0
+              font-size=14
+              line-height="19px"
+              font-weight=500
+              color=colors.foreground
+              line-clamp=1
+            text "·" flex-shrink=0
+              font-size=13
+              line-height="17px"
+              color=colors.muted
+              aria-hidden=true
+            text row.status flex-shrink=0 font-size=13 line-height="17px" font-weight=500 color=tone
+          when length(row.elapsed) > 0
+            text row.elapsed flex-shrink=0
+              font-size=13
+              line-height="17px"
+              font-variant-numeric="tabular-nums"
+              color=colors.muted
+          when row.canOpen
+            t3-symbol symbol-name="chevron.right"
+              point-size=12
+              symbol-weight="regular"
+              symbol-tint=colors.iconSubtle
+              width=12
+              height=12
+        row min-width=0 align-items="center" gap=5.25
+          ProviderIcon(driver=row.driver, size=12, dark=dark, iconUrl=row.iconUrl)
+          text row.metadata min-width=0
+            font-size=13
+            line-height="17px"
+            color=colors.muted
+            line-clamp=1
+          each item in row.workspace key = item.label
+            row min-width=0 align-items="center" gap=5.25 aria-label=`${item.label}: ${item.value}`
+              text "·" font-size=13 line-height="17px" color=colors.muted
+              t3-symbol symbol-name=item.symbol
+                point-size=11
+                symbol-weight="regular"
+                symbol-tint=colors.iconMuted
+                width=11
+                height=11
+              text item.value min-width=0
+                font-size=13
+                line-height="17px"
+                color=colors.muted
+                line-clamp=1
+        when length(row.detail) > 0
+          text row.detail font-size=13
+            line-height="17px"
+            color=(row.tone == "failed" ? colors.failed : colors.muted)
+            line-clamp=3

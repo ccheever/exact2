@@ -1,0 +1,62 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+use ComposerCommandPopoverData, ComposerCommandColors from "./composer-command-popover.contract"
+shape ComposerRootInput
+  active: bool
+  visit: string
+  url: string
+  environmentId: string
+  threadId: string
+  editorId: string
+  preferencesReady: bool
+  preferencesJSON: string
+  scheme: string
+  themeId: string
+  enterBehavior: string
+  focusSerial: string
+  focusAttempt: number
+  focusOperation: string
+  now: number
+shape ComposerRootWake
+  key: string
+  dueAt: number
+  delayMs: number
+shape ComposerRootQueries
+  immediateKey: string
+  immediateAt: number
+  immediateClockOffset: number
+  path: ComposerRootWake
+  pullRequests: ComposerRootWake
+  discovery: ComposerRootWake
+shape ComposerRootFiles
+  ready: bool
+  prepareKey: string
+  needsPrepare: bool
+  message: string
+  cleanupKey: string
+shape ComposerRootView
+  enabled: bool
+  admission: string
+  revision: number
+  pendingCommandKey: string
+  configuration: string
+  menu: ComposerCommandPopoverData
+  menuRevision: string
+  queries: ComposerRootQueries
+  files: ComposerRootFiles
+  colors: ComposerCommandColors
+  effectId: string
+  effectKind: string
+  message: string
+  routeVisit: string
+  editorId: string
+  owner: string
+shape ComposerRootResult
+  revision: number
+  message: string
+  visit: string
+  owner: string
+  editorId: string
+  admission: string
+  effectId: string
+  effectKind: string
+  alternate: bool

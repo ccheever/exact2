@@ -1,0 +1,107 @@
+// @ref llp/1109.006-review-and-files.decision.md#root-seam
+shape ReviewColors
+  foreground: string
+  secondary: string
+  muted: string
+  tertiary: string
+  sheet: string
+  card: string
+  border: string
+  subtle: string
+  subtleStrong: string
+  icon: string
+  iconSubtle: string
+  iconMuted: string
+  primary: string
+  primaryForeground: string
+  warning: string
+  warningForeground: string
+  addition: string
+  deletion: string
+  additionBackground: string
+  deletionBackground: string
+  additionBar: string
+  deletionBar: string
+  codeBackground: string
+  codeForeground: string
+  selection: string
+
+shape ReviewToken
+  id: string
+  text: string
+  color: string
+  weight: number
+  slant: string
+
+shape ReviewRow
+  id: string
+  kind: string
+  path: string
+  filePath: string
+  text: string
+  title: string
+  detail: string
+  action: string
+  oldNumber: string
+  newNumber: string
+  lineIndex: number
+  change: string
+  selected: bool
+  expanded: bool
+  viewed: bool
+  additions: number
+  deletions: number
+  tokens: list<ReviewToken>
+
+shape ReviewFile
+  id: string
+  name: string
+  path: string
+  previousPath: string
+  additions: number
+  deletions: number
+  expanded: bool
+  viewed: bool
+  pending: bool
+  error: bool
+  notice: string
+
+shape ReviewSection
+  id: string
+  title: string
+  subtitle: string
+  selected: bool
+
+shape ReviewSnapshot
+  navigationRevision: number
+  owner: string
+  revision: number
+  sectionId: string
+  patchRequest: string
+  title: string
+  subtitle: string
+  sections: list<ReviewSection>
+  files: list<ReviewFile>
+  rows: list<ReviewRow>
+  loading: bool
+  error: string
+  notice: string
+  raw: string
+  emptyTitle: string
+  emptyDetail: string
+  additions: number
+  deletions: number
+  selectedPath: string
+  selectionTitle: string
+  canComment: bool
+  commentOpen: bool
+  commentPath: string
+  commentRange: string
+  commentPreview: string
+  commentCount: number
+
+shape ReviewResult
+  requestRoute: string
+  navigation: string
+  message: string
+  data: ReviewSnapshot

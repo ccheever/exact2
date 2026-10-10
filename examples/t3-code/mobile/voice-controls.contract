@@ -1,0 +1,152 @@
+// @ref llp/1109.008-mobile-voice.decision.md#presentation
+shape VoiceColors
+  foreground: string
+  muted: string
+  icon: string
+  iconMuted: string
+  primary: string
+  primaryForeground: string
+  subtle: string
+  danger: string
+  card: string
+  border: string
+shape VoiceBar
+  id: number
+  height: number
+  compactHeight: number
+  opacity: number
+shape VoiceSnapshot
+  available: bool
+  owner: string
+  label: string
+  phase: string
+  error: string
+  errorAction: string
+  busy: bool
+  focused: bool
+  globalVisible: bool
+  elapsed: number
+  elapsedLabel: string
+  statusLabel: string
+  confirmationEnabled: bool
+  bars: list<VoiceBar>
+  compactBars: list<VoiceBar>
+  selectionOwner: string
+  selectionStart: number
+  selectionEnd: number
+  selectionRevision: number
+shape VoiceStatus
+  available: bool
+  locale: string
+  reason: string
+  session: string
+  event: number
+  eventKind: string
+  error: string
+  uri: string
+  elapsed: number
+  levels: list<number>
+  phase: string
+shape VoiceResult
+  revision: number
+  message: string
+  data: VoiceSnapshot
+
+component VoiceStartAction
+  props
+    data: VoiceSnapshot
+    colors: VoiceColors
+    disabled: bool
+    action: action
+  view
+    when data.available
+      button width=44 height=44 padding=0 disabled=disabled
+        press=action(data.errorAction == "settings" ? "settings" : "start") aria-label=(data.errorAction == "settings" ? "Open microphone settings" : "Start dictation")
+        column width=44 height=44 align-items="center" justify-content="center"
+          t3-symbol symbol-name="mic" point-size=20 symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
+
+component VoiceDictationToolbar
+  props
+    data: VoiceSnapshot
+    colors: VoiceColors
+    action: action
+  view
+    row height=44 align-items="center" font-family="DM Sans"
+      button width=44 height=44 padding=0 press=action("cancel") aria-label="Cancel dictation"
+        column width=44 height=44 align-items="center" justify-content="center"
+          t3-symbol symbol-name="xmark" point-size=20 symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
+      column flex=1 min-width=0 height=44 justify-content="center"
+        when data.phase == "recording"
+          row min-width=0 gap=7 align-items="center" padding-left=3.5 padding-right=3.5 aria-label=data.statusLabel
+            row flex=1 min-width=0 height=32 align-items="center" justify-content="space-between" overflow="hidden" aria-hidden=true
+              each bar in data.bars key=bar.id
+                view width=2 flex-shrink=0 height=bar.height opacity=bar.opacity background-color=colors.foreground border-radius=1
+            text data.elapsedLabel font-family="system-ui" font-size=10.5 font-variant-numeric="tabular-nums" color=colors.muted line-clamp=1
+        else
+          text data.statusLabel padding-left=7 padding-right=7 text-align="center" font-size=12.25 line-clamp=1 color=colors.muted
+      button width=44 height=44 padding=0 press=action("stop") disabled=(not data.confirmationEnabled)
+        aria-label=(data.confirmationEnabled ? "Finish dictation" : data.statusLabel)
+        column width=44 height=44 align-items="center" justify-content="center"
+          column width=30 height=30 border-radius=15 background-color=(data.confirmationEnabled ? colors.primary : colors.subtle) align-items="center" justify-content="center"
+            when data.confirmationEnabled
+              t3-symbol symbol-name="checkmark" point-size=16 symbol-weight="semibold" symbol-tint=colors.primaryForeground width=16 height=16
+            else
+              t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+
+component VoiceErrorStatus
+  props
+    data: VoiceSnapshot
+    colors: VoiceColors
+    action: action
+  view
+    when data.phase == "error" and data.focused
+      row height=38.5 gap=5.25 align-items="center" padding-left=7 padding-right=7
+        text data.error flex=1 min-width=0 font-family="DM Sans" font-size=12.25 color=colors.danger line-clamp=2
+        button width=24.5 height=24.5 padding=0 press=action("cancel") aria-label="Dismiss voice input error"
+          column align-items="center" justify-content="center"
+            t3-symbol symbol-name="xmark" point-size=12 symbol-weight="regular" symbol-tint=colors.iconMuted width=12 height=12
+
+// Root positions this above bottom chrome at max(safeAreaBottom,12)+64, right=safeAreaRight.
+component VoiceGlobalPill
+  props
+    data: VoiceSnapshot
+    colors: VoiceColors
+    expanded: bool
+    width: number
+    action: action
+    expand: action
+  view
+    when data.globalVisible
+      row width=(expanded ? width : 64) height=36 border-top-left-radius=18 border-bottom-left-radius=18
+        border-width=1 border-right-width=0 border-style="solid" border-color=colors.border background-color=colors.card overflow="hidden"
+        align-items="center" font-family="DM Sans"
+        when not expanded
+          button flex=1 height=36 padding=0 press=expand(true) aria-label=`${data.statusLabel}, dictating into ${data.label}`
+            row gap=5.25 justify-content="center" align-items="center"
+              when data.phase == "error"
+                t3-symbol symbol-name="exclamationmark.circle" point-size=16 symbol-weight="regular" symbol-tint=colors.danger width=16 height=16
+              else when data.phase == "recording"
+                view width=7 height=7 border-radius=3.5 background-color=colors.danger
+                text data.elapsedLabel font-family="system-ui" font-size=10.5 font-variant-numeric="tabular-nums" color=colors.foreground
+              else
+                t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+        else
+          button width=30 height=30 padding=0 press=action("cancel") aria-label=(data.phase == "error" ? "Dismiss voice input error" : "Cancel dictation")
+            column align-items="center" justify-content="center"
+              t3-symbol symbol-name="xmark" point-size=13 symbol-weight="regular" symbol-tint=colors.iconMuted width=13 height=13
+          button flex=1 min-width=0 height=34 padding=0 press=expand(false) aria-label=(data.phase == "error" ? data.error : data.label)
+            text (data.phase == "error" ? data.error : data.label) font-size=10.5 font-weight=500 line-clamp=1 color=(data.phase == "error" ? colors.danger : colors.foreground)
+          when data.phase == "recording"
+            row gap=1.75 height=14 align-items="center" aria-hidden=true
+              each bar in data.compactBars key=bar.id
+                view width=1.75 height=bar.compactHeight opacity=bar.opacity border-radius=1 background-color=colors.foreground
+            text data.elapsedLabel margin-left=5.25 font-family="system-ui" font-size=10.5 font-variant-numeric="tabular-nums" color=colors.muted
+            button width=30 height=30 padding=0 press=action("stop") disabled=(not data.confirmationEnabled) aria-label="Finish dictation"
+              column width=24 height=24 border-radius=12 background-color=colors.primary align-items="center" justify-content="center"
+                t3-symbol symbol-name="checkmark" point-size=12 symbol-weight="semibold" symbol-tint=colors.primaryForeground width=12 height=12
+          else when data.phase == "error"
+            button width=30 height=30 padding=0 press=action(data.errorAction == "settings" ? "settings" : "retry") aria-label=(data.errorAction == "settings" ? "Open microphone settings" : "Retry dictation")
+              column align-items="center" justify-content="center"
+                t3-symbol symbol-name="mic" point-size=16 symbol-weight="regular" symbol-tint=colors.icon width=16 height=16
+          else
+            t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20 margin=5

@@ -1,0 +1,38 @@
+// Pinned365aa87982 ComposerAttachmentStrip dimensions; preview/share transitions remain pending.
+// @ref llp/1109.005-composer-and-transcript.decision.md#root-seam
+use ThreadColors from "./thread-shapes.contract"
+use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
+component ComposerAttachmentStrip
+  props
+    data: ComposerAttachmentsSnapshot
+    remove: action
+    open: action
+    colors: ThreadColors
+  view
+    when length(data.items) > 0
+      scroll overflow-x="auto" overflow-y="hidden" flex-shrink=0 padding-left=14 padding-right=14 padding-bottom=8.75
+        row gap=8.75
+          each item in data.items key=item.id
+            when item.removeOperation == "remove-retained"
+              row max-width=180 align-items="center" gap=7 border-radius=10.5 border-width=1 border-style="solid" border-color=colors.border background-color=colors.composerSurface padding-top=3.5 padding-bottom=3.5 padding-left=3.5 padding-right=7
+                when item.preview != ""
+                  image item.preview width=24 height=24 object-fit="cover" border-radius=6
+                else
+                  column width=24 height=24 border-radius=5.25 background-color=colors.subtle align-items="center" justify-content="center"
+                    t3-symbol symbol-name=(item.kind == "image" ? "photo" : "doc") point-size=12 symbol-tint=colors.iconSubtle width=12 height=12
+                text item.name min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=12 color=colors.foreground
+                button press=remove("remove-retained", item.id, data.contentOwner) disabled=item.disabled aria-label=`Remove ${item.name}` padding=0
+                  t3-symbol symbol-name="xmark.circle.fill" point-size=14 symbol-tint=colors.iconSubtle width=14 height=14
+            else
+              column position="relative" width=72 height=72 border-radius=16 overflow="hidden" background-color=colors.subtle aria-label=`${item.name}, ${item.size}`
+                button press=open(item.id, data.contentOwner) aria-label=`Open ${item.name}` width=72 height=72 padding=0
+                  when item.preview != ""
+                    image item.preview width=72 height=72 object-fit="cover"
+                  else
+                    column width=72 height=72 justify-content="center" align-items="center" padding=7 box-sizing="border-box" gap=3.5
+                      t3-symbol symbol-name=(item.kind == "video" ? "video" : "doc") point-size=22 symbol-tint=colors.iconSubtle width=22 height=22
+                      text item.name width="100%" text-align="center" line-clamp=1 text-overflow="ellipsis" font-size=11 line-height="14px" color=colors.foreground
+                button press=remove(item.removeOperation == "remove-retained" ? "remove-retained" : item.removeOperation == "remove-snapshot" ? "remove-image" : "remove-file", item.id, data.contentOwner) disabled=item.disabled
+                  position="absolute" top=4 right=4 width=22 height=22 border-radius=11 padding=0 background-color="rgba(0,0,0,0.55)" aria-label=`Remove ${item.name}`
+                  column width=22 height=22 align-items="center" justify-content="center"
+                    t3-symbol symbol-name="xmark" point-size=9 symbol-weight="bold" symbol-tint="#ffffff" width=9 height=9

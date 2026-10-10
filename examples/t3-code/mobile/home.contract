@@ -1,0 +1,498 @@
+use ProviderIcon from "./provider-icon.contract"
+use ProjectFavicon, ProjectFaviconTarget from "./project-favicon.contract"
+// @ref llp/1109.004-home-projection.decision.md#decision
+// Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
+// @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
+use HomeMenu, HomeMenuItem from "./home-menu.contract"
+use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipeFinite, homeSwipeInteger from "./home-swipe.contract"
+
+shape HomeColors
+  foreground: string
+  muted: string
+  secondary: string
+  secondaryFill: string
+  secondaryForeground: string
+  screen: string
+  drawer: string
+  drawerForeground: string
+  drawerMuted: string
+  selectedBackground: string
+  selectedForeground: string
+  selectedMuted: string
+  selectedQueued: string
+  tertiary: string
+  border: string
+  borderSubtle: string
+  primary: string
+  primaryText: string
+  primaryForeground: string
+  iconSubtle: string
+  warning: string
+  inputStatus: string
+  workingStatus: string
+  dangerForeground: string
+  done: string
+  menuBackground: string
+  card: string
+  draft: string
+
+shape HomeSwipeData
+  primary: string
+  primaryLabel: string
+  primarySymbol: string
+  primaryAccessibilityLabel: string
+  secondary: string
+  secondaryAccessibilityLabel: string
+  resetKey: string
+  token: string
+  snoozable: bool
+  gateExpiry: number
+  snoozeItems: list<HomeMenuItem>
+
+shape HomeProviderPrevious
+  key: string
+  driver: string
+
+shape HomeProvider
+  visible: bool
+  driver: string
+  iconUrl: string
+  previous: list<HomeProviderPrevious>
+  showBadge: bool
+  badge: string
+  badgeColor: string
+
+shape HomeItem
+  key: string
+  kind: string
+  draftKey: string
+  queuedOwner: string
+  showPendingDivider: bool
+  id: string
+  environmentId: string
+  threadId: string
+  projectId: string
+  section: string
+  title: string
+  projectTitle: string
+  projectPresent: bool
+  branch: string
+  environmentLabel: string
+  machineSymbol: string
+  status: string
+  statusTone: string
+  time: string
+  error: string
+  card: bool
+  pinned: bool
+  queued: bool
+  expanded: bool
+  disabled: bool
+  count: number
+  last: bool
+  trailingDivider: bool
+  selected: bool
+  favicon: string
+  faviconTarget: ProjectFaviconTarget
+  iconKind: string
+  iconText: string
+  iconColor: string
+  iconSurface: string
+  iconSize: number
+  provider: HomeProvider
+  searchExcerpt: string
+  menuItems: list<HomeMenuItem>
+  nativeMenu: string
+  swipe: HomeSwipeData
+
+component Home
+  props
+    listId: string
+    routeId: string
+    active: bool
+    refreshAt: number
+    epochAtZero: number
+    refreshClock: action
+    reducedMotion: bool
+    items: list<HomeItem>
+    emptyTitle: string
+    emptyDetail: string
+    loading: bool
+    addEnvironment: bool
+    bottomClearance: number
+    emptyClearance: number
+    menuAction: action
+    selectThread: action
+    toggleShelf: action
+    showMore: action
+    addConnection: action
+    colors: HomeColors
+  provide
+    projectFaviconSurface = listId
+  derive swipeOwner = `${routeId}:${listId}`
+  state stateOwner = ""
+  state openToken = ""
+  state dragToken = ""
+  state dragOffset = 0
+  state dragBase = 0
+  state gestureSerial = 0
+  state gestureSequence = -1
+  state surfaceOwner = ""
+  state surfaceSequence = -1
+  state scrollGated = false
+  state tickOwner = ""
+  state tickDeadline = 0
+  action chooseThread(id: string)
+    openToken = ""
+    dragToken = ""
+    dragOffset = 0
+    selectThread(id)
+  action chooseMenu(environmentId: string, threadId: string, kind: string, value: string)
+    openToken = ""
+    dragToken = ""
+    dragOffset = 0
+    menuAction(environmentId, threadId, kind, value)
+  action chooseSwipe(token: string, environmentId: string, threadId: string, kind: string, value: string)
+    if active and stateOwner == swipeOwner and openToken == token and length(filter(items, item => item.swipe.token == token and item.environmentId == environmentId and item.threadId == threadId and item.swipe.snoozable)) == 1
+      openToken = ""
+      dragToken = ""
+      dragOffset = 0
+      menuAction(environmentId, threadId, kind, value)
+  action swipeEvent(message: string)
+    let parts = split(message, "|")
+    if homeSwipeField(parts, 0) == "1" and homeSwipeField(parts, 1) == swipeOwner
+      if length(parts) == 4
+        let phase = homeSwipeField(parts, 3)
+        let serial = homeSwipeNumber(parts, 2)
+        if homeSwipeInteger(parts, 2) and serial >= 0
+          if phase == "tick"
+            if active and serial > 0 and serial == refreshAt and (tickOwner != swipeOwner or tickDeadline != serial)
+              tickOwner = swipeOwner
+              tickDeadline = serial
+              refreshClock()
+          else if includes(["scroll-begin", "scroll-gated", "scroll-clear"], phase) and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
+            surfaceOwner = swipeOwner
+            surfaceSequence = serial
+            scrollGated = phase == "scroll-gated" ? true : phase == "scroll-clear" ? false : scrollGated
+            if phase == "scroll-begin" or phase == "scroll-gated"
+              openToken = ""
+            if phase == "scroll-gated"
+              dragToken = ""
+              dragOffset = 0
+      else if length(parts) == 5 and homeSwipeField(parts, 3) == "retired" and homeSwipeInteger(parts, 2)
+        let serial = homeSwipeNumber(parts, 2)
+        let token = homeSwipeField(parts, 4)
+        if serial > 0 and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
+          surfaceOwner = swipeOwner
+          surfaceSequence = serial
+          if stateOwner == swipeOwner and (openToken == token or dragToken == token)
+            openToken = ""
+            dragToken = ""
+            dragOffset = 0
+      else if length(parts) == 12
+        let token = homeSwipeField(parts, 2)
+        let gesture = homeSwipeNumber(parts, 3)
+        let sequence = homeSwipeNumber(parts, 4)
+        let phase = homeSwipeField(parts, 5)
+        if homeSwipeInteger(parts, 3) and gesture > 0 and homeSwipeInteger(parts, 4) and sequence >= 0 and includes(["begin", "change", "end", "cancel"], phase) and homeSwipeFinite(parts, 6) and homeSwipeFinite(parts, 7) and homeSwipeFinite(parts, 8) and homeSwipeFinite(parts, 9) and homeSwipeFinite(parts, 10) and homeSwipeNumber(parts, 10) > 0 and homeSwipeFinite(parts, 11) and homeSwipeNumber(parts, 11) > 0
+          if phase == "cancel" and stateOwner == swipeOwner and gesture == gestureSerial and sequence > gestureSequence and (dragToken == token or openToken == token)
+            gestureSequence = sequence
+            openToken = ""
+            dragToken = ""
+            dragOffset = 0
+          else
+            match first(filter(items, item => item.kind == "thread" and item.swipe.token == token and item.swipe.primary != ""))
+              case some(item)
+                let strip = item.swipe.secondary == "" ? 58 : 116
+                let x = homeSwipeNumber(parts, 6)
+                if phase == "begin"
+                  if active and (surfaceOwner != swipeOwner or not scrollGated) and (stateOwner != swipeOwner or gesture > gestureSerial) and (surfaceOwner != swipeOwner or gesture > surfaceSequence)
+                    let base = stateOwner == swipeOwner and openToken == token ? 0 - strip : 0
+                    stateOwner = swipeOwner
+                    gestureSerial = gesture
+                    gestureSequence = sequence
+                    dragToken = token
+                    dragBase = base
+                    dragOffset = max(0 - strip, min(0, base + x))
+                    openToken = ""
+                else if stateOwner == swipeOwner and dragToken == token and gesture == gestureSerial and sequence > gestureSequence
+                  gestureSequence = sequence
+                  if phase == "cancel" or not active
+                    openToken = ""
+                    dragToken = ""
+                    dragOffset = 0
+                  else if phase == "end"
+                    let projected = x + 0.05 * homeSwipeNumber(parts, 8)
+                    let remainsOpen = dragBase < 0 ? projected < strip * 0.42 : projected < 0 - strip * 0.42
+                    openToken = remainsOpen ? token : ""
+                    dragToken = ""
+                    dragOffset = 0
+                  else
+                    dragOffset = max(0 - strip, min(0, dragBase + x))
+              case none
+                dragToken = dragToken
+  view
+    t3-home-swipe-events swipe-owner=swipeOwner swipe-active=active swipe-route-key=(listId == "sidebar-list" ? "t3-workspace-sidebar" : routeId) swipe-refresh-at=`${refreshAt}` swipe-epoch-at-zero=`${epochAtZero}` width=0 height=0 change=swipeEvent testId=`home-swipe-events-${listId}`
+    when length(items) == 0
+      column flex=1
+        align-items="center"
+        justify-content="center"
+        padding-left=28
+        padding-right=28
+        padding-bottom=emptyClearance
+        column max-width=430 width="100%"
+          align-items="center"
+          box-sizing="border-box"
+          padding=28
+          text emptyTitle font-size=21
+            line-height="28px"
+            font-weight=700
+            color=colors.foreground
+            text-align="center"
+            testId="home-empty-title"
+          text emptyDetail margin-top=7
+            font-size=16
+            line-height="24px"
+            color=colors.muted
+            text-align="center"
+            testId="home-empty-detail"
+          when addEnvironment
+            button press=addConnection
+              margin-top=17.5
+              border-radius=9999
+              background-color=colors.primary
+              padding-left=17.5
+              padding-right=17.5
+              padding-top=10.5
+              padding-bottom=10.5
+              testId="home-add-environment"
+              text "Add environment" color=colors.primaryForeground font-size=14 line-height="19px" font-weight=700
+    else
+      list id=listId flex=1 min-height=0 hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
+        virtualized=true
+        estimated-item-height=72
+        testId="home-thread-list"
+        each item in items key=item.key
+          HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+      each item in items key=item.key
+        when length(item.menuItems) > 0
+          HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+        when length(item.swipe.snoozeItems) > 0
+          HomeSwipeMenu(token=item.swipe.token, menuId=`home-snooze-${listId}-${item.key}`, items=item.swipe.snoozeItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseSwipe, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+
+component HomeListItem
+  props
+    surface: string
+    owner: string
+    active: bool
+    openToken: string
+    dragToken: string
+    dragOffset: number
+    reducedMotion: bool
+    item: HomeItem
+    bottomClearance: number
+    selectThread: action
+    menuAction: action
+    toggleShelf: action
+    showMore: action
+    colors: HomeColors
+  derive swipeOffset = dragToken == item.swipe.token and item.swipe.token != "" ? dragOffset : openToken == item.swipe.token and item.swipe.token != "" ? (item.swipe.secondary == "" ? -58 : -116) : 0
+  derive menuId = `home-menu-${surface}-${item.key}`
+  derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
+  derive sidebar = surface == "sidebar-list"
+  derive selectedRow = sidebar and item.selected
+  derive rowBackground = sidebar ? (selectedRow ? colors.selectedBackground : colors.drawer) : colors.screen
+  derive idleMuted = sidebar ? colors.drawerMuted : colors.muted
+  derive rowForeground = selectedRow ? colors.selectedForeground : sidebar ? colors.drawerForeground : colors.foreground
+  derive rowMuted = selectedRow ? colors.selectedMuted : idleMuted
+  derive rowTertiary = selectedRow ? colors.selectedMuted : sidebar ? colors.drawerMuted : colors.tertiary
+  derive rowStatusColor = length(item.status) > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
+  derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
+  view
+    column padding-bottom=(item.last ? bottomClearance : 0)
+      when item.kind == "shelf"
+        button press=toggleShelf(item.section)
+          disabled=item.disabled
+          margin-top=14
+          margin-bottom=5.25
+          padding=0
+          padding-left=17.5
+          padding-right=17.5
+          aria-label=`${item.count} ${item.section} ${item.count == 1 ? "thread" : "threads"}`
+          aria-expanded=item.expanded
+          testId=`home-shelf-${item.section}`
+          row align-items="center" gap=8.75
+            text item.title font-size=13 line-height="17px" font-weight=500 color=(item.section == "snoozed" ? colors.secondary : colors.tertiary)
+            view flex=1 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
+            t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") point-size=10 symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
+      else when item.kind == "more"
+        button press=showMore
+          position="relative"
+          margin-left=14
+          margin-right=14
+          margin-top=7
+          border-radius=7
+          padding-top=8.75
+          padding-bottom=8.75
+          aria-label=`Show more settled threads`
+          testId="home-show-more"
+          svg position="absolute" top=0 left=0 width="100%" height="100%" pointer-events="none"
+            rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
+          text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
+      else when item.kind == "draft" or item.kind == "pending"
+        when item.showPendingDivider
+          row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
+            text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
+            view flex=1 height=1 background-color=colors.border
+        button press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
+          hatch="mobile-home-row"
+          data-mobile-home-menu=item.nativeMenu
+          data-mobile-home-surface=surface
+          data-mobile-home-foreground=colors.foreground
+          data-mobile-home-primary=colors.primary
+          data-mobile-home-danger=colors.dangerForeground
+          data-mobile-home-background=colors.card
+          data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
+          contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+          padding=0
+          border-radius=(surface == "sidebar-list" ? 12 : 0)
+          background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
+          text-align="left"
+          aria-label=item.title
+          aria-description=(item.kind == "draft" ? "Opens the draft in the new task composer" : "Opens the pending task")
+          testId=(item.kind == "draft" ? `home-draft-${item.draftKey}` : `home-pending-${item.threadId}`)
+          column padding-left=(surface == "sidebar-list" ? 12 : 17.5) padding-right=(surface == "sidebar-list" ? 12 : 17.5) padding-top=(surface == "sidebar-list" ? 10 : 8.75) padding-bottom=(surface == "sidebar-list" ? 10 : 8.75)
+            row align-items="center" gap=5.25
+              when item.projectPresent
+                HomeProjectIcon(item=item, colors=colors)
+              text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.muted
+              row align-items="center" gap=3.5
+                when item.kind == "draft"
+                  t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
+                text item.status font-size=13 line-height="17px" color=(item.kind == "draft" ? colors.draft : colors.muted)
+            text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
+            when length(item.branch) > 0 or length(item.environmentLabel) > 0
+              row margin-top=3.5 align-items="center" gap=3.5
+                text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
+                  text item.branch font-family="Menlo" color=colors.muted
+                  when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                    text "  ·  " color=colors.muted
+                  text item.environmentLabel color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
+                when length(item.environmentLabel) > 0 and length(item.machineSymbol) > 0
+                  t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
+          when item.trailingDivider and surface != "sidebar-list"
+            view height=1 margin-left=17.5 background-color=colors.borderSubtle
+      else
+        box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
+          when item.swipe.primary != ""
+            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground)
+          column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
+            button press=selectThread(item.id)
+              hatch="mobile-home-row"
+              data-mobile-swipe-owner=owner
+              data-mobile-swipe-row=item.swipe.token
+              data-mobile-swipe-enabled=(active and item.swipe.primary != "")
+              data-mobile-swipe-open=(openToken == item.swipe.token and item.swipe.token != "")
+              data-mobile-home-menu=item.nativeMenu
+              data-mobile-home-surface=surface
+              data-mobile-home-foreground=colors.foreground
+              data-mobile-home-primary=colors.primary
+              data-mobile-home-danger=colors.dangerForeground
+              data-mobile-home-background=colors.card
+              data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
+              contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+              padding=0
+              text-align="left"
+              aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
+              aria-selected=selectedRow
+              testId=`home-thread-${item.key}`
+              when item.card
+                column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
+                  row align-items="center" gap=5.25
+                    when item.projectPresent
+                      HomeProjectIcon(item=item, colors=colors)
+                    text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
+                      font-size=14 line-height="19px" font-weight=500 color=rowMuted
+                    when item.queued
+                      t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
+                    when item.pinned
+                      t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=idleMuted width=11 height=11
+                    text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=rowStatusColor
+                  text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=rowForeground line-clamp=2 text-overflow="ellipsis"
+                  when length(item.searchExcerpt) > 0
+                    text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                  row margin-top=3.5 align-items="center" gap=7
+                    when length(item.error) > 0
+                      text item.error flex=1 min-width=0 white-space="nowrap" overflow="hidden" font-size=13 line-height="17px" color=(selectedRow ? colors.selectedMuted : statusColor) text-overflow="ellipsis"
+                    else when length(item.branch) > 0 or length(item.environmentLabel) > 0
+                      row flex=1 min-width=0 align-items="center" gap=3.5
+                        text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
+                          text item.branch font-family="Menlo" color=rowMuted
+                          when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                            text "  ·  " color=rowMuted
+                          text item.environmentLabel color=rowTertiary
+                        when length(item.environmentLabel) > 0
+                          t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=rowTertiary width=11 height=11 flex-shrink=0
+                    else
+                      view flex=1 min-width=0
+                    when item.provider.visible
+                      HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
+                when item.trailingDivider
+                  view height=1 margin-left=17.5 background-color=colors.borderSubtle
+              else
+                row min-height=44
+                  box-sizing="border-box"
+                  align-items="center"
+                  gap=8.75
+                  padding-left=17.5
+                  padding-right=17.5
+                  padding-top=7
+                  padding-bottom=7
+                  when item.projectPresent
+                    column opacity=0.4
+                      HomeProjectIcon(item=item, colors=colors)
+                  column flex=1 min-width=0
+                    text item.title font-size=16 line-height="23px" color=(selectedRow ? colors.selectedForeground : idleMuted) line-clamp=1 text-overflow="ellipsis"
+                    when length(item.searchExcerpt) > 0
+                      text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                  when item.queued
+                    t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
+                  text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
+
+
+component HomeProjectIcon
+  inject
+    projectFaviconSurface: string
+  props
+    item: HomeItem
+    colors: HomeColors
+  view
+    column width=15 height=15 flex-shrink=0 align-items="center" justify-content="center"
+      when item.iconKind == "emoji"
+        text item.iconText font-size=12 line-height="15px" text-align="center"
+      else when item.iconKind == "monogram"
+        column width=15 height=15 border-radius=3.75 background-color=item.iconSurface align-items="center" justify-content="center"
+          text item.iconText font-family="Menlo" font-size=item.iconSize line-height="15px" font-weight=700 color=item.iconColor text-align="center" line-clamp=1
+      else
+        ProjectFavicon(mountId=`${projectFaviconSurface}:${item.key}`, target=item.faviconTarget, title=item.projectTitle, size=15, tint=colors.iconSubtle)
+
+// Pinned ProviderInstanceIcon: the brand dims; its account badge stays saturated.
+component HomeProviderStack
+  props
+    provider: HomeProvider
+    surfaceColor: string
+    colors: HomeColors
+  view
+    row align-items="center" flex-shrink=0 aria-hidden=true
+      each previous in provider.previous key=previous.key
+        box margin-right=-3.5 opacity=0.3 width=12 height=12 flex-shrink=0
+          ProviderIcon(driver=previous.driver, size=12, dark=false, iconUrl="")
+      box position="relative" width=14 height=14 flex-shrink=0
+        box opacity=0.6 width=14 height=14
+          ProviderIcon(driver=provider.driver, size=14, dark=false, iconUrl=provider.iconUrl)
+        when provider.showBadge
+          box position="absolute" right=-3 bottom=-3 height=12 min-width=12 box-sizing="border-box"
+            padding-left=2 padding-right=2 border-radius=999 border-width=1 border-style="solid" border-color=surfaceColor
+            background-color=(provider.badgeColor != "" ? provider.badgeColor : colors.card)
+            display="flex" align-items="center" justify-content="center"
+            text provider.badge font-size=7 line-height="9px" font-weight=600 color=(provider.badgeColor != "" ? "#ffffff" : colors.muted)

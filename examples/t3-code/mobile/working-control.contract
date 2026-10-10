@@ -1,0 +1,114 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#transcript-ownership
+// FloatingWorkingControl at365aa87982. The parent places this at the composer overlay's top.
+use ThreadColors from "./thread-shapes.contract"
+shape WorkingControlData
+  owner: string
+  nextRefreshAt: number
+  visible: bool
+  statusKind: string
+  statusLabel: string
+  statusAccessibility: string
+  statusSymbol: string
+  statusSpinning: bool
+  reconnect: bool
+  agentsLabel: string
+  agentsAccessibility: string
+  browserCount: number
+  deviceCount: number
+  queueCount: number
+  compact: bool
+  browserLabel: string
+  browserAccessibility: string
+  deviceLabel: string
+  deviceAccessibility: string
+component MobileWorkingControl
+  props
+    data: WorkingControlData
+    colors: ThreadColors
+    maxWidth: number
+    openAgents: action
+    openBrowser: action
+    openDevices: action
+    openQueue: action
+    reconnect: action
+  state previewWidth = 0
+  state agentsWidth = 0
+  state queueWidth = 0
+  derive hasPreview = data.deviceCount > 0 or data.browserCount > 0
+  derive labelWidth = max(0, maxWidth - 38.5 - 32 - (hasPreview ? previewWidth : 0) - (data.agentsLabel != "" ? agentsWidth : 0) - (data.queueCount > 0 ? queueWidth : 0))
+  // Unpadded wrappers report their buttons' full widths through ResizeObserver.
+  action previewSized(width: number, height: number)
+    previewWidth = width
+  action agentsSized(width: number, height: number)
+    agentsWidth = width
+  action queueSized(width: number, height: number)
+    queueWidth = width
+  view
+    view height=0 position="relative" overflow="visible"
+      when data.visible
+        row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" pointer-events="none"
+          row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans"
+            box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
+            when data.statusKind != ""
+              when data.reconnect
+                button pointer-events="auto" press=reconnect(data.owner) height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 padding-left=14 padding-right=14 aria-label=data.statusAccessibility
+                  WorkingStatus(data=data, colors=colors)
+              else
+                row testId="working-status" height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 align-items="center" padding-left=14 padding-right=14 aria-label=data.statusAccessibility
+                  WorkingStatus(data=data, colors=colors)
+            when data.deviceCount > 0 or data.browserCount > 0
+              row testId="working-preview-segments" height=38.5 align-items="center" flex-shrink=0 resize=previewSized
+                when data.statusKind != ""
+                  view width=1 height=14 background-color=colors.border flex-shrink=0
+                when data.deviceCount > 0
+                  WorkingPreview(count=data.deviceCount, compact=data.compact, label=data.deviceLabel, accessibility=data.deviceAccessibility, symbol="iphone", owner=data.owner, colors=colors, open=openDevices)
+                when data.browserCount > 0
+                  WorkingPreview(count=data.browserCount, compact=data.compact, label=data.browserLabel, accessibility=data.browserAccessibility, symbol="globe", owner=data.owner, colors=colors, open=openBrowser)
+            when data.agentsLabel != ""
+              row testId="working-agent-segment" height=38.5 align-items="center" flex-shrink=0 resize=agentsSized
+                button pointer-events="auto" press=openAgents(data.owner) height=38.5 padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=data.agentsAccessibility testId="thread-working-agents"
+                  row height="100%" align-items="center" gap=5.25
+                    when data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0
+                      view width=1 height=14 margin-right=3.5 background-color=colors.border
+                    t3-symbol symbol-name="person.2" point-size=13 symbol-tint=colors.muted width=13 height=13
+                    text data.agentsLabel font-variant-numeric="tabular-nums" font-size=13 line-height="17px" font-weight=500 color=colors.foreground line-clamp=1
+            when data.queueCount > 0
+              row testId="working-queue-segment" height=38.5 align-items="center" flex-shrink=0 resize=queueSized
+                button pointer-events="auto" press=openQueue(data.owner) box-sizing="border-box" min-width=0 height=38.5 max-width=(maxWidth * 0.45) padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=`Open queue, ${data.queueCount} messages` testId="thread-queue-open"
+                  row min-width=0 height="100%" align-items="center" gap=7
+                    when data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0 or data.agentsLabel != ""
+                      view width=1 height=14 margin-right=3.5 background-color=colors.border flex-shrink=0
+                    t3-symbol symbol-name="list.number" point-size=13 symbol-tint=colors.muted width=13 height=13
+                    text `${data.queueCount} queued` font-variant-numeric="tabular-nums" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+component WorkingStatus
+  props
+    data: WorkingControlData
+    colors: ThreadColors
+  view
+    row min-width=0 align-items="center" gap=(data.statusKind == "compacting" ? 5.25 : 7)
+      when data.statusSpinning
+        t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+      else when data.reconnect
+        view width=7 height=7 border-radius=999 background-color="#fb2c36" flex-shrink=0
+      else when data.statusSymbol != ""
+        t3-symbol symbol-name=data.statusSymbol point-size=13 symbol-tint=colors.foreground width=13 height=13
+      text data.statusLabel font-family=(data.statusKind == "working" ? "system-ui" : "DM Sans") font-variant-numeric=(data.statusKind == "working" ? "tabular-nums" : "normal") min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+component WorkingPreview
+  props
+    count: number
+    compact: bool
+    label: string
+    accessibility: string
+    symbol: string
+    owner: string
+    colors: ThreadColors
+    open: action
+  view
+    button pointer-events="auto" press=open(owner) position="relative" height=38.5 width=(compact ? 38.5 : "auto") padding-left=(compact ? 0 : 14) padding-right=(compact ? 0 : 14) flex-shrink=0 border-radius=999 aria-label=accessibility
+      row height="100%" align-items="center" justify-content="center" gap=7
+        t3-symbol symbol-name=symbol point-size=20 symbol-tint=colors.foreground width=20 height=20
+        when not compact
+          text label font-size=13 line-height="17px" font-weight=500 color=colors.foreground
+      when compact and count > 1
+        view position="absolute" right=1.75 top=1.75 min-width=14 padding-left=3.5 padding-right=3.5 border-radius=999 background-color=colors.primary
+          text `${count}` font-size=12 line-height="16px" font-weight=700 text-align="center" color=colors.primaryForeground

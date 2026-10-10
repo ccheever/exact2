@@ -1,0 +1,18 @@
+// @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
+shape ComposerAttachment
+  id: string
+  name: string
+  kind: string
+  size: string
+  mimeType: string
+  preview: string
+  removeOperation: string
+  disabled: bool
+shape ComposerAttachmentsSnapshot
+  previewRequest: string
+  contentOwner: string
+  items: list<ComposerAttachment>
+  canPick: bool
+  supportsFiles: bool
+  remaining: number
+  error: string
