@@ -72,6 +72,13 @@ final class Viewport: ScrollView {
         let x = contentSize.width + inset.left + inset.right > bounds.width + 0.5
         if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
         if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
+        // Nor an edge effect (iOS 26): its soft top edge blurred the
+        // viewport's own white canvas into a grey band under the status bar
+        // of a dark screen, where a UIKit app with no scroll view there
+        // draws none (LLP 1084 §6.5).
+        guard #available(iOS 26.0, tvOS 26.0, *) else { return }
+        for (edge, scrolls) in [(topEdgeEffect, y), (bottomEdgeEffect, y), (leftEdgeEffect, x), (rightEdgeEffect, x)]
+        where edge.isHidden == scrolls { edge.isHidden = !scrolls }
     }
 }
 #endif
