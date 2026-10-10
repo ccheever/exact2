@@ -1,0 +1,24 @@
+// Right-click inside the reference's Browser page (the attached <webview> guest) in its own coordinates, then read the
+// shell's menu (shell-context-menu lane; not committed). Usage: node ref-guest.mjs <inspectPort> "<x> <y>" ...
+const [port, ...points] = process.argv.slice(2);
+const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+const ws = new WebSocket(list[0].webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener('open', r, { once: true }));
+let id = 0; const pending = new Map();
+ws.addEventListener('message', (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+const main = async (expression) => { const i = ++id; const r = await new Promise((res) => { pending.set(i, res); ws.send(JSON.stringify({ id: i, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } })); }); return r.result?.result?.value; };
+const guest = `process.mainModule.require('electron').webContents.getAllWebContents().find((w) => w.getType() === 'webview')`;
+for (const p of points) {
+  const [x, y] = p.split(' ').map(Number);
+  await main(`globalThis.__ctx = []`);
+  // The guest paints only when asked while the screen is locked (input hit-tests its last frame): invalidate and capture first.
+  // A left click elsewhere first clears the previous case's selection.
+  await main(`(async () => { const w = ${guest}; w.invalidate(); await Promise.race([w.capturePage(), new Promise((r) => setTimeout(r, 600))]); w.sendInputEvent({ type: 'mouseDown', x: 900, y: 600, button: 'left', clickCount: 1 }); w.sendInputEvent({ type: 'mouseUp', x: 900, y: 600, button: 'left', clickCount: 1 }); await new Promise((r) => setTimeout(r, 150));
+    w.sendInputEvent({ type: 'mouseDown', x: ${x}, y: ${y}, button: 'right', clickCount: 1 }); w.sendInputEvent({ type: 'mouseUp', x: ${x}, y: ${y}, button: 'right', clickCount: 1 }); await new Promise((r) => setTimeout(r, 400)); return 1; })()`);
+  const log = JSON.parse(await main(`JSON.stringify(globalThis.__ctx)`));
+  const target = await main(`${guest}.executeJavaScript('(() => { const e = document.elementFromPoint(${x}, ${y}); return (e?.id || e?.tagName) + " sel=" + JSON.stringify(String(getSelection())) + " active=" + document.activeElement?.id; })()')`);
+  const menu = log.find((e) => e.kind === 'popup')?.items.map((i) => i.type === 'separator' ? '—' : i.enabled ? i.label : `${i.label} (disabled)`);
+  const params = log.find((e) => e.kind === 'params');
+  console.log(JSON.stringify({ x, y, target, menu, misspelled: params?.misspelledWord, suggestions: params?.dictionarySuggestions, link: params?.linkURL, media: params?.mediaType }));
+}
+ws.close(); process.exit(0);
