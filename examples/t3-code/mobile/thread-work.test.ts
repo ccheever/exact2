@@ -27,6 +27,45 @@ function clientFor(rows: Obj[]) {
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, value: {}, generation: 1 }; } };
 const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
 
+test('command Copy uses original wire data and schema order before and after fetching output', async () => {
+  const row = projected({ input: '/bin/zsh -lc pwd', output: 'withheld inline output', outputOmitted: true, exitCode: 0,
+    nativeItemRef: { strength: 'strong', nativeId: 'exec-id', driver: 'codex' } });
+  const client = clientFor([row]), collapsed = { ...activity, detailOpen: false, label: 'pwd' };
+  const before = mobileThreadActivity(collapsed, row, client, now, false, '', 'visit');
+  const configuration = JSON.parse(before.nativeWorkRow);
+  expect(configuration).toMatchObject({ label: 'pwd', symbol: 'terminal', expanded: false, expandable: true });
+  expect(before.nativeWorkDetail).toBe(false);
+  expect(configuration.copyText.startsWith('Command\n/bin/zsh -lc pwd\n{')).toBe(true);
+  const copiedItem = JSON.parse(configuration.copyText.slice(configuration.copyText.indexOf('{'))).item;
+  expect(copiedItem.output).toBeUndefined(); expect(copiedItem.outputOmitted).toBe(true);
+  expect(Object.keys(copiedItem.nativeItemRef)).toEqual(['driver', 'nativeId', 'strength']);
+  expect(Object.keys(copiedItem).slice(-4)).toEqual(['type', 'input', 'outputOmitted', 'exitCode']);
+  client.rpc = async () => ({ item: { ...row.item, output: 'actual fetched output', outputOmitted: false } });
+  setTurnItemOpen(client, activity.id, true); await refreshNextOpenTurnItemDetail(client, native, now);
+  const after = mobileThreadActivity({ ...activity, label: 'pwd' }, row, client, now, false, '', 'visit');
+  expect(after).toMatchObject({ call: true, body: '/bin/zsh -lc pwd', output: 'actual fetched output', nativeWorkDetail: false });
+  expect(JSON.parse(after.nativeWorkRow).copyText).toBe(configuration.copyText);
+});
+
+test('command Copy capitalizes its original summary and removes duplicate copy parts', () => {
+  const row = projected({ title: '  pwd  ', input: 'Pwd', output: 'not copied' });
+  const client = clientFor([row]);
+  const configuration = JSON.parse(mobileThreadActivity({ ...activity, label: 'pwd' }, row, client, now, true, '', 'visit').nativeWorkRow);
+  expect(configuration.copyText.startsWith('Pwd\n{')).toBe(true);
+  expect(configuration.copiedColor).toBe('#00d492');
+  expect(JSON.parse(configuration.copyText.slice(configuration.copyText.indexOf('{'))).item.title).toBe('  pwd  ');
+});
+
+test('non-expandable commands can copy while presentation stays scoped to the root route visit', () => {
+  const row = projected({ input: 'pwd' }), client = clientFor([row]);
+  const props = { ...activity, detailOpen: false, expandable: false, label: 'pwd' };
+  const first = JSON.parse(mobileThreadActivity(props, row, client, now, false, '', 'first-visit').nativeWorkRow);
+  const second = JSON.parse(mobileThreadActivity(props, row, client, now, false, '', 'second-visit').nativeWorkRow);
+  expect(first.expandable).toBe(false); expect(first.copyText).toBe(second.copyText);
+  expect(first.owner).not.toBe(second.owner); expect(first.routeKey).toBe('first-visit');
+  expect(client.draft).toBe(''); expect(client.threadId).toBe('thread');
+});
+
 test('failed provider errors show their actual message despite being non-expandable', () => {
   const row = projected({ type: 'error', status: 'failed', failure: { class: 'provider', message: 'Provider stopped unexpectedly' } });
   const client = clientFor([row]);
@@ -239,7 +278,7 @@ test('native copy ownership changes with a route visit or live server scope, whi
   client.generation++; expect(configuration().owner).not.toBe(initial.owner);
   const reconnected = configuration(); client.threadEpoch++; expect(configuration().owner).not.toBe(reconnected.owner);
   const current = configuration(); client.environmentId = 'other-env'; expect(configuration().owner).not.toBe(current.owner);
-  expect(mobileThreadActivity(activity, projected({}), client, now, false, '').nativeWorkRow).toBe('');
+  expect(mobileThreadActivity(activity, projected({ type: 'reasoning' }), client, now, false, '').nativeWorkRow).toBe('');
 });
 
 

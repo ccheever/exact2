@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 struct T3WorkRowConfiguration: Decodable, Equatable {
     let id: String; let owner: String; let routeKey: String; let label: String; let copyText: String
-    let expanded: Bool; let copiedColor: String
+    let expanded: Bool; let expandable: Bool; let symbol: String; let copiedColor: String
     static func read(_ props: [String: String]) throws -> Self {
         guard let bytes = props["configuration"]?.data(using: .utf8),
               let result = try? JSONDecoder().decode(Self.self, from: bytes),
@@ -116,13 +116,15 @@ private final class T3WorkRow: ExactNativeInstance, T3CopiedWorkRow {
         if config?.owner != next.owner { resetCopied() }
         config = next
         button.label.text = next.label; button.label.textColor = muted
-        button.icon.image = UIImage(systemName: "bolt", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .medium))
+        button.icon.image = UIImage(systemName: next.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .medium))
         button.icon.tintColor = iconColor
         button.chevron.image = UIImage(systemName: next.expanded ? "chevron.up" : "chevron.down",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .regular))
-        button.chevron.tintColor = iconColor; button.subtle = subtle; button.copied.textColor = copiedColor
+        button.chevron.tintColor = iconColor; button.chevron.isHidden = !next.expandable
+        button.subtle = subtle; button.copied.textColor = copiedColor
         button.accessibilityLabel = next.label; button.accessibilityIdentifier = "thread-work-\(next.id)"
-        if #available(iOS 18, *) { button.accessibilityExpandedStatus = next.expanded ? .expanded : .collapsed }
+        button.accessibilityHint = "Long press to copy."
+        if #available(iOS 18, *) { button.accessibilityExpandedStatus = next.expandable ? (next.expanded ? .expanded : .collapsed) : .unsupported }
         button.isEnabled = alive && !next.routeKey.isEmpty; button.setNeedsLayout()
     }
     private func current() -> T3WorkRowConfiguration? {
