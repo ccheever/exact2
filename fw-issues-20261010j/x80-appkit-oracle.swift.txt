@@ -1,0 +1,67 @@
+// X80 oracle: hand-built AppKit rows with NSTrackingArea hover. Column A uses the
+// options the Exact host uses (NodeViewMac.syncHoverTracking); column B adds
+// .enabledDuringMouseDrag. Each row handles its own mouseDown/Dragged/Up, as an
+// Exact node does. A real drag (cliclick) runs over each column; the log says
+// which rows heard mouseEntered/mouseExited and with which buttons down.
+import AppKit
+
+var log: [String] = []
+func note(_ s: String) {
+    log.append(s)
+    try? (log.joined(separator: " ") + "\n").write(toFile: CommandLine.arguments[1], atomically: true, encoding: .utf8)
+}
+
+final class Row: NSView {
+    let name: String
+    let options: NSTrackingArea.Options
+    let handlesPress: Bool
+    var drags = 0
+    init(_ name: String, _ frame: NSRect, _ options: NSTrackingArea.Options, handlesPress: Bool = true) {
+        self.name = name; self.options = options; self.handlesPress = handlesPress
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0.9, alpha: 1).cgColor
+        let label = NSTextField(labelWithString: name)
+        label.frame = NSRect(x: 12, y: 10, width: 60, height: 20)
+        addSubview(label)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil))
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+    func paint(_ on: Bool) { layer?.backgroundColor = (on ? NSColor.systemBlue : NSColor(white: 0.9, alpha: 1)).cgColor }
+    override func mouseEntered(with e: NSEvent) { paint(true); note("\(name)+\(NSEvent.pressedMouseButtons)") }
+    override func mouseExited(with e: NSEvent) { paint(false); note("\(name)-\(NSEvent.pressedMouseButtons)") }
+    override func mouseDown(with e: NSEvent) { if handlesPress { note("\(name)v") } else { super.mouseDown(with: e) } }
+    override func mouseDragged(with e: NSEvent) { if handlesPress { drags += 1 } else { super.mouseDragged(with: e) } }
+    override func mouseUp(with e: NSEvent) { if handlesPress { note("\(name)^(drags \(drags))"); drags = 0 } else { super.mouseUp(with: e) } }
+}
+
+final class Flipped: NSView { override var isFlipped: Bool { true } }
+
+let app = NSApplication.shared
+app.setActivationPolicy(.regular)
+let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1000, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+window.title = "X80 AppKit oracle"
+let content = Flipped(frame: NSRect(x: 0, y: 0, width: 1000, height: 300))
+window.contentView = content
+let plain: NSTrackingArea.Options = [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect]
+for i in 1...5 {
+    content.addSubview(Row("A\(i)", NSRect(x: 24, y: 24 + 41 * CGFloat(i - 1), width: 200, height: 40), plain))
+    content.addSubview(Row("B\(i)", NSRect(x: 264, y: 24 + 41 * CGFloat(i - 1), width: 200, height: 40), plain.union(.enabledDuringMouseDrag)))
+    content.addSubview(Row("C\(i)", NSRect(x: 504, y: 24 + 41 * CGFloat(i - 1), width: 200, height: 40), plain.union(.enabledDuringMouseDrag), handlesPress: false))
+    content.addSubview(Row("D\(i)", NSRect(x: 744, y: 24 + 41 * CGFloat(i - 1), width: 200, height: 40), plain, handlesPress: false))
+}
+window.makeKeyAndOrderFront(nil)
+app.activate(ignoringOtherApps: true)
+var trace: [String] = []
+NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .mouseMoved, .mouseEntered, .mouseExited]) { e in
+    let kind: String
+    switch e.type { case .leftMouseDown: kind = "down"; case .leftMouseDragged: kind = "drag"; case .leftMouseUp: kind = "up"; case .mouseMoved: kind = "move"; case .mouseEntered: kind = "enter"; case .mouseExited: kind = "exit"; default: kind = "?" }
+    trace.append("\(kind)@\(Int(e.locationInWindow.y))")
+    try? (trace.joined(separator: " ") + "\n").write(toFile: CommandLine.arguments[1] + ".trace", atomically: true, encoding: .utf8)
+    return e
+}
+note("ready")
+DispatchQueue.main.asyncAfter(deadline: .now() + 900) { app.terminate(nil) }
+app.run()
