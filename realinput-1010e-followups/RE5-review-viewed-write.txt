@@ -1,0 +1,47 @@
+realinput-1010e-followups RE-5, review of PR #406 (2026-10-10): the Code tab's other two paths, and the Viewed write routed
+
+The review found two RE-5 paths without a test (diffFileContents read through the listing server; setFilesViewed sent to a
+background server, with the requeue when that server is not connected) and setFilesViewed sent unrouted to the listing
+server's transport, where the reference routes it (packages/client-runtime/src/state/pullRequestRouting.ts lists
+pullRequestsSetFilesViewed in `writes`; state/pullRequests.ts setFilesViewed: execute = routedRequest(...)).
+
+Change (pages-pr-code.ts flushViewed, pages-pr-routing.ts PullRequestRouter.dispatch / afterWrite):
+- The flush routes the write from the pull request's own server as `request` routes a write: the identity probes, the
+  reference's candidate order, a server that cannot take it before it leaves passing it to the next. `send` puts it on the
+  chosen server detached (composer-replies.ts on the focused connection, usage-replies.ts on a background one), so no answer
+  waits on it, as before.
+- The readers' invalidations (the reference's `finish`: `filesViewedOnly` to every server read through for the pull
+  request) run after the host accepted the write, in the panel's next answer (`afterWrite`), before the read that follows.
+- No server that can take it now: the batch waits for the next flush (as the PR did for a server that is not connected).
+- Declared (EXACT2-GAPS, X19 #124): a refusal that comes back in the reply (an alternate's guard that saw another account
+  after its probe) fails the batch where the reference passes the write to the next server.
+
+Tests, examples/t3-code/realinput-1010e-followups.test.ts (RE-5) and pages-pr-routing.test.ts ("a routed write sent
+detached"):
+
+Feature tip 4c13b440f's sources (pages-pr-code/-environments/-detail/-routing.ts), the new RE-5 file:
+(fail) RE-5: the Code tab reads the pull request on the server it was listed on > the diff (POST /api/pull-requests/diff) and the Viewed read go to the paired server, none to the focused one [7.53ms]
+(fail) RE-5: the Code tab reads the pull request on the server it was listed on > a hidden range's file contents (pullRequests.diffFileContents) are read through the paired server [1.92ms]
+(fail) RE-5: the Code tab reads the pull request on the server it was listed on > a Viewed tick (pullRequests.setFilesViewed) is sent detached to the paired server, and the marks are read there again once it landed [1.87ms]
+(fail) RE-5: the Code tab reads the pull request on the server it was listed on > a Viewed tick waits while the paired server is not connected, then goes to it [1.26ms]
+(fail) RE-5: the Viewed write is routed as the reference routes it > through the local server with the same GitHub account, guarded; the readers are told after GitHub took it [1.62ms]
+ 1 pass
+ 5 fail
+
+PR head 5ef222487's sources (the write unrouted on the listing server's transport), the new RE-5 file:
+(fail) RE-5: the Viewed write is routed as the reference routes it > through the local server with the same GitHub account, guarded; the readers are told after GitHub took it [3.49ms]
+ 5 pass
+ 1 fail
+  (the write went to "lane" without expectedAccountId; the reference writes through the local server with the same
+  account, guarded)
+
+This head, both files:
+ 101 pass
+ 0 fail
+Ran 101 tests across 2 files. [189.00ms]
+
+Mutation checks on this head (each restored afterwards):
+- dispatch replaced by a send to the listing server: "routed as the reference routes it" fails.
+- diffFileContents through client.call (the focused server) and the write by startDetached on the focused connection:
+  the contents, the Viewed write and the requeue tests fail.
+- the requeue removed: "a Viewed tick waits while the paired server is not connected, then goes to it" fails.
