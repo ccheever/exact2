@@ -1,0 +1,57 @@
+// X82: the Exact web (JS target) in Chrome. The probes are mounted in light ("Mount"), then prefers-color-scheme is
+// switched live with CDP Emulation.setEmulatedMedia; each probe text's computed colour (and each run's) is read before
+// and after, and on a page loaded fresh in dark.
+// Usage: bun x82-chrome-scheme-probe.mjs <web-dist dir> <out dir>
+import { chromium } from '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-issue-x82/node_modules/playwright-core/index.mjs';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const [dist, out] = process.argv.slice(2);
+const server = Bun.serve({
+  port: 0,
+  fetch(req) {
+    const path = decodeURIComponent(new URL(req.url).pathname);
+    const file = join(dist, path);
+    if (existsSync(file) && statSync(file).isFile()) return new Response(Bun.file(file));
+    return new Response(Bun.file(join(dist, 'index.html')));
+  },
+});
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const read = page => page.evaluate(() => {
+  const out = { 'root background': getComputedStyle(document.querySelector('[data-testid=root]')).backgroundColor };
+  for (const e of document.querySelectorAll('[data-testid^="s-"], [data-testid^="u-"]')) {
+    const id = e.dataset.testid;
+    if (/^u-(btn|ibtn|small-btn)-|^u-pressable$|^s-list$/.test(id)) continue;
+    out[id] = getComputedStyle(e).color;
+    [...e.querySelectorAll('*')].filter(r => r.children.length === 0 && r.textContent.trim()).forEach((r, i) => { out[`${id} run ${i}`] = getComputedStyle(r).color; });
+  }
+  return out;
+});
+const scheme = (cdp, value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
+const open = async start => {
+  const context = await browser.newContext({ viewport: { width: 1000, height: 800 } });
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await scheme(cdp, start);
+  await page.goto(`http://localhost:${server.port}/`);
+  await page.locator('[data-testid=mount]').click();
+  await page.locator('[data-testid=u-small-3]').waitFor();
+  return { page, cdp };
+};
+const { page, cdp } = await open('light');
+console.log('chrome', browser.version(), '| JS target:', await page.evaluate(() => !!document.querySelector('script[type=module]')));
+const light = await read(page);
+await page.screenshot({ path: join(out, 'x82-web-light.png') });
+await scheme(cdp, 'dark');
+await page.waitForTimeout(1500);
+const live = await read(page);
+const matches = await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches);
+await page.screenshot({ path: join(out, 'x82-web-live-dark.png') });
+const fresh = await open('dark');
+const dark = await read(fresh.page);
+await fresh.page.screenshot({ path: join(out, 'x82-web-fresh-dark.png') });
+console.log(`matchMedia('(prefers-color-scheme: dark)') after the live switch: ${matches}`);
+console.log(['text', 'mounted in light', 'live switch to dark (+1.5 s)', 'loaded fresh in dark'].join(' | '));
+for (const k of Object.keys(light)) console.log([k, light[k], live[k], dark[k]].join(' | '));
+await browser.close();
+server.stop(true);

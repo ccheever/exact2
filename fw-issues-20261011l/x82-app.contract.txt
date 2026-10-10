@@ -1,0 +1,64 @@
+// X82: which texts follow a live colour-scheme switch on macOS. Every probe text is
+// `light-dark(#d00000, #00b4ff)`: red in light, blue in dark, on a `light-dark(#ffffff, #111111)` page.
+// "Mount" mounts the probes, so their first pixels are drawn in the scheme of that moment.
+fn inkOf(cls: string): string = cls == "kw" ? "light-dark(#d00000, #00b4ff)" : "light-dark(#d00000, #00b4ff)"
+
+component X82app
+  state shown = false
+  action toggle
+    shown = not shown
+  view
+    main testId="root" width="100%" height="100%" padding=16 box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" display="flex" flex-direction="row" gap=24
+      column width=440 gap=4
+        button "Mount" press=toggle testId="mount"
+        when shown
+          text "Selectable text" font-size=11 color="#888888"
+          text "S1 plain MMMMMMMMMMMM" color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId="s-plain"
+          column color="light-dark(#d00000, #00b4ff)"
+            text "S2 inherited MMMMMMMM" font-size=13 font-weight=700 testId="s-inherited"
+          Ink(label="S3 component prop MMMM", ink="light-dark(#d00000, #00b4ff)", tid="s-prop")
+          text font-size=13 font-weight=700 testId="s-run"
+            text "S4 "
+            text "run in a paragraph MMMMM" color="light-dark(#d00000, #00b4ff)"
+          list virtualized=true testId="s-list" height=72 width=420 estimated-item-height=24
+            each n in [1, 2, 3] key=n
+              row height=24 align-items="center"
+                text `S5 virtualized row ${n} MMMM` color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId=`s-row-${n}`
+          text "Not selectable on macOS (a control's label, user-select none, a pressable ancestor, a tree)" font-size=11 color="#888888"
+          each n in [1, 2, 3] key=n
+            button press=toggle width=420 height=22 padding-left=0 border-width=0 background-color="#00000000" display="flex" align-items="center" testId=`u-btn-${n}`
+              text `U1 button label ${n} MMMMMMM` flex=1 text-align="left" color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId=`u-label-${n}`
+          each n in [1, 2, 3] key=n
+            text `U2 user-select none ${n} MMMMMM` user-select="none" color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId=`u-none-${n}`
+          column press=toggle width=420 testId="u-pressable"
+            each n in [1, 2, 3] key=n
+              CodeLine(n=n)
+          column role="tree" width=420
+            each n in [1, 2, 3] key=n
+              text `U4 in role tree ${n} MMMMMMMMM` color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId=`u-tree-${n}`
+          each n in [1, 2, 3] key=n
+            button press=toggle width=420 height=22 padding-left=0 border-width=0 background-color="#00000000" color="light-dark(#d00000, #00b4ff)" display="flex" align-items="center" testId=`u-ibtn-${n}`
+              text `U5 inherited in a button ${n} MMM` flex=1 text-align="left" font-size=13 font-weight=700 testId=`u-inh-${n}`
+          text "Not selectable, but too small to raster" font-size=11 color="#888888"
+          row gap=8
+            each n in [1, 2, 3] key=n
+              button press=toggle height=22 padding=0 border-width=0 background-color="#00000000" testId=`u-small-btn-${n}`
+                text `M${n}` color="light-dark(#d00000, #00b4ff)" font-size=13 font-weight=700 testId=`u-small-${n}`
+
+component Ink
+  props
+    label: string
+    ink: string
+    tid: string
+  view
+    text label color=ink font-size=13 font-weight=700 testId=tid
+
+component CodeLine
+  props
+    n: number
+  view
+    row width="100%"
+      text `${n}` width=24 flex-shrink=0 text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left=8 font-family="ui-monospace" font-size=13 font-weight=700 line-height="20px" white-space="pre" color="light-dark(#d00000, #00b4ff)" testId=`u-code-${n}`
+        each cls in ["kw", "x"] key=cls
+          text (cls == "kw" ? "U3 code " : `under a pressable ${n} MM`) color=inkOf(cls)

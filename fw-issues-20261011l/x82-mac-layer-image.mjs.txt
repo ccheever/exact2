@@ -1,0 +1,22 @@
+// X82: a picture of what the macOS host's layers hold after a live switch, one sample per view point. The window
+// server gave this session no picture of the window (`screenshot … window`), and the agent's plain `screenshot`
+// redraws every text through `draw`, so neither shows a stale raster. Each band is its own launch of the app, driven
+// the same way: Mount (light), `prefer prefers-color-scheme dark`, 1.5 s, then `sample` over the band.
+// Usage: bun x82-mac-layer-image.mjs <app dir> <out json> [scheme=dark]
+import { spawnSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const [app, out, scheme = 'dark'] = process.argv.slice(2);
+const [x0, x1, y0, y1, band] = [16, 336, 16, 626, 122];
+const rows = [];
+for (let top = y0; top < y1; top += band) {
+  const pts = [];
+  for (let y = top; y < Math.min(y1, top + band); y++) for (let x = x0; x < x1; x++) pts.push(x, y);
+  const ops = ['tap mount', 'clock +1000 real', `prefer prefers-color-scheme ${scheme}`, 'clock +1500 real', 'sample ' + pts.join(' '), 'prefer prefers-color-scheme light'];
+  const r = spawnSync(process.execPath, ['exact.mjs', 'agent', 'macos', '--size', '1000x800', ...ops], { cwd: app, encoding: 'utf8', maxBuffer: 1 << 28 });
+  const line = r.stdout.split('\n').find(l => l.includes('"extended-linear-srgb"'));
+  if (!line) { console.log('band', top, 'failed', r.status, (r.stdout + r.stderr).slice(-800)); process.exit(1); }
+  const values = JSON.parse(line).values;
+  for (let i = 0; i < values.length; i++) { const k = Math.floor(i / (x1 - x0)); (rows[top - y0 + k] ??= []).push(values[i]); }
+  console.log('band', top, 'ok', values.length);
+}
+writeFileSync(out, JSON.stringify({ x0, y0, width: x1 - x0, height: y1 - y0, space: 'extended-linear-srgb', scheme, rows }));

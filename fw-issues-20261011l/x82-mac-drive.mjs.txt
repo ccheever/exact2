@@ -1,0 +1,64 @@
+// X82: drive the one-file app on macOS. Each probe text's ink is read with the agent's `sample`, a render of the
+// view's layers (so a text raster's surface is what is read, as the window shows it). The agent's own `screenshot`
+// (without `window`) redraws every text through `draw`, so it cannot see a stale raster.
+// Usage: [START=dark] SEQ=dark,light,remount bun x82-mac-drive.mjs <app dir> <out dir> <label> [ops before the first sample…]
+// PRE ops run first (default: "tap mount", which mounts the probes in the agent's light scheme).
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
+const [app, out, label, ...given] = process.argv.slice(2);
+const pre = given.length ? given : ['tap mount'];
+const size = '1000x800';
+const agent = ops => spawnSync(process.execPath, ['exact.mjs', 'agent', 'macos', '--size', size, ...ops], { cwd: app, encoding: 'utf8', maxBuffer: 1 << 28 });
+// Frames (view points) from the agent's `layout`, after the same PRE ops.
+const first = agent([...pre, 'clock +1000 real', 'layout']);
+const texts = [];
+for (const m of first.stdout.matchAll(/\[([^\]]+)\] Text ([\d.]+),([\d.]+) ([\d.]+)×([\d.]+)/g)) {
+  const [, id, x, y, w, h] = m;
+  if (/^(s|u)-/.test(id)) texts.push([id, +x, +y, +w, +h]);
+}
+if (!texts.length) { console.log(first.stdout + first.stderr); process.exit(1); }
+const points = [];
+for (const [id, x, y, w, h] of texts) {
+  for (const dy of [0.4, 0.55]) for (let px = x + 1; px < Math.min(x + w, x + 1 + 160); px++) points.push([id, px, Math.round(y + h * dy)]);
+}
+const sampleOp = 'sample ' + points.map(p => `${p[1]} ${p[2]}`).join(' ');
+const seq = (process.env.SEQ ?? 'dark').split(',');
+const ops = [...pre, 'clock +1000 real', sampleOp, `screenshot ${join(out, `${label}-0-mounted-capture.png`)}`];
+// A SEQ entry is a scheme to switch to, or `remount` (the probes unmounted and mounted again, in the current scheme).
+const start = process.env.START ?? 'light';
+let current = start;
+const schemes = seq.map(step => (current = step === 'remount' ? current : step));
+seq.forEach((step, i) => ops.push(...(step === 'remount' ? ['tap mount', 'clock +500 real', 'tap mount'] : [`prefer prefers-color-scheme ${step}`]),
+  'clock +1500 real', sampleOp, 'clock +5000 real', sampleOp, `screenshot ${join(out, `${label}-${i + 1}-${step}-capture.png`)}`));
+if (current !== 'light') ops.push('prefer prefers-color-scheme light');
+const r = agent(ops);
+writeFileSync(join(out, `${label}-agent.txt`), r.stdout + r.stderr);
+const samples = r.stdout.split('\n').filter(l => l.includes('"extended-linear-srgb"')).map(l => JSON.parse(l).values);
+if (samples.length !== 2 * seq.length + 1) { console.log('agent exit', r.status, (r.stdout + r.stderr).slice(-1500)); process.exit(1); }
+// Each sampled point is red (#d00000, the light half), blue (#00b4ff, the dark half) or neither (background, edges).
+const verdict = values => {
+  const byId = {};
+  points.forEach(([id], i) => {
+    const [R, G, B] = values[i];
+    const tally = (byId[id] ??= { red: 0, blue: 0 });
+    if (R > 0.15 && R > 3 * B && R > 3 * G) tally.red++;
+    else if (B > 0.25 && B > 2 * R) tally.blue++;
+  });
+  return byId;
+};
+const states = samples.map(verdict);
+const say = t => t.red && !t.blue ? `RED r${t.red}` : t.blue && !t.red ? `blue b${t.blue}` : `mixed r${t.red} b${t.blue}`;
+const expect = [start, ...schemes.flatMap(x => [x, x])].map(x => x === 'dark' ? 'blue' : 'RED');
+const lines = [
+  `${label}: macOS, ink of each probe text read with the agent's sample (a render of the view's layers).`,
+  'RED is the light half #d00000, blue the dark half #00b4ff; r/b count the sampled points of that ink.',
+  `ops before the first sample: ${pre.join(' ; ')}`,
+  ['text', `mounted (${start})`, ...seq.flatMap((x, i) => [`${i + 1}: ${x === 'remount' ? 'remount' : `prefer ${x}`}, +1.5 s`, `+6.5 s`])].join(' | '),
+];
+for (const [id] of texts) {
+  const cells = states.map((st, i) => { const v = say(st[id]); return v.startsWith(expect[i]) ? v : `${v}  <-- OLD SCHEME`; });
+  lines.push([id, ...cells].join(' | '));
+}
+writeFileSync(join(out, `${label}-verdict.txt`), lines.join('\n') + '\n');
+console.log(lines.join('\n'));

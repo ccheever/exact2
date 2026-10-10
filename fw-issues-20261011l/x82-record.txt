@@ -1,0 +1,110 @@
+X82: on macOS, after a live colour-scheme switch, a rastered text that is not selectable keeps the old half of its
+`light-dark()` colour until it mounts again (T3 clone, from diff-gutter-selection-followups, T3 PR #417 observation 3)
+Revision: exact2 main e2c6fcc4318e1e47e21e5fd4df7a872f01f468ef. macOS 26.6.2 (25G83), Apple Silicon, a 2x display.
+Chrome 155.0.8059.39 (Playwright's launch of /Applications/Google Chrome.app, headless).
+The Mac's own appearance is Dark and was not changed. The agent pins light at its first operation (Agent.init,
+`systemScheme(dark: false)`), so a drive starts light.
+
+App: `bun scripts/exact.mjs new <dir>` on that revision; app.ts exports an empty `sources`; app.contract is
+x82-app.contract.txt beside this file (`contract build`: no diagnostic). Every probe text is
+`light-dark(#d00000, #00b4ff)` (red in light, blue in dark) on a `light-dark(#ffffff, #111111)` page, 13 px bold.
+"Mount" mounts the probes, so their first pixels are drawn in the scheme of that moment.
+  S1-S5  selectable texts: plain own colour; inherited from a column; a component prop (`Ink(ink=…)`); a coloured run
+         in a paragraph; the rows of a `list virtualized=true`
+  U1-U5  texts the Mac host counts as not selectable (TextSelectionMac.swift `textSelectable`), three each: a button's
+         label; `user-select="none"`; a paragraph of runs under a container with `press=` (as the clone's Files
+         surface lines); under `role="tree"`; a button's label inheriting the button's `color`
+  small  three button labels too small to raster (`M1`-`M3`)
+Each U text is 420 points wide or more, so on a 2x display it rasterizes (TextRasterizer.minPixels 16384).
+
+How the colours were read
+- Web: `getComputedStyle(e).color` of each probe and each run, and Chrome's own screenshots.
+- macOS: the agent's `sample <x> <y> …`, which renders the view's layers (`layer.render(in:)`), so a text's raster
+  surface is what is read, at 1 point per sample. The agent's plain `screenshot` cannot show this gap: it captures
+  the view by drawing every text again through `draw` (Capture), with the current colours
+  (x82-macos-agent-screenshot-live-dark.png shows every text right). `screenshot … window` (the window server's
+  picture) is what T3 PR #417 used; on this run the window server gave no picture of the window ("a display that
+  is asleep or a locked screen"; neither was the case, the window was likely not on the visible Space), so the
+  layer render stands in for it.
+- A sample point counts as red (R > 0.15, R > 3B, R > 3G) or blue (B > 0.25, B > 2R) in linear sRGB; the counts
+  are the 2 x 160 points across each text's middle.
+
+1. Exact web, JS target (`bun exact.mjs web-build`), Chrome 155 (x82-chrome-scheme-probe.mjs.txt):
+   mounted in light, then CDP Emulation.setEmulatedMedia prefers-color-scheme dark, 1.5 s; then a page loaded fresh
+   in dark. matchMedia('(prefers-color-scheme: dark)') true after the switch.
+     every probe and every run: rgb(208, 0, 0) mounted in light -> rgb(0, 180, 255) after the live switch
+                                -> rgb(0, 180, 255) fresh in dark (S4's uncoloured "S4 " run black -> white -> white)
+     root background: rgb(255, 255, 255) -> rgb(17, 17, 17) -> rgb(17, 17, 17)
+   -> the web takes the dark half everywhere on a live switch.
+
+2. macOS drive A (x82-mac-drive.mjs.txt): `bun exact.mjs agent macos --size 1000x800 "tap mount" "clock +1000 real"
+   sample… "prefer prefers-color-scheme dark" "clock +1500 real" sample… "clock +5000 real" sample…
+   "prefer prefers-color-scheme light" "clock +1500 real" sample… "clock +5000 real" sample…`
+   text        | mounted (light) | prefer dark +1.5 s | +6.5 s    | prefer light +1.5 s | +6.5 s
+   S1-S5 (7)   | red             | blue               | blue      | red                 | red
+   u-label-1..3| red             | RED (old)          | RED (old) | red                 | red
+   u-none-1..3 | red             | RED (old)          | RED (old) | red                 | red
+   u-code-1..3 | red             | RED (old)          | RED (old) | red                 | red
+   u-tree-1..3 | red             | RED (old)          | RED (old) | red                 | red
+   u-inh-1     | red             | RED (old)          | RED (old) | red                 | red
+   u-inh-2, -3 | red             | blue               | blue      | red                 | red
+   u-small-1..3| red             | blue               | blue      | red                 | red
+   -> after the live switch to dark, 13 of the 15 rastered unselectable texts keep the light half, and stay so 6.5 s
+      later. Every selectable text, the two others and the small labels take the dark half. (Back in light, the old
+      pixels are right again.) The same two (u-inh-2, u-inh-3) were replaced in every run of this app.
+   Image: x82-live-switch-web-macos.png (left, Chrome after the live switch; right, the macOS layers after the live
+   switch, x82-mac-layer-image.mjs.txt: the same drive in five launches, one band of 122 rows each, composed by
+   x82-compose.py.txt); x82-macos-layers-live-dark.png is the right half alone.
+
+3. macOS drive B, the other direction and a remount: `"prefer prefers-color-scheme dark" "clock +500 real" "tap mount"`,
+   then `prefer prefers-color-scheme light`, then "tap mount" "clock +500 real" "tap mount" (unmounted and mounted
+   again, in light)
+   text        | mounted (dark) | prefer light +1.5 s | +6.5 s    | remount +1.5 s | +6.5 s
+   S1-S5 (7)   | blue           | red                 | red       | red            | red
+   U1-U4, u-inh-1 (13) | blue   | BLUE (old)          | BLUE (old)| red            | red
+   u-inh-2, -3 | blue           | red                 | red       | red            | red
+   u-small-1..3| blue           | red                 | red       | red            | red
+   -> the same 13 keep the dark half on a dark-to-light switch, and a remount draws them right.
+
+4. The first versions of the app (no Mount; the probes drawn at launch) showed the same at the agent's own switch:
+   the app's first pixels are drawn in the Mac's Dark before the agent pins light, and the labels of buttons inside a
+   `scroll` kept #00b4ff on the white page in light (one of three; after a "tap" on a row, all three), while every
+   selectable text and the virtualized rows turned red. So on a Mac in Dark, a drive's light window can show such
+   labels dark from the start. Each reproduced on its first drive.
+
+Code read (main e2c6fcc43), host/apple/Sources/ExactKit:
+  Mac/NodeViewMac.swift:761-781 `viewDidChangeEffectiveAppearance` -> `reapplyColors` -> `invalidateText()`.
+  NodeText.swift:56-71 `invalidateText`: `textRasterKey = nil`; "The old pixels stay up until the new ones replace
+    them."
+  Mac/NodeViewMac.swift:961-980 `updateLayer` (a rastered text answers `wantsUpdateLayer`):
+    `textRasters.ensure(self, urgent: visible)`, then `if textRaster != nil { presentTextRaster() }`, the old surface.
+  Mac/TextRasterMac.swift:38-39, 66-91 `ensure`: `firstPixels` is false while an old surface exists, and
+    `guard firstPixels || active < Self.maxConcurrent else { return false }` (maxConcurrent 2). A worker gives its
+    slot back on the main queue after it renders (:88), so one display pass replaces at most two paragraphs and
+    declines the rest.
+  Mac/PresenterMac.swift:226-283 `refreshVisibleText`, the pump that asks again: its candidates are
+    `TextViewportIndex(selection.paragraphs)` (:230, :234), and both `replaceVisible` (:240) and the
+    `needsTextRaster && rastersText` loop (:242) see only those.
+  Mac/TextSelectionMac.swift:58-74 `paragraphs` keeps only `selectable` ones (:65, :152 -> `textSelectable`,
+    :382-420: an authored `user-select: none`; a pressable, a button, a control or a control role above; a header,
+    nav, footer, toolbar, tablist, menubar, menu, listbox or tree above).
+  -> a declined unselectable paragraph is never asked again; its old surface stays until something else marks the
+     view for display (a remount, a resize, a change to its own text or style). A selectable one is picked up by the
+     pump. A text under TextRasterizer.minPixels (`textIsSmall`, TextRasterMac.swift:210) never rasters: `draw`
+     paints it with the new colours, which is why the clone's line number 2 and these `M1`-`M3` follow.
+  The clone (T3 PR #417, Files surface): the code lines sit under `column … press=local("surface-files-begin-edit", …)`
+    (`r4-surfaces-files.contract`, `file-lines`) and the tree's labels are `button role="treeitem"` under
+    `role="tree"`: both unselectable on the Mac, and both wide enough to raster. Line 1's code and `.agents` kept
+    their light colour, `.claude` (one of the two replaced) and the small number 2 took the dark one.
+
+Main PR #327 (head 14493d25343529c47938085263935d5b30535071), read from its diff, not run: its TextRasterMac.swift
+hunk drops a raster in `textRasterGeometryChanged` when the node can no longer raster (issue #316's case) and
+`dropTextRaster` clears `layer.contents` always; it does not touch `ensure`, `invalidateText`,
+`viewDidChangeEffectiveAppearance`, `refreshVisibleText` or `TextSelection.paragraphs`. A scheme switch changes no
+geometry. -> #327 does not change this.
+
+Not run: a real system appearance change (System Settings > Appearance, the only way here, is the user's setting
+and was not touched; read from code, the system's change reaches the same `viewDidChangeEffectiveAppearance` path
+as the agent's `NSApp.appearance`); `screenshot … window` (no picture from the window server on this run); iOS
+(TextRasterIOS has its own pump), tvOS, Linux, Windows; Firefox and WebKit; a colour change of three or more
+unselectable texts at once without a scheme switch (read from code: the same decline would leave all but two).

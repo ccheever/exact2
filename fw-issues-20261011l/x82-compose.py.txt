@@ -1,0 +1,32 @@
+# X82: one image, the Exact web (Chrome) and macOS after the same live switch to dark.
+# Usage: python3 -I x82-compose.py <web png> <mac layers json> <out png>
+import json, sys
+from PIL import Image, ImageDraw, ImageFont
+web_png, mac_json, out = sys.argv[1:4]
+m = json.load(open(mac_json))
+x0, y0, w, h = m['x0'], m['y0'], m['width'], m['height']
+def enc(c):
+    c = max(0.0, min(1.0, c))
+    return round(255 * (12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055))
+mac = Image.new('RGB', (w, h))
+px = mac.load()
+for y, row in enumerate(m['rows']):
+    for x, v in enumerate(row):
+        px[x, y] = (enc(v[0]), enc(v[1]), enc(v[2]))
+web = Image.open(web_png).convert('RGB').crop((x0, y0, x0 + w, y0 + h))
+S = 2
+web = web.resize((w * S, h * S), Image.NEAREST)
+mac = mac.resize((w * S, h * S), Image.NEAREST)
+font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 22)
+small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 17)
+pad, head = 24, 92
+img = Image.new('RGB', (pad * 3 + 2 * w * S, head + h * S + pad), (245, 245, 245))
+d = ImageDraw.Draw(img)
+d.text((pad, 16), 'Exact web (JS target), Chrome 155', fill=(20, 20, 20), font=font)
+d.text((pad, 48), 'mounted in light, then CDP prefers-color-scheme: dark (live): every text dark', fill=(70, 70, 70), font=small)
+d.text((pad * 2 + w * S, 16), 'macOS (main e2c6fcc43): its layers, agent sample', fill=(20, 20, 20), font=font)
+d.text((pad * 2 + w * S, 48), 'macOS 26.6.2, 1 pt a pixel; mounted in light, then the agent\'s prefer\nprefers-color-scheme dark (live), +1.5 s: red is the light half, kept', fill=(70, 70, 70), font=small)
+img.paste(web, (pad, head))
+img.paste(mac, (pad * 2 + w * S, head))
+img.save(out)
+print(out, img.size)
