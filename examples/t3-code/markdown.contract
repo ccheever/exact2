@@ -418,9 +418,11 @@ component TaskBox
 
 // Inline runs in one text node; only a web link keeps its href (a chip's
 // href is how its ChipView finds it, not a destination).
+// A web link's right-click is the app's link menu (ChatMarkdown's anchor onContextMenu; external-link-menu.ts).
 component ChatRuns
   inject
     linkOpen: action
+    linkMenu: action
   props
     runs: list<ChatRun>
     size: number
@@ -428,12 +430,12 @@ component ChatRuns
   view
     each run in runs key=run.id
       when run.mono and (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-        text run.text href=run.href press=linkOpen("link", run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       when run.mono and not ((run.kind == "link" or run.kind == "link-start") and webLink(run.href))
         text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       when not run.mono
         when (run.kind == "link" or run.kind == "link-start") and webLink(run.href)
-          text run.text href=run.href press=linkOpen("link", run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
+          text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
         when (run.kind == "link" or run.kind == "link-start") and not webLink(run.href)
           text run.text href=run.href font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
         when run.kind != "link" and run.kind != "link-start"
@@ -447,6 +449,7 @@ fn webLink(href: string): bool = startsWith(href, "http://") or startsWith(href,
 component FlowRuns
   inject
     linkOpen: action
+    linkMenu: action
   props
     runs: list<ChatRun>
     size: number
@@ -476,16 +479,18 @@ component FlowRuns
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
             PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start"
-          row flex-shrink=0 align-items="flex-start"
+        // Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost: `if (!href || !faviconHost)
+        // return;`); a mailto, irc, xmpp or fragment link is plain link text below, its click left to the shell's menu.
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start" and webLink(run.href)
+          row contextmenu=linkMenu(run.href) flex-shrink=0 align-items="flex-start"
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
               TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
             text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start"
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and not (run.kind == "link-start" and webLink(run.href))
           when run.kind == "link" and webLink(run.href)
-            text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+            text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
           when not (run.kind == "link" and webLink(run.href))
-            text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" or run.kind == "link-start" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
@@ -495,6 +500,7 @@ component PrLinkRun
   inject
     rem: number
     hoverTipAt: action
+    linkMenu: action
   props
     run: ChatRun
     chip: ChipView
@@ -508,7 +514,7 @@ component PrLinkRun
     if chip.target != ""
       local("pr-preview", chip.target, value ? "1" : "0")
   view
-    button id=`pr-link-${chip.id}` press=local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}`) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
+    button id=`pr-link-${chip.id}` press=local("pr-link-open", "", `${chip.detail}\n${chip.target}\n${run.href}`) contextmenu=linkMenu(run.href) hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer"
       when run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
           TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")

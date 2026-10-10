@@ -147,11 +147,15 @@ final class ContextMenuTests: XCTestCase {
     }
 }
 
-let suite = XCTestSuite(name: "Context menus, tab input and file menus")
+let suite = XCTestSuite(name: "Context menus, tab input, file menus and the shell's menu")
 suite.addTest(XCTestSuite(forTestCaseClass: ContextMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: TabInputTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: FileMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: TextContextMenuTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ShellPageMenuTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ShellTextMenuTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ShellTemplateTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: ShellWebMenuTests.self))
 suite.run()
 let run = suite.testRun!
 print("context menu tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
