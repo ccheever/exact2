@@ -18,7 +18,7 @@ import { mobileComposerFileHistoryProject, type ComposerFileHistory } from './co
 import type { HeldFile } from './composer-file-holds-io';
 import type { ComposerEditorDocument, ComposerEditorEvent } from './composer-editor-state';
 import { mobileComposerInsertContext, type MobileComposerInsertion } from './composer-context-insertion';
-import { mobileComposerAttachmentInventoryRead, mobileComposerAttachmentPublicationPrepare } from './composer-attachment-publication';
+import { mobileComposerAttachmentInventoryRead, mobileComposerAttachmentPublicationPrepare, mobileComposerAttachmentInventoryReplace } from './composer-attachment-publication';
 
 interface Scope { origin:string; environmentId:string; key:string }
 interface Entry extends Scope { incarnation:number; revision:number; text:string; context?:unknown }
@@ -575,44 +575,75 @@ function mountedContext(snapshot:ComposerSendDraftSnapshot):MobileMessageContext
 export function mobileComposerContextMountedRead(client:T3Client,target:MobileComposerTarget) {
   const raw=sendRaw(client,target);return raw?{ok:true as const,context:mountedContext(raw.snapshot)}:{ok:false as const};
 }
+/** Complete read before a mounted picker plan; no byte authority or write is implied. */
+export function mobileComposerContextPickerRead(client:T3Client,target:MobileComposerTarget) {
+  const raw=sendRaw(client,target);if(!raw)return null;
+  const read=mobileComposerAttachmentInventoryRead(raw.raw,{environmentId:target.environmentId,threadId:target.threadId,draftKey:target.key});
+  return read.ok?{text:raw.snapshot.text,context:mountedContext(raw.snapshot),contextRevision:raw.snapshot.contextRevision,attachments:read.attachments}:null;
+}
+/** Current serialized shape used only after an independently observed successful save.
+ * Native finish verifies it against the actual preferences under the deletion mutex. */
+export function mobileComposerContextPickerAfter(client:T3Client,target:MobileComposerTarget,key:string,incarnation:string) {
+  const raw=sendRaw(client,target),document=sendDocument(client,key);
+  return raw&&document&&!document.blocked&&document.incarnation===incarnation&&document.value===raw.snapshot.text
+    &&document.origin===raw.scope.origin&&document.environmentId===target.environmentId&&document.draftKey===target.key
+    ?sendAfter(document,raw.snapshot):null;
+}
+/** Reserved with an exact native CAS. Only the matching applied terminal may install it. */
+export interface ComposerPickerPublication {
+  before:import('./composer-attachment-publication').OrdinaryInventoryAttachment[];
+  after:import('./composer-attachment-publication').OrdinaryInventoryAttachment[];
+  added:Obj[];
+  context:MobileMessageContext|undefined;contextRevision:number;
+  published:boolean;applied:boolean|null;
+}
 /** Real mounted observation publication; caller proves current editor event and IO-usable holds.
  * Context, restored inventory, byte-release candidates and both histories are prepared together.
- * No incoming bytes, unmounted producer or synthetic native receipt is admitted here. */
+ * Incoming rows require the owner's exact applied command and genuine held file bindings. */
 export function mobileComposerContextPublishMounted(client:T3Client,current:EditorDocumentIntent,event:ComposerEditorEvent,
-  files:ComposerFileHistory,holds:readonly HeldFile[],addedRecords:readonly Obj[]) {
+  files:ComposerFileHistory,holds:readonly HeldFile[],addedRecords:readonly Obj[],picker?:ComposerPickerPublication) {
   const raw=sendRaw(client,current.target),refuse=(message:string)=>({ok:false as const,message});
   if(!raw||!mobileEditorDocumentIntentCurrent(client,current)||!Number.isSafeInteger(client.revision)
     ||client.revision<0||client.revision>=Number.MAX_SAFE_INTEGER||current.revision>=Number.MAX_SAFE_INTEGER
     ||raw.snapshot.contextRevision>=Number.MAX_SAFE_INTEGER)return refuse('The saved draft is unavailable. Keep its files.');
-  const added=batchContext({version:1,records:addedRecords},true);if(!added.ok)return refuse('The added context is invalid.');
-  const {snapshot,entry}=raw,history=mobileCreateContextHistory(),beforeContext=mountedContext(snapshot);
+  const {snapshot,entry}=raw,beforeContext=mountedContext(snapshot);
+  const target={environmentId:current.target.environmentId,threadId:current.target.threadId,draftKey:current.target.key};
+  const attempted=picker?mobileComposerAttachmentInventoryReplace(raw.raw,target,picker.before,picker.after):{ok:true as const,inventory:raw.raw};
+  const pickerRefused=!!picker&&(!attempted.ok||picker.contextRevision!==snapshot.contextRevision||sendCanonical(picker.context??null)!==sendCanonical(beforeContext??null));
+  const replacement=!pickerRefused&&attempted.ok?attempted:{ok:true as const,inventory:raw.raw};
+  const read=mobileComposerAttachmentInventoryRead(replacement.inventory,target);if(!read.ok)return refuse('The saved file inventory is invalid.');
+  const actualAdded=pickerRefused?[]:addedRecords;
+  const added=batchContext({version:1,records:actualAdded},true);if(!added.ok)return refuse('The added context is invalid.');
+  const history=mobileCreateContextHistory();
   const prior=entry?histories.get(entry)?.snapshot()??[]:[];
   // The actual source helper refreshes duplicate recency with delete+set and bounds before restore.
   history('',{version:1,records:prior});
   const records=new Map((beforeContext?.records??[]).map(record=>[str(record.contextId),record]));
   for(const record of added.context!.records){records.delete(str(record.contextId));records.set(str(record.contextId),record)}
-  const currentContext=beforeContext!==undefined||addedRecords.length?{version:1 as const,records:[...records.values()]}:undefined;
-  const restored=entry||beforeContext!==undefined||addedRecords.length?history(event.value,currentContext):undefined,checked=batchContext(restored,true);
+  const currentContext=beforeContext!==undefined||actualAdded.length?{version:1 as const,records:[...records.values()]}:undefined;
+  const restored=entry||beforeContext!==undefined||actualAdded.length?history(event.value,currentContext):undefined,checked=batchContext(restored,true);
   if(!checked.ok)return refuse('The restored context exceeds the supported draft.');
   // Every accepted import remains in the detached history even if newer native text removed it.
-  const target={environmentId:current.target.environmentId,threadId:current.target.threadId,draftKey:current.target.key};
-  const read=mobileComposerAttachmentInventoryRead(raw.raw,target);if(!read.ok)return refuse('The saved file inventory is invalid.');
+
   const projected=mobileComposerFileHistoryProject(files,{identity:files.identity,target:files.target,context:checked.context,
     attachments:read.attachments.map(a=>a.type==='image'?{type:'image' as const,id:a.id}:{type:'file' as const,file:a.file,
       hold:holds.find(h=>h.receipt.id===a.id&&h.receipt.sizeBytes===a.file.sizeBytes)??null}),usableHolds:holds});
   if(projected.status!=='ready')return refuse('Protect the saved files before editing this draft.');
   if(projected.unavailable.length)return refuse('A file referenced by Undo is no longer available. Keep this draft.');
-  const inventory={...raw.raw,composerFiles:[...clone(raw.raw.composerFiles as import('./shared/composer-editor-files').DraftFile[]),...projected.restoredFiles],
-    mobileAttachmentOrder:{...clone(raw.raw.mobileAttachmentOrder as Record<string,string[]>),[current.target.key]:[...snapshot.attachmentIds,...projected.restoredFiles.map(f=>f.id)]}};
-  const publication=mobileComposerAttachmentPublicationPrepare({inventory,target,previousContext:beforeContext,
-    nextContext:checked.context,nextText:event.value});
+  const inventory={...replacement.inventory,composerFiles:[...clone(replacement.inventory.composerFiles as import('./shared/composer-editor-files').DraftFile[]),...projected.restoredFiles],
+    mobileAttachmentOrder:{...clone(replacement.inventory.mobileAttachmentOrder as Record<string,string[]>),[current.target.key]:[...read.attachments.map(a=>a.id),...projected.restoredFiles.map(f=>f.id)]}};
+  const unavailableImages=[...new Map([...prior,...(currentContext?.records??[]).filter(r=>read.attachments.some(a=>{
+    const row=a.type==='image'?a.image:a.file;return a.id===r.attachmentId&&['name','mimeType','sizeBytes'].every(k=>row[k as keyof typeof row]===r[k]);
+  }))].filter(record=>record.kind==='image').map(record=>[str(record.contextId),record])).values()];
+  const publication=mobileComposerAttachmentPublicationPrepare({inventory,target,previousContext:currentContext,
+    nextContext:checked.context,nextText:event.value,unavailableImages});
   if(!publication.ok)return refuse('This file context cannot be published safely.');
   if(files.closed||files.revision!==projected.expectedRevision)return refuse('The file history changed.');
   const context=checked.context,needsEntry=!!entry||context!==undefined||records.size>0;
   if(!entry&&needsEntry&&incarnation>=Number.MAX_SAFE_INTEGER)return refuse('Reopen this draft before editing.');
   const nextEntry:Entry=entry??{...raw.scope,incarnation:incarnation+1,revision:0,text:snapshot.text};
   const cleanup={...raw.cleanup,fileReleases:publication.fileReleases};
-  const result={ok:true as const,history:projected.history,release:projected.release,
+  const result={ok:true as const,history:projected.history,release:projected.release,pickerApplied:!pickerRefused,
     ledger:{value:event.value,selection:{...event.selection},revision:current.revision+1,incarnation:current.incarnation}};
   if(!mobileEditorDocumentCommitObservation(client,current,event))return refuse('The native document changed.');
   // Every object and possible refusal above precedes the concrete document write.

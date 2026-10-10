@@ -156,3 +156,9 @@ test('valid oversized previous recovery context can prune before the live bound;
   expect(ready(input).removedFileIds).toEqual([id(2)]);
   input.nextContext=input.previousContext;expect(prepare(input)).toEqual({ok:false,reason:'invalid-context'});
 });
+
+test('an unbound parsed file reference is raw text; supplied missing-file context still refuses',()=>{
+ const input=fixture();input.previousContext=undefined;input.nextContext=undefined;input.nextText=link(99);
+ expect(prepare(input).ok).toBe(true);
+ input.nextContext=context(record(99));expect(prepare(input)).toEqual({ok:false,reason:'unsupported'});
+});

@@ -104,6 +104,17 @@ test('Files-selected image requires file capability before wire promotion', asyn
   obj(f.client.config.environment).capabilities = { attachmentUploads: true };
   expect((await f.run()).status).toBe('blocked'); expect(ops(f)).not.toContain('composerAttachRead');
 });
+test('Files image reads file bytes and promotes upload/reference only, retaining durable file kind', async () => {
+  const local={...file(),name:'photo.JPG',mimeType:'application/octet-stream',source:'attached'};
+  const f=await fixture([local]),result=await f.run();
+  expect(result.status).toBe('ready');if(result.status!=='ready')throw new Error(result.reason);
+  expect(ops(f)).toContain('composerAttachRead');expect(ops(f)).not.toContain('snapshotDraftRead');
+  expect(f.calls.find(r=>r.method==='attachments.createUploadUrl')!.payload).toEqual({name:local.name,mimeType:'image/jpeg',sizeBytes:3});
+  expect(f.calls.find(r=>r.op==='uploadAttachment')!.contentType).toBe('image/jpeg');
+  expect(result.attachments[0]!.attachment).toEqual({type:'image',id:'upload-1',name:local.name,mimeType:'image/jpeg',sizeBytes:3});
+  expect(f.disk().attachments[0]!.kind).toBe('file');expect(f.disk().attachments[0]!.mimeType).toBe('application/octet-stream');
+  expect(f.disk().attachments[0]!.uploadId).toBe('upload-1');
+});
 test('explicit empty grant prevents any upload', async () => {
   const f = await fixture(); f.setSession({ authenticated: true, permissions: [], scopes: ['orchestration:operate'] });
   expect((await f.run()).status).toBe('blocked'); expect(ops(f)).not.toContain('snapshotDraftRead');

@@ -69,10 +69,10 @@ function current(client:T3Client,runtime:Runtime):boolean {
     && runtime.catalog===mobileCacheCatalogIdentity(fleet.saved,client.environmentId);
 }
 function requireCurrent(client:T3Client,runtime:Runtime):void {if(!current(client,runtime))throw superseded()}
-function context(client:T3Client,owner:EditorOwner,value=owner.state.value,added?:Obj):MobileMessageContext|undefined {
+function context(client:T3Client,owner:EditorOwner,value=owner.state.value,added?:Obj|Obj[]):MobileMessageContext|undefined {
   const saved=mobileComposerContextMountedRead(client,owner.target);if(!saved.ok)throw new ClientError('This draft contains unsupported or invalid context. Keep the original draft.','retained');
   const records=new Map<string,Obj>();
-  for(const record of [...arr(messageContext(client,value)?.records),...(saved.context?.records??[]),...(added?[added]:[])])records.set(str(record.contextId),record);
+  for(const record of [...arr(messageContext(client,value)?.records),...(saved.context?.records??[]),...(added?Array.isArray(added)?added:[added]:[])])records.set(str(record.contextId),record);
   return records.size?{version:1,records:[...records.values()]}:undefined;
 }
 function clipboardAttachments(client:T3Client,key:string) {
@@ -81,7 +81,7 @@ function clipboardAttachments(client:T3Client,key:string) {
     ...draftFiles(client.local).filter(file=>file.draftKey===key&&file.environmentId===client.environmentId).map(file=>({id:file.id,
       uploadedAttachmentId:file.attachmentId,uploadEnvironmentId:file.attachmentId?file.environmentId:undefined}))]);
 }
-function document(client:T3Client,runtime:Runtime,value=runtime.owner.state.value,added?:Obj,displayOnly=false) {
+function document(client:T3Client,runtime:Runtime,value=runtime.owner.state.value,added?:Obj|Obj[],displayOnly=false) {
   const p=runtime.presentation,source=runtime.provider??provider(client),cwd=workspaceCwd(client);
   let records:MobileMessageContext|undefined;
   try{records=context(client,runtime.owner,value,added)}catch(error){
@@ -201,7 +201,7 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     mobileEditorRetirementComplete(client,retirement,outcome.event.kind==='commandApplied'?'retired':'preserved');needsSave=true;
   }
   const needsPublication=!!effect&&owner.state.stagedEventCount<effect.event.eventCount&&(effect.writeText||effect.event.kind==='text')
-    ||!!outcome&&outcome.event.kind==='commandApplied'&&!!owner.pending?.added;
+    ||!!outcome&&outcome.event.kind==='commandApplied'&&(!!owner.pending?.added||!!owner.pending?.picker&&!owner.pending.picker.published);
   if(needsPublication){
     const publication=mobileEditorFilesPublish(client);
     if(!publication.ok)throw new ClientError(publication.message,'retained');
@@ -287,19 +287,20 @@ async function invokeCommand(client:T3Client,runtime:Runtime,native:Native,stora
 /** Reserve all plain effects before native dispatch. No settings or context change
  * occurs merely because a caller requested a replacement. */
 export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIntentCapture,next:ComposerEditorDocument,
-  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey='',localCommand?:EditorUsageCommand,localClear?:EditorLocalClear,receipt?:EditorCommandReceipt):Promise<EditorResult> {
+  added:Obj|undefined,native:Native,storage:Files,mode:'plan'|'default'|null=null,retirementKey='',localCommand?:EditorUsageCommand,localClear?:EditorLocalClear,receipt?:EditorCommandReceipt,picker?:import('./composer-command-context').ComposerPickerPublication):Promise<EditorResult> {
   const runtime=runtimes.get(client);if(!runtime || !mobileEditorIntentCurrent(client,capture))throw superseded();
   requireCurrent(client,runtime);const owner=runtime.owner;
+  if(picker&&(added||mode||retirementKey||localCommand||localClear||picker.published))throw superseded();
   if(localClear&&(next.value!==''||next.selection.start!==0||next.selection.end!==0||added||mode||retirementKey||localCommand))throw superseded();
   if(retirementKey&&!mobileEditorRetirementAllowed(client,retirementKey))throw superseded();
   if(owner.route.readOnly || owner.route.voiceBusy || !mobileEditorFilesReady(client,owner.admission) || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
-  const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,added));
+  const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,picker?.added??added));
   if(!prospective.ok)throw new ClientError(prospective.error,'retained');
-  const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
+  const doc=document(client,runtime,next.value,picker?.added??added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
   const reserved=mobileComposerEditorCommand(owner.state,id,revision,{...next,tokensJson:doc.tokensJson});
   if(!reserved.command)throw superseded();
   if(receipt){receipt.id=id;receipt.applied=null;receipt.contentCleared=null}
-  owner.pending={id,revision,...(receipt?{receipt}:{}),...(localClear?{localClear:editorCopy(localClear)}:{}),...(localCommand?{localCommand:editorCopy(localCommand)}:{}),...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
+  owner.pending={id,revision,...(picker?{picker}:{}),...(receipt?{receipt}:{}),...(localClear?{localClear:editorCopy(localClear)}:{}),...(localCommand?{localCommand:editorCopy(localCommand)}:{}),...(added?{added:editorCopy(added)}:{}),mode,settings:settings(client,runtime),intent:editorCopy(capture),...(retirementKey?{retirementKey}:{})};
   owner.state=reserved.state;
   return invokeCommand(client,runtime,native,storage);
 }

@@ -15,7 +15,7 @@ import {mobileComposerFileHistoryProject,mobileComposerFileHistoryDispose,type C
 import {mobileFileHoldsCreate,mobileFileHoldReserve,mobileFileHoldAcquire,mobileFileHoldHeld,mobileFileHoldReleaseNeeded,
   mobileFileHoldRelease,mobileFileHoldsRetire,type FileHoldLedger,type HeldFile} from './composer-file-holds-io';
 export interface EditorFileProjection {ready:boolean;prepareKey:string;needsPrepare:boolean;message:string;cleanupKey:string;retiredAdmissions:string[];revision:number}
-interface State {admission:string;owner:EditorOwner;catalog:string;ledger:FileHoldLedger;history:ComposerFileHistory;seeded:boolean;
+interface State {incoming:Map<string,Set<string>>;admission:string;owner:EditorOwner;catalog:string;ledger:FileHoldLedger;history:ComposerFileHistory;seeded:boolean;
   attempt:number;attempted:string;message:string;releaseRevision:number}
 interface Registry {active:State|null;retired:Map<string,State>;revision:number;cleanupAttempted:string;retry:number;message:string}
 const states=new WeakMap<T3Client,Registry>();
@@ -44,7 +44,7 @@ function observe(client:T3Client):State|null {
   if(!catalog||owner.signature!==JSON.stringify([owner.target.owner,owner.route.routeVisit,owner.route.editorId,catalog]))return null;
   const target={origin:owner.target.origin,environmentId:owner.target.environmentId,threadId:owner.target.threadId,draftKey:owner.target.key};
   const ledger=mobileFileHoldsCreate(identity(owner),owner.target.generation,target);
-  const s:State={admission:owner.admission,owner,catalog,ledger,history:{identity:ledger.identity,target:ledger.target,revision:0,closed:false,entries:[]},
+  const s:State={incoming:new Map(),admission:owner.admission,owner,catalog,ledger,history:{identity:ledger.identity,target:ledger.target,revision:0,closed:false,entries:[]},
     seeded:false,attempt:0,attempted:'',message:'',releaseRevision:0};
   r.active=s;r.message='';changed(client);return s;
 }
@@ -109,7 +109,7 @@ export function mobileEditorFilesPublish(client:T3Client):{ok:true}|{ok:false;me
   if(!answer.ok)return answer;
   // No await or callback can change these identities between the transaction and installation.
   s.history=answer.history;
-  for(const held of answer.release)mobileFileHoldReleaseNeeded(s.ledger,held.request.requestId);
+  for(const held of answer.release)if(![...s.incoming.values()].some(ids=>ids.has(held.request.requestId)))mobileFileHoldReleaseNeeded(s.ledger,held.request.requestId);
   if(answer.release.length&&s.releaseRevision<Number.MAX_SAFE_INTEGER)s.releaseRevision++;
   changed(client);return {ok:true};
 }
@@ -137,4 +137,37 @@ export async function mobileEditorFilesCleanup(client:T3Client,key:string,native
 export function mobileEditorFilesDelegateRetired(client:T3Client,admission:string):void {
   const r=registry(client),s=r.retired.get(admission);if(!s||!s.ledger.retired)return;
   r.retired.delete(admission);changed(client);
+}
+
+/** Issued native picker members enter the same real IO ledger before CAS. Pending incoming
+ * ownership is independent of live rows and history, so concurrent typing cannot release it. */
+export async function mobileEditorFilesIntake(client:T3Client,admission:string,operationId:string,
+  files:readonly import('./shared/composer-editor-files').DraftFile[],native:Native):Promise<void> {
+  const s=observe(client);if(!s||s.admission!==admission||!current(client,s))throw fail();
+  let requests=s.incoming.get(operationId);if(!requests){requests=new Set();s.incoming.set(operationId,requests)}
+  for(const file of files){
+    const existing=[...requests].map(id=>s.ledger.entries[id]!).find(e=>e.request.file.id===file.id);
+    const request=mobileFileHoldReserve(s.ledger,file,existing?.request.requestId??localId(),{operationId});
+    requests.add(request.requestId);
+  }
+  changed(client);
+  for(const id of requests){
+    if(!current(client,s))throw fail();
+    if(mobileFileHoldHeld(s.ledger,id))continue;
+    const answer=await mobileFileHoldAcquire(s.ledger,id,native);changed(client);
+    if(!current(client,s))throw fail();
+    if(!answer.held)throw new ClientError(answer.message||'Imported file protection is pending. Retry this attachment action.','retained');
+  }
+}
+/** After a settled native intake partition, transfer real holds to live/history ownership.
+ * Unaccepted files become guarded cleanup obligations; native lifetime handles retired owners. */
+export function mobileEditorFilesIntakeEnd(client:T3Client,admission:string,operationId:string):void {
+  const r=registry(client),s=r.active?.admission===admission?r.active:r.retired.get(admission);
+  const requests=s?.incoming.get(operationId);if(!s||!requests)return;
+  const snapshot=current(client,s)?mobileComposerContextSendSnapshot(client,s.owner.target):null;
+  for(const id of requests){
+    const e=s.ledger.entries[id]!;
+    if(!s.history.entries.some(h=>h.hold.request.requestId===id)&&!snapshot?.files.some(f=>f.id===e.request.file.id))mobileFileHoldReleaseNeeded(s.ledger,id);
+  }
+  s.incoming.delete(operationId);changed(client);
 }

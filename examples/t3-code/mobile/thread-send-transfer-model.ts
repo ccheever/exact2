@@ -3,6 +3,7 @@
 import { mobileOutboxCanonicalOrigin, mobileOutboxDecode, type MobileOutboxRecord } from './mobile-outbox-model';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import { mobileContextRecordValid } from './mobile-context-record';
+import { imageMimeType } from './composer-editor-document';
 import type { DraftFile } from './shared/composer-editor-files';
 import type { Obj } from './shared/domain';
 
@@ -102,7 +103,8 @@ function contextBindings(source:ThreadSendSourceContext|null,attachments:MobileO
   return source===null||source.records.every(r=>{
     if(!Object.hasOwn(r,'attachmentId'))return true;
     const a=attachments.find(a=>a.id===r.attachmentId);
-    return !!a&&r.kind===a.kind&&['name','mimeType','sizeBytes'].every(k=>r[k]===a[k as keyof typeof a]);
+    return !!a&&(r.kind===a.kind||r.kind==='image'&&a.kind==='file'&&imageMimeType(a)!==null)
+      &&['name','mimeType','sizeBytes'].every(k=>r[k]===a[k as keyof typeof a]);
   });
 }
 function recordMatches(raw:unknown,d:ThreadSendTransferCapture['draft']):raw is MobileOutboxRecord {
@@ -135,7 +137,8 @@ export function threadSendTransferDecodeDraftContent(raw:unknown):ThreadSendTran
   if(d.context?.records.some(r=>{
     if(!Object.hasOwn(r,'attachmentId'))return false;
     const image=d.images.find(a=>a.id===r.attachmentId),file=d.files.find(a=>a.id===r.attachmentId),row=image??file;
-    return !row||r.kind!==(image?'image':'file')||['name','mimeType','sizeBytes'].some(k=>r[k]!==row[k as keyof typeof row]);
+    return !row||!(r.kind===(image?'image':'file')||r.kind==='image'&&file&&imageMimeType(file)!==null)
+      ||['name','mimeType','sizeBytes'].some(k=>r[k]!==row[k as keyof typeof row]);
   }))return fail();
   return copy(d);
 }

@@ -3,6 +3,7 @@ import {expect,test} from 'bun:test';
 import {mobileThreadSendPlan as plan,type ThreadSendSnapshot,type ThreadSendFacts} from './thread-send-admission';
 import {mobileComposerAttachmentInventoryRead} from './composer-attachment-publication';
 import {mobileOutboxMessageContent} from './mobile-outbox-wire';
+import {mobileUploadedAttachmentReference} from './mobile-attachment-policy';
 import type {MobileOutboxRecord} from './mobile-outbox-model';
 import type {DraftFile} from './shared/composer-editor-files';
 import type {Obj} from './shared/domain';
@@ -14,6 +15,30 @@ function snapshot():ThreadSendSnapshot{return {origin:'http://localhost:4321',en
 function facts():ThreadSendFacts{return {connected:true,canOperate:true,pendingThreadCreation:false,queuedEdit:false,contextImporting:false,voiceBlocked:false,pendingPastedText:false,usageLimitsOffered:false,planModeEnabled:true,activeThreadBusy:false,canSteerActiveTurn:true,followUpBehavior:'steer',config:{environment:{capabilities:{attachmentUploads:true,fileAttachments:{maxUploadBytes:50*1024*1024}}}},uploadStates:{},uploadOwners:{}}}
 function ready(s=snapshot(),f=facts()){const r=plan(s,f);expect(r.kind).toBe('message');if(r.kind!=='message')throw Error(JSON.stringify(r));return r.record}
 const frozen=<T>(v:T):T=>{if(v&&typeof v==='object'){Object.freeze(v);Object.values(v).forEach(frozen)}return v};
+
+test('ordinary Files images bind semantic image context without changing byte storage or raw MIME',()=>{
+  for(const [name,mimeType,accepted]of [
+    ['photo.png','image/png',true],['photo.JPG','APPLICATION/OCTET-STREAM\uFEFF; charset=x',true],
+    ['photo.bin','IMAGE/WEBP\u00A0; charset=x',true],['photo.png','image/avif',false],
+    ['photo.png','image/svg+xml',false],['photo.png','application/pdf',false],['photo.png','text/plain',false],
+  ] as const){
+    const s=snapshot(),row=file(1,{name,mimeType});s.attachments=[{type:'file',id:row.id,file:row}];
+    s.context={version:1,records:[{...record(1),kind:'image',name,mimeType}]};
+    const result=plan(s,facts());expect(result.kind).toBe(accepted?'message':'refused');
+    if(result.kind==='message'){
+      expect(result.record.attachments[0]!.kind).toBe('file');expect(result.record.attachments[0]!.mimeType).toBe(mimeType);
+      expect(result.record.context).toEqual(s.context);
+      const local={...result.record.attachments[0]!,uploadId:'remote',uploadEnvironmentId:'env',status:'ready' as const};
+      const queued:MobileOutboxRecord={...result.record,attachments:[local],messageId:'message',commandId:'command',createdAt:'2026-10-09T00:00:00.000Z'};
+      const wire=mobileOutboxMessageContent(queued,[{kind:'reference',localId:row.id,attachment:mobileUploadedAttachmentReference(local,'remote')}],true);
+      expect(wire.attachments[0]!.type).toBe('image');expect((wire.context!.records as Obj[])[0]).toEqual({...record(1),kind:'image',name,mimeType,attachmentId:'remote'});
+      for(const [field,value]of [['attachmentId',id(2)],['name','other.png'],['mimeType','image/jpeg'],['sizeBytes',22]] as const){
+        const bad=structuredClone(s);(bad.context as {records:Obj[]}).records[0]![field]=value;expect(plan(bad,facts()).kind).toBe('refused');
+      }
+    }
+    (s.context as {records:Obj[]}).records[0]!.kind='file';expect(plan(s,facts()).kind).toBe('message');
+  }
+});
 
 test('trim is outgoing only; original settings and supplied context survive with no desktop pruning',()=>{
   const s=snapshot();s.rawText=' \t😀 hello\n ';s.context={version:1,records:[{version:1,kind:'mention',contextId:'unused',label:'file',path:'src/a.ts'}]};

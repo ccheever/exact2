@@ -20,6 +20,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private let lock = NSLock()
     private let root: URL
+    private lazy var pickerIntakes = T3MobilePickerIntakeStore(root: root, replace: replace)
     private lazy var composerPaste = T3MobileComposerPasteStore(root: root, replace: replace)
     private let outboxStore: T3MobileOutbox
     private var outboxOwner: T3MobileOutboxOwner!
@@ -151,7 +152,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private func store() throws -> [String: Any] {
         let value = try readJSON(file)
         if value.isEmpty && !FileManager.default.fileExists(atPath: file.path) { return ["version": 1, "records": [String: Any](), "operations": [String: Any](), "ended": [String: Any](), "releases": [[String: Any]]()] }
-        guard value["version"] as? Int == 1, value["records"] is [String: [String: Any]], value["operations"] is [String: [String: Any]] else {
+        guard value["version"] as? Int == 1, value["records"] is [String: [String: Any]], value["operations"] is [String: [String: Any]],
+              value["releases"] == nil || value["releases"] is [[String: Any]] else {
             throw refusal("The queued edit store is invalid.", kind: "Persistence")
         }
         for (owner, record) in records(value) {
@@ -1232,6 +1234,11 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private func held(_ identifier: String, value: [String: Any], excludingPaste operation: String? = nil) throws -> Bool {
         if fileHoldOwners.values.contains(where: { $0.records.values.contains { !$0.released && $0.receipt["id"] as? String == identifier } }) { return true }
+        if pickerIntakes.protects(identifier) { return true }
+        for candidate in value["releases"] as? [[String: Any]] ?? [] where candidate["id"] as? String == identifier && candidate["pickerIntake"] != nil {
+            guard let marker = candidate["pickerIntake"] as? NSNumber, CFGetTypeID(marker) == CFBooleanGetTypeID(), marker.boolValue else { throw T3PickerRequest.error("Picker cleanup provenance is invalid.") }
+            try T3MobilePickerIntakeStore.validateInventory(readJSON(preferences))
+        }
         if try composerPaste.protects(identifier, excluding: operation) { return true }
         if try T3MobileIncomingShareTransfer.protects(identifier, records: value["incomingShares"]) { return true }
         let preparing = inlinePreparations.values.contains { entry in
@@ -1282,7 +1289,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     // All new hold state and byte deletion share this mutex. Never enter main from here.
     func performFileHold(_ request: T3ComposerFileRequest, claim: T3ComposerFileClaim) throws -> [String: Any] {
-        try locked {
+        try locked { try performFileHoldLocked(request, claim: claim, issued: nil) }
+    }
+    private func performFileHoldLocked(_ request: T3ComposerFileRequest, claim: T3ComposerFileClaim, issued: T3PickerOperation?) throws -> [String: Any] {
             guard claim.live, claim.identity == request.identity else { throw T3ComposerFileRequest.error("The native file owner ended.") }
             if request.action == "release" {
                 guard var record = claim.records[request.requestId], request.object["holdId"] == nil || request.object["holdId"] as? String == record.receipt["holdId"] as? String else {
@@ -1299,7 +1308,8 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
                 guard try T3ComposerFileRequest.fingerprint(root: root, file: file) == old.fingerprint else { throw T3ComposerFileRequest.error("The retained canonical bytes changed.") }
             } else {
                 guard claim.records.count < 4096 else { throw T3ComposerFileRequest.error("This editor's file hold request limit was reached.") }
-                try T3ComposerFileRequest.saved(file, preferences: readJSON(preferences))
+                if let issued { _ = try pickerIntakes.issuedFile(request, operation: issued) }
+                else { try T3ComposerFileRequest.saved(file, preferences: readJSON(preferences)) }
                 let fingerprint = try T3ComposerFileRequest.fingerprint(root: root, file: file)
                 guard claim.live else { throw T3ComposerFileRequest.error("The native file owner ended while reading.") }
                 let receipt: [String: Any] = ["identity": claim.identity.json, "requestId": request.requestId,
@@ -1314,7 +1324,6 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
             try save(value)
             guard claim.live else { throw T3ComposerFileRequest.error("The native file owner ended before publication.") }
             return ["status": "held", "receipt": claim.records[request.requestId]!.receipt]
-        }
     }
     private func saveFileHoldCandidates(_ claim: T3ComposerFileClaim, value: inout [String: Any]) throws {
         guard value["releases"] is [[String: Any]] else { throw T3ComposerFileRequest.error("Attachment release ownership is invalid.") }
@@ -1322,6 +1331,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try save(value)
     }
     private func retireEndedFileHolds(_ value: inout [String: Any]) {
+        pickerIntakes.retireEnded(queue: &value, save: save)
         for (id, claim) in fileHoldOwners where !claim.live {
             do {
                 // A failed acquire may have left no durable candidate. Do not drop its hold first.
@@ -1349,6 +1359,45 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         guard try !held(identifier, value: value, excludingPaste: operation) else { return ["removed": false, "retained": true] }
         try unlink(identifier, image: request["op"] as? String == "snapshotDraftRemove")
         return ["removed": true]
+    }
+    // Picker admission captures its native claim on main; all bytes and queue transitions use this lock.
+    func beginPicker(_ request: T3PickerRequest, claim: T3ComposerFileClaim) throws -> (T3PickerOperation, Bool, [String: Any]) {
+        try locked {
+            let (operation, opened) = try pickerIntakes.begin(request, claim: claim)
+            var value = try store()
+            let response = try pickerIntakes.response(operation, queue: &value, save: save)
+            if opened { operation.presented = true }
+            return (operation, opened, response)
+        }
+    }
+    func stagePicker(_ operation: T3PickerOperation, bytes: Data, metadata: [String: Any]) throws -> [String: Any] {
+        try locked { var value = try store(); return try pickerIntakes.stage(operation, bytes: bytes, metadata: metadata, queue: &value, save: save) }
+    }
+    func completePicker(_ operation: T3PickerOperation, error: String) throws -> [String: Any] {
+        try locked { var value = try store(); return try pickerIntakes.complete(operation, error: error, queue: &value, save: save) }
+    }
+    func abandonPicker(_ operation: T3PickerOperation) {
+        DispatchQueue.global(qos: .utility).async { [self] in
+            let captured = operation.request
+            let raw: [String: Any] = ["op": "composerPickerIntake", "action": "cancel", "operationId": captured.operationId, "generation": captured.generation, "identity": captured.identity.json]
+            if let request = try? T3PickerRequest(raw) { _ = try? performPicker(request, claim: operation.claim) }
+        }
+    }
+    func performPicker(_ request: T3PickerRequest, claim: T3ComposerFileClaim?) throws -> [String: Any] {
+        try locked {
+            let operation = try pickerIntakes.operation(request, claim: claim)
+            if request.action == "hold" {
+                guard let claim, let object = request.object["request"] as? [String: Any], object["op"] as? String == "composerFileHold",
+                      Set(object.keys) == Set(["op", "action", "generation", "identity", "requestId", "target", "file"]) else { throw T3PickerRequest.error("The issued file hold is invalid.") }
+                let hold = try T3ComposerFileRequest(object)
+                _ = try pickerIntakes.issuedFile(hold, operation: operation)
+                return try performFileHoldLocked(hold, claim: claim, issued: operation)
+            }
+            var value = try store()
+            let result = try pickerIntakes.transition(request, op: operation, preferences: readJSON(preferences), queue: &value, save: save)
+            if ["finish", "cancel"].contains(request.action) { _ = drainReleases(&value) }
+            return result
+        }
     }
     /// Claims happened on main before dispatch; only disk work runs under this existing owner mutex.
     func composerPasteFiles(_ request: T3ComposerPasteRequest, inputs: [T3ComposerPasteInput]?) throws -> [String: Any] {

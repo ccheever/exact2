@@ -1,5 +1,6 @@
 // Invocation-owned adapter for saved ordinary canonical file holds. No runtime activation.
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+import type { PickerIntakeProvenance } from './composer-picker-intake-io';
 import type { ComposerMountedIdentity } from './composer-editor-state';
 import type { DraftFile } from './shared/composer-editor-files';
 import { ClientError, reply, type Native } from './shared/protocol';
@@ -18,6 +19,7 @@ export type FileHoldPhase='reserved'|'acquiring'|'acquire-uncertain'|'held'|'rel
 export interface FileHoldEntry {
   request:FileHoldRequest; receipt:FileHoldReceipt|null; phase:FileHoldPhase;
   desired:'retain'|'release'; dispatched:boolean; attempt:number; error:string;
+  intake?:PickerIntakeProvenance;
 }
 /** Plain volatile owner state. Never hydrate this ledger or its receipts as native authority. */
 export interface FileHoldLedger {
@@ -96,15 +98,17 @@ export function mobileFileHoldsCreate(identity:ComposerMountedIdentity,generatio
   return {identity:copy(identity),generation,target:copy(target),retired:false,revision:0,serial:0,entries:{}};
 }
 /** Caller uses existing localId() once, retains this plain reservation, then invokes acquire. */
-export function mobileFileHoldReserve(ledger:FileHoldLedger,file:DraftFile,requestId:string):FileHoldRequest {
+export function mobileFileHoldReserve(ledger:FileHoldLedger,file:DraftFile,requestId:string,intake?:PickerIntakeProvenance):FileHoldRequest {
   if(ledger.retired||!uuid(requestId)||!fileValid(file)||file.draftKey!==ledger.target.draftKey||file.environmentId!==ledger.target.environmentId)
     throw fail('This saved file cannot be retained by the captured editor.');
+  if(intake!==undefined&&(!plain(intake)||Reflect.ownKeys(intake).length!==1||!Object.hasOwn(intake,'operationId')
+    ||!Object.getOwnPropertyDescriptor(intake,'operationId')!.enumerable||!('value'in Object.getOwnPropertyDescriptor(intake,'operationId')!)||!uuid(intake.operationId)))throw fail('The issued picker provenance is invalid.');
   const request:FileHoldRequest=copy({op:'composerFileHold',action:'acquire',generation:ledger.generation,
     identity:ledger.identity,requestId,target:ledger.target,file});
   const prior=ledger.entries[requestId];
-  if(prior){if(prior.desired==='release'||prior.phase==='released'||canonical(prior.request)!==canonical(request))throw fail('A file hold request cannot change or be revived.');return prior.request}
+  if(prior){if(prior.desired==='release'||prior.phase==='released'||canonical(prior.request)!==canonical(request)||canonical(prior.intake??null)!==canonical(intake??null))throw fail('A file hold request cannot change or be revived.');return prior.request}
   if(Object.keys(ledger.entries).length>=LIMIT||!integer(ledger.revision)||ledger.revision>=MAX)throw fail('This editor cannot reserve more file hold requests.');
-  ledger.entries[requestId]={request,receipt:null,phase:'reserved',desired:'retain',dispatched:false,attempt:0,error:''};changed(ledger);return request;
+  ledger.entries[requestId]={request,receipt:null,phase:'reserved',desired:'retain',dispatched:false,attempt:0,error:'',...(intake?{intake:copy(intake)}:{})};changed(ledger);return request;
 }
 /** Authenticated local receipt only. Caller MUST synchronously recheck complete current admission,
  * target/catalog/mount before putting this or any historical held entry into a live projection. */
@@ -130,7 +134,9 @@ export async function mobileFileHoldAcquire(ledger:FileHoldLedger,requestId:stri
   if(!native.available){e.error='Native file retention is unavailable.';changed(ledger);return result(ledger,e)}
   const ticket=begin(ledger,e,'acquiring'),request=e.request;
   try {
-    const validated=receipt(envelope(await native.later(request),request.generation),request);
+    // Issued prepublication rows must never retry through saved-only acquisition.
+    const input=e.intake?{op:'composerPickerIntake',action:'hold',generation:request.generation,identity:request.identity,operationId:e.intake.operationId,request}:request;
+    const validated=receipt(envelope(await native.later(input),request.generation),request);
     if(e.attempt!==ticket)return result(ledger,e);
     if(e.receipt&&canonical(e.receipt)!==canonical(validated))throw fail('The native file hold replay returned a different receipt.');
     e.receipt=validated;e.phase=releasing(ledger,e)?'release-needed':'held';e.error='';changed(ledger);

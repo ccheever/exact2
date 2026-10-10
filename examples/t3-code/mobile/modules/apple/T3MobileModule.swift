@@ -187,6 +187,9 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if request["op"] as? String == "composerPickerIntake" {
+            composerFileHolds.performPicker(request, attachments: attachments) { reply.send($0) }; return
+        }
         if request["op"] as? String == "composerFileHold" {
             composerFileHolds.perform(request) { reply.send($0) }; return
         }
