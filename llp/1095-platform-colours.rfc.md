@@ -1,7 +1,7 @@
 # LLP 1095: Platform colours — the OS decides, by default
 
 **Type:** RFC
-**Status:** Draft r3 (comprehensive), 2026-10-03. Stage 1 (D1–D3, D5–D7) and stage 2 (D8; D9 except keyframes) are built on `feat/platform-colours`. D4 (`theme`), D10 (relative colour) and D11 (the web role sheet) are proposed, not built. §10 reviews colour fidelity and proposes fixes. r1 (2026-10-02) was reviewed adversarially and found not ready; §8 folds every finding. Written on the `ide` fork as LLP 1078 and ported to `origin/main` as LLP 1081; renumbered to 1095 on landing (2026-10-04) because `origin/main` took 1078 (foldables), 1081 (the `-exact-` naming rule) and 1086–1094 while it landed. §12 reconciles the two.
+**Status:** Draft r4, 2026-10-09: D4, D10, D11 and §4 amended for LLP 1117 (custom properties) and its first consumer, the Expo styleguide (LLP 1119); still proposed, not built. r3 (comprehensive), 2026-10-03. Stage 1 (D1–D3, D5–D7) and stage 2 (D8; D9 except keyframes) are built on `feat/platform-colours`. D4 (`theme`), D10 (relative colour) and D11 (the web role sheet) are proposed, not built. §10 reviews colour fidelity and proposes fixes. r1 (2026-10-02) was reviewed adversarially and found not ready; §8 folds every finding. Written on the `ide` fork as LLP 1078 and ported to `origin/main` as LLP 1081; renumbered to 1095 on landing (2026-10-04) because `origin/main` took 1078 (foldables), 1081 (the `-exact-` naming rule) and 1086–1094 while it landed. §12 reconciles the two.
 **Systems:**
 - Kernel: the colour value, an interned reference; the role table; resolutions the host reports
 - Contract: role keywords, `platform-color()`, `theme`
@@ -47,14 +47,14 @@ The whole design:
 | D1 | A colour can be a **reference** (interned, with a fallback pair the kernel always has) | built |
 | D2 | **Semantic roles**: one table, CSS's names where CSS has them (`CanvasText`, `AccentColor`), Apple's where it doesn't (`secondary-label`, `system-orange`); WebKit's `-apple-system-*` names are aliases | built |
 | D3 | **`platform-color()`**: any native colour by name, with a CSS fallback | built |
-| D4 | **`theme`**: an app's own named colours, able to override a role | proposed |
+| D4 | **`theme`**: an app's own tokens as root custom properties (LLP 1117), read with `var()`, and overrides of roles | proposed (r4) |
 | D5 | The **host resolves per view**, against its trait set, everywhere it paints | built |
 | D6 | **Motion** follows LLP 1062: a trait change transitions | built (keyframes: D9) |
 | D7 | The **agent pins traits** so tests are deterministic | built |
 | D8 | **Initial values are system colours**: `color` is `CanvasText`, `tint-color` is the platform's tint (`AccentColor`) | built |
 | D9 | **Host-reported resolutions**: paint motion, gradients and SVG follow the live platform colour | built, except keyframes |
-| D10 | **Relative colour and `color-mix()`** over references (`rgb(from system-orange r g b / 15%)`), resolved by the host | proposed |
-| D11 | **The web role sheet**: `--exact-<role>` per scheme, `prefers-contrast` and `forced-colors` | proposed |
+| D10 | **Relative colour and `color-mix()`** over references and `var()` (`rgb(from system-orange r g b / 15%)`, `hsl(from var(--red-8) h calc(s + 15) calc(l - 10))`), resolved by the host | proposed (r4: `hsl()`, `hwb()`, `oklch()` forms and channel `calc()`) |
+| D11 | **The web role sheet**: `--exact-<role>` per scheme, `prefers-contrast` and `forced-colors`; the theme as a `:root` rule | proposed |
 
 §10 reviews colour fidelity end to end: resolved roles clamped to sRGB (P3
 lost), 8-bit sRGB colour rows, CSS Color 4 syntax refused, images flattened
@@ -318,38 +318,62 @@ colour: **the fallback**. The fallback is **required**
 (`lower-platform-color-fallback`), and it is also the reference's kernel
 fallback pair (D1).
 
-### D4 — `theme`: an app's own colours, named once, able to override a role
+### D4 — `theme`: an app's own tokens, named once, able to override a role
+
+*Amended r4 (2026-10-09).* r3 named an app's colours as bare keywords
+(`color="brand"`). That is syntax CSS doesn't have, and it held colours
+only. A design system names lengths, shadows and durations too, and its
+names refer to each other. So a theme entry is now a **custom property**
+(LLP 1117), read as CSS reads one, with `var()`. The role overrides r3
+designed are unchanged.
 
 ```
+use theme from "./expo/theme.contract"
+
 theme
-  brand = platform-color(ios named:BrandColor, macos named:BrandColor, #c8102e)
-  card = "secondary-grouped-background"
-  defrost-on = light-dark(#d0e2f7, #27394f)
-  secondary-label = platform-color(ios secondaryLabelColor, light-dark(#6b6b73, #a1a1aa))
+  --brand = platform-color(ios named:BrandColor, macos named:BrandColor, #c8102e)
+  --card = -exact-secondary-grouped-background
+  --defrost-on = light-dark(#d0e2f7, #27394f)
+  --slate-11 = light-dark(#60646c, #b0b4ba)
+  --expo-theme-text-secondary = var(--slate-11)
+  --radius-md = 6px
+  -exact-secondary-label = platform-color(ios secondaryLabelColor, light-dark(#6b6b73, #a1a1aa))
 ```
 
-- **Declared once**, at the app root, like `keyframes` and `style`. Theme
-  names are colour keywords too, written as strings: `color="brand"`.
-- **An entry may be any colour:** a role, a `platform-color`, a pair, hex.
-- **An entry named like a role overrides that role for the whole app.**
-- **Cycles are refused:** an entry that reaches itself through
-  others (`a = "b"`, `b = "a"`), and a role override that names its own role
-  (`secondary-label = platform-color(ios secondaryLabelColor, "secondary-label")`,
+- **Declared at file scope**, like `keyframes` and `style`, in the app's
+  file or in a file the app imports with `use theme` (LLP 1117 D7). The
+  app's own entries override imported ones.
+- **An entry named `--…` is a root custom property** (LLP 1117 D1). It is
+  read anywhere a style row takes a value: `color="var(--brand)"`,
+  `border-radius="var(--radius-md)"`. A node or a `style` may override it
+  for its subtree (LLP 1117 D2).
+- **A colour entry may be any colour:** a role, a `platform-color`, a pair,
+  hex, a relative colour (D10), or a `var()` of another colour entry. It
+  stays a reference (D1): `--card` above resolves per view as the role
+  does, and `--expo-theme-text-secondary` follows `--slate-11` wherever
+  that is overridden.
+- **An entry named like a role** (no `--`, the role's own spelling, LLP
+  1081) overrides that role for the whole app. This is the one way to
+  change what a role resolves to.
+- **Cycles are refused:** an entry that reaches itself through `var()`
+  (`lower-var-cycle`, LLP 1117 D2), and a role override that names its own
+  role (`-exact-secondary-label = platform-color(ios secondaryLabelColor, -exact-secondary-label)`,
   which has a reference as a fallback and is refused there as well).
 
-**The theme ships in the plan** as part of the reference table: each entry
-is a reference row, and a role an app overrides has its row replaced. So
-"the whole app" really is the whole app, on every target:
-- the kernel's runtime parser resolves a dynamic `"brand"` or
-  `"secondary-label"` from a data source against the plan's table
-- the web JS target resolves against the same table, emitted as generated
-  JS
+**The theme ships in the plan.** A role override replaces that role's row
+in the reference table. A `--` entry is a row of LLP 1117's custom-property
+table, whose colour values are reference rows here. Both are plan data, so
+a bundle can retune a theme over the air (§3). On every target:
+- the kernel resolves a `var()` per subtree against the table (LLP 1117 D5)
+- the web writes the theme as a `:root` rule (D11, LLP 1117 D6), and the
+  browser resolves it
 
-A dynamic string that names neither a role nor a theme entry is an invalid
-colour, as a malformed hex is today.
+A dynamic string naming a property the theme doesn't declare is invalid at
+computed-value time, as a malformed hex is today.
 
 This replaces a per-app palette function (`c(name)` returning hex pairs)
-with declarations Contract checks.
+with declarations Contract checks, and the names survive to the browser and
+the agent (LLP 1117 D8).
 
 ### D5 — The host resolves per view, against a trait set, everywhere it paints
 
@@ -597,15 +621,23 @@ background-color="color-mix(in srgb, system-blue 15%, quaternary-fill)"   // §3
 
 - **Relative colour:**
   - **Origin:** any colour, including a role, `platform-color()`,
-    `currentcolor` or a pair.
-  - **Function:** `rgb()` in r1.
-  - **Channels:** each `r g b` channel keyword passed through unchanged.
+    `currentcolor`, a pair, or a `var()` of a colour token (D4, LLP 1117).
+  - **Functions:** `rgb()`, and since r4 `hsl()`, `hwb()` and `oklch()`.
+  - **Channels:** each channel keyword passed through, or one `calc()` of
+    that channel's keyword plus or minus a number, or times a number
+    (`calc(l - 10)`, `calc(s + 15)`, `calc(c * 0.8)`). Out-of-range results
+    clamp as CSS Color 5 says.
   - **Alpha:** a number, a percentage, or `alpha` times a number
     (`calc(alpha * 0.5)`).
-  - This covers every case the first app has. Channel arithmetic, `hsl()`,
-    `oklch()` and `lab()` relative forms are refused in r1
-    (`lower-relative-colour-form`); they follow D10's own wire form once §10's
-    wide colour row exists.
+  - The vehicle app needs only `rgb()` with an alpha. The Expo styleguide
+    (LLP 1119) derives its dark-mode destructive and hover fills as
+    `hsl(from var(--red-8) h calc(s + 15) calc(l - 10))`, which is why r4
+    admits the rest. r3 waited for "§10's wide colour row". LLP 1100 built
+    it (`ColorValue::Wide`), so the result of an `oklch()` form keeps its
+    space.
+  - Still refused (`lower-relative-colour-form`): `lab()`, `lch()`, `oklab()`
+    and `color()` relative forms, channel expressions that read another
+    channel (`calc(l + s)`), and nested `calc()`. Each waits for an app.
 - **`color-mix()`:**
   - **Inputs:** two colours, each optionally weighted.
   - **Spaces:** `in srgb` and `in oklab`. `oklab` is what CSS recommends for
@@ -641,6 +673,11 @@ background-color="color-mix(in srgb, system-blue 15%, quaternary-fill)"   // §3
   written as `var(--exact-<role>, <fallback>)` (D11), so the browser resolves
   the whole thing against `prefers-color-scheme` and `prefers-contrast`.
 - **Linux and headless:** the eager fallback pair.
+- **An origin through `var()`** is substituted first (LLP 1117 D4), so the
+  host sees an ordinary origin: a role stays a role and resolves per trait
+  set. When a subtree overrides the token, the kernel interns a second mix
+  for that subtree. The web writes the `var()` as authored and the browser
+  substitutes.
 - **Interpolation:** paint motion between two mixes interpolates their
   resolved colours (LLP 1062), as D9 does for a role.
 
@@ -703,6 +740,13 @@ already right.
   and the page's `color-scheme` stays the one switch.
 - **Relative colour (D10):** composes for free, because an origin written as
   `var(--exact-<role>, …)` follows whatever the sheet says.
+- **The theme (D4, r4)** is a second `:root` rule after the role sheet,
+  emitted by the build from the plan's custom-property table (LLP 1117 D6).
+  Entries are written as authored: chains stay `var()`, and a role inside
+  an entry is written as this sheet writes it. The role sheet's media
+  blocks therefore reach every token built on a role. A role override (D4)
+  replaces that role's declarations in the role sheet itself, so a
+  `prefers-contrast` block never puts back the platform's value.
 
 **Alternative rejected: JavaScript that reads `matchMedia` and sets the
 variables.** It runs before first paint and adds work at boot (RULES: the
@@ -726,7 +770,10 @@ boot path executes nothing), for what CSS does on its own.
 
 ## 4. What this deliberately does not do
 
-- **No per-element `color-scheme`** (LLP 1034 §3 stands).
+- ~~**No per-element `color-scheme`** (LLP 1034 §3 stands).~~ Overtaken
+  2026-10-05: LLP 1034 §8 built `color-scheme` per subtree, and a role
+  resolves in its subtree's scheme. A design system's forced-dark scope
+  (Expo's `.dark-theme`) is that row, not a second theme.
 - **No automatic contrast correction.** A role is what the platform says.
 - **No asset-catalogue generation.** `named:` reads what the bundle already
   has.
@@ -751,7 +798,10 @@ boot path executes nothing), for what CSS does on its own.
 5. **D10, relative colour and `color-mix()`,** and the `Mix` table. Tests:
    iOS dynamic providers compared with UIKit's `withAlphaComponent` in four
    trait sets; the web's native output.
-6. **D4, `theme`,** when an app needs one.
+6. **D4, `theme`,** when an app needs one. One does now: the Expo
+   styleguide (LLP 1119). As amended in r4, D4 lands with LLP 1117's stages
+   1–3, and its role overrides land with step 4 above (D11), which
+   they amend.
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer
@@ -814,7 +864,10 @@ recommendation on that basis; the maintainer decides.
    outside sRGB. That decides how urgent 10.1 is.
 3. **The relative-colour subset (D10):** is `rgb(from X r g b / a)` plus
    `color-mix(in srgb|oklab, …)` enough for r1, or should `oklch()` relative
-   forms come with 10.2?
+   forms come with 10.2? *r4:* the Expo styleguide needs `hsl()` with
+   channel `calc()`, and LLP 1100 has built the wide row, so r4 admits
+   `hsl()`, `hwb()` and `oklch()` forms with one-term channel arithmetic.
+   The remaining question is whether that is the right boundary.
 4. **Keyframe references (D9)** amend LLP 1062 D9. Does the maintainer accept
    "known when the animation starts" in place of "known at compile time"?
 5. **High-contrast columns (D11):** take Apple's Increased Contrast values for
@@ -1097,7 +1150,7 @@ rows; nothing here is renamed twice.
 | `-apple-system-fill` (an alias of `fill`, accepted as built: LLP 1077 D13 shipped it) | deleted by 1081's sweep; authors write `-exact-fill` | WebKit has no such keyword (1081 §2). 1081's `-exact-system-fill` and this LLP's `fill` are the same colour, so one name stays. The Apple host keeps the string only as its vibrancy key for `.fill`. |
 | `platform-color()` | `-exact-platform-color()` | an invented function |
 | `tint-color` (D8's initial `AccentColor`) | `-exact-tint-color`, raster images only after 1081 stage 2 | 1081 §2 and Q4 |
-| `theme` (D4, proposed) | unchanged | a Contract construct, outside the rule (1081 D5) |
+| `theme` (D4, proposed) | unchanged; its `--` entries are author custom property names (r4) | a Contract construct, outside the rule (1081 D5); custom property names are the author's own (1081 D5, amended for LLP 1117) |
 
 **The symbol question.** §6's stage-2 question 1 (an untinted symbol is
 the app's tint, as in UIKit) is overtaken by LLP 1081's stage 2, which

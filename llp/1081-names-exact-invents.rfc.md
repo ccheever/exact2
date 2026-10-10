@@ -137,7 +137,7 @@ r1 also claimed that `press-haptic` and `scroll-edge-effect` already had web arm
 **D5. Outside the rule.**
 
 - **Contract attributes and props**, camelCase or kebab-case: `buttonStyle`, `backgroundMaterial`, `glassGroup`, `symbolEffectValue`, `scroll-start`, `scroll-restoration`, `bitmap-width`, `initial-item-count`. These are element attributes, Contract's own vocabulary (Q6). That a `style` class can carry a name is no test: `buttonStyle` is a styleable prop (LLP 1069.011 D12).
-- **Author-defined identifiers** in a CSS value: keyframe names, timeline `<dashed-ident>`s, font-family names, grid line names.
+- **Author-defined identifiers** in a CSS value: keyframe names, timeline `<dashed-ident>`s, font-family names, grid line names, and (proposed by LLP 1117, 2026-10-09) custom property names, `--<ident>`, both where they are declared (a `theme` entry, an attribute) and inside `var()`. They are CSS's own grammar with the author's own words, so they take no prefix.
 - **Contract's expression functions**, folded before any CSS parser sees the value: palette calls such as `accent()` (`contract/syntax/src/parser/keyframes.rs:66`) and actions such as `haptic()`.
 - **Host-private names**, which stay exactly as they are:
   - the schema's fields and codec ids (`press_scale`, `"drag-timeline"`);
@@ -146,7 +146,7 @@ r1 also claimed that `press-haptic` and `scroll-edge-effect` already had web arm
   - the web host's custom properties `--exact-exit-animation`, `--exact-drag-timeline`, `--exact-layout-transition` (`css.rs:85–136`), `--exact-press`, `--exact-scale` (`host/web-js/src/rows.rs:161–203`) and `--exact-tint` (`motion/src/property.rs:174–181`);
   - the `spring(k, d, m)` text that `layout_transition_css` writes for `presence-glue.js` (`css.rs:651–656`), a private protocol between two host files.
 
-  The author spelling is `-exact-…` (one hyphen); the host's is `--exact-…` (a custom property). **Author source may not name `--exact-*`.** Two parsers read motion names, and they read different text:
+  The author spelling is `-exact-…` (one hyphen); the host's is `--exact-…` (a custom property). **Author source may not name `--exact-*`.** *Proposed amendment (LLP 1117 D1, 2026-10-09):* `--exact-*` stays reserved to the host, and an author custom property may not use the prefix (`lower-var-reserved`). A host property whose own spec admits it may be read with `var()` (LLP 1116 D9's `--exact-safe-area-inset-*`) or declared to override the host's value (the same four). Each such name is listed in the style-name table (D8) with that kind, so the rule stays one table lookup. Two parsers read motion names, and they read different text:
   - A **transition** row is stored as the author's text and parsed by the kernel (`Transitions::parse`, generated at `kernel/build.rs:1309`). It reads author names only, through a new `Property::from_author_name`, which refuses `--exact-tint`.
   - A **keyframes** rule is stored serialized: `rule.css()` writes each declaration with `css_name()` (`contract/lower/src/svg.rs:427`). The runner and the JS emitter parse that text again (`runner/src/bridge.rs:114`, `host/web-js/src/emit.rs:711`, `rows.rs:371`), so `Keyframes::parse` keeps accepting `--exact-tint` through `Property::from_name`. Author keyframe declarations are checked in Contract against author names before serialization.
 
@@ -155,7 +155,7 @@ r1 also claimed that `press-haptic` and `scroll-edge-effect` already had web arm
 
 **D6. Graduation.** When a CSS Working Group document, or a browser's ordinary web content, defines something an `-exact-` name already does, with the same grammar and meaning (D1), the name takes CSS's spelling and grammar, and the old name goes into `renamed`. LLP 1001 retires its "not CSS" declaration but keeps any subset or approximation that is still true. When CSS defines the same spelling with a different meaning, nothing collides; the `-exact-` name stays until someone decides whether to adopt CSS's version.
 
-**D7. The lexer.** Contract's lexer reads a name that starts `-webkit-` or `-apple-` as one identifier only in attribute-name position (followed by `=`), so `-webkit-x` in an expression stays a negation (LLP 1077 stage 3, `lexer.rs:192–210`). `-exact-` joins that list under the same restriction. Keywords and functions are inside string values and need no lexer change. The lexer's tests cover an attribute, a `style` block line, a keyframe line, whitespace before `=`, `==` in an expression and a plain negation.
+**D7. The lexer.** Contract's lexer reads a name that starts `-webkit-` or `-apple-` as one identifier only in attribute-name position (followed by `=`), so `-webkit-x` in an expression stays a negation (LLP 1077 stage 3, `lexer.rs:192–210`). `-exact-` joins that list under the same restriction. *Proposed (LLP 1117, 2026-10-09):* `--` joins it too, for custom property declarations on a node or in a `style`, and as a `theme` entry's name. In an expression `--x` stays a double negation. Keywords and functions are inside string values and need no lexer change. The lexer's tests cover an attribute, a `style` block line, a keyframe line, whitespace before `=`, `==` in an expression and a plain negation.
 
 **D8. Each vocabulary's table carries each name's kind, the parser reads that table, and one test walks them all.**
 

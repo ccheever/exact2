@@ -131,6 +131,8 @@ Verified against origin/main `e992cefe` by reading `kernel/tables/schema.json`, 
 
 **G4 `font-variant-numeric`: add `tabular-nums` (and `normal`).** The row exists. Apple maps it to the monospaced-digits feature, the web passes CSS through, and Linux sets the `tnum` feature in its shaper. Other values (`oldstyle-nums`, `slashed-zero`, fractions) can follow on demand. Cost: small.
 
+*Demand, 2026-10-09 (proposed):* the Expo styleguide (LLP 1119) uses `slashed-zero` for codes and IDs (`.variant-numeric-slashed`). It joins as the row's second bit, combinable with `tabular-nums` as CSS's value list is (`tabular-nums slashed-zero`). It is the OpenType `zero` feature on every host: on Apple, a CoreText feature setting (`kCTFontOpenTypeFeatureTag` `zero`) carried through the same measure ABI path as `tnum`, Linux's shaper features, and the CSS itself on the web. A face without a `zero` feature draws its plain zero, as a browser does. `oldstyle-nums` and fractions still wait.
+
 **G5 `white-space`: add `nowrap` and `pre-line`.** Every list app wants a single-line label without clamping, and `nowrap` + `overflow: hidden` + `text-overflow: ellipsis` is the CSS idiom. `pre-line` (collapse spaces, keep newlines) is cheap once the enum grows. `pre` and `break-spaces` can wait.
 - Each text engine needs a mode that does not break lines.
 - Measurement must report the unwrapped width as both the min-content and max-content width.
