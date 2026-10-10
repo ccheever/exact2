@@ -132,7 +132,12 @@ export async function mobileSnapshot(nativeInput: Native | null | undefined, sup
       ]);
       if (mobilePreferences.ok) applyMobileComposerBehavior(mobileClient, mobilePreferences.value);
       if (status.ok) focusedStatus = obj(status.value);
-      if (catalog.ok) savedCatalog = arr(obj(catalog.value).saved);
+      if (catalog.ok) {
+        savedCatalog = arr(obj(catalog.value).saved);
+        // Home reads fleet.saved, not this snapshot. Copy the catalog the device just
+        // returned so a saved environment is visible before the next fleet sync.
+        fleet.saved = savedCatalog;
+      }
       if (preferences.ok) preferencesText = str(obj(preferences.value).text, '{}');
       routingReady = catalog.ok && preferences.ok;
     } catch (error) { if (letGo(error)) throw error; }
