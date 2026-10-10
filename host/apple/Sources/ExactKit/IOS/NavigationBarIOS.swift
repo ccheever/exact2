@@ -614,6 +614,9 @@ extension NavigationHost {
         let node = kids.firstIndex { $0 === shape?.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil }
         let target = node?.scrollView != nil && node?.scrollView === scroll ? node : nil
         let physical = target?.scrollView
+        // Bottom ownership can change with a footer or its geometry even
+        // when UIKit keeps the same physical scroll view.
+        defer { bindBottom(bottomScroll(of: c), to: c) }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         if let old = c.collapseScroll {
             let previous = c.collapseScrollView
@@ -630,6 +633,32 @@ extension NavigationHost {
         c.setContentScrollView(physical, for: .top)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    private func bindBottom(_ scroll: UIScrollView?, to c: RouteController) {
+        guard c.bottomScrollView !== scroll else { return }
+        c.bottomScrollView = scroll
+        c.setContentScrollView(scroll, for: .bottom)
+    }
+
+    /// With one flow child, the route has no footer to reserve native bottom
+    /// space for. The adopted scroller owns that edge and UIKit measures its
+    /// actual overlap; a short authored port keeps its frame and gets no
+    /// automatic inset where it does not intersect the native bar.
+    func bottomScroll(of c: RouteController) -> UIScrollView? {
+        guard let node = c.collapseScroll, let scroll = c.collapseScrollView,
+              scroll === node.scrollView, node.superview === c.node.container,
+              node.style["display"]?.string != "none",
+              // FlatPaint only flattens displayed, static flow leaves; an
+              // inert layer-only footer still requires the route's cover.
+              !presenter.flats.holdsLeaves(c.node.id) else { return nil }
+        let flow = c.node.container.subviews.compactMap { $0 as? NodeView }.filter {
+            presenter.views[$0.id] === $0 && $0 !== c.lifted && $0.style["display"]?.string != "none"
+                && $0.style["position_type"]?.string != "absolute"
+                && $0.style["position_type"]?.string != "fixed"
+                && $0.props["popover"] == nil && $0.props["semanticTag"] != "dialog"
+        }
+        return flow.count == 1 && flow.first === node ? scroll : nil
     }
 
     /// Register a replacement before its first native layout. Resolve only
@@ -810,8 +839,11 @@ extension NavigationHost {
             if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
+                let bottomOwner = bottomScroll(of: c)
+                bindBottom(bottomOwner, to: c)
+                let bottom = whole && bottomOwner == nil ? max(0, safe.bottom - env.bottom) : 0
                 edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
-                              bottom: whole ? max(0, safe.bottom - env.bottom) : 0, left: whole ? max(0, safe.left - env.left) : 0)
+                              bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }

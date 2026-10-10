@@ -352,6 +352,245 @@ final class NavigationCollapseIOSTests: XCTestCase {
         return (session, nav, route, node)
     }
 
+    private func showBottomToolbar(_ nav: UINavigationController, _ route: RouteController) {
+        route.toolbarItems = [UIBarButtonItem(title: "Action", style: .plain, target: nil, action: nil)]
+        nav.setToolbarHidden(false, animated: false)
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
+        route.host?.reportCovers()
+        spin(0.3)
+    }
+
+    func testFullHeightPlainScrollOwnsTheNativeBottomInsetAndReachesItsEnd() throws {
+        let session = try fixture("bottom-plain")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        let scroll = try XCTUnwrap(node.scrollView)
+        until("the plain port reaches the route bottom") {
+            abs(node.frame.maxY - route.node.contentBox().maxY) <= 0.5
+        }
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === scroll)
+        XCTAssertGreaterThan(scroll.adjustedContentInset.bottom - scroll.contentInset.bottom, 0)
+        let frame = node.convert(node.bounds, to: route.view)
+        XCTAssertGreaterThan(frame.maxY, route.view.bounds.maxY - route.view.safeAreaInsets.bottom,
+                             "the physical port extends behind the native bar")
+        var metrics: [Double]?
+        session.presenter.onScroll = { id, values in if id == node.id { metrics = values } }
+        node.handlers.insert("scroll")
+        node.pendingScrollTop = 100_000
+        node.applyPendingScroll()
+        spin(0.1)
+        let event = try XCTUnwrap(metrics)
+        let room = node.scrollPortInsets(scroll)
+        XCTAssertEqual(event[5], Double(scroll.bounds.height - room.top - room.bottom), accuracy: 0.5)
+        XCTAssertEqual(event[3] - event[1] - event[5], 0, accuracy: 0.5, "logical scroll metrics reach the same visible end")
+        let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+        XCTAssertEqual(scroll.contentOffset.y, end, accuracy: 0.5)
+        let bottom = scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: route.view).y
+        XCTAssertEqual(bottom, frame.maxY - scroll.adjustedContentInset.bottom, accuracy: 0.5,
+                       "content reaches the visible end with one native obstruction inset")
+    }
+
+    func testFullHeightGroupedScrollUsesTheSameBottomOwnerAndVisibleEnd() throws {
+        let (session, nav, route, node) = try nativeList(initialTop: nil)
+        showBottomToolbar(nav, route)
+        let scroll = try XCTUnwrap(node.scrollView)
+        XCTAssertTrue(route.host?.bottomScroll(of: route) === scroll)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === scroll)
+        XCTAssertGreaterThan(scroll.adjustedContentInset.bottom - scroll.contentInset.bottom, 0)
+        var metrics: [Double]?
+        session.presenter.onScroll = { id, values in if id == node.id { metrics = values } }
+        node.handlers.insert("scroll")
+        node.pendingScrollTop = 100_000
+        node.applyPendingScroll()
+        scroll.layoutIfNeeded()
+        spin(0.1)
+        let event = try XCTUnwrap(metrics)
+        let room = node.scrollPortInsets(scroll)
+        XCTAssertEqual(event[5], Double(scroll.bounds.height - room.top - room.bottom), accuracy: 0.5)
+        XCTAssertEqual(event[3] - event[1] - event[5], 0, accuracy: 0.5, "grouped scroll metrics use one native bottom inset")
+        let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+        XCTAssertEqual(scroll.contentOffset.y, end, accuracy: 0.5)
+        let bottom = scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: route.view).y
+        let port = node.convert(node.bounds, to: route.view)
+        XCTAssertEqual(bottom, port.maxY - scroll.adjustedContentInset.bottom, accuracy: 0.5)
+    }
+
+    func testAnAppBottomScrollOverrideSurvivesUnchangedRouteProjection() throws {
+        let session = try fixture("bottom-hatch-owner")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        XCTAssertTrue(route.bottomScrollView === node.scrollView)
+        let appScroll = UIScrollView()
+        route.setContentScrollView(appScroll, for: .bottom)
+        session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        session.presenter.navigation.reportCovers()
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === appScroll,
+                      "an unchanged Exact binding does not replace the app's native override")
+        XCTAssertTrue(route.bottomScrollView === node.scrollView)
+    }
+
+    func testAFlowFooterKeepsItsBottomCoverAndChangingFlowRebindsTheOwner() throws {
+        let session = try fixture("bottom-footer")
+        let (nav, route, node) = try second(session)
+        let p = session.presenter
+        showBottomToolbar(nav, route)
+        p.onScrolled = nil
+        var bottomCover: CGFloat?
+        p.onCovers = { changes in
+            for (id, cover) in changes where id == route.node.id {
+                if case .edges(let edges)? = cover { bottomCover = edges.bottom }
+            }
+        }
+        let children = route.node.container.subviews.compactMap { ($0 as? NodeView)?.id }
+        let footer: UInt32 = 950_000
+        let visibleEnd = route.view.bounds.maxY - route.view.safeAreaInsets.bottom
+        let footerEnd = route.node.container.convert(CGPoint(x: 0, y: visibleEnd), from: route.view).y
+        let footerY = footerEnd - 40
+        p.apply(wireBatch([
+            ["op": "create", "id": footer, "kind": "view"],
+            ["op": "children", "id": route.node.id, "ids": children + [footer]],
+            ["op": "frame", "id": node.id, "x": Double(node.frame.minX), "y": Double(node.frame.minY),
+             "w": Double(node.frame.width), "h": Double(max(0, footerY - node.frame.minY))],
+            ["op": "frame", "id": footer, "x": 0.0, "y": Double(footerY), "w": Double(node.frame.width), "h": 40.0],
+        ]))
+        XCTAssertTrue(p.flats.isFlat(footer), "an inert footer may be drawn as a layer without a NodeView")
+        XCTAssertNil(p.navigation.bottomScroll(of: route))
+        XCTAssertNil(route.bottomScrollView, "Exact releases its explicit binding even if UIKit finds a heuristic owner")
+        p.navigation.reportCovers()
+        nav.view.layoutIfNeeded()
+        node.scrollView?.layoutIfNeeded()
+        spin(0.1)
+        XCTAssertGreaterThan(bottomCover ?? 0, 0, "a fixed flow footer keeps the route's kernel cover")
+        let footerFrame = route.node.container.convert(try XCTUnwrap(p.flats.leaves[footer]).frame, to: route.view)
+        XCTAssertLessThanOrEqual(footerFrame.maxY, visibleEnd + 0.5, "the covered layout keeps the footer above the native bar")
+        XCTAssertLessThanOrEqual(node.convert(node.bounds, to: route.view).maxY, footerFrame.minY + 0.5)
+        let scroll = try XCTUnwrap(node.scrollView)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom - scroll.contentInset.bottom, 0, accuracy: 0.5,
+                       "the covered scroll port ending above its footer gets no duplicate native bottom inset")
+        p.apply(wireBatch([["op": "style", "id": footer, "style": ["display": "none"]]]))
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === node.scrollView,
+                      "the same backend is rebound when its footer leaves flow")
+        p.apply(wireBatch([["op": "style", "id": footer, "style": ["display": "block", "visibility": "hidden"]]]))
+        XCTAssertNil(p.navigation.bottomScroll(of: route), "visibility:hidden still takes flow space")
+        for position in ["absolute", "fixed"] {
+            p.apply(wireBatch([["op": "style", "id": footer, "style": ["position_type": position]]]))
+            XCTAssertTrue(route.contentScrollView(for: .bottom) === node.scrollView, "out-of-flow overlays do not reserve a footer")
+        }
+        p.apply(wireBatch([["op": "style", "id": footer, "style": [:]],
+                          ["op": "props", "id": footer, "set": ["popover": "auto"]]]))
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === node.scrollView, "a top-layer popover is not a flow footer")
+        p.apply(wireBatch([["op": "props", "id": footer, "clear": ["popover"]]]))
+        let ghost = try XCTUnwrap(p.views[footer])
+        XCTAssertNil(p.navigation.bottomScroll(of: route))
+        XCTAssertNil(route.bottomScrollView)
+        p.apply(wireBatch([["op": "exit", "id": footer],
+                          ["op": "children", "id": route.node.id, "ids": children]]))
+        XCTAssertTrue(ghost.superview === route.node.container, "the exit still paints in its old slot")
+        XCTAssertNil(p.views[footer], "the exiting footer already left live flow")
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === node.scrollView,
+                      "an exit ghost does not reserve the route's bottom cover")
+    }
+
+    func testShortFixedPlainPortKeepsItsFrameWithoutAFictitiousBottomInset() throws {
+        let session = try fixture("bottom-short-port")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        let p = session.presenter
+        p.onCovers = nil
+        p.onScrolled = nil
+        p.apply(wireBatch([["op": "frame", "id": node.id, "x": Double(node.frame.minX),
+                            "y": Double(node.frame.minY), "w": Double(node.frame.width), "h": 120.0]]))
+        let scroll = try XCTUnwrap(node.scroll)
+        scroll.layoutIfNeeded()
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === scroll)
+        XCTAssertEqual(node.bounds.height, 120, "the native edge owner does not enlarge a fixed authored port")
+        XCTAssertEqual(scroll.bounds.height, 120)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom - scroll.contentInset.bottom, 0, accuracy: 0.5,
+                       "UIKit adds no bottom inset to a port ending above the bar")
+        node.content = CGSize(width: node.bounds.width, height: 40)
+        node.fitScroll()
+        XCTAssertEqual(scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height, 0, accuracy: 0.5,
+                       "a short port gains no empty bottom scroll range")
+    }
+
+    func testFixedPortMatchingTheFormerCoveredHeightUsesItsActualOverlap() throws {
+        let session = try fixture("bottom-fixed-covered-height")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        let p = session.presenter
+        p.onCovers = nil
+        p.onScrolled = nil
+        let formerCover = max(0, route.view.safeAreaInsets.bottom - p.insets.bottom)
+        let fixedHeight = route.node.contentBox().height - formerCover
+        p.apply(wireBatch([["op": "frame", "id": node.id, "x": Double(node.frame.minX),
+                            "y": Double(node.frame.minY), "w": Double(node.frame.width), "h": Double(fixedHeight)]]))
+        let scroll = try XCTUnwrap(node.scroll)
+        nav.view.layoutIfNeeded()
+        scroll.layoutIfNeeded()
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === scroll)
+        XCTAssertEqual(node.bounds.height, fixedHeight, accuracy: 0.5, "ownership preserves the fixed frame")
+        let port = node.convert(node.bounds, to: route.view)
+        let visibleEnd = route.view.bounds.maxY - route.view.safeAreaInsets.bottom
+        let overlap = max(0, port.maxY - visibleEnd)
+        XCTAssertEqual(scroll.adjustedContentInset.bottom - scroll.contentInset.bottom, overlap, accuracy: 0.5,
+                       "only actual overlap is inset, rather than the full native bar height")
+        p.navigation.reportCovers()
+        p.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === scroll, "cover reports do not oscillate fixed-port ownership")
+        XCTAssertEqual(node.bounds.height, fixedHeight, accuracy: 0.5)
+    }
+
+    func testShortContentDoesNotGainABlankBottomToolbarRange() throws {
+        let session = try fixture("bottom-short-content")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        let scroll = try XCTUnwrap(node.scroll)
+        node.content = CGSize(width: node.bounds.width, height: 40)
+        node.fitScroll()
+        let automaticBottom = max(0, scroll.adjustedContentInset.bottom - scroll.contentInset.bottom)
+        XCTAssertGreaterThan(automaticBottom, 0)
+        XCTAssertEqual(scroll.contentSize.height, max(40, scroll.bounds.height - automaticBottom), accuracy: 0.5,
+                       "the native automatic bottom inset must not create empty scroll content")
+    }
+
+    func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
+        let session = try fixture("bottom-inset-changes")
+        let (nav, route, node) = try second(session)
+        showBottomToolbar(nav, route)
+        session.presenter.onCovers = nil
+        session.presenter.onScrolled = nil
+        let scroll = try XCTUnwrap(node.scroll)
+        node.content = CGSize(width: node.bounds.width, height: 40)
+        node.fitScroll()
+        let automaticBottom = { max(0, scroll.adjustedContentInset.bottom - scroll.contentInset.bottom) }
+        let floor = { max(40, scroll.bounds.height - automaticBottom()) }
+        let shown = automaticBottom()
+        XCTAssertGreaterThan(shown, 0)
+        let manual = scroll.contentInset.bottom
+        let beforeRange = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+        scroll.contentInset.bottom += 180 // the same manual inset basis used by the keyboard toolbar
+        scroll.layoutIfNeeded()
+        spin(0.1)
+        XCTAssertEqual(scroll.contentInset.bottom, manual + 180, accuracy: 0.5)
+        XCTAssertEqual(scroll.contentSize.height, floor(), accuracy: 0.5)
+        XCTAssertEqual(scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height,
+                       beforeRange + 180, accuracy: 0.5, "manual keyboard room remains reachable")
+        scroll.contentInset.bottom = manual
+        nav.setToolbarHidden(true, animated: false)
+        nav.view.layoutIfNeeded()
+        until("hiding the toolbar refits short content without an authored batch") {
+            automaticBottom() < shown - 0.5 && abs(scroll.contentSize.height - floor()) <= 0.5
+        }
+        let hidden = automaticBottom()
+        nav.setToolbarHidden(false, animated: false)
+        nav.view.layoutIfNeeded()
+        until("showing the toolbar refits short content without an authored batch") {
+            automaticBottom() > hidden + 0.5 && abs(scroll.contentSize.height - floor()) <= 0.5
+        }
+        XCTAssertEqual(scroll.contentInset.bottom, manual, accuracy: 0.5, "UIKit refitting preserves authored insets")
+    }
+
     func testARealGroupedListIsTheRoutesOnlyScrollerAndCollapsesItsTitle() throws {
         let (session, nav, route, node) = try nativeList()
         let p = session.presenter
