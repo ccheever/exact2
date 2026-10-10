@@ -28,6 +28,7 @@ import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sid
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
 import { draftMenuRows } from './r11-upstream-drafts';
+import { replaceContextReferences } from './composer-editor-menu'; // a draft row's chips read as their labels
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -334,8 +335,10 @@ export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] 
     const text = (client.local.drafts[key] ?? '').trim(), attachments = (client.local.snapshotDrafts?.[key] ?? []).length;
     if (!text && !attachments) continue;
     const name = str(project.title), mark = identity(name);
+    // SidebarDraftRow's promptPreview: a context chip reads as its label (replaceComposerContextReferences), not its link.
+    const prompt = replaceContextReferences(text, reference => reference.label).trim().split('\n', 1)[0] ?? '';
     rows.push({ id, projectName: name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, glyph: projectGlyph(client, project, identity),
-      preview: text ? text.split('\n', 1)[0]! : `${attachments} attachment${attachments === 1 ? '' : 's'}`, menu: draftMenuRows(client, id) });
+      preview: prompt || `${attachments} attachment${attachments === 1 ? '' : 's'}`, menu: draftMenuRows(client, id) });
   }
   return rows;
 }

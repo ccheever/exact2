@@ -32,6 +32,13 @@ shape ShellToast
   details: list<ShellToastDetail>
   expandLabel: string
   collapseLabel: string
+  extraLabel: string // browser-surface part 3: ThreadToastData.additionalActions (one), and each button's "Copied!" state
+  extraOp: string
+  extraId: string
+  extraValue: string
+  actionDone: bool
+  secondaryDone: bool
+  extraDone: bool
 shape ShellToastDetail
   id: string
   title: string

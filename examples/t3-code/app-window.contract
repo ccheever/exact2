@@ -325,6 +325,7 @@ component T3Window
     hoverTip
     hoverShown
     linkOpen
+    scheme // browser-surface part 3: the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
     pickModel
     taskModelPick
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link

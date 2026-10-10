@@ -303,6 +303,15 @@ export function citationsToPlainText(prompt: string): string {
     return citation.comment === undefined ? str(citation.text) : `${str(citation.text)}\nComment: ${str(citation.comment)}`;
   });
 }
+/** replaceComposerContextReferences: each context chip replaced by what `replace` makes of it (its label, for a draft row). */
+export function replaceContextReferences(prompt: string, replace: (reference: { kind: string; id: string; label: string; image: boolean }) => string): string {
+  if (!prompt.includes('](t3-context:')) return prompt;
+  return prompt.replace(CONTEXT_LINK, (source: string, image: string, label: string, href: string) => {
+    const parts = href.slice('t3-context://v1/'.length).split('/');
+    if (parts.length !== 2 || !/^[a-z][a-z0-9-]{0,39}$/.test(parts[0]!) || !CONTEXT_ID.test(parts[1]!)) return source;
+    return replace({ kind: parts[0]!, id: parts[1]!, label: contextLabel(label, parts[0]!), image: image === '!' });
+  });
+}
 /** stripInlineContextReferences: the prompt without its context chips. */
 export function stripContextReferences(prompt: string): string {
   if (!prompt.includes('](t3-context:')) return prompt;
