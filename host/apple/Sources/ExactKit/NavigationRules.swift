@@ -70,8 +70,32 @@ enum NavigationRules {
             .min { id($0) < id($1) }
     }
 
+    /// How the platform's Back (its button, edge swipe, sheet swipe-down)
+    /// goes from the selected route.
+    enum Back: Equatable {
+        /// Press the authored Back control, this view.
+        case press(UInt32)
+        /// Deliver this location to the navigation root's `navigate`.
+        case navigate(String)
+    }
+
+    /// LLP 1115 D5, Back is always there: a route that declares a Back
+    /// control (a live element in it whose `id` is the root's
+    /// `navigationBack`) goes back by pressing it, and is refused while it
+    /// does not resolve (disabled, or no `press`) — the author's say, as
+    /// D1 has it. A route that declares none still goes back, as a
+    /// hand-built UIKit screen does and as the web's history Back does
+    /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
+    /// location of the visit beneath. Without a `navigate` handler or a
+    /// visit beneath there is nothing to go back by, and it is refused.
+    static func back(control: UInt32?, declared: Bool, hearsNavigate: Bool, beneath: () -> String?) -> Back? {
+        if let control { return .press(control) }
+        guard !declared, hearsNavigate, let location = beneath(), !location.isEmpty else { return nil }
+        return .navigate(location)
+    }
+
     /// D1: whether an interactive pop may begin at all — a stack to pop, no
-    /// transition in flight, no sheet, a resolvable Back control, and no
+    /// transition in flight, no sheet, a way back (`back`), and no
     /// context preview anywhere in the session.
     static func popMayBegin(depth: Int, changing: Bool, modalActive: Bool, hasBackControl: Bool, contextPreviewActive: Bool) -> Bool {
         depth > 1 && !changing && !modalActive && hasBackControl && !contextPreviewActive

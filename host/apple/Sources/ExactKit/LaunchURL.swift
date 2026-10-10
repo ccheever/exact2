@@ -9,6 +9,14 @@ extension ExactSession {
         presenter.views.values.first { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }
     }
 
+    /// The platform's Back from a route with no authored Back control: the
+    /// location beneath, to the root it came from (LLP 1115 D5), as a
+    /// popstate is to the web's.
+    func navigate(_ location: String, at root: NodeView) {
+        guard state != .destroyed, booted, presenter.views[root.id] === root, root.handlers.contains("navigate") else { return }
+        apply(runtime.navigate(root.id, location, now: now()))
+    }
+
     /// After the first frame: a launch location that matched no route and
     /// has no navigation root to hear it is journaled, then forgotten.
     func refuseUnheardLaunch() {

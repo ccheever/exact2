@@ -4,7 +4,8 @@
 //! runner's journal, a select's options for the menu the presenter
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
-//! whether a followed link names one of the app's routes (LLP 1038 §7).
+//! whether a followed link names one of the app's routes (LLP 1038 §7),
+//! and where the host's own Back goes (LLP 1115 D5).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -21,6 +22,20 @@ impl<D: DataSource> Bridge<D> {
                 .as_ref()
                 .is_some_and(|h| h.runner().route_matches(&location)),
         )
+    }
+
+    /// `exact_location_beneath`: the location of the visit beneath visit
+    /// `id` on its stack, UTF-8 in the output buffer, empty when there is
+    /// none — where the host's own Back goes for a route with no authored
+    /// Back control (LLP 1115 D5). Not a batch: nothing changes.
+    pub fn location_beneath(&mut self, id: u64) -> u32 {
+        let location = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().location_beneath(id))
+            .unwrap_or_default();
+        self.output = location.into_bytes();
+        self.output.len() as u32
     }
 
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now

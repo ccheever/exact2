@@ -592,7 +592,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
         guard layers.last?.controller === presentationController.presentedViewController,
               !presenter.navigation.canInvokeBack else { return }
-        presenter.session?.log("modal dismissal refused: no enabled navigationBack control in the active route")
+        presenter.session?.log("modal dismissal refused: \(presenter.navigation.backRefusal)")
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {

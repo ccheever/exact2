@@ -642,10 +642,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard presenter.session?.view?.window != nil,
               presenter.views[source.id] === source, routeIDs.contains(source.id),
               source.props["navigationKey"] == container?.props["navigationKey"] else { return }
-        if let control = backControl { presenter.press(control.id) }
+        goBack()
     }
 
-    var canInvokeBack: Bool { backControl != nil }
+    /// Whether the platform's Back goes from the selected route (LLP 1115 D5).
+    var canInvokeBack: Bool { back != nil }
+
+    /// The platform's Back, completed: the authored control pressed, else
+    /// the root's `navigate` with the location beneath (LLP 1115 D5).
+    private func goBack() {
+        switch back {
+        case .press(let id)?: presenter.press(id)
+        case .navigate(let location)?:
+            guard let root = container, let session = presenter.session else { return }
+            session.navigate(location, at: root)
+        case nil: break
+        }
+    }
 
     var preservesKeyboardViewport: Bool {
         !keyboardDropped && NavigationRules.freezesViewport(modalActive: presenter.modals.active, changing: changing,
@@ -672,11 +685,38 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// D1: resolved at use, by HTML id, among live enabled press controls —
     /// never captured at a gesture's start (`NavigationRules.backControl`).
     private var backControl: NodeView? {
-        guard let key = container?.props["navigationKey"],
-              let route = routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key }) else { return nil }
+        guard let route = selectedRoute else { return nil }
         return NavigationRules.backControl(named: container?.props["navigationBack"], among: presenter.carrying("id"),
                                            id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled,
                                            inActiveRoute: { $0 === route || $0.isDescendant(of: route) })
+    }
+
+    private var selectedRoute: NodeView? {
+        guard let key = container?.props["navigationKey"] else { return nil }
+        return routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key })
+    }
+
+    /// How Back goes from the selected route, resolved at use as its
+    /// control is (`NavigationRules.back`, LLP 1115 D5).
+    private var back: NavigationRules.Back? {
+        guard let root = container, let route = selectedRoute else { return nil }
+        return NavigationRules.back(control: backControl?.id, declared: declaresBack(route), hearsNavigate: root.handlers.contains("navigate"),
+                                    beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })
+    }
+
+    /// Whether a route holds an element named by the root's `navigationBack`.
+    private func declaresBack(_ route: NodeView) -> Bool {
+        guard let name = container?.props["navigationBack"] else { return false }
+        return presenter.carrying("id").contains { $0.props["id"] == name && ($0 === route || $0.isDescendant(of: route)) }
+    }
+
+    /// Why Back does not go from the selected route, for the journal.
+    var backRefusal: String {
+        if let route = selectedRoute, declaresBack(route) { return "its navigationBack control is disabled or has no press handler" }
+        if container?.handlers.contains("navigate") != true {
+            return "no navigationBack control in the active route, and no navigate handler on the navigation root to go back by"
+        }
+        return "no visit beneath the active route"
     }
 
     /// Where each pop recognizer's first touch went down, in its view. A
@@ -733,12 +773,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         #endif
         if let owner, owner !== navigation { return false }
         let depth = navigation?.viewControllers.count ?? 0
-        let control = backControl
+        let goes = back != nil
         guard NavigationRules.popMayBegin(depth: depth, changing: changing, modalActive: presenter.modals.inTransition,
-                                          hasBackControl: control != nil,
+                                          hasBackControl: goes,
                                           contextPreviewActive: !presenter.chrome.ids("contextTarget").isEmpty) else {
-            if depth > 1, !changing, !presenter.modals.inTransition, control == nil {
-                presenter.session?.log("back gesture refused: no enabled navigationBack control in the active route")
+            if depth > 1, !changing, !presenter.modals.inTransition, !goes {
+                presenter.session?.log("back gesture refused: \(backRefusal)")
             }
             return false
         }
@@ -780,7 +820,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// was delivered at once and may have changed the route or its Back.
     private var popStillMayBegin: Bool {
         let may = !changing && !presenter.modals.inTransition && !awaitingKeyboardViewport
-            && (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil
+            && (navigation?.viewControllers.count ?? 0) > 1 && back != nil
         // Refused with no transition begun: nothing will reach didShow, so
         // the editor the swipe put away comes back here.
         if !may, !changing, keyboardDropped {
@@ -914,8 +954,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         restoresEditor = cancelled
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
         interactiveTransition = false
-        guard dispatches, let control = backControl else { return }
-        presenter.press(control.id)
+        guard dispatches else { return }
+        goBack()
     }
 
     /// A stack Exact retired: its handle goes.
@@ -960,10 +1000,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 #if os(tvOS)
 extension NavigationHost {
     /// Whether the Siri Remote's Menu goes back: a route to pop and a Back control.
-    var menuGoesBack: Bool { (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil }
+    var menuGoesBack: Bool { (navigation?.viewControllers.count ?? 0) > 1 && canInvokeBack }
     func menuBack() {
-        guard menuGoesBack, !changing, let control = backControl else { return }
-        presenter.press(control.id)
+        guard menuGoesBack, !changing else { return }
+        goBack()
     }
 }
 #endif

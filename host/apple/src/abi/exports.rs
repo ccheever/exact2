@@ -194,6 +194,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
+        /// The location beneath a visit, UTF-8; empty for none. @ref LLP 1115 D5
+        #[no_mangle]
+        pub extern "C" fn exact_location_beneath(rt: u32, id: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
+        }
+
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
         #[no_mangle]
         pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {

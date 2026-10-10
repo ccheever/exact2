@@ -242,6 +242,35 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(backs(session), 1, "Back once")
     }
 
+    /// LLP 1115 D5: a pushed route that declares no Back control still has
+    /// UIKit's back button and edge swipe, as a hand-built screen does, and
+    /// a completed pop goes back as the web's history Back does: the root's
+    /// `navigate` with the location beneath, once, and no Back is pressed.
+    func testAPushedRouteWithNoBackControlStillGoesBackByTheRootsNavigate() throws {
+        let session = try fixture("bar-back-always", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let plain = try XCTUnwrap(nav.topViewController)
+        XCTAssertEqual(plain.navigationItem.title, "Plain")
+        XCTAssertFalse(plain.navigationItem.hidesBackButton, "Back is always there")
+        XCTAssertTrue(session.presenter.navigation.canInvokeBack)
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)),
+                      "the edge swipe may begin")
+        // UIKit's own pop (its back button) is a completed pop.
+        nav.popViewController(animated: true)
+        until("the root's navigate went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        XCTAssertEqual(journal(session).components(separatedBy: "(follow)").count - 1, 1, "navigate once")
+        XCTAssertEqual(backs(session), 0, "no Back control was pressed")
+        XCTAssertFalse(journal(session).contains("back gesture refused"))
+    }
+
     /// A pop UIKit finishes with no enabled Back control to press (here,
     /// disabled just before the bar's pop, as a tap racing that batch does)
     /// presses nothing, and the native stack goes back to the one the router

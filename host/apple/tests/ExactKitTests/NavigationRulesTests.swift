@@ -190,6 +190,21 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
     }
 
+    /// LLP 1115 D5: the authored control when it resolves; refused while a
+    /// declared one does not; else the root's `navigate` with the location
+    /// beneath, given a handler and a visit beneath.
+    func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
+        typealias B = NavigationRules.Back
+        var asked = 0
+        let beneath = { () -> String? in asked += 1; return "/" }
+        XCTAssertEqual(NavigationRules.back(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
+        XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
+        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), "no navigate handler")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {

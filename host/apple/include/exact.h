@@ -356,6 +356,10 @@ uint32_t exact_location_of(ExactRuntime rt, size_t len);
  * link to it navigates in the app), else 0. */
 uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
+/* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
+ * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
+ * for a route with no authored Back control. Not a batch. */
+uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),

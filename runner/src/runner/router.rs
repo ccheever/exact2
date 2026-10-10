@@ -663,6 +663,19 @@ impl<D: DataSource> Runner<D> {
             .is_some_and(|r| r.matches_pattern(location))
     }
 
+    /// The location of the visit beneath visit `id` on the stack that holds
+    /// it, or `None` (no router, no such visit, or a stack's root). A host's
+    /// own Back for a route with no authored Back control delivers it to the
+    /// navigation root's `navigate`, as the web's history Back does (LLP
+    /// 1115 D5; LLP 1038 D11 as amended 2026-10-03).
+    pub fn location_beneath(&self, id: u64) -> Option<String> {
+        let (_, router) = self.carry_router()?;
+        router.tabs.iter().find_map(|tab| {
+            let at = tab.stack.iter().position(|e| e.id == id)?;
+            at.checked_sub(1).map(|below| tab.stack[below].url.clone())
+        })
+    }
+
     /// The evaluated arguments of a settled resource (the bake's cache key).
     /// @ref LLP 1038 D5 — written beside `resources.initial`.
     pub fn resource_args(&self, name: &str) -> Option<&[Value]> {

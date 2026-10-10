@@ -119,6 +119,31 @@ final class ModalDetentIOSTests: XCTestCase {
         try body()
     }
 
+    /// LLP 1115 D5: a sheet that declares no Back control still swipes down,
+    /// and its dismissal goes back by the root's `navigate`, once.
+    func testASheetWithNoBackControlStillSwipesDownAndGoesBackByNavigate() throws {
+        let session = try fixture("sheet-back-always")
+        try tap(session, "open-note")
+        until("the note is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let presented = try XCTUnwrap(sheet())
+        let controller = try XCTUnwrap(presented.presentationController)
+        let modals = session.presenter.modals
+        XCTAssertTrue(modals.presentationControllerShouldDismiss(controller), "the swipe may dismiss it")
+        // A finished swipe: UIKit dismisses the sheet, then tells its
+        // delegate (this window finishes no transition, so it is told here).
+        presented.presentingViewController?.dismiss(animated: false)
+        modals.presentationControllerDidDismiss(controller)
+        until("the router went back") {
+            let text = session.agent(#"{"op":"state"}"#)
+            let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            let nav = (json?["slots"] as? [String: Any])?["nav"] as? [String: Any]
+            return ((nav?["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1
+        }
+        let journal = session.agent(#"{"op":"logs","since":0}"#)
+        XCTAssertEqual(journal.components(separatedBy: "(follow)").count - 1, 1, "navigate once: \(journal)")
+        XCTAssertFalse(journal.contains("modal dismissal refused"))
+    }
+
     /// Through the real presenter: a row added or taken away reaches the
     /// presented sheet, whose detents are invalidated (the `content` op
     /// reaching `ModalHost.contentChanged`), and its detent resolves to the
