@@ -137,6 +137,35 @@ final class OrdinaryDisk {
             var draft = object(capture["draft"]); draft["attachmentIds"] = [imageID, fileID]
             check(!T3MobileOutbox.validateCapture(["version": 2, "kind": "ordinary", "draft": draft]), "raw order binds effective mixed order")
         }
+        run("Files image semantic kind preserves file-byte capture") {
+            let cases: [(String, String, Bool)] = [
+                ("photo.png", "image/png", true), ("photo.JPG", "APPLICATION/OCTET-STREAM\u{FEFF}; charset=x", true),
+                ("photo.bin", "IMAGE/WEBP\u{00A0}; charset=x", true), ("photo.png", "image/avif", false),
+                ("photo.png", "image/svg+xml", false), ("photo.png", "application/pdf", false), ("photo.png", "text/plain", false)]
+            for (name, mime, accepted) in cases {
+                var capture = rawCapture(), draft = object(capture["draft"]), context = object(draft["context"])
+                var files = draft["files"] as! [O], records = context["records"] as! [O]
+                files[0]["name"] = name; files[0]["mimeType"] = mime
+                records[0]["kind"] = "image"; records[0]["name"] = name; records[0]["mimeType"] = mime
+                context["records"] = records; draft["context"] = context; draft["files"] = files; capture["draft"] = draft
+                let payload = record(capture)
+                check(T3MobileOutbox.validateOrdinaryCapture(capture) == accepted, "semantic capture \(mime)")
+                check(T3MobileOutbox.validateOrdinaryCapture(capture, record: payload) == accepted, "semantic record \(mime)")
+                check((payload["attachments"] as! [O])[0]["kind"] as? String == "file", "file storage retained \(mime)")
+                if accepted {
+                    for (key, value) in [("attachmentId", imageID), ("name", "other.png"), ("mimeType", "image/jpeg"), ("sizeBytes", 22)] as [(String, Any)] {
+                        var badCapture = capture, badDraft = draft, badContext = context, badRecords = records
+                        badRecords[0][key] = value; badContext["records"] = badRecords; badDraft["context"] = badContext; badCapture["draft"] = badDraft
+                        check(!T3MobileOutbox.validateOrdinaryCapture(badCapture), "semantic raw binding \(mime) \(key)")
+                    }
+                    var spoof = payload, attachments = payload["attachments"] as! [O]
+                    attachments[0]["kind"] = "image"; spoof["attachments"] = attachments
+                    check(!T3MobileOutbox.validateOrdinaryCapture(capture, record: spoof), "no byte-slot relabel \(mime)")
+                }
+                records[0]["kind"] = "file"; context["records"] = records; draft["context"] = context; capture["draft"] = draft
+                check(T3MobileOutbox.validateOrdinaryCapture(capture, record: record(capture)), "existing file context retained \(mime)")
+            }
+        }
         run("durable admission, lost reply, clear, restart") {
             let f = try Fixture(root.appendingPathComponent("clear")), capture = rawCapture()
             let admitted = try f.enqueue(capture), claim = object(admitted["claim"])

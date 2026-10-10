@@ -34,6 +34,28 @@ function fixture(){
 }
 function set(raw:unknown,path:string,value:unknown){const keys=path.split('.');let current=raw as Record<string,unknown>;for(const k of keys.slice(0,-1))current=current[k] as Record<string,unknown>;current[keys.at(-1)!]=value}
 
+test('ordinary capture and record retain file storage for recognized semantic image context',()=>{
+  for(const [name,mimeType,accepted]of [
+    ['photo.png','image/png',true],['photo.JPG','APPLICATION/OCTET-STREAM\uFEFF; charset=x',true],
+    ['photo.bin','IMAGE/WEBP\u00A0; charset=x',true],['photo.png','image/avif',false],
+    ['photo.png','image/svg+xml',false],['photo.png','application/pdf',false],['photo.png','text/plain',false],
+  ] as const){
+    const f=fixture();Object.assign(f.c.draft.files[0]!,{name,mimeType});Object.assign(f.r.attachments[0]!,{name,mimeType});
+    for(const r of f.c.draft.context!.records)if(r.attachmentId===file.id)Object.assign(r,{kind:'image',name,mimeType});
+    f.r.context=clone(f.c.draft.context!) as unknown as Obj;
+    if(accepted){
+      expect(capture(f.c).draft.files[0]!.mimeType).toBe(mimeType);expect(capture(f.c,f.r)).toEqual(f.c);
+      expect(f.r.attachments[0]!.kind).toBe('file');expect(claim(f.q).record!.context).toEqual(f.c.draft.context);
+      const spoof=clone(f.r);spoof.attachments[0]!.kind='image';expect(()=>capture(f.c,spoof)).toThrow();
+      for(const [field,value]of [['attachmentId',id(3)],['name','other.png'],['mimeType','image/jpeg'],['sizeBytes',22]] as const){
+        const bad=clone(f.c);bad.draft.context!.records[0]![field]=value;expect(()=>capture(bad)).toThrow();
+      }
+    }else{expect(()=>capture(f.c)).toThrow();expect(()=>capture(f.c,f.r)).toThrow()}
+    for(const r of f.c.draft.context!.records)if(r.attachmentId===file.id)r.kind='file';f.r.context=clone(f.c.draft.context!) as unknown as Obj;
+    expect(capture(f.c,f.r)).toEqual(f.c);
+  }
+});
+
 test('complete raw capture preserves metadata/order and two context records sharing one real file',()=>{
   const f=fixture(),next=capture(f.c,f.r);expect(next).toEqual(f.c);expect(next).not.toBe(f.c);expect(next.draft.files[0]).not.toBe(f.c.draft.files[0]);
   expect(next.draft.context!.records).toHaveLength(3);expect(next.draft.files[0]!.contextId).toBe('legacy-unreferenced');

@@ -15,6 +15,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
     private let imports: URL?
     private var completion: (([String: Any]) -> Void)?
     private var picker: UIViewController?
+    private var issuedStage: T3PickerStage?
     private var serial = 0
     private var generation = 0
     private var fileLimit = 0
@@ -42,12 +43,13 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         return controller
     }
     private func finish(_ files: [[String: Any]] = [], error: String? = nil) {
-        let done = completion; completion = nil; picker = nil
+        let done = completion; completion = nil; picker = nil; issuedStage = nil
         var value: [String: Any] = ["files": files]
         if let error { value["error"] = error }
         done?(["ok": true, "generation": generation, "value": value])
     }
     func destroy() {
+        if let issuedStage { issuedStage.coordinator.abandonPicker(issuedStage.operation) }
         serial += 1
         picker?.dismiss(animated: false)
         finish(error: "The attachment picker was closed.")
@@ -113,7 +115,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
         return CGImageDestinationFinalize(destination) ? output as Data : nil
     }
-    private func stage(_ source: URL, name suppliedName: String? = nil, photo: Bool, limit: Int) -> [String: Any] {
+    private func stage(_ source: URL, name suppliedName: String? = nil, photo: Bool, limit: Int, issued: T3PickerStage? = nil) -> [String: Any] {
         let access = source.startAccessingSecurityScopedResource(); defer { if access { source.stopAccessingSecurityScopedResource() } }
         let name = suppliedName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? suppliedName! : source.lastPathComponent
         let resource = try? source.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
@@ -129,6 +131,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
                 } else { bytes = Self.jpegThumbnail(source, edge: 2048) }
                 guard let bytes, !bytes.isEmpty else { return ["kind": "unreadable", "name": name] }
                 guard bytes.count <= Self.maxImageBytes else { return ["kind": "too-large", "name": name, "sizeBytes": bytes.count] }
+                if let issued { return try issued.write(bytes, metadata: ["kind": "image", "name": outputName, "mimeType": mime]) }
                 try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
                 try bytes.write(to: drafts.appendingPathComponent(id), options: .atomic)
                 return ["kind": "image", "id": id, "name": outputName, "mimeType": mime, "sizeBytes": bytes.count]
@@ -136,6 +139,11 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
             let mime = UTType(filenameExtension: source.pathExtension.lowercased())?.preferredMIMEType ?? "application/octet-stream"
             var value: [String: Any] = ["kind": "file", "name": name, "mimeType": mime, "sizeBytes": size]
             guard limit > 0, size <= min(limit, Self.maxFileBytes) else { return value }
+            if let issued {
+                let bytes = try Data(contentsOf: source)
+                guard bytes.count == size else { return ["kind": "unreadable", "name": name] }
+                return try issued.write(bytes, metadata: ["kind": "file", "name": name, "mimeType": mime])
+            }
             try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: source, to: staged.appendingPathComponent(id))
             value["id"] = id; return value
@@ -199,6 +207,19 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         presenter.present(menu, animated: true); menu.presentationController?.delegate = self
     }
 
+    /// Native-only intake context. Its coordinator reserves cleanup ownership before any canonical write.
+    func pickIssued(_ request: [String: Any], stage: T3PickerStage, reply: @escaping ([String: Any]) -> Void) {
+        guard completion == nil, issuedStage == nil else { reply(failure("An attachment picker is already open.", generation: request["generation"] as? Int ?? 0)); return }
+        issuedStage = stage
+        pick(request) { [weak self] value in
+            if self?.issuedStage?.operation === stage.operation { self?.issuedStage = nil }
+            reply(value)
+        }
+    }
+    func cancelIssued(operationId: String, identity: T3ComposerIdentity) {
+        guard let stage = issuedStage, stage.operation.request.operationId == operationId, stage.operation.request.identity == identity else { return }
+        serial += 1; picker?.dismiss(animated: false); finish()
+    }
     private func pick(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let gen = request["generation"] as? Int ?? 0
         guard completion == nil else { reply(failure("An attachment picker is already open.", generation: gen)); return }
@@ -210,7 +231,7 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         if let imports {
             let urls = ((try? FileManager.default.contentsOfDirectory(at: imports, includingPropertiesForKeys: nil)) ?? [])
                 .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            let files = urls.prefix(remaining).map { stage($0, photo: source == "photos", limit: fileLimit) }
+            let files = urls.prefix(remaining).map { stage($0, photo: source == "photos", limit: fileLimit, issued: issuedStage) }
             for file in urls.prefix(remaining) { try? FileManager.default.removeItem(at: file) }
             reply(["ok": true, "generation": gen, "value": ["files": files]]); return
         }
@@ -232,34 +253,35 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish() }
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        let epoch = serial, limit = fileLimit, count = remaining
+        let epoch = serial, limit = fileLimit, count = remaining, issued = issuedStage
         DispatchQueue.global(qos: .userInitiated).async {
-            let files = urls.prefix(count).map { self.stage($0, photo: false, limit: limit) }
+            let files = urls.prefix(count).map { self.stage($0, photo: false, limit: limit, issued: issued) }
             DispatchQueue.main.async {
                 if self.serial == epoch, self.completion != nil { self.finish(files, error: urls.count > count ? "You can attach up to 100 files per message." : nil) }
-                else { self.discard(files) }
+                else { self.discard(files, issued: issued) }
             }
         }
     }
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        let epoch = serial, limit = fileLimit
+        let epoch = serial, limit = fileLimit, issued = issuedStage
         func load(_ index: Int, _ files: [[String: Any]]) {
             guard index < min(results.count, self.remaining) else { self.finish(files); return }
             let provider = results[index].itemProvider, movie = provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
             let type = movie ? UTType.movie.identifier : UTType.image.identifier
             provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
-                let file = url.map { self.stage($0, name: provider.suggestedName, photo: !movie, limit: limit) }
+                let file = url.map { self.stage($0, name: provider.suggestedName, photo: !movie, limit: limit, issued: issued) }
                     ?? ["kind": "unreadable", "name": provider.suggestedName ?? "image"]
                 DispatchQueue.main.async {
-                    guard self.serial == epoch, self.completion != nil else { self.discard(files + [file]); return }
+                    guard self.serial == epoch, self.completion != nil else { self.discard(files + [file], issued: issued); return }
                     load(index + 1, files + [file])
                 }
             }
         }
         if results.isEmpty { finish() } else { load(0, []) }
     }
-    private func discard(_ files: [[String: Any]]) {
+    private func discard(_ files: [[String: Any]], issued: T3PickerStage? = nil) {
+        if let issued { issued.coordinator.abandonPicker(issued.operation); return }
         for file in files {
             guard let id = file["id"] as? String, UUID(uuidString: id) != nil else { continue }
             try? FileManager.default.removeItem(at: (file["kind"] as? String == "image" ? drafts : staged).appendingPathComponent(id))

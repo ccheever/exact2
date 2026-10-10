@@ -626,6 +626,18 @@ final class T3MobileOutbox {
         guard order == expected, order.count == normalized.count else { return nil }
         return order.compactMap { normalized[$0] }
     }
+    // Source365aa87982 shared/image.imageMimeType: semantic image recognition does
+    // not change the original file storage kind or its native byte-read authority.
+    private static func ordinaryImageMetadata(_ attachment: Object) -> Bool {
+        guard let raw = attachment["mimeType"] as? String, let name = attachment["name"] as? String else { return false }
+        let mime = String(raw.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
+            .trimmingCharacters(in: trimCharacters).lowercased()
+        if ["image/gif", "image/jpeg", "image/png", "image/webp"].contains(mime) { return true }
+        if mime.hasPrefix("image/") || !["", "application/octet-stream", "binary/octet-stream", "application/unknown"].contains(mime) { return false }
+        guard let dot = name.lastIndex(of: ".") else { return false }
+        let suffix = String(name[name.index(after: dot)...]).trimmingCharacters(in: trimCharacters).lowercased()
+        return ["gif", "jpeg", "jpg", "png", "webp"].contains(suffix)
+    }
     static func validateOrdinaryCapture(_ capture: Object, record: Object? = nil) -> Bool {
         guard fields(capture, required: ["version", "kind", "draft"]), integer(capture["version"]), capture["version"] as? Int == 2,
               capture["kind"] as? String == "ordinary", let draft = capture["draft"] as? Object,
@@ -635,7 +647,9 @@ final class T3MobileOutbox {
               JSONSerialization.isValidJSONObject(capture), let attachments = ordinaryInventory(draft, target: ordinaryScope(draft, draft: true), bounded: true) else { return false }
         for context in (draft["context"] as? Object)?["records"] as? [Object] ?? [] where context["attachmentId"] != nil {
             guard let attachment = attachments.first(where: { jsonEqual($0["id"], context["attachmentId"]) }),
-                  ["kind", "name", "mimeType", "sizeBytes"].allSatisfy({ jsonEqual(attachment[$0], context[$0]) }) else { return false }
+                  jsonEqual(attachment["kind"], context["kind"]) || context["kind"] as? String == "image"
+                    && attachment["kind"] as? String == "file" && ordinaryImageMetadata(attachment),
+                  ["name", "mimeType", "sizeBytes"].allSatisfy({ jsonEqual(attachment[$0], context[$0]) }) else { return false }
         }
         guard let record else { return true }
         return fields(record, required: ["schemaVersion", "origin", "environmentId", "threadId", "messageId", "commandId", "text", "attachments", "modelSelection", "runtimeMode", "interactionMode", "createdAt"], optional: ["context", "dispatchMode"])

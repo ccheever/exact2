@@ -75,8 +75,8 @@ struct T3ComposerFileRequest {
         let matching = inventory.filter { $0["id"] as? String == file["id"] as? String }
         guard matching.count == 1, try encoded(matching[0]) == encoded(file) else { throw error("Save the exact named file before retaining its Undo bytes.") }
     }
-    static func fingerprint(root: URL, file: [String: Any]) throws -> String {
-        let directory = root.appendingPathComponent("composer-files"), id = file["id"] as! String
+    static func fingerprint(root: URL, file: [String: Any], image: Bool = false) throws -> String {
+        let directory = root.appendingPathComponent(image ? "snapshots/drafts" : "composer-files"), id = file["id"] as! String
         let dir = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
         guard dir >= 0 else { throw error("The canonical attachment directory is unavailable.") }
         defer { Darwin.close(dir) }
@@ -152,6 +152,60 @@ final class T3MobileComposerFileHolds {
             let error = error as? T3Failure ?? .init(kind: "FileHold", message: error.localizedDescription)
             reply(["ok": false, "generation": generation, "error": error.json])
         }
+    }
+    private func pickerEligible(_ entry: Entry) -> Bool {
+        UIApplication.shared.applicationState == .active && entry.port?.composerFileHoldEligible == true
+            && entry.port?.view.window?.windowScene?.activationState == .foregroundActive
+    }
+    func performPicker(_ object: [String: Any], attachments: T3MobileAttachments, reply: @escaping ([String: Any]) -> Void) {
+        retireMissingPorts()
+        let generation = T3PickerRequest.integer(object["generation"]) ?? 0
+        func failed(_ error: Error) {
+            let value = error as? T3Failure ?? .init(kind: "PickerIntake", message: error.localizedDescription)
+            reply(["ok": false, "generation": generation, "error": value.json])
+        }
+        do {
+            let request = try T3PickerRequest(object)
+            let matches = entries.values.filter { $0.claim.identity == request.identity && $0.port != nil }
+            guard alive else { throw T3PickerRequest.error("The mobile session ended.") }
+            let claim = matches.count == 1 ? matches.first?.claim : nil
+            if ["pick", "hold"].contains(request.action) {
+                guard matches.count == 1, let entry = matches.first, pickerEligible(entry) else { throw T3PickerRequest.error("The captured picker editor is unavailable.") }
+            }
+            queue.async { [coordinator] in
+                do {
+                    if request.action == "pick" {
+                        guard let claim else { throw T3PickerRequest.error("The picker editor ended.") }
+                        let (operation, opened, value) = try coordinator.beginPicker(request, claim: claim)
+                        DispatchQueue.main.async {
+                            if !opened { reply(["ok": true, "generation": generation, "value": value]); return }
+                            guard self.alive, claim.live, self.entries.values.contains(where: { $0.claim === claim && self.pickerEligible($0) }) else {
+                                coordinator.abandonPicker(operation); failed(T3PickerRequest.error("The picker editor is no longer active.")); return
+                            }
+                            attachments.pickIssued(request.object, stage: .init(coordinator: coordinator, operation: operation)) { raw in
+                                let value = raw["value"] as? [String: Any]
+                                var problems = [value?["error"] as? String, (raw["error"] as? [String: Any])?["message"] as? String].compactMap { $0 }.filter { !$0.isEmpty }
+                                let skipped = (value?["files"] as? [[String: Any]] ?? []).filter { $0["id"] == nil }
+                                if !skipped.isEmpty { problems.append("Some attachments could not be read or exceeded the supported size.") }
+                                let message = problems.joined(separator: "\n\n")
+                                self.queue.async {
+                                    do {
+                                        let value = try coordinator.completePicker(operation, error: message)
+                                        DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
+                                    } catch { DispatchQueue.main.async { failed(error) } }
+                                }
+                            }
+                        }
+                    } else {
+                        let value = try coordinator.performPicker(request, claim: claim)
+                        DispatchQueue.main.async {
+                            if request.action == "cancel" { attachments.cancelIssued(operationId: request.operationId, identity: request.identity) }
+                            reply(["ok": true, "generation": generation, "value": value])
+                        }
+                    }
+                } catch { DispatchQueue.main.async { failed(error) } }
+            }
+        } catch { failed(error) }
     }
     func destroy() {
         guard alive else { return }; alive = false

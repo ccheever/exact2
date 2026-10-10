@@ -29,7 +29,7 @@ export interface EditorLocalClear {
   mode:'text'|'content';snapshot:import('./composer-command-context').ComposerSendDraftSnapshot;incarnation:string;revision:number;cleared:boolean|null;
 }
 export interface EditorCommandReceipt {id:string;applied:boolean|null;contentCleared:boolean|null}
-export interface EditorCommandEffect { receipt?:EditorCommandReceipt; outcome?:{id:string;applied:boolean;terminal:import('./composer-editor-state').ComposerEditorEvent}; localClear?:EditorLocalClear; queuedSend?:string; localCommand?:EditorUsageCommand; id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
+export interface EditorCommandEffect { picker?:import('./composer-command-context').ComposerPickerPublication; receipt?:EditorCommandReceipt; outcome?:{id:string;applied:boolean;terminal:import('./composer-editor-state').ComposerEditorEvent}; localClear?:EditorLocalClear; queuedSend?:string; localCommand?:EditorUsageCommand; id:string; revision:number; added?:Obj; mode:'plan'|'default'|null; settings:string; intent:EditorIntentCapture; retirementKey?:string }
 export interface EditorRootEffect { id:string; kind:'focus'|'blur'|'submit'; payload:string }
 export interface EditorOwner {
   admission:string; signature:string; target:MobileComposerTarget; route:EditorRouteInput;
@@ -290,9 +290,10 @@ export function mobileEditorPublishMounted(client:T3Client,history:import('./com
     ||canonical(history.identity)!==canonical({...owner.state.identity,mountId:owner.state.mountId})||history.closed
     ||!Number.isSafeInteger(r.revision)||r.revision>=Number.MAX_SAFE_INTEGER)return refuse('The mounted draft changed.');
   if(terminal&&(!pending||pending.id!==terminal.event.commandId||pending.revision!==terminal.event.commandRevision))return refuse('The editor command changed.');
-  const added=terminal?.event.kind==='commandApplied'&&pending?.added?[pending.added]:[];
+  const picker=terminal?.event.kind==='commandApplied'&&pending?.picker&&!pending.picker.published?pending.picker:undefined;
+  const added=picker?.added??(terminal?.event.kind==='commandApplied'&&pending?.added?[pending.added]:[]);
   const capture=mobileEditorDocumentCapture(client,owner.target,'native-observation');if(!capture)return refuse('The saved draft ownership is unavailable.');
-  const result=mobileComposerContextPublishMounted(client,capture,event,history,holds,added);
-  if(result.ok){Object.assign(owner.document,result.ledger);r.revision++}
+  const result=mobileComposerContextPublishMounted(client,capture,event,history,holds,added,picker);
+  if(result.ok){Object.assign(owner.document,result.ledger);if(picker){picker.published=true;picker.applied=result.pickerApplied;}r.revision++}
   return result;
 }
