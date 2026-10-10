@@ -1,7 +1,7 @@
 ---
 name: 20261005-x02-app-developer-tools
 plan: 20261005-t3code-macos-parity
-status: published
+status: closed-upstream
 kind: framework-policy
 blocks: [20261005-app-developer-tools, 20261005-desktop-shell-details, 20261005-terminal-surface]
 upstream_url: https://github.com/ccheever/exact2/issues/101
@@ -118,3 +118,7 @@ command."
 - Verified 2026-10-08 with real input (user-approved Safari setting, off again afterwards): Safari's Develop menu lists the
   development copy's terminal page and not the release copy (`app-developer-tools` record, evidence 09–12).
 - [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): "existing ready PR #309", now merged on main (`f2f0e7092`): development-only `isInspectable` on Exact's own iframe web views, release-gated; the issue stays open. The clone's own module web views still need the clone-side gate (`app-developer-tools`).
+
+## Closed (2026-10-10)
+
+#101 closed upstream (2026-10-09) after main #309: development-only Safari inspection of web views is built (#326); View › Toggle Developer Tools is a permanent declared difference. The record closes in the records cleanup after the 2026-10-10 check against main's `issues/` folder.

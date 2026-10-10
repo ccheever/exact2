@@ -112,7 +112,7 @@ Checked sources and time: {{at prepare}}; draft records only.
 | [X26](../../issues/20261005-x26-app-menu-control.md) | Menu at a given point (keyboard-opened menu) | X26 | nonblocking (workaround: native menu helper takes a rect) | none |
 | [X29](../../issues/20261005-x29-video-pdf-app-files.md) | `video` from `app:/` files | X29 | nonblocking (workaround: AVPlayerView) | none |
 | [X30](../../issues/20261005-x30-ts-announce-readback-picker.md) | Bytes, image transcode and save picker | X30 | nonblocking (workaround: native modules) | none |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap | Put the media component in its own `.contract` file |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap | Put the media component in its own `.contract` file |
 | new — record at prepare | Copy image has no "clipboard unsupported" case natively; the reference's wording "Image copying is unavailable. Use a secure browser connection or save the image." does not apply | MediaActions.tsx | nonblocking (declared deviation: item always enabled when media exists) | Declare in `EXACT2-GAPS.md` |
 
 ## Implementation notes

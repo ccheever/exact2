@@ -115,7 +115,7 @@ Checked sources and time: {{at prepare}}; draft records only.
 | [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | `KeyboardEvent.repeat`, capture phase | `EXACT2-GAPS.md` X25 | nonblocking (workaround: native key monitors; filter repeats with `NSEvent.isARepeat` — confirm in an attended held-key check that the result matches the reference) | Prove with a held key |
 | [X15](../../issues/closed/20261005-x15-non-latin-key-equivalents.md) | Chords under Korean 2-Set | X15 | nonblocking (workaround: `R10Connect.swift`) | Attended check of each new chord 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | [X20](../../issues/20261005-x20-rich-text-editing.md) | Caret read from the composer | X20 | nonblocking (workaround: native text view reports the caret) | none |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap | Put new dispatch kinds in `settings-shortcuts.contract` |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap | Put new dispatch kinds in `settings-shortcuts.contract` |
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Sending `vcs.removeWorktree` | X21 | nonblocking (workaround: Swift transport) | none |
 
 ## Implementation notes
