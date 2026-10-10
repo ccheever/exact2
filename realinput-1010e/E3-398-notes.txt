@@ -1,0 +1,14 @@
+realinput-1010e row 3: #398 RC-1 steps 1-2 (tasks/20261010-realinput-1010c-native.md), lane com.exact.t3code.macos.ri1010e-3,
+tip bundle (development, head a1ade42f9, built 17:29:41). System Settings screenshots are blurred: the Apple Account block,
+the user's Screen & System Audio Recording list and the System Audio Recording Only list.
+Step 1 PASS: Settings > SnapShots > Set up > Allow (Screen Recording) opened System Settings on Screen & System Audio Recording
+  and the helper docked in its content column. One click on the helper's "T3 Code" row: Finder front, a Finder window with
+  the lane bundle selected, helper hidden, T3 Code's main window not raised. Click System Settings: Settings front, helper back
+  docked.
+Step 2 PARTIAL: press on the row, drag into the list and back onto the helper, release: the drag started on the first press,
+  nothing was added (the Screen Recording list has the same 8 rows before and after, none a lane id) and nothing was revealed.
+  But: T3 Code became the front app only after the release, not on the press; and after the next click on System Settings
+  the helper closed and did not come back (expected: stays docked). r9 log: the drag's mouse-up is not logged; a later
+  down at 174,37 on T3PermissionHelperAppRow and an up at 196,302 with hit=nil were delivered to the helper.
+The lane's Screen Recording request raised macOS's "Screen Recording" prompt ("T3 Code (RI1010e 3) would like to record
+  this computer's screen and audio", buttons Open System Settings / Deny); no grant was given.
