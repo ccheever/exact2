@@ -1,0 +1,16 @@
+realinput-1010c-fixes RC-2: the model trigger's label is a new text node per label (X64 workaround)
+
+Drive (both builds): work › New thread, model picker, Shift+click Claude Sonnet 5.5 (adds it), Shift+click it again
+(removes it), `tree model-picker` after each. The label's text node:
+
+  before (f0aaaa56d):  "Claude Fable 5.1, Claude Sonnet 5.5"  node 195
+                       "Claude Fable 5.1"                     node 195   <- the same node shrinks below the raster size
+  after (this branch): "Claude Fable 5.1, Claude Sonnet 5.5"  node 1156 (model-picker-label)
+                       "Claude Fable 5.1"                     node 1176 (model-picker-label)   <- a new node
+
+X64 (#316, EXACT2-GAPS): on macOS a paragraph drawn from a text raster keeps painting its old raster when an update
+shrinks it below 16,384 device pixels (the two-model label at 14 pt is about 232 x 20 pt = 18,560 px at 2x; one model
+about 110 x 20 pt). The tree, `layout`, the accessible name and the capture path have the new text, which is why the
+session's agent checks passed while the window painted "Claude Fable 5.1, C..." in a box sized for "Claude Sonnet 5.5".
+The agent's window screenshots draw the right text in both builds here, so the change is shown by its mechanism (a
+new node per label has no old raster); the painted text itself is batch step 1.
