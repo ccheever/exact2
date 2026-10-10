@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-gutter-visuals
-pr_url: PR_URL_PLACEHOLDER
+pr_url: https://github.com/ccheever/exact2/pull/416
 verified_commit: null
 ---
 
@@ -99,6 +99,12 @@ same `DiffCell`, and the drive did not open the split layout.
   selection stops above it.
 - Before (the feature tip's sources with these files): 7 fail, 34 pass; after: all pass.
 
+Checks on `fac65ca14` (the branch merged with `feat(example)/t3-code`, already up to date; all exit 0): `bun test
+examples/t3-code --timeout 60000` 4444 pass / 1 skip / 0 fail (303 files); strict tsc; `contract build` of `app.contract`
+(1397 lines; 109,609 nodes, 28,573,504 bytes); caps; the five checks (cargo build, cargo test 3679 pass / 0 fail / 34
+ignored, clippy, fmt, caps, boot). No Rust or Swift changed, so `cargo test -p t3-code-macos --lib` and the AppKit binaries
+were not run. The bundle for the live drive was built from `149170af0` (the code; the record only after it).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
@@ -116,6 +122,10 @@ same `DiffCell`, and the drive did not open the split layout.
   text); (2) the Files surface's line selection (`r4-surfaces-files.contract`) is still amber, and the reference's file
   preview paints its own selection (`fileSurfaceChrome.tsx`); (3) the fixture thread's Diff "Changes" reads +442k −1
   against `origin/main` in the reference (its own 0.0.45 backend) and +11 −0 in the clone (the embedded 0.0.46 server).
+
+## Delivery
+
+Draft PR [#416](https://github.com/ccheever/exact2/pull/416) into `feat(example)/t3-code`.
 
 ## Next action
 
