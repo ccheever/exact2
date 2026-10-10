@@ -1,0 +1,22 @@
+#!/bin/zsh
+# realinput-1010g-followups, review round: one agent drive per build (not committed). Usage: drive.sh before|after
+# before: the evidence worktree (prebuilt, c03d7e908, before this PR); after: this task's worktree. Lane base 16720.
+# The lane's fixture reply gets a third paragraph with a web link that starts with a code span; the lane's database
+# is copied first and put back after the drive.
+MODE=${1:?before|after}
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010g-followups
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+OUT=$W/target/rg2/runs/$MODE; rm -rf $OUT; mkdir -p $OUT/shots $OUT/db; S=$OUT/shots
+if [ $MODE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=realinput-1010g-followups-before
+else ROOT=$W; LANE=realinput-1010g-followups; fi
+DB=$A/lanes/$LANE/clone-t3-home/userdata
+cp $DB/statev2.sqlite* $OUT/db/
+TEXT='Known $verify skill. Price $5 stays plain; code `$verify` stays plain; [linked $verify](https://example.test) stays a link.\n\nReview [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).\n\nStarts with code: [`x` docs](https://example.com/c) stays readable.'
+sqlite3 $DB/statev2.sqlite "update orchestration_v2_projection_turn_items set payload_json = json_set(payload_json, '\$.text', replace('$TEXT', '\\n', char(10))) where turn_item_id = 'fixture-markdown'"
+sqlite3 $DB/statev2.sqlite "select json_extract(payload_json, '\$.text') from orchestration_v2_projection_turn_items where turn_item_id = 'fixture-markdown'" > $OUT/fixture-text.txt
+OPS=("clock +20000 real" "clock +3000 real" "tap thread-verify-timeline" "clock +3000 real" "tap dismiss-provider-warning" "clock +800 real" "screenshot $S/01-thread.png window" "tree --ax" "logs")
+cd $OUT
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16720 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" >> $OUT/agent.err
+rm -f $DB/statev2.sqlite-shm $DB/statev2.sqlite-wal
+cp $OUT/db/statev2.sqlite* $DB/
