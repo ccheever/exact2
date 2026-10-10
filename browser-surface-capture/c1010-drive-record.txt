@@ -1,0 +1,181 @@
+browser-surface-capture, fix round of realinput-1010c: agent-mode drives (2026-10-10). Script: c1010-drive.sh.txt
+before-a, before-b: the bundle realinput-1010c drove (built from a63794adb), EXACT_MAC_BIN; after1, after2: this round's builds
+(after1 = the build before the pill tooltip alignment; after2 = the final code; after2 stopped at op 68 on the driver's
+ "clock cannot go backwards (48028.0 -> 48027.99999999999)", after rows 2, 3, 4 and 6; rows 1 and 7 are after1's).
+Frames: the player's top-left and size come from the taps' points (the NW grip's middle is its top-left corner;
+the handle's middle is 14 pt in from the top-right corner).
+
+== before-a
+  2 toggle-right-panel hover at [1253, 26]
+  4 toggle-right-panel press at [1253, 26]
+  6 surface-browser press at [1010.5, 334]
+  8 browser-url press at None
+  9 browser-url press at None
+ 11 screenshot 00-page.png
+ 12 toast-dismiss-1 press at [1241, 91]
+ 14 browser-annotate press at [1176, 71.5]
+ 16 browser-page press at [120, 220]
+ 18 browser-page press at None
+ 20 browser-page press at None
+ 23 browser-url hover at [981.5, 71.5]
+ 25 browser-float press at [1232, 71.5]
+ 27 tree: browser-mini-player; nodes with t3-context text: 1
+ 28 screenshot 01-float.png
+ 29 browser-mini-handle hover at [1254, 509]
+ 31 screenshot 02-pill-dot.png
+ 32 browser-mini-window hover at [1219, 519]
+ 34 tree: browser-mini-player; nodes with t3-context text: 1
+ 35 screenshot 03-pill-button.png
+ 36 browser-mini-page hover at [1148, 661.5]
+ 38 screenshot 04-pill-left.png
+ 39 tree: ; nodes with t3-context text: 0
+ 40 browser-mini-handle down at [1254, 509]
+ 41  move at [1204, 484]
+ 43  move at [1154, 459]
+ 45  move at [1104, 434]
+ 47  move at [1054, 409]
+ 49  up at [1054, 409]
+ 51 tree: ; nodes with t3-context text: 0
+ 52 screenshot 05-dragged.png
+ 53 browser-mini-resize-northwest down at [928, 307]
+ 54  move at [908, 287]
+ 56  move at [888, 267]
+ 58  move at [868, 247]
+ 60  move at [848, 227]
+ 62  up at [848, 227]
+ 64 tree: ; nodes with t3-context text: 0
+ 65 screenshot 06-resized.png
+ 66 browser-mini-handle hover at [1154, 94]
+ 68 browser-mini-restore press at [1093, 104]
+ 70 browser-annotate press at [1176, 71.5]
+ 72 tree: right-panel, panel-toggle-right keyshortcuts='Escape', browser-annotate 'Cancel annotation'; nodes with t3-context text: 1
+ 73 screenshot 07-annotating.png
+ 74 browser-page press at None
+ 76 tree: browser-mini-player; nodes with t3-context text: 1
+ 77 logs: t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","28ce0a9b-8a95-44c2-ac4d-51c0f740ffc6","e92b6304-564e-4f6e-8bd1-83e566629e0f","tab_1"] | t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok | t3.browser: annotate applied 1 chip+image | t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","28ce0a9b-8a95-44c2-ac4d-51c0f740ffc6","e92b6304-564e-4f6e-8bd1-83e566629e0f","tab_1"] | t3.browser: annotate cancel | t3.browser: annotate applied 2 cancelled
+ 78 screenshot 08-escape.png
+ 79 Timeline verification press at [127.5, 144]
+ 81 tree: sidebar-draft-divider None; nodes with t3-context text: 2
+ 82 screenshot 09-sidebar-draft.png
+
+== before-b
+  2 toggle-right-panel hover at [1253, 26]
+  4 toggle-right-panel press at [1253, 26]
+  6 surface-browser press at [1010.5, 334]
+  8 browser-url press at None
+  9 browser-url press at None
+ 11 screenshot 00-page.png
+ 12 toast-dismiss-1 press at [1241, 91]
+ 14 browser-annotate press at [1176, 71.5]
+ 16 browser-page press at [120, 220]
+ 18 browser-page press at None
+ 20 browser-page press at None
+ 23 browser-annotate press at [1176, 71.5]
+ 25 tree: right-panel, panel-toggle-right keyshortcuts='Escape', browser-annotate 'Cancel annotation'; nodes with t3-context text: 1
+ 26 screenshot 07-annotating.png
+ 27 browser-page press at None
+ 29 tree: browser-mini-player; nodes with t3-context text: 1
+ 30 logs: t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","0811fdac-f346-4934-9075-b1f24883a6fc","a986f7c5-3f48-4e6d-b7ad-32688b85276b","tab_1"] | t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok | t3.browser: annotate applied 1 chip+image | t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","0811fdac-f346-4934-9075-b1f24883a6fc","a986f7c5-3f48-4e6d-b7ad-32688b85276b","tab_1"] | t3.browser: annotate cancel | t3.browser: annotate applied 2 cancelled
+ 31 screenshot 08-escape.png
+ 32 Timeline verification press at [127.5, 144]
+ 34 tree: sidebar-draft-divider None; nodes with t3-context text: 2
+ 35 screenshot 09-sidebar-draft.png
+
+== after1
+  2 toggle-right-panel hover at [1253, 26]
+  4 toggle-right-panel press at [1253, 26]
+  6 surface-browser press at [1010.5, 334]
+  8 browser-url press at None
+  9 browser-url press at None
+ 11 screenshot 00-page.png
+ 12 toast-dismiss-1 press at [1241, 91]
+ 14 browser-annotate press at [1176, 71.5]
+ 16 browser-page press at [120, 220]
+ 18 browser-page press at None
+ 20 browser-page press at None
+ 23 browser-float press at [1232, 71.5]
+ 25 tree: browser-mini-player; nodes with t3-context text: 1
+ 26 screenshot 01-float.png
+ 27 browser-mini-handle hover at [1254, 509]
+ 29 screenshot 02-pill-dot.png
+ 30 browser-mini-window hover at [1219, 519]
+ 32 tree: browser-mini-player; nodes with t3-context text: 1
+ 33 screenshot 03-pill-button.png
+ 34 browser-mini-page hover at [1148, 661.5]
+ 36 screenshot 04-pill-left.png
+ 37 tree: ; nodes with t3-context text: 0
+ 38 browser-mini-handle down at [1254, 509]
+ 39  move at [1204, 484]
+ 41  move at [1154, 459]
+ 43  move at [1104, 434]
+ 45  move at [1054, 409]
+ 47  up at [1054, 409]
+ 49 tree: ; nodes with t3-context text: 0
+ 50 screenshot 05-dragged.png
+ 51 browser-mini-resize-northwest down at [928, 395]
+ 52  move at [908, 375]
+ 54  move at [888, 355]
+ 56  move at [868, 335]
+ 58  move at [848, 315]
+ 60  up at [848, 315]
+ 62 tree: ; nodes with t3-context text: 0
+ 63 screenshot 06-resized.png
+ 64 browser-mini-handle hover at [1154, 318]
+ 66 browser-mini-restore press at [1093, 328]
+ 68 browser-annotate press at [1176, 71.5]
+ 70 tree: right-panel, panel-toggle-right keyshortcuts='', browser-annotate 'Cancel annotation'; nodes with t3-context text: 1
+ 71 screenshot 07-annotating.png
+ 72 browser-page press at None
+ 74 tree: right-panel, panel-toggle-right keyshortcuts='Escape', browser-annotate 'Annotate preview'; nodes with t3-context text: 1
+ 75 logs: t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","3f899770-0d73-4900-82f6-3b2235885f7d","367e3f11-358d-4ff1-b269-edd7425b841e","tab_1"] | t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok | t3.browser: annotate applied 1 chip+image | t3.browser: annotate start | t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","3f899770-0d73-4900-82f6-3b2235885f7d","367e3f11-358d-4ff1-b269-edd7425b841e","tab_1"] | t3.browser: annotate cancelled in the page | t3.browser: annotate applied 2 cancelled
+ 76 screenshot 08-escape.png
+ 77 Timeline verification press at [127.5, 144]
+ 79 tree: sidebar-draft-divider None; nodes with t3-context text: 0
+ 80 screenshot 09-sidebar-draft.png
+
+== after2
+  2 toggle-right-panel hover at [1253, 26]
+  4 toggle-right-panel press at [1253, 26]
+  6 surface-browser press at [1010.5, 334]
+  8 browser-url press at None
+  9 browser-url press at None
+ 11 screenshot 00-page.png
+ 12 toast-dismiss-1 press at [1241, 91]
+ 14 browser-annotate press at [1176, 71.5]
+ 16 browser-page press at [120, 220]
+ 18 browser-page press at None
+ 20 browser-page press at None
+ 23 browser-url hover at [981.5, 71.5]
+ 25 browser-float press at [1232, 71.5]
+ 27 tree: browser-mini-player; nodes with t3-context text: 1
+ 28 screenshot 01-float.png
+ 29 browser-mini-handle hover at [1254, 509]
+ 31 screenshot 02-pill-dot.png
+ 32 browser-mini-window hover at [1219, 519]
+ 34 tree: browser-mini-player; nodes with t3-context text: 1
+ 35 screenshot 03-pill-button.png
+ 36 browser-mini-page hover at [1148, 661.5]
+ 38 screenshot 04-pill-left.png
+ 39 tree: ; nodes with t3-context text: 0
+ 40 browser-mini-handle down at [1254, 509]
+ 41  move at [1204, 484]
+ 43  move at [1154, 459]
+ 45  move at [1104, 434]
+ 47  move at [1054, 409]
+ 49  up at [1054, 409]
+ 51 tree: ; nodes with t3-context text: 0
+ 52 screenshot 05-dragged.png
+ 53 browser-mini-resize-northwest down at [928, 395]
+ 54  move at [908, 375]
+ 56  move at [888, 355]
+ 58  move at [868, 335]
+ 60  move at [848, 315]
+ 62  up at [848, 315]
+ 64 tree: ; nodes with t3-context text: 0
+ 65 screenshot 06-resized.png
+ 66 browser-mini-handle hover at [1154, 318]
+
+Player frames (layout op, testId browser-mini-player: x, y, w, h):
+  before-a: op 39: (1028, 495, 240, 333); op 51: (928, 307, 240, 333); op 64: (765, 80, 403, 559)  (before the drag; after the (-200, -100) drag; after the NW grip (-80, -80))
+  after1: op 37: (1028, 495, 240, 333); op 49: (928, 395, 240, 333); op 62: (863, 304, 305, 423)  (before the drag; after the (-200, -100) drag; after the NW grip (-80, -80))
+  after2: op 39: (1028, 495, 240, 333); op 51: (928, 395, 240, 333); op 64: (863, 304, 305, 423)  (before the drag; after the (-200, -100) drag; after the NW grip (-80, -80))
