@@ -1,0 +1,31 @@
+RC-9 (realinput-1010c-native): the Quit shortcut's default, reference T3 Code 1e2ecbd975 vs the clone
+
+Reference
+  packages/contracts/src/settings.ts:
+    226:export const QuitConfirmationMode = Schema.Literals(["direct", "hold", "double-click"]);
+    228:const DEFAULT_QUIT_CONFIRMATION_MODE: QuitConfirmationMode = "hold";
+    362:  confirmQuit: QuitConfirmationModeSetting.pipe(
+    363:    Schema.withDecodingDefault(Effect.succeed(DEFAULT_QUIT_CONFIRMATION_MODE)),
+  apps/desktop/src/window/QuitHold.ts:
+    8:export const QUIT_HOLD_DURATION_MS = 1200;
+    9:export const QUIT_DOUBLE_PRESS_MS = 500;
+    169:    // Every mode accepts two presses. Quit before reading settings so a slow
+    171:    if (previousPressAt !== 0 && now - previousPressAt <= QUIT_DOUBLE_PRESS_MS) {
+  apps/web/src/components/QuitHoldOverlay.tsx:
+    44:      ? `Hold ${shortcut} or press twice to quit`
+    45:      : `Press ${shortcut} again to quit`;
+
+Clone (unchanged)
+  settings-core.ts:
+    64:  wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
+    446:    deviceRow('confirmQuit', 'quit-confirmation', 'Quit shortcut', 'Hold mode also quits on two quick presses.', 'select', { ...select(prefs.confirmQuit, [['direct', 'Direct'], ['hold', 'Hold'], ['double-click', 'Dou
+  modules/apple/T3Menus.swift:
+    22:    var quitMode = "hold"
+    318:    static let holdDuration: TimeInterval = 1.2
+    319:    static let doublePress: TimeInterval = 0.5
+    414:        if previous != 0 && time - previous <= Self.doublePress { quitNow(); return true }
+    493:    static func message(_ mode: String) -> String { mode == "hold" ? "Hold ⌘Q or press twice to quit" : "Press ⌘Q again to quit" }
+
+Result: both default to Hold; in Hold one ⌘Q shows "Hold ⌘Q or press twice to quit" and does not quit; holding 1.2 s
+or a second press within 0.5 s quits. The session's observation (one ⌘Q does not quit, two quick presses quit) is the
+reference's default behavior. No change.
