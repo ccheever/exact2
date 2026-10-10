@@ -31,6 +31,7 @@ import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-ga
 import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
 import { stackLayerTarget } from './pages-pr-stack';
 import { openLinkFromUi } from './browser-links';
+import { chatExternalLinkMenu } from './external-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows'; // timeline-work-rows: TH-1, TH-5
 import { keptThread } from './keep-alive';
 
@@ -83,6 +84,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // browser-surface part 5: "Open links in" (browser-links.ts)
+  if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value); // shell-context-menu: a reply's web link menu (external-link-menu.ts)
   if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)

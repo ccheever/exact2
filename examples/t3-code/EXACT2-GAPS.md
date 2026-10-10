@@ -682,6 +682,11 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
   muted nor heard, and media in subframes are not covered. WebKit pauses a muted element while its page is out of the
   window (another tab shown, Settings open) and plays it again when the page is shown, so a muted tab's media does not
   advance meanwhile (Chromium's muted background tab plays on); the tab still shows muted.
+- **Context menu (shell-context-menu).** WebKit's own menu, rebuilt as the shell's in `willOpenMenu`
+  (`T3ShellWebView.swift`): its Copy Link and Copy Image act on WebKit's hit element, which `willOpenMenu` does not name,
+  so Copy Link is offered on any link WebKit offers it on (no `parseSafeExternalUrl` check), and Select All turns off in an
+  empty field a moment after the menu opens (read from the page). A right-click past a field's text selects its last word
+  (WebKit), where Chromium selects nothing.
 - **Agent cursor.** Drawn as a layer of the page's view (so the screenshot, which is the page's own paint, leaves it out,
   as the reference's DOM overlay is left out of `capturePage`), with the reference's timings.
 
@@ -727,20 +732,48 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
   usage-metric-cost`: `"title": "Cost (C)"`; `tree usage-period-1`: `"title": "Past 24h (⇧⌘1)"`), not in `tree --ax`,
   whose description is `aria-description`'s. The tooltip itself shows only under a real pointer in an active app.
 
-## Text context menu: the desktop shell's, over selected text (workaround)
+## Text context menu: the desktop shell's wherever the page shows none (workaround and gaps)
 
-Task `20261010-realinput-1010d-followups` (RD-4). The T3 desktop shell answers a right-click the page leaves alone with its
-own menu (`DesktopWindow.ts` `installContextMenu`: spelling suggestions, Copy Link, Copy Image, then Cut, Copy, Paste and
-Select All by the page's edit flags). ExactKit answers a right-click on selected text with no authored `contextmenu` with the
-menu an NSTextView shows for read-only text (Look Up, Copy, Speech, Services; LLP 1115 D8). Contract cannot replace that
-menu short of a `contextmenu` on every text node, and an action has no command that copies the window's text selection.
-So the clone's module (`T3TextContextMenu.swift`) takes the right-click in a local monitor wherever ExactKit would show its
-text menu (the menu that carries Look Up) and pops the shell's in its place, on the same text node: Cut and Paste disabled,
-Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). The monitor ends the click
-there, so ExactKit's menu does not follow (the `contextmenu` AppKit rows send the click through `NSApp.sendEvent`, as the
-agent does). Under the agent it logs the items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
-ExactKit shows none (a right-click on text without a selection or on an empty area, which the reference answers with Cut,
-Copy and Paste disabled and Select All) and Copy Link over a link; a `contextmenu` on the window's root could carry them.
+Tasks `20261010-realinput-1010d-followups` (RD-4) and `20261010-shell-context-menu`. The T3 desktop shell answers every
+right-click the page leaves alone (`DesktopWindow.ts` `installContextMenu`, on the window, on windows the page opens and on
+every attached `<webview>`): on a misspelled word up to five suggestions or "No suggestions", over a safe link Copy Link,
+over an image Copy Image, then Cut, Copy, Paste and Select All by Chromium's edit flags. Contract has no window-wide hook for
+a `contextmenu` no node answered, and an action has no command that copies the window's text selection, so the clone's
+module finds the clicks itself (`T3TextContextMenu.swift`, template `T3ShellMenu.swift`):
+
+- A text input (a field, a textarea, the composer): a local right-click monitor takes the click (AppKit's editing menu would
+  open), focuses the input, selects the word or misspelling under the pointer and pops the shell's menu for it
+  (NSSpellChecker's guesses where the input checks spelling).
+- Selected page text: the monitor takes the click where ExactKit would show its read-only text menu (its menu carries Look
+  Up; LLP 1115 D8) and pops the shell's on the same text node.
+- Anywhere else: the click goes on; a node with a `contextmenu` or a context popover ends it, as `preventDefault` keeps
+  Electron's event from firing; an unanswered click goes up the responder chain, and a responder the module places after
+  the window's content view pops the shell's menu. Copy follows ExactView's Edit ▸ Speech ▸ Start Speaking validation
+  (enabled exactly while page text is selected), Copy Link an inline link run's accessibility URL, Copy Image the bitmap of
+  the image node's layer. These lean on ExactKit's present structure (the `ExactView` class name, its validation, the image
+  layer); a host change there takes the item away, not the menu.
+- A Browser page and an HTML attachment's preview (`T3ShellWebView.swift`): WebKit's menu, rebuilt in `willOpenMenu`.
+
+Under the agent the module logs each menu (`t3.textmenu:`; the app's own, `t3.contextmenu:`) and tracks none. Framework gaps that remain (not filed; one-file
+repros, each a Contract app with one view):
+
+- **S1. A secondary click on unselected text selects nothing.** Chromium on a Mac (and an NSTextView) selects the word under
+  the pointer, so the reference's Copy is enabled there; the clone's shell menu has Copy disabled. Repro: `text "Known
+  words here" testId="t"`; right-click "Known": Chrome selects "Known", the Mac host selects nothing
+  (`TextSelectionMac.swift` selects a word only on a double click).
+- **S2. An inline run's `contextmenu` is not dispatched.** The reference's Markdown web links have the app's own menu
+  (Link or Unlink from thread for a pull request, Open in integrated browser, Open in system browser, Copy Link;
+  `externalLinkContextMenu.ts`), and the clone's link nodes carry it (`markdown.contract`, `external-link-menu.ts`). A
+  paragraph drawn word by word (`FlowRuns`: one with inline code or chips) opens it; a plain paragraph draws its runs
+  inline in one text node (`ChatRuns`), and ExactKit dispatches `contextmenu` per node only (`MouseEventsMac.swift`
+  `dispatchContextMenu`; a run takes `press` and `hover`), so there the link opens the shell's menu (Copy Link from the
+  run's accessibility URL). Repro: `text` holding a run `text "site" href="https://example.com" contextmenu=act`;
+  right-click "site": `act` never runs on macOS.
+- **S3. A node's `href` is not exposed to a module.** An inline run's accessibility element carries its `href` as its URL;
+  a node with an `href` (a `link`, or a `text` of its own) does not (`NodeViewMac.swift` `updateRoleAccessibility`), so
+  the shell's menu has no Copy Link over the clone's links that have no menu of their own (provider docs, licenses,
+  check details). Repro: `link href="https://example.com" testId="l"` with a text child; the node's
+  `accessibilityURL()` is nil.
 
 ## Not exact2 asks (stay in the app module)
 

@@ -21,6 +21,7 @@ import { pullRequestRefreshEpoch } from './pages-pr-refresh';
 import { relativeLabel } from './pages-prs';
 import { row, closedView, type Item, type PaletteView } from './palette';
 import { openLink as openLinkByTarget } from './browser-links';
+import { activeRef } from './terminal-drawer-view';
 
 // ── The panel's link context ────────────────────────────────────────────────
 
@@ -116,7 +117,8 @@ export function presentLinks(client: T3Client, context: LinkContext): PrLinksVie
  * `.unlink`, or the legacy one-link metadata update. A refusal is a toast ("Could not link the pull request");
  * the linked threads are read again after it lands.
  */
-export async function changeLink(client: T3Client, native: Native, storage: Files, context: LinkContext, threadId: string, linked: boolean): Promise<boolean> {
+export async function changeLink(client: T3Client, native: Native, storage: Files, context: LinkContext, threadId: string, linked: boolean,
+  failureTitle: (linked: boolean) => string = on => on ? 'Could not link the pull request' : 'Could not unlink the pull request'): Promise<boolean> {
   const state = stateOf(client);
   if (state.pending) return false;
   const environment = prEnvironment(client, context.environmentId);
@@ -136,12 +138,37 @@ export async function changeLink(client: T3Client, native: Native, storage: File
   } catch (failure) {
     if (letGo(failure)) throw failure;
     client.error = error; // a toast, not the transcript banner (PullRequestThreadLinks toastManager.add)
-    pushToast(client, { kind: 'error', title: linked ? 'Could not link the pull request' : 'Could not unlink the pull request', description: messageOf(failure, String(failure)) });
+    pushToast(client, { kind: 'error', title: failureTitle(linked), description: messageOf(failure, String(failure)) });
     return false;
   } finally { state.pending = ''; client.revision++; }
   const held = state.relations.get(relationsKey(context));
   if (held) held.due = true;
   return true;
+}
+
+/** A reply's link over the open thread (ChatMarkdown's threadRef): the link's context, the environment and the thread. */
+function chatLink(client: T3Client, href: string): { context: LinkContext; environment: PrEnvironment; thread: Obj } | null {
+  const ref = activeRef(client);
+  const environment = ref ? prEnvironment(client, ref.environmentId) : undefined;
+  if (!ref || !environment) return null;
+  const context: LinkContext = { environmentId: ref.environmentId, reference: {}, url: href, page: false };
+  const thread = besideThread(client, environment, context);
+  return thread ? { context, environment, thread } : null;
+}
+/** ChatMarkdown's linkedThreadPullRequestFor / resolveThreadPullRequest: Unlink where the open thread links the pull request,
+ *  Link where it could (shell-context-menu, external-link-menu.ts). */
+export function chatLinkThreadAction(client: T3Client, href: string): 'link-to-thread' | 'unlink-from-thread' | undefined {
+  const link = chatLink(client, href);
+  if (!link || parseChangeRequestUrl(href) === null) return undefined;
+  const mode = linkMode(link.environment.config);
+  if (isPullRequestLinked(link.thread, href, mode)) return 'unlink-from-thread';
+  return canLink(link.environment.projects, mode, href) ? 'link-to-thread' : undefined;
+}
+/** updateThreadPullRequestLink: the open thread's link to the reply's pull request; a refusal is the chat's toast. */
+export async function changeChatLink(client: T3Client, native: Native, storage: Files, href: string, linked: boolean): Promise<void> {
+  const link = chatLink(client, href);
+  if (!link || (!linked && !isPullRequestLinked(link.thread, href, linkMode(link.environment.config)))) return;
+  await changeLink(client, native, storage, link.context, str(link.thread.id), linked, on => on ? 'Unable to link pull request' : 'Unable to unlink pull request');
 }
 
 /** Whether the panel last drawn is the page's (a link's click selects there) rather than a thread's surface. */
