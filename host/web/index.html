@@ -40,6 +40,14 @@
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
   #exact-root [data-native]:disabled { color: revert; }
   select { display: block; }
+  /* The row's background paints its separator under content, including on
+     replaced/static elements. Its padding box ends at the inner border edge.
+     Authored background paint keeps the second layer and its original clip. */
+  @property --exact-grouped-separator { syntax: "<color>"; inherits: false; initial-value: #3c3c431f; }
+  [data-grouped-row-separator] { --exact-grouped-separator: light-dark(#3c3c431f, #54545880); --exact-grouped-line: none; --exact-grouped-mask: none; background-image: var(--exact-grouped-line), var(--exact-grouped-background, none) !important; background-size: calc(100% - var(--exact-grouped-inset, 0px)) 1px, auto; background-position: right bottom, 0% 0%; background-repeat: no-repeat, repeat; background-origin: padding-box, padding-box; background-clip: padding-box, var(--exact-grouped-background-clip, border-box) !important; background-attachment: scroll, var(--exact-grouped-background-attachment, scroll) !important; }
+  [data-grouped-row-separator="true"]:not([data-grouped-row-hidden="true"]):has(~ [data-grouped-row-separator]:not([data-grouped-row-hidden="true"])) { --exact-grouped-line: linear-gradient(var(--exact-grouped-separator), var(--exact-grouped-separator)); --exact-grouped-mask: linear-gradient(#fff, #fff); }
+  /* Template images mask their own content, not the separator rectangle. */
+  img[data-grouped-row-separator]:is([data-exact-template], [data-symbol-path]) { mask-image: var(--exact-grouped-mask), var(--exact-grouped-image-mask, var(--exact-symbol-mask)) !important; mask-size: calc(100% - var(--exact-grouped-inset, 0px)) 1px, var(--exact-grouped-image-fit, var(--exact-symbol-fit, 100% 100%)) !important; mask-position: right bottom, center !important; mask-repeat: no-repeat !important; mask-origin: padding-box, content-box !important; mask-clip: padding-box, content-box !important; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
      node and inherits its colour; a run with an \`href\` stays inline in its
@@ -77,7 +85,10 @@
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
   button[data-button-style][data-pressed] > * { opacity: .5; }
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) { appearance: none; border: none; border-radius: var(--exact-control-radius, revert); padding: .4375em .75em; }
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) { appearance: none; border: none; border-radius: var(--exact-control-radius, revert); padding: .4375em .75em; --exact-button-face-padding: .75em; }
+  /* A native grouped button owns its leading inset; it is part of fitting,
+     independently of the separator and the browser button's own face padding. */
+  #exact-root button[data-button-style][data-grouped-row-separator] { padding-left: calc(16px + var(--exact-button-face-padding, 6px)); }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); --exact-button-accent-fill: var(--exact-accent); color: #fff; }

@@ -69,15 +69,16 @@ function appSource(e, v) {
 // A raster with a `-exact-tint-color` is a template (element.rs `host_css`, LLP
 // 1011 §3): its alpha masks the tint. A source that becomes a raster takes
 // the mask; one that becomes a symbol (or no tint) drops it.
-const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position"];
+const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position", "--exact-grouped-image-mask", "--exact-grouped-image-fit"];
 // (the class rules nest under the root's selector: walk nested rules.)
 const declares = (rules, sel) => [...rules].some(r => [sel, "& " + sel, "&" + sel].includes(r.selectorText) && r.style.getPropertyValue("--exact-tint") || r.cssRules && declares(r.cssRules, sel));
 const tinted = e => !!e.style.getPropertyValue("--exact-tint") || [...e.classList].some(c => [...document.styleSheets].some(sh => { try { return declares(sh.cssRules, "." + c); } catch { return false; } }));
 function template(e, v) {
-  if (e.localName !== "img" || !v || !tinted(e)) { if (e.$template) { for (const p of TEMPLATE) e.style.removeProperty(p); e.style.removeProperty("background-color"); e.$template = false; } return; }
+  if (e.localName !== "img" || !v || !tinted(e)) { if (e.$template) { e.removeAttribute("data-exact-template"); for (const p of TEMPLATE) e.style.removeProperty(p); e.style.removeProperty("background-color"); e.$template = false; } return; }
   const fit = getComputedStyle(e).objectFit, size = { fill: "100% 100%", contain: "contain", cover: "cover", none: "auto" }[fit] ?? "var(--exact-tint-fit,contain)";
   e.style.setProperty("background-color", "var(--exact-tint)");
   e.style.setProperty("mask-image", `url(${JSON.stringify(v)})`); e.style.setProperty("mask-size", size);
+  if (e.hasAttribute("data-grouped-row-separator")) { e.setAttribute("data-exact-template", ""); e.style.setProperty("--exact-grouped-image-mask", `url(${JSON.stringify(v)})`); e.style.setProperty("--exact-grouped-image-fit", size); }
   e.style.setProperty("mask-repeat", "no-repeat"); e.style.setProperty("mask-position", "center"); e.style.setProperty("mask-origin", "content-box"); e.style.setProperty("mask-clip", "content-box"); e.style.setProperty("object-position", "-100000px 0");
   e.$template = true;
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }

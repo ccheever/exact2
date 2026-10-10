@@ -136,7 +136,7 @@ impl Em<'_> {
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -311,6 +311,45 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if parts.props.contains_key("data-grouped-row-separator") {
+            match id {
+                StyleId::Display => {
+                    let p = self.uses.rt("P");
+                    let _ = write!(self.out, "{p}({e},\"data-grouped-row-hidden\",()=>({f})()===\"none\"?\"true\":null);");
+                }
+                StyleId::PaddingLeft | StyleId::BorderColorBottom => {
+                    let alias = if id == StyleId::PaddingLeft {
+                        "--exact-grouped-inset"
+                    } else {
+                        "--exact-grouped-separator"
+                    };
+                    if let Some((_, unit, map)) = writes.first().cloned() {
+                        writes.push((alias.into(), unit, map));
+                    }
+                }
+                StyleId::BackgroundImage
+                | StyleId::BackgroundClip
+                | StyleId::BackgroundAttachment => {
+                    let alias = match id {
+                        StyleId::BackgroundImage => "--exact-grouped-background",
+                        StyleId::BackgroundClip => "--exact-grouped-background-clip",
+                        _ => "--exact-grouped-background-attachment",
+                    };
+                    if let Some((_, unit, map)) = writes.first().cloned() {
+                        writes.push((alias.into(), unit, map));
+                    }
+                }
+                StyleId::Transition => {
+                    for (name, _, map) in &mut writes {
+                        if name == "transition" {
+                            let m = map.take().unwrap_or_else(|| "v=>v".into());
+                            *map = Some(format!("v=>{{const t=({m})(v);return t==null?t:t.split(/,(?![^(]*\\))/).flatMap(p=>/(^|\\s)border-(bottom-)?color(?=\\s|$)/.test(p)?[p,p.replace(/(^|\\s)border-(bottom-)?color(?=\\s|$)/,\"$1--exact-grouped-separator\")]:[p]).join(\",\")}}"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).

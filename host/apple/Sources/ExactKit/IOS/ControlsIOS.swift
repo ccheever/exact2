@@ -200,12 +200,12 @@ final class ControlHost: NSObject {
             let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size. A select aligns its closed value
-            // inside the box; unstyled controls stay centred.
-            if control is NativeButtonIOS {
-                // The box is the button's alignment rect, as its natural size is.
-                let frame = control.frame(forAlignmentRect: box)
-                if control.frame != frame { control.frame = frame }
+            // others keep their own size. A select aligns its value in
+            // the box; unstyled controls stay centred.
+            if let button = control as? NativeButtonIOS {
+                // Grouped membership owns the inset through cell recycling
+                // and trait refreshes.
+                button.layout(in: box)
             } else {
                 #if os(tvOS)
                 let width = natural.width
@@ -225,6 +225,8 @@ final class ControlHost: NSObject {
                 assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
+            // Native fitting answers are published synchronously, with the
+            // grouped row's semantic inset already charged by the kernel.
             if !(control is NativeButtonIOS), reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))

@@ -111,13 +111,10 @@ final class ControlHost: NSObject {
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size, centred.
-            if control is NativeButtonMac {
-                // The box is the button's alignment rect, as its natural size
-                // is; its bezel's shadow and insets fall outside it.
-                let frame = control.frame(forAlignmentRect: box)
-                if control.frame != frame { control.frame = frame }
-                if let button = control as? NativeButtonMac, let face = button.written?.face {
-                    ButtonConfigurationMac.corners(face, to: button, size: box.size)
+            if let button = control as? NativeButtonMac {
+                let content = button.layout(in: box)
+                if let face = button.written?.face {
+                    ButtonConfigurationMac.corners(face, to: button, size: content.size)
                 }
             } else {
                 let width = control is NSSlider ? box.width : natural.width

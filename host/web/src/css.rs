@@ -408,7 +408,7 @@ pub fn keyframes_name(a: &exact_motion::animation::Animation, press: bool) -> St
 /// each `scale` keyframe into `--exact-scale`: its important `scale`
 /// composition wins over the animation's own.
 pub fn keyframes_css(a: &exact_motion::animation::Animation, press: bool) -> String {
-    let text = a.keyframes.css();
+    let text = crate::grouped::keyframes_css(&a.keyframes.css());
     if !press_rule(a, press) {
         return text;
     }

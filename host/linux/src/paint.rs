@@ -26,6 +26,7 @@ use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -37,6 +38,8 @@ mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
+mod grouped;
+mod image;
 pub use gradient::GradientPaint;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
@@ -157,6 +160,7 @@ struct BoxPaint {
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
+    grouped_separator: Option<(f32, [u8; 4])>,
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
@@ -181,7 +185,13 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     )
 }
 impl BoxPaint {
-    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+    fn capture(
+        node: &NodeRef<'_>,
+        kernel: &Kernel,
+        dark: bool,
+        w: f32,
+        groups: &SeparatorGroups,
+    ) -> Self {
         let s = node.style;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
@@ -215,6 +225,7 @@ impl BoxPaint {
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
+            grouped_separator: grouped::capture(node, kernel, groups, dark, w, widths),
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
@@ -362,7 +373,11 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(&geometry.outer, self.widths, self.colors)
+        let mut fills = border::border_fills(&geometry.outer, self.widths, self.colors);
+        if let Some((inset, ink)) = self.grouped_separator {
+            grouped::append(&mut fills, geometry.outer.rect, self.widths, inset, ink);
+        }
+        fills
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -480,6 +495,10 @@ pub struct Frame {
 
 pub use backend::Backend;
 
+// One last-visible lookup per group in a paint, shared by normal, retained
+// and projected walks; keep its allocation for the next frame.
+type SeparatorGroups = Rc<RefCell<HashMap<ViewId, Option<ViewId>>>>;
+
 /// The painter: the walk over one backend.
 pub struct Painter {
     /// The text engine, shared with the kernel's measurer.
@@ -525,6 +544,7 @@ pub struct Painter {
     svg_layers: Vec<(ViewId, Presented)>,
     /// How many boxes the last walk painted: the next one's room.
     boxes_hint: usize,
+    separator_groups: SeparatorGroups,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -619,6 +639,7 @@ impl Painter {
             flatten: None,
             rows: Default::default(),
             boxes_hint: 0,
+            separator_groups: Rc::default(),
             svg_layers: Vec::new(),
         }
     }
@@ -659,6 +680,7 @@ impl Painter {
 
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.separator_groups.borrow_mut().clear();
         self.paint_selected(scene, viewport, None, None)
     }
 
@@ -672,6 +694,7 @@ impl Painter {
         collection_limits: &BTreeMap<ViewId, f32>,
         actions: &mut RegionActions<'_>,
     ) -> Result<Frame, String> {
+        self.separator_groups.borrow_mut().clear();
         region.validate_scale(self.scale)?;
         self.validate_region_presentation(scene, region)?;
         if self.backend.name() == "gpu" {
@@ -989,8 +1012,14 @@ impl Painter {
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
-        let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
+        let paint = BoxPaint::capture(
+            node,
+            walk.scene.kernel,
+            self.dark,
+            rect.2,
+            &self.separator_groups,
+        )
+        .presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -1270,33 +1299,7 @@ fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
     (offset.0 - dx, offset.1 - dy)
 }
 
-/// Where a picture goes under CSS `object-fit`, centred in the content box:
-/// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
-/// size, `scale-down` the smaller of none and contain (LLP 1011 §4).
-pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option<Rect4> {
-    let (nw, nh) = (natural.0 as f32, natural.1 as f32);
-    if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
-        return None;
-    }
-    let (sx, sy) = (content.2 / nw, content.3 / nh);
-    let s = match fit {
-        ObjectFit::Contain => Some(sx.min(sy)),
-        ObjectFit::Cover => Some(sx.max(sy)),
-        ObjectFit::None => Some(1.0),
-        ObjectFit::ScaleDown => Some(sx.min(sy).min(1.0)),
-        ObjectFit::Fill => None,
-    };
-    let (dw, dh) = match s {
-        Some(s) => (nw * s, nh * s),
-        None => (content.2, content.3),
-    };
-    Some((
-        content.0 + (content.2 - dw) / 2.0,
-        content.1 + (content.3 - dh) / 2.0,
-        dw,
-        dh,
-    ))
-}
+pub use image::object_fit;
 
 /// A text node's paragraph spec from its rows (the kernel's defaults are
 /// CSS's, so every row reads directly).

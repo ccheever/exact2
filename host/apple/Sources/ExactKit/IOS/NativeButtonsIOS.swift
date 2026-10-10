@@ -43,6 +43,16 @@ final class NativeButtonIOS: UIButton {
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
     var drawn = "bordered"
+    /// Grouped membership stays with the node while UIKit recycles its cell.
+    /// This inset is also included by the synchronous kernel measurement.
+    func layout(in box: CGRect) {
+        let leading: CGFloat = owner?.props["groupedRowSeparator"] != nil ? 16 : 0
+        let content = CGRect(x: box.minX + leading, y: box.minY,
+                             width: max(0, box.width - leading), height: box.height)
+        let frame = frame(forAlignmentRect: content)
+        if self.frame != frame { self.frame = frame }
+    }
+
     override var canBecomeFocused: Bool {
         #if os(tvOS)
         return isEnabled && isUserInteractionEnabled && owner?.inert != true && owner?.cssVisibilityHidden != true
@@ -68,6 +78,11 @@ final class NativeButtonIOS: UIButton {
 extension NodeView {
     /// A `button appearance="auto"` (LLP 1069.011 D3).
     var isNativeButton: Bool { kind == "control" && props["type"] == "button" }
+
+    /// A carried row keeps its semantic inset independently of cell margins.
+    package func layoutGroupedNativeButton() {
+        (presenter?.controls.controls[id] as? NativeButtonIOS)?.layout(in: bounds)
+    }
 
     /// Where a native control sits: the glass slot's content when the
     /// glass-group pass made one (D9), else the node.

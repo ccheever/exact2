@@ -30,6 +30,17 @@ final class NativeButtonMac: NSButton {
     var isGlass = false
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
+    /// The whole grouped row remains the authored slot; the native face
+    /// begins 16 points inside it, matching the synchronous fitting answer.
+    @discardableResult func layout(in box: CGRect) -> CGRect {
+        let leading: CGFloat = owner?.props["groupedRowSeparator"] != nil ? 16 : 0
+        let content = CGRect(x: box.minX + leading, y: box.minY,
+                             width: max(0, box.width - leading), height: box.height)
+        let frame = frame(forAlignmentRect: content)
+        if self.frame != frame { self.frame = frame }
+        return content
+    }
+
     // @ref LLP 1104 D6 — independent of AppKit's Keyboard navigation setting.
     override var acceptsFirstResponder: Bool {
         guard let owner else { return false }

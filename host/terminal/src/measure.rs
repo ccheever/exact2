@@ -211,9 +211,14 @@ impl TextMeasurer for CellMeasurer {
     }
 
     fn button_measure(&mut self, request: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
-        let lines = button_lines(&request.face, &request.style, request.width);
+        let inset = if request.grouped_row { 16.0 } else { 0.0 };
+        let width = match request.width {
+            AxisOffer::Definite(w) => AxisOffer::Definite((w - inset).max(0.0)),
+            other => other,
+        };
+        let lines = button_lines(&request.face, &request.style, width);
         Some(ButtonMeasure {
-            width: (lines.iter().map(Line::cols).max().unwrap_or(0) + 2) as f32 * COLUMN,
+            width: (lines.iter().map(Line::cols).max().unwrap_or(0) + 2) as f32 * COLUMN + inset,
             height: lines.len() as f32 * ROW,
             provisional: false,
         })

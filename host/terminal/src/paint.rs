@@ -16,6 +16,7 @@ use exact_kernel::{
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+mod grouped;
 
 /// A painted frame: the grid, and the boxes a press can hit, in paint order.
 pub struct Painted {
@@ -194,6 +195,7 @@ fn node(
             out.grid.fill(rect, clip, bg);
         }
         border(scene, out, &n, rect, clip, current);
+        grouped::separator(scene, out, &n, clip, dx, dy);
     }
     let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
     let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
@@ -288,6 +290,16 @@ fn node(
 
 /// LLP 1104 D7: a native face is host paint, never its unlaid-out children.
 fn button(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, rect: CellRect, clip: CellRect) {
+    let inset = if n.props.contains(PropId::GroupedRowSeparator) {
+        2
+    } else {
+        0
+    };
+    let rect = CellRect {
+        x: rect.x + inset,
+        w: (rect.w - inset).max(0),
+        ..rect
+    };
     let face = scene.kernel.press_face(n.id).unwrap_or_default();
     let rows = scene.kernel.button_face_style(n.id).expect("button");
     let lines = crate::measure::button_lines(

@@ -6,9 +6,11 @@
 
 #[path = "button_css.rs"]
 mod button_css;
+#[path = "image_css.rs"]
+mod image_css;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
-use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, PropId, PropValue, StyleId};
 
 /// How a projection finds the element an SVG reference names: the kernel's
 /// `resolve_id`, or a tree's own (LLP 1055.000 D3).
@@ -251,33 +253,7 @@ pub fn host_css_of(
     if node.is_root && node.style.position_type == exact_kernel::PositionType::Static {
         css.push_str("position:relative;");
     }
-    // A raster image with a `-exact-tint-color` is a template (LLP 1011 §3): its
-    // alpha masks the tint, fitted and centered in the content box as
-    // `object-fit` fits the picture, which moves out of the box, where the
-    // replaced element's own clip hides it. `scale-down` needs the natural
-    // size, which only the page knows: the glue sets `--exact-tint-fit`.
-    // This masks the box paint too (declared in LLP 1001 §1). An img cannot
-    // paint a ::before/::after layer; keep its replaced-element sizing.
-    if node.node_type == NodeType::Image && node.style.mask.has(StyleId::TintColor) {
-        if let Some(source) = node
-            .props
-            .str(PropId::ImageSource)
-            .filter(|s| !s.starts_with("symbol:"))
-        {
-            let size = match node.style.object_fit {
-                ObjectFit::Fill => "100% 100%",
-                ObjectFit::Contain => "contain",
-                ObjectFit::Cover => "cover",
-                ObjectFit::None => "auto",
-                ObjectFit::ScaleDown => "var(--exact-tint-fit,contain)",
-            };
-            css.push_str("background-color:var(--exact-tint);mask-image:url(");
-            css.push_str(&crate::css::css_string(source));
-            css.push_str(");mask-size:");
-            css.push_str(size);
-            css.push_str(";mask-repeat:no-repeat;mask-position:center;mask-origin:content-box;mask-clip:content-box;object-position:-100000px 0;");
-        }
-    }
+    image_css::template(node, &mut css);
     // @ref LLP 1053.000 D4 — linked when the plan names a material.
     if let (Some(name), Some(material)) = (
         node.props.str(PropId::BackgroundMaterial),
@@ -285,7 +261,7 @@ pub fn host_css_of(
     ) {
         (material.0)(&mut css, name);
     }
-    css
+    crate::grouped::row(node, css)
 }
 
 /// A canvas's `div` sized as a `<canvas>` is: a replaced element whose
@@ -769,6 +745,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     {
         out.insert("data-native".into(), String::new());
     }
+    if node.node_type == NodeType::Image && node.style.mask.has(StyleId::TintColor) {
+        out.insert("data-exact-template".into(), String::new());
+    }
+    if node.props.bool(PropId::GroupedRowSeparator).is_some()
+        && node.style.display == exact_kernel::Display::None
+    {
+        out.insert("data-grouped-row-hidden".into(), "true".into());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -1013,6 +997,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::LightY => "y",
             PropId::LightZ => "z",
             PropId::ButtonStyle => "data-button-style",
+            PropId::GroupedRowSeparator => "data-grouped-row-separator",
             other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
                 other.name()
             }

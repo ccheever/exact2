@@ -941,6 +941,13 @@ keep the existing intrinsic-size report. Test the actual
 platform look; macOS can report stand-ins for gap, subtitle and wrapping.
 See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
+Grouped-list rows, headers and footers use `border-box`; their system insets
+are internal padding, so `width="100%"` fits the cell. Ordinary boxes and text
+fields retain CSS `content-box`; set `border-box` when their padding and border
+must fit inside the declared width. A native button used as a direct row has
+a host-owned 16 pt leading inset included in fitting; UIKit cell mounting
+does not change it. A native button nested inside a custom row has no such inset.
+
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
 drawn title bar) is a bug. [`apps/shelf`](../apps/shelf/app.contract) is the recipe

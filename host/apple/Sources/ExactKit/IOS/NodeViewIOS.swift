@@ -47,6 +47,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var liveText: String?
+    weak var groupedLastVisibleRow: NodeView?
+    var groupedSeparatorInvalidationPending = false
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     package var style: NodeStyle = [:]
     /// What the host's own writers hid (a covered route, a tab a native control
@@ -1219,8 +1221,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
     }
 
+    package override func willMove(toSuperview newSuperview: UIView?) {
+        invalidateGroupedSeparatorSiblings(); super.willMove(toSuperview: newSuperview)
+    }
     package override func didMoveToSuperview() {
         super.didMoveToSuperview()
+        invalidateGroupedSeparatorSiblings()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
@@ -1239,6 +1245,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let old = style
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["display"] != s["display"] { invalidateGroupedSeparatorSiblings() }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
@@ -1381,17 +1388,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         layoutSymbol()
     }
 
-    /// The reduced radii; the layer fast path additionally requires circles.
-    func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
-        BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
-    }
-    func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
-        cornerSizes(in: rect, inset: inset).map { $0.width }
-    }
-    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
-        UIBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
-    }
-
     package override func draw(_ rect: CGRect) {
         repaintThrough(); syncDrawnRange()
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
@@ -1414,11 +1410,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).
-            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
-            let top = color("border_color_top", .clear)
-            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
-            let radii = BorderPaint.radii(style, in: bounds)
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
+            paintBorderAndGroupedSeparator(ctx)
         }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

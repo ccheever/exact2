@@ -5,6 +5,28 @@ import XCTest
 @testable import ExactKit
 
 final class NativeButtonsTVOSTests: XCTestCase {
+    func testGroupedNativeButtonInsetIsIndependentOfSeparatorVisibility() throws {
+        let p = Presenter()
+        var face = ButtonFace(); face.title = "Grouped"
+        p.buttonFace = { _ in face }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
+        window.addSubview(p.viewport); window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "control", "props": ["type": "button", "groupedRowSeparator": "false"], "handlers": ["press"], "style": [:]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 120, "h": 40],
+            ["op": "roots", "ids": [1]]]))
+        let row = try XCTUnwrap(p.views[1])
+        let button = try XCTUnwrap(p.controls.controls[1] as? NativeButtonIOS)
+        XCTAssertEqual(button.alignmentRect(forFrame: button.frame), CGRect(x: 16, y: 0, width: 104, height: 40))
+        XCTAssertEqual(row.bounds.width, 120)
+        p.apply(wireBatch([]))
+        XCTAssertEqual(button.alignmentRect(forFrame: button.frame), CGRect(x: 16, y: 0, width: 104, height: 40))
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["groupedRowSeparator"]]]))
+        XCTAssertEqual(button.alignmentRect(forFrame: button.frame), row.bounds)
+        XCTAssertTrue(button.canBecomeFocused, "the inset preserves the native focus owner")
+    }
+
     func testNativeFocusOwnerRestoresReplacementAndDoesNotMakeAScrollerAStop() throws {
         let p = Presenter()
         var face = ButtonFace(); face.title = "Focus"

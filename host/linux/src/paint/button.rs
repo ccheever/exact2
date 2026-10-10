@@ -172,9 +172,14 @@ fn face_layout(
 }
 
 pub(crate) fn measure(engine: &mut TextEngine, request: &ButtonMeasureRequest) -> ButtonMeasure {
-    let face = face_layout(engine, &request.face, &request.style, request.width);
+    let inset = if request.grouped_row { 16.0 } else { 0.0 };
+    let width = match request.width {
+        AxisOffer::Definite(w) => AxisOffer::Definite((w - inset).max(0.0)),
+        other => other,
+    };
+    let face = face_layout(engine, &request.face, &request.style, width);
     ButtonMeasure {
-        width: face.width,
+        width: face.width + inset,
         height: face.height,
         provisional: false,
     }
@@ -190,6 +195,12 @@ impl Painter {
         rows: &ButtonFaceStyle,
         focused: bool,
     ) {
+        let inset = if node.props.contains(PropId::GroupedRowSeparator) {
+            16.0
+        } else {
+            0.0
+        };
+        let rect = (rect.0 + inset, rect.1, (rect.2 - inset).max(0.0), rect.3);
         let dark = self.dark;
         let disabled = node.props.bool(PropId::Disabled) == Some(true);
         let dim = |mut c: [u8; 4]| {
@@ -428,6 +439,7 @@ mod tests {
                 image_gap: None,
             },
             button_style: "bordered".into(),
+            grouped_row: false,
             width: AxisOffer::MaxContent,
         }
     }
@@ -456,6 +468,25 @@ mod tests {
         let after = measure(&mut engine, &r);
         assert_eq!(after.height - before.height, 26.0);
     }
+    #[test]
+    fn grouped_slots_charge_leading_inset_and_wrap_in_the_remaining_width() {
+        let engine = TextEngine::shared();
+        let mut engine = engine.borrow_mut();
+        let mut r = request();
+        let raw = measure(&mut engine, &r);
+        r.grouped_row = true;
+        let grouped = measure(&mut engine, &r);
+        assert_eq!(grouped.width, raw.width + 16.0);
+        assert_eq!(grouped.height, raw.height);
+        r.width = AxisOffer::Definite(120.0);
+        let grouped = measure(&mut engine, &r);
+        r.grouped_row = false;
+        r.width = AxisOffer::Definite(104.0);
+        let raw = measure(&mut engine, &r);
+        assert_eq!(grouped.width, raw.width + 16.0);
+        assert_eq!(grouped.height, raw.height);
+    }
+
     #[test]
     fn semantic_subtitle_symbol_placement_sizes_and_authored_axes_share_the_measure() {
         let engine = TextEngine::shared();

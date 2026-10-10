@@ -45,6 +45,7 @@ extension NodeView {
         var edges = false
         var sideColor: CGColor?
         var own = false
+        var separator: CGRect?
         /// Apple's continuous curve over one radius (LLP 1077 D1).
         var curve: CALayerCornerCurve = .circular
         /// A shape only a path says: the layer keeps no radius of its own.
@@ -91,8 +92,9 @@ extension NodeView {
             p.widths = p.widths.map { max($0, 2) }
             p.colors = Array(repeating: ring, count: 4)
         }
+        p.separator = groupedSeparatorRect
         let width = p.widths[0]
-        p.oneBorder = p.widths.allSatisfy { $0 == width } && (width == 0 || p.colors.allSatisfy { $0 == p.colors[0] })
+        p.oneBorder = p.separator == nil && p.widths.allSatisfy { $0 == width } && (width == 0 || p.colors.allSatisfy { $0 == p.colors[0] })
         // One radius over the corners that have one; CSS's reduction first,
         // and Core Animation's own limit (half the shorter side) not reached.
         let radii = cornerRadii(in: bounds)
@@ -113,11 +115,11 @@ extension NodeView {
         // Square sides in one colour that differ only in width (a row's
         // `border-bottom` separator) are rectangles of one shape layer.
         let drawn = p.widths.indices.filter { p.widths[$0] > 0 }
-        p.sideColor = drawn.first.map { p.colors[$0] }
+        p.sideColor = p.separator == nil ? drawn.first.map { p.colors[$0] } : groupedSeparatorColor
         p.edges = !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
         // A layout transition's size shows the surface on its own layer.
         let away = surface != nil
-        p.drawn = !away && (!((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
+        p.drawn = !away && (!((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 } || p.separator != nil)
         // A border over the children needs the backing layer's own radius,
         // and AppKit makes a backing layer's radius clip: where the node
         // does not clip, a rounded one draws.
@@ -211,6 +213,7 @@ extension NodeView {
                          CGRect(x: 0, y: 0, width: d[3], height: h)] where rect.width > 0 && rect.height > 0 {
                 path.addRect(rect)
             }
+            if let rect = p.separator { path.addRect(rect) }
             if shape.path != path { shape.path = path }
             if shape.fillColor != border { shape.fillColor = border }
             return

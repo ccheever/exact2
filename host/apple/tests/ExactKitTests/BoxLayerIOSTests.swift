@@ -256,6 +256,94 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertFalse(path.contains(CGPoint(x: 299, y: 60)), "no right side")
     }
 
+    func testGroupedSeparatorUsesTheExistingEdgeLayerAndFollowsTheLastRow() throws {
+        let owner = node([:])
+        let first = node(["padding_left": 16, "border_color_bottom": white])
+        let last = node([:])
+        first.props["groupedRowSeparator"] = "true"
+        last.props["groupedRowSeparator"] = "true"
+        owner.addSubview(first); owner.addSubview(last)
+        first.applyBoxLayer(); last.applyBoxLayer()
+        let shape = try XCTUnwrap(first.boxBorder as? CAShapeLayer)
+        XCTAssertEqual(shape.path?.boundingBox, CGRect(x: 16, y: 119, width: 284, height: 1))
+        XCTAssertEqual(first.layer.sublayers?.count, 1, "the existing border layer carries the separator")
+        XCTAssertNil(first.layer.contents, "a separator does not allocate a row-sized bitmap")
+        XCTAssertFalse(first.boxDrawn)
+        XCTAssertNil(last.boxBorder, "the last row has no system separator")
+        last.applyStyle(["display": "none"]); first.applyBoxLayer()
+        XCTAssertNil(first.boxBorder, "a hidden trailing row leaves no separator")
+        last.applyStyle([:]); first.applyBoxLayer()
+        XCTAssertNotNil(first.boxBorder)
+        last.removeFromSuperview(); first.applyBoxLayer()
+        XCTAssertNil(first.boxBorder, "removing a retained row clears the parent's last-row cache")
+        owner.addSubview(last); first.applyBoxLayer()
+        XCTAssertNotNil(first.boxBorder, "inserting a row restores the previous row's separator")
+        first.frame.size.width = 200
+        first.applyStyle(["padding_left": 56, "border_color_bottom": white])
+        first.applyBoxLayer()
+        XCTAssertEqual((first.boxBorder as? CAShapeLayer)?.path?.boundingBox,
+                       CGRect(x: 56, y: 119, width: 144, height: 1))
+        first.applyStyle(["padding_left": 56, "border_width_left": 2, "border_width_right": 3,
+                          "border_width_bottom": 4, "border_color_bottom": white])
+        XCTAssertEqual(first.groupedSeparatorRect, CGRect(x: 58, y: 115, width: 139, height: 1),
+                       "the separator stays in the padding box above authored borders")
+        first.applyStyle([:])
+        XCTAssertEqual(first.groupedSeparatorRect?.minX, 16, "a native button has the system inset without UA padding")
+        first.applyStyle(["padding_left": 0])
+        XCTAssertEqual(first.groupedSeparatorRect?.minX, 0, "an authored zero inset stays zero")
+        first.applyStyle(["padding_left": ["pct": 10, "px": 2], "border_width_left": 2, "border_width_right": 3])
+        XCTAssertEqual(first.groupedSeparatorRect?.minX, 23.5, "a percent/calc paint offset follows the web padding-box basis")
+    }
+
+    func testShowingManyGroupedRowsInOneBatchPublishesTheFinalSeparators() throws {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        let ids = Array(2...33)
+        var inspectedColdBatch = false
+        p.onViewportFit = { [weak p] in
+            guard let p else { return }
+            inspectedColdBatch = true
+            XCTAssertEqual(p.views[100]?.groupedSeparatorInvalidationPending, false,
+                           "an ordinary parent queues no grouped paint work")
+            XCTAssertEqual(p.views[1]?.groupedSeparatorInvalidationPending, true,
+                           "a marked cold group defers its one repaint until the batch ends")
+            XCTAssertNil(p.views[1]?.groupedLastVisibleRow, "cold mounting does not resolve intermediate last rows")
+        }
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "view", "props": ["viewportFit": "cover"], "style": [:]],
+            ["op": "create", "id": 100, "kind": "view", "style": [:]],
+            ["op": "create", "id": 101, "kind": "view", "style": [:]],
+            ["op": "children", "id": 100, "ids": [101]],
+        ]
+        for id in ids {
+            ops.append(["op": "create", "id": id, "kind": "view",
+                "props": ["groupedRowSeparator": "true"],
+                "style": ["display": id == 2 ? "block" : "none", "padding_left": 16,
+                          "border_color_bottom": [255, 255, 255, 255]]])
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id - 2) * 52, "w": 300.0, "h": 52.0])
+        }
+        ops += [["op": "children", "id": 1, "ids": ids], ["op": "roots", "ids": [1, 100]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 1664.0]]
+        p.apply(wireBatch(ops))
+        XCTAssertTrue(inspectedColdBatch, "the viewport callback observes the real batch before deferred work")
+        p.onViewportFit = nil
+        let owner = try XCTUnwrap(p.views[1])
+        let first = try XCTUnwrap(p.views[2])
+        XCTAssertFalse(owner.groupedSeparatorInvalidationPending, "cold mounting completes its deferred sweep")
+        XCTAssertNil(first.groupedSeparatorRect, "only one row is initially visible")
+        p.apply(wireBatch(ids.dropFirst().map { id in
+            ["op": "style", "id": id, "style": ["display": "block", "padding_left": 16,
+                                               "border_color_bottom": [255, 255, 255, 255]]]
+        }))
+        XCTAssertFalse(owner.groupedSeparatorInvalidationPending, "bulk show completes its deferred sweep")
+        first.applyBoxLayer()
+        XCTAssertNotNil(first.boxBorder)
+        let last = try XCTUnwrap(p.views[33])
+        last.applyBoxLayer()
+        XCTAssertNil(last.boxBorder)
+        XCTAssertTrue(owner.groupedLastVisibleRow === last, "the cache describes the completed batch")
+    }
+
     func testWhatTheLayerCannotSayStillDraws() {
         let sides = node(["background_color": white, "border_width_bottom": 1, "border_width_top": 1,
             "border_color_top": blue, "border_color_bottom": white])

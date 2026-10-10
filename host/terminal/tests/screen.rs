@@ -510,3 +510,78 @@ fn native_button_wrap_and_bound_title_remeasure_the_painted_face() {
     assert_eq!((f.width, f.height), (7. * COLUMN, ROW));
     assert!(vt.text(false).contains('界') && !vt.text(false).contains("First"));
 }
+
+#[test]
+fn grouped_rules_survive_zero_borders_and_follow_the_last_visible_row() {
+    let plan = contract::compile(
+        r##"component App
+  state show = true
+  action toggle
+    show = not show
+  view
+    list appearance="auto" width=320 height=320
+      section
+        row press=toggle testId="first" border-bottom-color="#0000ff"
+          text "First"
+        when show
+          row testId="last"
+            text "Last"
+"##,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).unwrap();
+    let id = host.by_test_id("first").unwrap();
+    let row = host.kernel().node(id).unwrap();
+    assert_eq!(row.style.border_widths_in(&host.kernel().env())[2], 0.0);
+    let f = row.frame;
+    let x = ((f.x + 16.0) / 8.0).round() as usize;
+    let right = ((f.x + f.width) / 8.0).round() as usize;
+    let y = ((f.y + f.height) / 16.0).round() as usize - 1;
+    let frame = host.frame();
+    assert_ne!(frame.grid.cell(x - 1, y).text, "─");
+    for col in x..right {
+        assert_eq!(frame.grid.cell(col, y).text, "─");
+        assert_eq!(
+            frame.grid.cell(col, y).style.fg,
+            Some(exact_terminal::grid::Rgb(0, 0, 255))
+        );
+    }
+    host.press(id);
+    assert_ne!(
+        host.frame().grid.cell(x, y).text,
+        "─",
+        "the only visible row has no system rule"
+    );
+    host.press(id);
+    assert_eq!(host.frame().grid.cell(x, y).text, "─");
+}
+
+#[test]
+fn grouped_native_button_chrome_starts_inside_the_full_row_slot() {
+    let plan = contract::compile(
+        r#"component App
+  view
+    list appearance="auto" width=320 height=320
+      section
+        button appearance="auto" width="100%" testId="native"
+          text "Native"
+        row
+          text "Last"
+"#,
+    )
+    .unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 20).unwrap();
+    let row = host
+        .kernel()
+        .node(host.by_test_id("native").unwrap())
+        .unwrap();
+    let group = host.kernel().node(row.parent.unwrap()).unwrap();
+    assert_eq!(row.frame.x, group.frame.x);
+    assert_eq!(row.frame.width, group.frame.width);
+    let x = (row.frame.x / 8.0).round() as usize;
+    let y = (row.frame.y / 16.0).round() as usize;
+    let grid = &host.frame().grid;
+    assert!(!grid.cell(x, y).style.reverse);
+    assert!(!grid.cell(x + 1, y).style.reverse);
+    assert!(grid.cell(x + 2, y).style.reverse);
+}

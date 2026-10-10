@@ -237,6 +237,8 @@ pub struct ButtonMeasureRequest {
     pub style: ButtonFaceStyle,
     /// Name from buttonStyles; bordered when absent.
     pub button_style: String,
+    /// The button is a direct grouped-list row; the host includes its slot inset.
+    pub grouped_row: bool,
     /// Offered border-box width; hosts answer height-for-width.
     pub width: crate::AxisOffer,
 }

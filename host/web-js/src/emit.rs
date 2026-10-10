@@ -734,7 +734,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // carries them: the browser runs `animation` rows.
     for row in &plan.keyframes {
         if let Ok(frames) = exact_motion::Keyframes::parse(plan.str(row.css)) {
-            let text = frames.css();
+            let text = exact_web::grouped::keyframes_css(&frames.css());
             let _ = write!(css, "@keyframes {}{{{text}}}", plan.str(row.name));
             // A pressable node plays the copy that also animates
             // `--exact-scale` (exact_web::css::keyframes_name).
