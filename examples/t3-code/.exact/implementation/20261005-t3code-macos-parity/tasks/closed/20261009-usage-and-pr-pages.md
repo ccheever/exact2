@@ -85,9 +85,10 @@ Before/after evidence: one side-by-side image per scenario (base build | branch 
 - **PG-2.** `formatUsd` used `toFixed(2)`, which rounds the binary value (0.825 is 0.82499…). The reference's
   `Intl.NumberFormat` (ICU) rounds the shortest decimal digits half away from zero. `Intl` in the app's runtime does not:
   Hermes's Apple `Intl` formats through an `NSNumberFormatter` whose rounding mode it never sets (half to even, so
-  $0.82 again; `EXACT2-GAPS.md` X71, a local draft). `formatUsd` (`pages-usage.ts`) now rounds the shortest digits half
-  away from zero itself and keeps ICU's sign for a negative or negative-zero amount. Every amount on the page goes
-  through it (the rows, the Day table, the model dialog, Totals, the chart's ticks).
+  $0.82 again; `EXACT2-GAPS.md` X72, a local draft then, filed on main on 2026-10-10, plan record
+  `../../issues/closed/20261010-x72-apple-intl-half-even.md`). `formatUsd` (`pages-usage.ts`) now rounds the shortest
+  digits half away from zero itself and keeps ICU's sign for a negative or negative-zero amount. Every amount on the
+  page goes through it (the rows, the Day table, the model dialog, Totals, the chart's ticks).
 - **PG-3.** The (i) was a `popovertarget` button (click only), and its popup a dark bubble wrapped in a 12pt containing
   block. It is now a hover trigger on the Usage page's popover machinery, as a pooled segment's is (fix-hover-cards):
   `enterSeg("unpriced")` (Base UI's 300 ms open delay on the window's hover clock), `pin` on a press, light dismiss,
@@ -197,7 +198,7 @@ acme-coder-1 price), app launched normally and active, window 1280×840:
 unpriced hover, the titles, the environment menu, Filters › Author with "zz", and the Escape sequence). Drove the base
 build and then this branch with the same steps; live drive 1 showed the author search field's text at the top of a
 28pt field (fixed: the field is one line tall, centred by its row), and the one retry drive checked it, ↓ and the
-Escape sequence again. `EXACT2-GAPS.md`: X71 (local draft, not filed) and the section "Usage and Pull Requests pages".
+Escape sequence again. `EXACT2-GAPS.md`: X72 (local draft, not filed) and the section "Usage and Pull Requests pages".
 
 2026-10-10, review round 1 (independent review of PR #375, five should-fix rows): (1) the pull request editors were
 `aria-modal` while open, which silenced every other app shortcut and kept an Escape from outside them on the page: they
