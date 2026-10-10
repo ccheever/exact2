@@ -26,6 +26,7 @@ import { mobileQueuePrepare } from './queue-read';
 import { mobileThreadAnswerFilesPrepare } from './thread';
 import { mobileGitColors } from './git-colors';
 import { mobileGitSnapshot, mobileGitRead, mobileGitAction } from './git-overview';
+import { mobileGitFeedbackSnapshot, mobileGitFeedbackAction } from './git-feedback';
 import { mobileGitBranchesSnapshot, mobileGitBranchesRead, mobileGitBranchAction } from './git-branches';
 import { workspaceInspectorSnapshot } from './workspace-inspector';
 import { mobileInspectorContext, mobileInspectorTransition, mobileInspectorPresentation } from './workspace-inspector-adapter';
@@ -179,6 +180,8 @@ const sources: Sources = {
     const native = nativeInput;
     return mobileGitSnapshot(Number(args[0]));
   },
+  gitFeedback: args => mobileGitFeedbackSnapshot(Number(args[0]), mobileClient, args[2] === true),
+  gitFeedbackAction: (args, _store, _storage, native) => mobileGitFeedbackAction(str(args[0]), str(args[1]), str(args[2]), Number(args[3]), native, mobileClient),
   gitRead: (args, _store, storage, nativeInput) => {
     const native = nativeInput;
     return mobileGitRead(str(args[0]), Number(args[1]), native);
@@ -678,7 +681,7 @@ const sources: Sources = {
   snapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('snapshot', args, nativeInput);
     noteNow(mobileClient, Number(args[2]));
-    return mobileSnapshot(native, storage!).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
+    return mobileSnapshot(native, storage!, Number(args[2])).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
   },
   cameraPermission: (args, _store, storage, nativeInput) => {
     const native = sourceNative('cameraPermission', args, nativeInput);

@@ -12,6 +12,7 @@ import t8 from './themes/ember-light.json';
 import t9 from './themes/ember-dark.json';
 import t10 from './themes/iris-light.json';
 import t11 from './themes/iris-dark.json';
+import { withAlpha } from './design';
 
 const themes: Record<string, Record<string, string>> = {
   'light': t0,
@@ -36,5 +37,7 @@ export function mobileGitColors(scheme: string, themeId = 't3-code') {
     sheet: token('sheet-solid'), card: token('card'), border: token('border'), subtle: token('subtle'), subtleStrong: token('subtle-strong'),
     icon: token('icon'), iconSubtle: token('icon-subtle'), primary: token('primary'), primaryForeground: token('primary-foreground'),
     warningForeground: token('warning-foreground'), addition: token('adaptive-emerald-700-300'), deletion: token('adaptive-rose-700-300'),
-    secondaryBackground: token('secondary'), secondaryBorder: token('secondary-border'), secondaryForeground: token('secondary-foreground') };
+    secondaryBackground: token('secondary'), secondaryBorder: token('secondary-border'), secondaryForeground: token('secondary-foreground'),
+    glassTint: withAlpha(token('glass-surface'), dark ? 0.48 : 0.38), glassBorder: withAlpha(token('foreground'), dark ? 0.18 : 0.12),
+    shadow: withAlpha(token('primary-shadow'), dark ? 0.42 : 0.2), danger: token('danger'), dangerForeground: token('danger-foreground') };
 }

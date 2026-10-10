@@ -9,6 +9,7 @@ import { mobileComposerTargetRequire } from './composer-target';
 import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
 import { mobileOpenAnswerFile } from './thread-answer-files';
 import { mobileGitEvents } from './git-overview';
+import { mobileGitFeedbackMetadata, mobileGitFeedbackObserve } from './git-feedback';
 import { mobileDevicesEvents } from './devices-mobile-data';
 import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
@@ -83,6 +84,7 @@ export function mobileNative(native: Native): Native {
         mobileBrowserEvents(obj(response.value).events, mobileClient);
         mobileDevicesEvents(obj(response.value).events, mobileClient);
         mobileGitEvents(obj(response.value).events, mobileClient);
+        mobileGitFeedbackMetadata(obj(response.value).events, Number(operation.after) || 0, mobileClient);
         mobileThreadHeaderEvents(obj(response.value).events, mobileClient);
       }
       return response;
@@ -112,10 +114,12 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 }
 
 /** Rendering projection only. Saved credentials and access tokens never enter these rows. */
-export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files) {
+export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files, now = 0) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   const fleetRevision = fleet.revision;
+  mobileGitFeedbackObserve(mobileClient, now);
   await mobileClient.refresh(native, storage);
+  mobileGitFeedbackObserve(mobileClient, now);
   // A disconnected foreground skips the shared client's event drain. Background
   // connection/config changes must still invalidate root outbox scheduling.
   if (fleet.revision !== fleetRevision) mobileClient.revision++;

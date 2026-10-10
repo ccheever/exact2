@@ -20,6 +20,11 @@ shape GitColors
   secondaryBackground: string
   secondaryBorder: string
   secondaryForeground: string
+  glassTint: string
+  glassBorder: string
+  shadow: string
+  danger: string
+  dangerForeground: string
 shape MobileGitRow
   id: string
   label: string
@@ -83,6 +88,56 @@ shape MobileGitResult
   destination: string
   dismiss: bool
   data: MobileGitSnapshot
+
+shape MobileGitFeedbackSnapshot
+  owner: string
+  id: string
+  phase: string
+  label: string
+  description: string
+  prUrl: string
+  deadline: number
+  visible: bool
+shape MobileGitFeedbackResult
+  opened: bool
+keyframes gitFeedbackEnter
+  from opacity=0
+  to opacity=1
+
+// Source result lifetime and motion live with this independent presentation;
+// root routing, inspector ownership and the shared action stream stay intact.
+component MobileGitFeedback
+  props
+    feedback: MobileGitFeedbackSnapshot
+    press: action
+    left: number
+    right: number
+    top: number
+    reduced: bool
+    colors: GitColors
+  view
+    when feedback.id != ""
+      button press=press(feedback.owner, feedback.id) position="absolute" z-index=100 left=left right=right top=top
+        pointer-events=(feedback.visible ? "auto" : "none") opacity=(feedback.visible ? 1 : 0) aria-hidden=(not feedback.visible)
+        height=(feedback.description != "" ? 58.75 : 43) box-sizing="border-box" text-align="left"
+        padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5
+        border-radius=26 border-width=0.5 border-style="solid" border-color=colors.glassBorder
+        backgroundMaterial="glass" background-color=colors.glassTint box-shadow=`0px 8px 18px ${colors.shadow}`
+        transition=(reduced ? "none" : "height 220ms linear, opacity 150ms linear")
+        aria-label=`${feedback.label}. ${feedback.description}` testId="git-action-feedback"
+        row gap=8.75 align-items="center" font-family="DM Sans" animation=(reduced ? "none" : "gitFeedbackEnter 140ms linear 60ms both")
+          when feedback.phase == "running"
+            t3-archive-spinner spinner-tint=colors.icon width=21 height=21
+          when feedback.phase == "success" or feedback.phase == "error"
+            column width=21 height=21 flex-shrink=0 border-radius=999 align-items="center" justify-content="center" background-color=(feedback.phase == "success" ? "oklch(72.3% 0.219 149.579)" : colors.danger)
+              t3-symbol symbol-name=(feedback.phase == "success" ? "checkmark" : "exclamationmark.triangle") point-size=12 symbol-tint=(feedback.phase == "success" ? "#ffffff" : colors.dangerForeground) width=12 height=12
+          column flex=1 min-width=0 gap=1.75
+            when feedback.label != ""
+              text feedback.label font-size=14 line-height="19px" font-weight=700 color=colors.foreground line-clamp=1
+            when feedback.description != ""
+              text feedback.description font-size=12 line-height="16px" color=colors.muted line-clamp=1
+          when feedback.prUrl != ""
+            t3-symbol symbol-name="arrow.up.right" point-size=13 symbol-tint=colors.icon width=13 height=13
 
 component MobileGitActionButton
   props
