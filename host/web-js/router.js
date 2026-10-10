@@ -1,6 +1,6 @@
 // The router on the JS target (LLP 1038; route/src), re-exported by rt.js: the verbs and reads, the route table, and the
 // router slot's changes to the browser's history.
-import { Refusal, effect, After, journal, clock } from "./rt.js";
+import { Refusal, effect, After, journal, clock, commit, W } from "./rt.js";
 import { projectRoots } from "./document.js";
 const say = line => journal.push(`t=${clock.now} ${line}`);
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
@@ -133,7 +133,10 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
 /** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate ? (Navigate(location), true) : false, say, After, hostBack); }
+/** The platform's own Back from the selected visit `id`, with no `navigate` handler (LLP 1115 D5): the router's `back`
+ * as a commit of its own, the runner's `host_back`. */
+function hostBack(id) { const r = RouterSlot?.n.v; if (r && validRouter(r) && top_(r)[0] === id && depth_(r) > 1) commit(() => W(RouterSlot, back_(r)), "host back"); }
 export function router(slot, history) {
   RouterSlot = slot; navigationRoots(history);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared

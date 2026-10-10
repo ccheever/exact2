@@ -248,14 +248,14 @@ component ThisMachineSection
         row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
           when machine.menu
             box position="relative"
-              button popovertarget="this-machine-menu-popup" key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
+              button popovertarget="this-machine-menu-popup" key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu" title=""
                 PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
               KeyMenuOpen(menuId="this-machine-menu-popup", armed=keyArmed, opened=keyOpened)
               CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0, items=[KmItem(id=`environment-icon-${machine.environment.environmentId}`, label="Icon")], keyed=keyed)
                 EnvironmentIconMenu(keysId="this-machine-menu-popup-keys", environment=machine.environment, op=op)
       PvGroupOpen()
         PvRow(title="Local environment", description=machine.description, status="", policy="", wide=wide, divided=false)
-          button id="local-environment-switch" press=toggle role="switch" aria-checked=machine.enabled aria-label="Local environment" disabled=busy testId="local-environment-switch" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(machine.enabled ? "flex-end" : "flex-start") flex-shrink=0 opacity=(busy ? 0.64 : 1) background-color=(machine.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+          button id="local-environment-switch" press=toggle role="switch" aria-checked=machine.enabled aria-label="Local environment" disabled=busy testId="local-environment-switch" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(machine.enabled ? "flex-end" : "flex-start") flex-shrink=0 opacity=(busy ? 0.64 : 1) background-color=(machine.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
             box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
         when machine.canManage
           column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="this-machine-version"
@@ -342,17 +342,17 @@ component EnvironmentRow
             text environment.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`environment-update-note-${environment.environmentId}`
           when environment.update != ""
             box position="relative" hover=hover("update")
-              button press=op("environment-update", environment.key, environment.updateVersion) class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}`
+              button press=op("environment-update", environment.key, environment.updateVersion) class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}` title=""
                 CnGlyph(name="update", size=14, color="light-dark(#71717b, #818181)")
               when tip == "update"
                 CnTooltip(tip=environment.update, tipId=`environment-update-tip-${environment.environmentId}`, above=28)
           box position="relative" hover=hover("switch")
-            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.unsupported) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.unsupported ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.unsupported) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.unsupported ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
               box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
-            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}`
+            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title=""
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)
@@ -567,7 +567,7 @@ component AddEnvironmentDialog
               text sshHosts.noMatch font-size="0.75rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #9a9a9a)" testId="ssh-host-no-match"
             each host in sshHosts.hosts key=host.alias
               SshHostRow(host=host, busy=busy, pick=ssh("environment-ssh-pick", host.alias, routePayload))
-        button id="close-connection" press=dismiss key=closeKey class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-connection"
+        button id="close-connection" press=dismiss key=closeKey class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-connection" title=""
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 // renderConnectionModeCard: selected cards wear the primary tint.

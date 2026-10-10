@@ -141,6 +141,27 @@ fn a_host_measurement_is_the_first_frame_and_wraps_at_each_width() {
     assert_eq!(k.provisional_layouts(), 0);
 }
 #[test]
+fn a_flex_button_shrinks_to_the_hosts_min_content_and_remeasures_height() {
+    let answers = Rc::new(RefCell::new((false, Vec::new())));
+    let mut k = tree(Box::new(Buttons(answers.clone())));
+    patch(&mut k, 1, &[(StyleId::FlexDirection, "row")]);
+    k.compute_layout(1, Offer::definite(100.0, 500.0)).unwrap();
+    let frame = k.node(2).unwrap().frame;
+    assert_eq!(frame.width, 100.0);
+    assert_eq!(frame.height, 76.0);
+    assert!(answers
+        .borrow()
+        .1
+        .iter()
+        .any(|r| r.width == AxisOffer::MinContent));
+    k.compute_layout(1, Offer::definite(20.0, 500.0)).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().frame.width,
+        40.0,
+        "auto minimum keeps the host's unbreakable run"
+    );
+}
+#[test]
 fn authored_padding_is_counted_once_in_offer_and_geometry() {
     let answers = Rc::new(RefCell::new((false, Vec::new())));
     let mut k = tree(Box::new(Buttons(answers.clone())));

@@ -89,7 +89,7 @@ component BcButton
     over = value
   view
     box position="relative" flex-shrink=0 hover=hover
-      button press=press disabled=disabled aria-label=label aria-pressed=(pressedState ? on : false) testId=testId position="relative" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=(on ? (over ? "light-dark(#fafafae6, #ffffff07)" : "light-dark(#fafafa, #ffffff08)") : (over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
+      button press=press disabled=disabled aria-label=label aria-pressed=(pressedState ? on : false) title="" testId=testId position="relative" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=(on ? (over ? "light-dark(#fafafae6, #ffffff07)" : "light-dark(#fafafa, #ffffff08)") : (over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
         BcIcon(name=icon, size=14, color=(on ? (tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") : "light-dark(#71717b, #a1a1aa)"))
         when dot
           box position="absolute" right="0.125rem" top="0.125rem" width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#fb2c36, #fb414a)" animation=(still ? "none" : "bcStatusPulse 2s infinite") pointer-events="none" aria-hidden=true testId=`${testId}-dot`
@@ -209,6 +209,6 @@ component BcPillButton
     press()
   view
     box position="relative" flex-shrink=0
-      button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(on ? "light-dark(#fafafa, #ffffff08)" : (hot and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
+      button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label title="" testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(on ? "light-dark(#fafafa, #ffffff08)" : (hot and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
         BcIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
       TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)

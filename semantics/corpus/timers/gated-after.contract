@@ -8,12 +8,12 @@ component App
   state at = 0
   action show(t: string)
     toast = t
-    until = now() + 500
+    until = performanceNow() + 500
   action hide
     toast = ""
   action expire
     fired = fired + 1
-    at = now()
+    at = performanceNow()
     toast = ""
   task gone when toast != "" key=until
     after(500, expire)

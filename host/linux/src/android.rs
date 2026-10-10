@@ -211,6 +211,8 @@ pub enum Command {
     Scroll(f32),
     /// A touch: 0 down, 1 up, 2 move, 3 cancel; pixels.
     Touch(i32, f32, f32),
+    /// Paint again (the app attached a surface the painter presents to).
+    Repaint,
     /// The surface is going away: stop painting and drop the painter.
     Stop,
 }
@@ -254,12 +256,17 @@ pub struct Launch {
     /// Its compatibility record.
     pub compat: &'static str,
     /// An `ANativeWindow` whose reference passes to the host (released when
-    /// the render thread ends).
+    /// the render thread ends), or null: the app boots before its surface
+    /// exists and its painter attaches one later (then sends
+    /// [`Command::Repaint`]).
     pub window: *mut c_void,
     /// The window's size, pixels.
     pub size: (u32, u32),
     /// Device pixels per point (CSS px = dp).
     pub scale: f32,
+    /// The window's safe-area insets (top, right, bottom, left), pixels:
+    /// a surface under the status bar reports it so `env()` reserves it.
+    pub insets: [f32; 4],
 }
 
 struct Window(*mut c_void);
@@ -278,13 +285,29 @@ pub fn start<D: DataSource + Default + 'static>(launch: Launch) -> Handle {
     let (ff, fr) = (first_frame.clone(), frames.clone());
     let window = Window(launch.window);
     let (plan, compat, size, scale) = (launch.plan, launch.compat, launch.size, launch.scale);
+    let insets = launch.insets;
     let thread = std::thread::Builder::new()
         .name("exact-render".into())
         .spawn(move || {
             let window = window;
-            run::<D>(plan, compat, window.0, size, scale, rx, wake, ff, fr);
+            // A display thread (Android's THREAD_PRIORITY_DISPLAY and below):
+            // the first the system allows, before the boot it runs.
+            for nice in [-10, -8, -4] {
+                // SAFETY: PRIO_PROCESS of this thread.
+                if unsafe {
+                    libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, nice)
+                } == 0
+                {
+                    break;
+                }
+            }
+            run::<D>(
+                plan, compat, window.0, size, scale, insets, rx, wake, ff, fr,
+            );
             // SAFETY: the painter (and its surface) dropped inside `run`.
-            unsafe { ANativeWindow_release(window.0) };
+            if !window.0.is_null() {
+                unsafe { ANativeWindow_release(window.0) };
+            }
         })
         .expect("render thread");
     Handle {
@@ -394,6 +417,7 @@ fn run<D: DataSource + Default>(
     window: *mut c_void,
     (pw, ph): (u32, u32),
     scale: f32,
+    insets: [f32; 4],
     rx: Receiver<Command>,
     wake: c_int,
     first_frame: Arc<AtomicBool>,
@@ -425,13 +449,19 @@ fn run<D: DataSource + Default>(
     if let Some(e) = error {
         log(&format!("exact: {e}"));
     }
+    if insets.iter().any(|i| *i != 0.0) {
+        if let Some(e) = p.set_safe_area(insets.map(|i| i / scale)) {
+            log(&format!("exact: {e}"));
+        }
+    }
     log(&format!(
-        "exact: {pw}x{ph} px, scale {scale}, viewport {:.1}x{:.1}, painter {} {:?}, boot {:.1} ms",
+        "exact: {pw}x{ph} px, scale {scale}, viewport {:.1}x{:.1}, painter {} {:?}, boot {:.1} ms (fonts {:.1} ms)",
         viewport.0,
         viewport.1,
         p.painter.name,
         p.painter.adapter,
-        wall()
+        wall(),
+        p.fonts_ms
     ));
     // SAFETY: fds the presenter owns for its whole life.
     unsafe {
@@ -459,18 +489,21 @@ fn run<D: DataSource + Default>(
     });
     let vsync_ptr: *const Vsync = &*vsync;
     let center = (viewport.0 / 2.0, viewport.1 / 2.0);
+    // `EXACT_DEFER_COLLECTIONS=0` runs a list's turn before its frame.
+    p.set_deferred_collections(std::env::var("EXACT_DEFER_COLLECTIONS").as_deref() != Ok("0"));
     let mut last_tick = 0.0f64;
     let mut first_pixel = false;
     let frame_ms = 1000.0 / 120.0;
+    let mut images_woke = true;
     loop {
         let mut drain = [0u8; 8];
         // SAFETY: a non-blocking read of the eventfd's counter.
         unsafe { libc::read(wake, drain.as_mut_ptr().cast(), 8) };
-        if let Some(e) = p.pump(wall()) {
+        if let Some(e) = trace(c"exact pump", || p.pump(wall())) {
             log(&format!("exact: {e}"));
         }
-        p.poll_update();
-        p.run_commands(D::default);
+        trace(c"exact poll update", || p.poll_update());
+        trace(c"exact commands", || p.run_commands(D::default));
         // Input after the presenter's own work (as the DRM loop orders it),
         // so a scroll step's dirt reaches this vsync's frame.
         let mut stop = false;
@@ -478,7 +511,9 @@ fn run<D: DataSource + Default>(
             let now = wall();
             let r = match c {
                 Command::Scroll(dy) => {
-                    p.wheel_at(center.0, center.1, 0.0, dy / scale);
+                    trace(c"exact scroll", || {
+                        p.wheel_at(center.0, center.1, 0.0, dy / scale)
+                    });
                     Ok(())
                 }
                 Command::Touch(action, x, y) => {
@@ -489,6 +524,10 @@ fn run<D: DataSource + Default>(
                         2 => p.pointer_move(x, y, now).map(|_| ()),
                         _ => p.pointer_cancel(now),
                     }
+                }
+                Command::Repaint => {
+                    p.repaint();
+                    Ok(())
                 }
                 Command::Stop => {
                     stop = true;
@@ -503,9 +542,14 @@ fn run<D: DataSource + Default>(
             break;
         }
         let now = wall();
+        // A timer due when a frame is about to paint (a list's live tick in
+        // a fling) runs once that frame is out, as a scrolled list's
+        // collection turn does: it shows a frame later instead of making
+        // this one late.
+        let mut advance_after = false;
         if vsync.arrived.get() && p.host().wants_frames() {
             last_tick = now;
-            if let Some(e) = p.animation_frame(now) {
+            if let Some(e) = trace(c"exact animation frame", || p.animation_frame(now)) {
                 log(&format!("exact: {e}"));
             }
         } else if p
@@ -514,27 +558,61 @@ fn run<D: DataSource + Default>(
             .is_some_and(|due| due <= now && now - last_tick >= frame_ms * 0.5)
         {
             last_tick = now;
-            if let Some(e) = p.advance(now) {
+            if vsync.arrived.get() && p.dirty() {
+                advance_after = true;
+            } else if let Some(e) = trace(c"exact advance", || p.advance(now)) {
                 log(&format!("exact: {e}"));
             }
         }
-        if vsync.arrived.get() && p.needs_animation_frame() {
-            p.tick(now);
+        if vsync.arrived.get() && trace(c"exact needs frame", || p.needs_animation_frame()) {
+            trace(c"exact tick", || p.tick(now));
         }
-        p.poll_images();
+        // Decodes that finished since: only when the image fd woke the loop
+        // (a frame's picture sync polls them too); every iteration polled
+        // every picture's state twice a frame.
+        if images_woke {
+            trace(c"exact poll images", || p.poll_images());
+        }
         let mut painted = false;
         if p.dirty() && vsync.arrived.get() {
             vsync.arrived.set(false);
             painted = true;
             let frame = trace(c"exact frame", || p.display_frame());
             if let Some(frame) = frame {
-                p.display_complete(&frame);
+                trace(c"exact complete", || p.display_complete(&frame));
                 frames.fetch_add(1, Ordering::Relaxed);
                 if !first_pixel {
                     first_pixel = true;
                     first_frame.store(true, Ordering::Release);
                     log(&format!("exact: first frame at {:.1} ms", wall()));
                 }
+            }
+        }
+        // Rows the scroll this frame showed will need, mounted after it
+        // (once this iteration's frame is out, or nothing waits to paint).
+        // The next vsync is asked for first: work after a frame must not
+        // make a request that misses the vsync the frame is waiting on.
+        if painted || !p.dirty() {
+            if painted && !vsync.requested.get() {
+                vsync.requested.set(true);
+                // SAFETY: as below — this thread's callback, `vsync` outlives it.
+                unsafe {
+                    AChoreographer_postFrameCallback64(
+                        choreographer,
+                        on_vsync,
+                        vsync_ptr as *mut c_void,
+                    )
+                };
+            }
+            if trace(c"exact deferred collections", || {
+                p.run_deferred_collections()
+            }) {
+                painted = true;
+            }
+        }
+        if advance_after {
+            if let Some(e) = trace(c"exact advance", || p.advance(wall())) {
+                log(&format!("exact: {e}"));
             }
         }
         if p.module_pending() {
@@ -567,7 +645,7 @@ fn run<D: DataSource + Default>(
             timeout
         };
         // SAFETY: polls this thread's looper; fds were added above.
-        unsafe {
+        let ident = unsafe {
             ALooper_pollOnce(
                 timeout,
                 std::ptr::null_mut(),
@@ -575,6 +653,7 @@ fn run<D: DataSource + Default>(
                 std::ptr::null_mut(),
             )
         };
+        images_woke = ident == 3;
     }
     // Let a posted vsync callback run before `vsync` is dropped.
     if vsync.requested.get() {

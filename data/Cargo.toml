@@ -9,6 +9,7 @@ publish = false
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 serde_json = "1.0"
+same-file = "1.0.6"
 # Digests and OS entropy for sources (LLP 1069.005 D5).
 sha2 = "0.10"
 # ES256 for DPoP (LLP 1069.005 D1b): measured smaller than ring. JWK by hand.

@@ -132,6 +132,14 @@ fn the_bake_bounds_accept_and_refuses_capture() {
         refused(&view("accept=\"image/*\" capture=\"user\"")),
         "lower-picker-capture"
     );
+    // The refusal names the camera's route, as rules/DEFERRED.md now says it.
+    let capture = contract::compile(&view("accept=\"image/*\" capture=\"user\""))
+        .unwrap_err()
+        .message;
+    assert!(
+        capture.contains("native module") && capture.contains("device.camera"),
+        "{capture}"
+    );
     assert_eq!(
         refused("component App\n  view\n    input accept=\"image/*\"\n"),
         "lower-attr-tag"

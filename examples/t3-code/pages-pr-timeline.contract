@@ -300,7 +300,7 @@ component PrdConversationCard
           PrdEditButton(label="Edit comment", shown=over, still=still, press=begin, testId=`${scope}-t-edit-comment-${card.id}`)
         PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-t-${card.id}`, act=act)
         when card.url != ""
-          link href=card.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${card.id}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+          link href=card.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${card.id}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" title=""
             PgIcon(name="external-link", size=12, color=prtMuted())
       when open or card.bodyId != ""
         column padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" margin-top="0.75rem" box-sizing="border-box" min-width=0
@@ -337,7 +337,7 @@ component PrdVerdictRow
               text row.path font-size="0.6875rem" line-height="1rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         PrdReactionBar(pills=row.reactions, reacted=row.reacted, canReact=row.canReact, choices=choices, subject=row.id, pickerId=`${scope}-react-v-${row.id}`, act=act)
         when row.url != ""
-          link href=row.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${row.key}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+          link href=row.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${row.key}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" title=""
             PgIcon(name="external-link", size=12, color=prtMuted())
       when row.bodyId != ""
         column margin-top="0.75rem" min-width=0

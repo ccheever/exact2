@@ -148,6 +148,7 @@ def ceval : Nat → CEnv → Frame → Locals → Expr → Result Value
         .ok (.list ys)
       | "pending", [.var x] => cpending fuel ce f ls "pending" x
       | "failed", [.var x] => cpending fuel ce f ls "failed" x
+      | "failure", [.var x] => cpending fuel ce f ls "failure" x
       | _, _ => do
         let vs ← cevalList fuel ce f ls args
         stdlib ce.root name vs
@@ -220,15 +221,19 @@ def cvar : Nat → CEnv → String → InstId → List (String × Expr × Frame 
         | .some (e, f', ls') => ceval fuel ce f' ls' e
         | .none => .error (.unbound x)
 
-/-- `pending(x)` / `failed(x)` in an instance's frame: about the resource
-the name stands for when it is a prop (or a derive) that is a name; a
-state or a local is no resource. -/
+/-- What `pending(x)`, `failed(x)` (`false`) or `failure(x)` (`none`) says
+of a name that is no resource. -/
+def quiet (which : String) : Value := if which = "failure" then .none else .bool false
+
+/-- `pending(x)` / `failed(x)` / `failure(x)` in an instance's frame: about
+the resource the name stands for when it is a prop (or a derive) that is a
+name; a state or a local is no resource. -/
 def cpending : Nat → CEnv → Frame → Locals → String → String → Result Value
   | 0, _, _, _, _, _ => .error outOfFuel
   | fuel + 1, ce, .root, ls, which, x => eval fuel ce.root false ls (.call which [.var x])
   | fuel + 1, ce, f@(.inst c _ binds), ls, which, x =>
     match lookup x ls with
-    | .some _ => .ok (.bool false)
+    | .some _ => .ok (quiet which)
     | .none => do
       let C ← ce.comp c
       match C.derives.find? (·.name == x) with
@@ -237,7 +242,7 @@ def cpending : Nat → CEnv → Frame → Locals → String → String → Resul
         | .var y => cpending fuel ce f [] which y
         | _ => .error (.unsupported s!"roster entry `{which}`")
       | .none =>
-        if C.states.any (·.name == x) then .ok (.bool false) else
+        if C.states.any (·.name == x) then .ok (quiet which) else
         match lookupBind x binds with
         | .some (.var y, f', ls') => cpending fuel ce f' ls' which y
         | .some _ => .error (.unsupported s!"roster entry `{which}`")

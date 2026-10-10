@@ -89,8 +89,31 @@ impl Drop for Root {
     }
 }
 fn read(path: &Path) -> Result<FsResult, HostError> {
-    let path = path.to_owned();
-    let documents = move |_: &str| Ok(Document::Real(path.clone()));
+    let (directory, path) = if path.is_dir() {
+        (
+            crate::stdlib::windows_directory::Directory::root(path.to_str().unwrap(), false)
+                .unwrap()
+                .0,
+            String::new(),
+        )
+    } else {
+        (
+            crate::stdlib::windows_directory::Directory::root(
+                path.parent().unwrap().to_str().unwrap(),
+                false,
+            )
+            .unwrap()
+            .0,
+            path.file_name().unwrap().to_str().unwrap().to_owned(),
+        )
+    };
+    let directory = std::sync::Arc::new(directory);
+    let documents = move |_: &str| {
+        Ok(Document::Real {
+            directory: directory.clone(),
+            path: path.clone(),
+        })
+    };
     let grants = GrantSet::parse("fs.read doc:/\n").unwrap();
     run_document(
         &grants,

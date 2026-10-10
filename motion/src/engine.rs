@@ -24,6 +24,8 @@ mod animate;
 mod clock;
 mod first_frame;
 mod hold;
+mod links;
+pub use links::EngineLinks;
 mod path;
 mod played;
 pub use played::{PlayedCurve, PlayedTransition};
@@ -238,7 +240,7 @@ impl Hasher for SlotHasher {
 }
 
 /// The motion state of every node the host has told it about.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Engine {
     // The input clock: inputs, holds, releases and timer receipts move it.
     now: f64,
@@ -252,6 +254,10 @@ pub struct Engine {
     pending: BTreeSet<(u64, Property)>,
     transitions: BTreeMap<u64, Transitions>,
     slots: HashMap<(u64, Property), Slot, BuildHasherDefault<SlotHasher>>,
+    // Which properties each node has a slot for, a bit a property: removing
+    // a node removes those slots, not a probe for every property there is
+    // (a list row rebound forgets each of its nodes, most holding four).
+    properties: HashMap<u64, u32, BuildHasherDefault<SlotHasher>>,
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
@@ -287,6 +293,9 @@ pub struct Engine {
     // Each path's `d`, and the two ends of its transition (LLP 1055.000
     // D15); the progress is the node's `Property::D` slot.
     paths: BTreeMap<u64, path::PathTrack>,
+    // What plays: every animation, or nothing but settled values (LLP
+    // 1047.001 D3), chosen once when the engine is made.
+    links: &'static links::EngineLinks,
 }
 
 impl Engine {
@@ -308,6 +317,9 @@ impl Engine {
         if self.slots.capacity() > 2 * self.slots.len().max(256) {
             self.slots.shrink_to_fit();
         }
+        if self.properties.capacity() > 2 * self.properties.len().max(256) {
+            self.properties.shrink_to_fit();
+        }
         if self.dirty.capacity() > 2 * self.dirty.len().max(256) {
             self.dirty.shrink_to_fit();
         }
@@ -316,6 +328,14 @@ impl Engine {
     /// Set a node's `transition` row. Governs changes observed from now on;
     /// a transition already running keeps its own declaration.
     pub fn set_transitions(
+        &mut self,
+        node: u64,
+        transitions: Transitions,
+    ) -> Result<(), EngineError> {
+        (self.links.set_transitions)(self, node, transitions)
+    }
+
+    pub(super) fn set_transitions_full(
         &mut self,
         node: u64,
         transitions: Transitions,
@@ -338,12 +358,66 @@ impl Engine {
         node: u64,
         transitions: &Transitions,
     ) -> Result<(), EngineError> {
+        (self.links.set_layout_transition)(self, node, transitions)
+    }
+
+    pub(super) fn set_layout_transition_full(
+        &mut self,
+        node: u64,
+        transitions: &Transitions,
+    ) -> Result<(), EngineError> {
         transitions.validate().map_err(EngineError::Transition)?;
         match transitions.matching(Property::Layout) {
             Some(declaration) => self.layout.insert(node, declaration.clone()),
             None => self.layout.remove(&node),
         };
         Ok(())
+    }
+
+    /// Keep `slot` for `key`, noting that the node holds the property.
+    fn keep(&mut self, key: (u64, Property), slot: Slot) {
+        *self.properties.entry(key.0).or_insert(0) |= 1 << key.1 as u32;
+        self.slots.insert(key, slot);
+    }
+
+    /// Whether the engine holds nothing of `node`'s but settled values: no
+    /// transition, layout transition, animation, appearance, timeline, clock
+    /// or path, no curve running, pending or played, no hold. (Whether a
+    /// host samples the node's animations itself, [`Engine::set_node_sampled`],
+    /// is not counted: it has none, and the host says so again for every
+    /// node it restates.) Forgetting
+    /// such a node and observing its values again leaves what observing
+    /// them alone does (and presents only those that changed): what a
+    /// producer that renews a node (a list row rebound, LLP 1078) may count
+    /// on when the node's new rows are as bare.
+    pub fn at_rest(&self, node: u64) -> bool {
+        let none = |keys: &BTreeSet<(u64, Property)>| {
+            keys.range((node, Property::Translate)..)
+                .next()
+                .is_none_or(|key| key.0 != node)
+        };
+        let mut held = self.properties.get(&node).copied().unwrap_or(0);
+        let mut settled = true;
+        while held != 0 && settled {
+            let property = Property::from_slot(held.trailing_zeros());
+            held &= held - 1;
+            settled = self
+                .slots
+                .get(&(node, property))
+                .is_none_or(|slot| slot.live.is_none());
+        }
+        settled
+            && !self.transitions.contains_key(&node)
+            && !self.layout.contains_key(&node)
+            && !self.node_dark.contains_key(&node)
+            && !self.animations.contains_key(&node)
+            && !self.animating.contains(&node)
+            && !self.paths.contains_key(&node)
+            && !self.timelines.names(node)
+            && !self.clocks.names(node)
+            && none(&self.running)
+            && none(&self.pending)
+            && none(&self.played)
     }
 
     /// Forget a node entirely.
@@ -381,11 +455,12 @@ impl Engine {
         for key in pending {
             self.pending.remove(&key);
         }
-        for property in Property::ALL {
+        let mut held = self.properties.remove(&node).unwrap_or(0);
+        while held != 0 {
+            let property = Property::from_slot(held.trailing_zeros());
+            held &= held - 1;
             self.slots.remove(&(node, property));
         }
-        self.slots.remove(&(node, Property::Layout));
-        self.slots.remove(&(node, Property::D));
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -399,6 +474,12 @@ impl Engine {
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.pending.remove(&(node, property));
+        if let Some(held) = self.properties.get_mut(&node) {
+            *held &= !(1 << property as u32);
+            if *held == 0 {
+                self.properties.remove(&node);
+            }
+        }
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -417,6 +498,10 @@ impl Engine {
     /// `transition` declaration starts one from the current value, or
     /// interrupts and possibly reverses the one running.
     pub fn observe(&mut self, change: Change) -> Result<(), EngineError> {
+        (self.links.observe)(self, change)
+    }
+
+    pub(super) fn observe_full(&mut self, change: Change) -> Result<(), EngineError> {
         validate_value(change.property, change.value)?;
         if let Some(velocity) = change.velocity {
             validate_value(change.property, velocity)?;
@@ -438,7 +523,7 @@ impl Engine {
         .map(|t| t.governing(change.property));
 
         let Some(slot) = self.slots.get_mut(&key) else {
-            self.slots.insert(key, Slot::settled(change.value));
+            self.keep(key, Slot::settled(change.value));
             self.dirty.insert(key);
             return Ok(());
         };
@@ -558,6 +643,10 @@ impl Engine {
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
     pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
+        (self.links.advance)(self, now)
+    }
+
+    pub(super) fn advance_full(&mut self, now: f64) -> Result<(), EngineError> {
         self.validate_time(now)?;
         self.now = now;
         let now = self.sample_time();
@@ -630,6 +719,14 @@ impl Engine {
     /// `None` for held, settled, unknown properties and easings. A host may lower
     /// frames only when this descriptor differs from its last playback.
     pub fn spring_descriptor(&self, node: u64, property: Property) -> Option<SpringDescriptor> {
+        (self.links.spring_descriptor)(self, node, property)
+    }
+
+    pub(super) fn spring_descriptor_full(
+        &self,
+        node: u64,
+        property: Property,
+    ) -> Option<SpringDescriptor> {
         let running = self.slots.get(&(node, property))?.running()?;
         let Curve::Spring { config, velocity } = &running.curve else {
             return None;
@@ -646,6 +743,10 @@ impl Engine {
     /// The spring running on one property, lowered to frames; `None` when
     /// nothing runs there or what runs is an easing.
     pub fn spring_frames(&self, node: u64, property: Property) -> Option<SpringFrames> {
+        (self.links.spring_frames)(self, node, property)
+    }
+
+    pub(super) fn spring_frames_full(&self, node: u64, property: Property) -> Option<SpringFrames> {
         let running = self.slots.get(&(node, property))?.running()?;
         let (duration, values) = running.spring_frames()?;
         Some(SpringFrames {

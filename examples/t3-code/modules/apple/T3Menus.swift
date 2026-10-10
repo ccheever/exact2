@@ -110,6 +110,11 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
             }
             view.insertItem(.separator(), at: items.count)
         }
+        // The host's Help since LLP 1115 D8 ("<app> Help" ⌘? and AppKit's search field): the reference's holds
+        // Check for Updates... alone, so the help-book item hides and leaves ⇧⌘/ to the search field.
+        if let help = bar.items.first(where: { $0.submenu?.title == "Help" })?.submenu {
+            for item in help.items where item.action == #selector(NSApplication.showHelp(_:)) && !item.isHidden { item.isHidden = true }
+        }
         augmentUpdates(bar)
         keys.arrange(bar)
     }
@@ -154,7 +159,12 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
             if app.delegate == nil || app.delegate === self { app.delegate = self }
             Self.orderApplicationMenu(app, updates: appUpdatesItem)
         }
-        if bar.items.first(where: { $0.submenu?.title == "Help" }) == nil {
+        if let help = bar.items.first(where: { $0.submenu?.title == "Help" })?.submenu {
+            if help.index(of: helpUpdatesItem) < 0 {
+                helpUpdatesItem.menu?.removeItem(helpUpdatesItem)
+                help.addItem(helpUpdatesItem)
+            }
+        } else {
             helpUpdatesItem.menu?.removeItem(helpUpdatesItem)
             let help = NSMenu(title: "Help")
             help.addItem(helpUpdatesItem)

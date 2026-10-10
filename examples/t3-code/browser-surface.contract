@@ -172,7 +172,7 @@ component BsButton
     over = on
   view
     box position="relative" flex-shrink=0 hover=hover
-      button press=press disabled=disabled aria-label=label aria-pressed=pressed testId=testId width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=((over and not disabled) or pressed ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      button press=press disabled=disabled aria-label=label aria-pressed=pressed testId=testId width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=((over and not disabled) or pressed ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         box display="flex" flex-shrink=0 animation=(spin ? "bsSpin 1s linear infinite" : "none")
           BsIcon(name=icon, size=14, color="light-dark(#71717b, #a1a1aa)")
       TipBubble(label=tip, side="bottom", align=align, offset=28, inset=0, shown=over)
@@ -192,7 +192,7 @@ component BsRevealButton
     focused = on
   view
     box position="relative" flex-shrink=0 margin-right="0.125rem" hover=hover opacity=(shown or focused ? 1 : 0) pointer-events=(shown or focused ? "auto" : "none")
-      button press=press focus=focusOn(true) blur=focusOn(false) aria-label="Open in system browser" testId="browser-open-external" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      button press=press focus=focusOn(true) blur=focusOn(false) aria-label="Open in system browser" testId="browser-open-external" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         BsIcon(name="external-link", size=14, color="light-dark(#71717b, #a1a1aa)")
       TipBubble(label="Open in system browser", side="bottom", align="end", offset=28, inset=0, shown=over)
 
@@ -222,7 +222,7 @@ component BrowserMore
       keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0 hover=hover
-      button popovertarget="browser-more-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Preview menu" testId="browser-more" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      button popovertarget="browser-more-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Preview menu" testId="browser-more" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         BsIcon(name="ellipsis-vertical", size=14, color="light-dark(#71717b, #a1a1aa)")
       KeyMenuOpen(menuId="browser-more-menu", armed=keyArmed, opened=keyOpened)
       TipBubble(label="More", side="bottom", align="end", offset=28, inset=0, shown=over)
@@ -287,7 +287,7 @@ component BsZoomButton
   action hover(on: bool)
     over = on
   view
-    button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=(outlined ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=(outlined ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       BsIcon(name=icon, size=14, color="light-dark(#71717b, #a1a1aa)")
 
 // The Appearance submenu (MenuSubTrigger, MenuRadioGroup): the row opens System, Light and Dark beside the menu
@@ -388,7 +388,7 @@ component BrowserRecentRow
         column flex=1 min-width=0
           text entry.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" testId="browser-recent-title"
           text entry.subtitle white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="browser-recent-subtitle"
-      button press=remove hover=hoverRemove focus=focusRemove(true) blur=focusRemove(false) aria-label=entry.removeLabel testId="browser-recent-remove" position="absolute" right="0.75rem" top="50%" translate="0% -50%" padding="0.25rem" border-width=0 border-radius="0.25rem" opacity=(over or removeFocus ? 1 : 0) background-color=(removeOver ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") display="flex" align-items="center" justify-content="center"
+      button press=remove hover=hoverRemove focus=focusRemove(true) blur=focusRemove(false) aria-label=entry.removeLabel testId="browser-recent-remove" position="absolute" right="0.75rem" top="50%" translate="0% -50%" padding="0.25rem" border-width=0 border-radius="0.25rem" opacity=(over or removeFocus ? 1 : 0) background-color=(removeOver ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000") display="flex" align-items="center" justify-content="center" title=""
         BsIcon(name="x", size=14, color=(removeOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
 
 // PreviewLocalServerCard (DiscoveryListRow): the server's icon, its process name (else "Listening") and host:port.
@@ -513,7 +513,7 @@ component BrowserAddItem
           BsIcon(name="earth", size=16, color="light-dark(#71717b, #818181)")
         text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         text surface.shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.075rem" color="light-dark(#71717b, #818181)"
-      button popovertarget="r4-browser-profiles" hover=chevronHover aria-label="Open browser in a profile" tabindex=-1 testId="add-surface-browser-profiles" position="absolute" right="0.125rem" top="0.125rem" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button popovertarget="r4-browser-profiles" hover=chevronHover aria-label="Open browser in a profile" tabindex=-1 testId="add-surface-browser-profiles" position="absolute" right="0.125rem" top="0.125rem" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
       column id="r4-browser-profiles" popover="auto" position="absolute" margin-top="-1.75rem" margin-left="11.75rem" width="10rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="browser-profile-menu"
@@ -572,7 +572,7 @@ component BrowserLauncherProfiles
       stopPropagation()
   view
     box position="absolute" right="2rem" top="0.25rem" width="1.5rem" height="1.5rem"
-      button popovertarget="launcher-browser-profiles" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover aria-label="Open browser in a profile" aria-haspopup="menu" testId="surface-browser-profiles" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button popovertarget="launcher-browser-profiles" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover aria-label="Open browser in a profile" aria-haspopup="menu" testId="surface-browser-profiles" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
         svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="m6 9 6 6 6-6"
       KeyMenuOpen(menuId="launcher-browser-profiles", armed=keyArmed, opened=keyOpened)

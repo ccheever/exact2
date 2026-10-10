@@ -99,6 +99,16 @@ pub enum Property {
 }
 
 impl Property {
+    /// The property numbered `slot` (its discriminant): every property,
+    /// [`Property::Layout`] and [`Property::D`] included.
+    pub(crate) fn from_slot(slot: u32) -> Property {
+        match slot {
+            24 => Property::Layout,
+            25 => Property::D,
+            slot => Property::ALL[slot as usize],
+        }
+    }
+
     /// Every authorable property, in wire order ([`Property::Layout`] is
     /// the host's, not an author's, and never on the wire).
     pub const ALL: [Property; 24] = [

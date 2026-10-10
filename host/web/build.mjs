@@ -32,7 +32,7 @@ import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust
 import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
-import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 // `--bake` (internal, delivery's): the web crate's bake without its wasm —
@@ -53,14 +53,25 @@ const [{ rolldown }, { minifySync }] = await Promise.all([import('rolldown'), im
 // build, and what it refuses is an error; `--wasm` is internal (below).
 const game = app.manifest.game !== undefined;
 if (target !== '--wasm' && !game && !bakeOnly) {
-  // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
-  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  // An app outside apps/ reaches it through EXACT_APP_DIR, as here. It builds in a stage of its own beside the
+  // output, which replaces the output only when complete (`replaceBuild`), so builds run at once never mix.
+  const dist = webDist();
+  mkdirSync(dirname(dist), { recursive: true });
+  let stage = mkdtempSync(`${dist}.stage-`);
+  process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
+  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  // What it says names the output, not the stage.
+  const said = (text) => (text ?? '').replaceAll(stage, dist);
+  js.stderr = said(js.stderr);
+  process.stdout.write(said(js.stdout));
   if (js.status === 0) {
     // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
     // The bundler's notes on the generated glue are not the app's to act on.
     for (const line of (js.stderr ?? '').split('\n')) if (/^warning: /.test(line)) console.error(line);
-    writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()), inputs: webInputDigests(app, true) }) + '\n');
+    writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs: webInputDigests(app, true) }) + '\n');
+    replaceBuild(stage, dist);
+    stage = null;
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
@@ -69,7 +80,9 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
   // Keep TypeScript's lines (`app.ts(2,8): error TS…`) and the shared
   // ambient check's file:line:col diagnostics, including paths with spaces.
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || ambientDiagnostic(l) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || ambientDiagnostic(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
+    // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
+    .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
   console.error(`${[...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
@@ -278,7 +291,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
 // `inode/directory` is the Apple bake's word for a folder; a browser's
 // file handler opens files only (LLP 1069.010 slice 4).

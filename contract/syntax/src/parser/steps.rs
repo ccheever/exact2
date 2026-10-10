@@ -483,8 +483,10 @@ impl Parser {
                     span,
                 }
             }
-            // `epoch "2026-09-21T12:00:00Z"` or `epoch 1790000000000`: the
-            // driver's `--epoch`, which its launch facts check again.
+            // `epoch "2026-09-21T12:00:00Z"`, `epoch 1790000000000` or
+            // `epoch now` (the machine's clock, read once at launch, for a
+            // test against a live backend): the driver's `--epoch`, which its
+            // launch facts check again.
             "epoch" => {
                 let value = match self.peek_kind().clone() {
                     TokenKind::Number(n) if n.fract() == 0.0 && n >= 0.0 => {
@@ -495,11 +497,15 @@ impl Parser {
                         self.next();
                         s
                     }
+                    TokenKind::Ident(w) if w == "now" => {
+                        self.next();
+                        w
+                    }
                     other => {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`epoch` takes an ISO date in quotes, as \"2026-09-21T12:00:00Z\", or whole Unix milliseconds, found {}",
+                                "`epoch` takes an ISO date in quotes, as \"2026-09-21T12:00:00Z\", whole Unix milliseconds, or `now` (the machine's clock at launch), found {}",
                                 describe(&other)
                             ),
                         )

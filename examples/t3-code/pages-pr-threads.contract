@@ -209,7 +209,7 @@ component PrdPendingCard
       row align-items="center" gap="0.5rem"
         PgIcon(name="message-square", size=14, color=ptMuted())
         text "Pending — sent when you submit the review" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=ptMuted()
-        button press=discard hover=hover aria-label="Discard this comment" testId=`pull-request-pending-discard-${id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center"
+        button press=discard hover=hover aria-label="Discard this comment" testId=`pull-request-pending-discard-${id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center" title=""
           svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=ptMuted() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
             path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
       text body margin-top="0.5rem" white-space="pre-wrap" font-size="0.875rem" line-height="1.421875rem" color=ptInk()

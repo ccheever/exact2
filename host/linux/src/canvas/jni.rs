@@ -656,6 +656,20 @@ unsafe impl GlobalAlloc for Allocator {
         }
     }
 }
+/// The system allocator (scudo: the reader's nodes and display lists, not
+/// this library's own blocks) gives its freed pages back to the system:
+/// bionic's `mallopt(M_PURGE, 0)`.
+pub(crate) fn purge() {
+    const M_PURGE: i32 = -101;
+    extern "C" {
+        fn mallopt(param: i32, value: i32) -> i32;
+    }
+    // SAFETY: a libc call with no pointers; it frees nothing in use.
+    unsafe {
+        mallopt(M_PURGE, 0);
+    }
+}
+
 use std::ffi::c_void;
 
 #[repr(C)]

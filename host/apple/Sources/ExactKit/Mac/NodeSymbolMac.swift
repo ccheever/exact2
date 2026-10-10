@@ -16,7 +16,7 @@ extension NodeView {
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         updateRoleAccessibility()
-        let name = props["symbolName"] ?? "", points = number("font_size", 16)
+        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize)
         let weights: [NSFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
         let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"

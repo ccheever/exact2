@@ -83,7 +83,7 @@ component ThemeEditorPanel
   // stamped `live` op (themelocal, never behind another command), so the submit label follows the name as typed.
   state nameSent = 0
   action editName(next: string)
-    let t = max(now(), nameSent + 0.001)
+    let t = max(performanceNow(), nameSent + 0.001)
     name = next
     named = true
     nameSent = t
@@ -130,7 +130,7 @@ component ThemeEditorPanel
           text editor.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=2 flex-shrink=0
           when not minimized
             text "Select a color below" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
-        button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") aria-expanded=(not minimized) class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-minimize"
+        button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") aria-expanded=(not minimized) class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-minimize" title=""
           // f2cc80a7 MorphIcon ChevronDown↔ChevronUp: a half turn on morphicons' snappy spring (none under reduced motion).
           box rotate=(minimized ? "180deg" : "0deg") transition=(reduced ? "none" : "rotate -exact-spring(420, 30, 1)")
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
@@ -138,7 +138,7 @@ component ThemeEditorPanel
         // only key listener cancels Inspect): Escape in the editor reaches the page under it (Settings' Back,
         // the Usage page's), and the editor stays (user decision 2026-10-08, popover-escape-parity). An open
         // colour popover is aria-modal, so its Escape is its own: it closes and the focus goes to the swatch.
-        button press=close aria-label="Close the theme editor" class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-close"
+        button press=close aria-label="Close the theme editor" class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-close" title=""
           CoreIcon(name="x", size=14, color=pal.muted)
       when not minimized
         scroll flex=1 min-height=0 max-height=((sized ? boxH : capH) - 5.5 * rem) width="100%"
@@ -164,7 +164,7 @@ component ThemeEditorPanel
                     box flex=1
                   row gap="0.5rem" align-items="center" padding-top="0.125rem" flex-shrink=0
                     text "Advanced" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
-                    button press=commit("theme-editor", "advanced", editor.advanced ? "false" : "true") role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced"
+                    button press=commit("theme-editor", "advanced", editor.advanced ? "false" : "true") role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced" title=""
                       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(editor.advanced ? "0.75rem" : "0px")
               when editor.advanced
                 column width="100%" gap="1.25rem"

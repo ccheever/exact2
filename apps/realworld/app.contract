@@ -129,8 +129,8 @@ component RealWorld
   // (LLP 1058 P5): a favorite or a follow its presses, a comment the
   // thread, a publish or a delete the lists and the article.
   mutation change as shape Change refreshes feed, post then changed
-  mutation faved as shape Change refreshes favs
-  mutation followed as shape Change refreshes follows
+  mutation faved as shape Change queue refreshes favs
+  mutation followed as shape Change queue refreshes follows
   mutation commented as shape Change refreshes thread
   mutation tagEdit as shape Tags
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
@@ -867,7 +867,7 @@ component EditorPage
               background-color="#818a91"
               border-color="#818a91"
               color="#ffffff"
-              button press=removeTag(t)
+              button appearance="none" press=removeTag(t)
                 aria-label=`Remove ${t}`
                 color="#ffffff"
                 testId=`remove-tag-${t}`

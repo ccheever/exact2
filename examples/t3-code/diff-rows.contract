@@ -25,7 +25,7 @@ component DiffTool
   action setHover(over: bool)
     hovering = over
   view
-    button press=choose hover=setHover aria-label=label testId=testId width="1.75rem" height="1.75rem" padding=0 flex-shrink=0 border-radius=radius border-width=0 background-color=(pressed or hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=choose hover=setHover aria-label=label testId=testId width="1.75rem" height="1.75rem" padding=0 flex-shrink=0 border-radius=radius border-width=0 background-color=(pressed or hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       when toggle
         DiffGlyph(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
       else
@@ -102,12 +102,12 @@ component DiffFileHeader
       when hovering
         box position="absolute" left=0 top=0 bottom=0 width="0.1875rem" background-color="light-dark(#0a0a0a3d, #fafafa3d)"
       // A header whose patch has not arrived keeps the collapsed geometry, its chevron off (DiffPanel renderHeaderPrefix).
-      button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=`${item.expanded ? "Collapse" : "Expand"} ${item.path}` aria-expanded=item.expanded testId=`diff-toggle-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(item.unavailable ? 0.5 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=`${item.expanded ? "Collapse" : "Expand"} ${item.path}` aria-expanded=item.expanded testId=`diff-toggle-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(item.unavailable ? 0.5 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         PgIcon(name=(item.expanded ? "chevron-down" : "chevron-right"), size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
       DiffGlyph(name=item.status, size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
       button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=item.path flex-shrink=1 min-width=0 padding=0 border-width=0 background-color="#00000000"
         text item.name font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-      button press=command("diff-view", "copy", item.path, 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=command("diff-view", "copy", item.path, 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         DiffGlyph(name="copy", size=12, color="light-dark(#71717a, #818181)")
       // DiffFileStatus: Retry after a failed read; "Partial diff preview" for a file past the per-file cap.
       when item.error or item.partial
@@ -173,5 +173,5 @@ component DiffCell
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
       when line > 0 and not open
-        button press=comment aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=comment aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           DiffGlyph(name="plus", size=12, color="#ffffff")

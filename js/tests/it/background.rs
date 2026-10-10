@@ -7,6 +7,7 @@ use super::storage::{args, call, plan, text, Root, GRANTS};
 use exact_js::Module;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;
+use exact_runner::failure::FailureCode;
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, FailureKind, Outcome, Placement, Request, Runner,
     Store, Work, BACKGROUND,
@@ -56,7 +57,7 @@ pub(crate) fn drive(
         rounds(m, s);
         for (token, dispatch) in m.release(s) {
             let a = held.remove(&token).expect("released work was held");
-            let Dispatch::Run(Work::Now(work)) = dispatch else {
+            let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             let outcome = std::thread::spawn(work).join().unwrap();
@@ -72,7 +73,7 @@ pub(crate) fn drive(
         match answer {
             Answer::Now(v) => done.push(text(v)),
             Answer::Later(request) => match request.continuation {
-                Some(token) => match m.dispatch(token, s) {
+                Some(token) => match crate::runnable(m.dispatch(token, s)) {
                     Dispatch::Run(Work::Now(work)) => {
                         let outcome = std::thread::spawn(work).join().unwrap();
                         let next = m.parse(s, "work", &a, outcome).unwrap();
@@ -138,7 +139,7 @@ impl Host {
     fn emit(&mut self) {
         for request in self.runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match self.runner.dispatch_work(token) {
+            match crate::runnable(self.runner.dispatch_work(token)) {
                 Dispatch::Run(w) => self.work.push_back((request.ticket, w)),
                 Dispatch::Held => {
                     self.held.insert(token, request.ticket);
@@ -147,7 +148,7 @@ impl Host {
             }
         }
         for (token, dispatch) in self.runner.release_work() {
-            let Dispatch::Run(w) = dispatch else {
+            let Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             if let Some(ticket) = self.held.remove(&token) {
@@ -605,7 +606,8 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
             .request
             .continuation
             .expect("background continuation");
-        let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) else {
+        let Dispatch::Run(Work::Now(work)) = crate::runnable(host.runner.dispatch_work(token))
+        else {
             panic!("a background round runs");
         };
         let outcome = std::thread::spawn(work).join().unwrap();
@@ -620,7 +622,7 @@ fn a_let_go_chain_behind_a_background_write_finishes() {
         let Some(token) = request.request.continuation else {
             continue;
         };
-        if let Dispatch::Run(Work::Now(work)) = host.runner.dispatch_work(token) {
+        if let Dispatch::Run(Work::Now(work)) = crate::runnable(host.runner.dispatch_work(token)) {
             let outcome = std::thread::spawn(work).join().unwrap();
             host.runner.fulfill(request.ticket, outcome).unwrap();
         }
@@ -655,7 +657,8 @@ fn a_failed_storage_continuation_releases_the_queue() {
             },
         )
         .unwrap_err();
-    let DataError::Unavailable(message) = err else {
+    // A storage call's failure the module let through (LLP 1109 D3).
+    let DataError::Failed(FailureCode::Storage, message) = err else {
         panic!("{err:?}");
     };
     assert!(message.contains("timed out"), "{message}");

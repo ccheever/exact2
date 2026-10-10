@@ -208,6 +208,15 @@ theorem sbE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn Lf t v} (h : EvalR e�
       subst hn'
       simp [Plain] at hp
     | _ => contra_e
+  | hd@(.failureSettled _ _ _) | hd@(.failureOther _ _) => by
+    cases e with
+    | var x => exact sb_var hd hf he hA
+    | call n args =>
+      rw [subst_call (hh n (by simp [callHeads]))] at he
+      injection he with hn' _
+      subst hn'
+      simp [Plain] at hp
+    | _ => contra_e
   | hd@(.map hfd hl hmap) => by
     cases e with
     | var x => exact sb_var hd hf he hA

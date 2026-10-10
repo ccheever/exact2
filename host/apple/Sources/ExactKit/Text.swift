@@ -799,7 +799,7 @@ package final class TextEngine {
             }
             if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
@@ -1212,31 +1212,27 @@ package final class TextEngine {
             residency.putMinimum(identity, width: CSSLineBox.layoutWidth(widest))
             return CSSLineBox.layoutWidth(widest)
         }
-        // Repeated words previously reused entire cached Paragraphs. Keep that
-        // benefit with probe-local scalars, bounded by the same logical-payload
-        // target; unique words beyond it are measured normally, never omitted.
-        var words: [Run: CGFloat] = [:]
-        var wordBytes = 0
-        // CSS `text-indent` is part of the first line, so of its first word's
-        // piece; a list item's indent of each of its words, its marker hung.
+        // Each piece is measured as a line of the paragraph's typesetter, so
+        // the paragraph is shaped once. A resident shape is used if there is
+        // one; this measure does not make one resident.
+        // `text-indent` applies to the first line only (CSS Text 3 §8.1), so
+        // only to the first piece. A run's own indent (a list item's) applies to
+        // each of its pieces.
+        let resident = residency.shape(TextShapeKey(identity: identity, paint: TextPaint(spec)))
+        let source = resident?.attributed ?? attributed(spec)
+        let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
-        for r in spec.runs where !r.hang {
-            for word in unbreakablePieces(r.text) {
-                var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
-                let key = one.runs[0]
-                defer { indent = 0 }
-                let inset = indent + r.indent
-                if let width = words[key] { widest = max(widest, width + inset); continue }
-                // This probe needs one scalar, never a cached width-specific
-                // Paragraph or a historical per-word CTTypesetter.
-                let line = CTLineCreateWithAttributedString(attributed(one))
-                let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width + inset)
-                let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
-                if bytes <= residency.softTargetBytes - wordBytes {
-                    words[key] = width; wordBytes += bytes
-                }
+        var offset = 0
+        for r in spec.runs {
+            let text = r.text as NSString
+            defer { offset += text.length }
+            guard !r.hang else { continue }
+            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+                let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
+                var line = CTTypesetterCreateLine(typesetter, range)
+                if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
+                widest = max(widest, CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) + indent + r.indent)
+                indent = 0
             }
         }
         residency.putMinimum(identity, width: widest)

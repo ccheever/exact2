@@ -137,7 +137,7 @@ component Llp
             input appearance="none" value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
             input appearance="none" value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=12 color=theme.ink
             when searching
-              button press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
+              button appearance="none" press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
                 text `${index.shown} of ${index.total}` font-size=12 color=theme.softInk
             Chip(label="Outline", on=showOutline, press=toggleOutline, testId="outline-toggle")
             // Appearance: system, light, dark — the icons exact1's blog used

@@ -730,3 +730,52 @@ fn at<'a>(v: &'a Value, path: &[usize]) -> &'a Value {
         _ => panic!("a record or a list"),
     })
 }
+
+/// LLP 1115 D5: a host's own Back for a route with no Back control goes to
+/// the location of the visit beneath it, on whichever stack holds it.
+#[test]
+fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
+    let mut r = boot(fixture::plan(&table()), "/t/1/details");
+    let stack = nav(&r).tabs[0].stack.clone();
+    assert_eq!(stack.len(), 3);
+    assert_eq!(r.location_beneath(stack[2].id).as_deref(), Some("/t/1"));
+    assert_eq!(r.location_beneath(stack[1].id).as_deref(), Some("/"));
+    assert_eq!(r.location_beneath(stack[0].id), None);
+    assert_eq!(r.location_beneath(u64::MAX), None);
+    // A retained tab's visit answers too; going there pops as `back` would.
+    act(&mut r, "select", "search");
+    assert_eq!(r.location_beneath(stack[2].id).as_deref(), Some("/t/1"));
+    act(&mut r, "select", "home");
+    let to = r.location_beneath(stack[2].id).unwrap();
+    let change = act(&mut r, "go", &to).unwrap();
+    assert_eq!(
+        (change.top, change.removed),
+        (stack[1].id, vec![stack[2].id])
+    );
+}
+
+/// LLP 1115 D5 with no `navigate` handler: the host's own Back is the
+/// router's `back`, one commit journaled as `host back`, and only from the
+/// selected top that has a visit beneath it.
+#[test]
+fn a_host_back_pops_the_selected_top_as_its_own_commit() {
+    let mut r = boot(fixture::plan(&table()), "/t/1/details");
+    r.take_router_change();
+    let stack = nav(&r).tabs[0].stack.clone();
+    assert!(r.host_back(stack[1].id).unwrap().is_none(), "not the top");
+    assert!(r.host_back(u64::MAX).unwrap().is_none());
+    assert!(r.take_router_change().is_none());
+    assert!(r.host_back(stack[2].id).unwrap().is_some());
+    let change = r.take_router_change().unwrap();
+    assert_eq!(
+        (change.top, change.url.as_str(), change.removed),
+        (stack[1].id, "/t/1", vec![stack[2].id])
+    );
+    assert_eq!(r.journal().filter(|l| l.contains("host back")).count(), 1);
+    r.host_back(stack[1].id).unwrap();
+    assert!(
+        r.host_back(stack[0].id).unwrap().is_none(),
+        "a stack's root has nowhere to go"
+    );
+    assert_eq!(nav(&r).tabs[0].stack.len(), 1);
+}

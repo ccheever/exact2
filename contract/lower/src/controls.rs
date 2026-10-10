@@ -58,6 +58,7 @@ fn canonical_type_expr(value: &Expr) -> Option<Expr> {
 pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
+    native_button: bool,
 ) -> Result<Option<&'static str>, LowerError> {
     if tag != "textarea" {
         if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
@@ -74,7 +75,7 @@ pub(crate) fn control(
         }
     }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
-    if tag == "button" && native_button(attrs)? {
+    if tag == "button" && native_button {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
                 "lower-attr-tag",
@@ -197,18 +198,18 @@ pub(crate) fn control(
 
 /// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
 /// D1), cited by each refusal.
-pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no camera.\"";
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no `capture` on the picker (the camera is a native module, §Components, 2026-10-02).\"";
 
 /// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
-/// refused, and so are `*/*` and an empty list.
+/// refused, naming the camera's route, and so are `*/*` and an empty list.
 fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
     if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
         return err(
             "lower-picker-capture",
-            format!("`capture` opens a camera, which is not admitted: {PICKER_ADMISSION}"),
+            format!("`capture` is not admitted on the picker; take a photo with an app native module behind the `device.camera` grant, as `apps/recorder` is for the microphone: {PICKER_ADMISSION}"),
             a.span,
         );
     }
@@ -496,23 +497,6 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
         expr,
     });
     true
-}
-
-/// @ref LLP 1069.011 D1 — whether a `button` is a native one: its effective
-/// `appearance` (its class's rows, then its own, over the fixed `none`) is the
-/// literal `auto`. A bound one is refused: being native decides the node.
-fn native_button(attrs: &[contract_syntax::Attr]) -> Result<bool, LowerError> {
-    match attrs.iter().rev().find(|a| a.name == "appearance") {
-        None => Ok(false),
-        Some(a) => match &a.value {
-            Expr::Str(v, _) => Ok(v == "auto"),
-            _ => err(
-                "lower-appearance",
-                "a `button`'s `appearance` is a literal: `\"auto\"` makes it the platform's own button, `\"none\"` (the default) the author's box. To switch between them, write `when` with two buttons",
-                a.span,
-            ),
-        },
-    }
 }
 
 /// The native button lowering's tag (LLP 1069.011 D3): a `Control` of type

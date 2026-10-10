@@ -61,6 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// A sheet is a route in the window here, with no native presentation
+    /// to wait for (the iOS host's `awaitModalTransitions`).
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
@@ -114,7 +118,7 @@ extension Agent {
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
-            session.natives.ownsFocus(n) || responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+            session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
         }).min(by: { $0.id < $1.id }) {
             focus["logical"] = Int(node.id)
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
@@ -312,7 +316,7 @@ extension Agent {
         }
         if let leaf = host.symbolView {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
-            let points = max(0, host.number("font_size", 16))
+            let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
@@ -390,7 +394,25 @@ extension Agent {
                 // Through the application, as a hand's event comes: its local
                 // monitors see it (a grouped drag's, whose grip is hidden while
                 // its ghost stands for it; LLP 1094 D6), then the window.
-                NSApp.sendEvent(e)
+                if contactTracksNative {
+                    if type == .leftMouseDown {
+                        // Return the down reply first. Common-mode blocks let
+                        // the agent's next request run inside AppKit tracking.
+                        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                            NSApp.sendEvent(e)
+                        }
+                        CFRunLoopWakeUp(CFRunLoopGetMain())
+                    } else {
+                        // AppKit reads these from its tracking queue rather
+                        // than a reentrant sendEvent. Its queue reconstructs
+                        // locationInWindow from the CG event's screen point.
+                        let screen = win.convertPoint(toScreen: e.locationInWindow)
+                        e.cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
+                        NSApp.postEvent(e, atStart: false)
+                    }
+                } else {
+                    NSApp.sendEvent(e)
+                }
             }
         }
         let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }
@@ -405,8 +427,10 @@ extension Agent {
             // The button is down: the pointer no longer rests where it hovered.
             presenter.agentPointer = nil
             contactFlags = named
-            send(.leftMouseDown, p)
+            let hit = win.contentView?.hitTest(toWindow(p))
+            contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
             contact = p
+            send(.leftMouseDown, p)
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
         case "move":
             guard let from = contact else { return ["error": "no contact is down"] }
@@ -438,13 +462,19 @@ extension Agent {
             send(.leftMouseUp, p)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            send(.leftMouseUp, p)
+            // Queue a drag-away and lift to end native tracking. The contact
+            // test still exposes an action on cancel (QUEUE, LLP 1104 F6).
+            let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
+            if contactTracksNative { send(.leftMouseDragged, release) }
+            send(.leftMouseUp, release)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
@@ -762,8 +792,9 @@ extension Agent {
                 if !editing { win.makeFirstResponder(f) }
             } else if v.isSurfaceControl && v.ownsSurfaceControl {
                 _ = v.focusSurfacePointer()
-            } else if v.acceptsFirstResponder {
-                if win.firstResponder !== v { win.makeFirstResponder(v) }
+            } else if presenter.keyView(of: v).acceptsFirstResponder {
+                let owner = presenter.keyView(of: v)
+                if win.firstResponder !== owner { win.makeFirstResponder(owner) }
             }
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,

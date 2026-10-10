@@ -1184,6 +1184,7 @@ dependencies = [
  "exact-runner",
  "getrandom 0.3.4",
  "p256",
+ "same-file",
  "serde_json",
  "sha2",
 ]
@@ -1249,6 +1250,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-apple",
  "exact-data",
  "exact-data-host",
  "exact-js-value",
@@ -2737,6 +2739,14 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "markdown-parse",
+]
+
+[[package]]
+name = "llp-terminal"
+version = "0.1.0"
+dependencies = [
+ "exact-terminal",
+ "llp-data",
 ]
 
 [[package]]

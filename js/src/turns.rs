@@ -2,19 +2,15 @@
 //! is asked again after each delivery (LLP 1027.003.000 §13; LLP 1097 D2);
 //! a call let go mid-turn runs its steps to the end (ledger F12).
 use super::{Key, Module, WAITING};
-use exact_runner::{Dispatch, InFlight, Outcome, Response, Work};
+use exact_runner::{Dispatch, InFlight, Outcome};
 use std::collections::HashMap;
 
 impl Module {
-    /// A waiting answer's work: nothing to run, only an answer to ask again.
+    /// A waiting answer's work: nothing to run, only an answer to ask again
+    /// (`Dispatch::Again`, LLP 1041 §8.4 amended 2026-10-09). A host
+    /// settles it in its ordered place without executor work.
     pub(crate) fn ask_again() -> Dispatch {
-        Dispatch::Run(Work::Now(Box::new(|| {
-            Outcome::Response(Response {
-                status: 200,
-                headers: Vec::new(),
-                body: Vec::new(),
-            })
-        })))
+        Dispatch::Again
     }
 
     /// Whether anything in the module may yet settle a waiting answer: a
@@ -55,6 +51,13 @@ impl Module {
             return;
         };
         let (mut owed, mut rejected) = (false, false);
+        for call in &calls {
+            // Its waiter, if one is still running, now gives up without
+            // taking any compression's right (LLP 1069.002 A1.5).
+            if let Some(retired) = self.retired.remove(call) {
+                retired.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
         for call in calls {
             if let Ok(said) = engine.call("__exact_forget", [&call.to_string(), "", ""]) {
                 owed |= said.starts_with("storage");
@@ -149,7 +152,17 @@ impl Module {
             .is_ok_and(|r| r == "storage")
         {
             if let Outcome::Failed { message, .. } = session.continuation()() {
-                let _ = engine.call("__exact_let_go", ["failed", &message, ""]);
+                // A compression so failed is settled and what was queued
+                // behind it issued (LLP 1069.002 A1.5): a progress, and the
+                // chain's other storage is delivered on.
+                if engine
+                    .call("__exact_let_go", ["failed", &message, ""])
+                    .is_ok_and(|r| r == "settled")
+                    && engine.drain().is_ok()
+                {
+                    delivered = true;
+                    continue;
+                }
                 break;
             }
             if engine.deliver_storage_one().is_err() || engine.drain().is_err() {

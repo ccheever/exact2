@@ -1344,7 +1344,7 @@ mod retained_binding_tests {
                 let ty = if call { ty } else { b.list(ty) };
                 let mut arg = Asm::new();
                 if call {
-                    arg.call(Stdlib::Now);
+                    arg.call(Stdlib::PerformanceNow);
                 } else {
                     arg.number(1.0).list(1);
                 }
@@ -1390,7 +1390,7 @@ mod retained_binding_tests {
                         action.load_slot(out).store_slot(out);
                     }
                     1 => {
-                        action.call(Stdlib::Now).simple(Opcode::Pop);
+                        action.call(Stdlib::PerformanceNow).simple(Opcode::Pop);
                     }
                     2 => {
                         let end = action.label();

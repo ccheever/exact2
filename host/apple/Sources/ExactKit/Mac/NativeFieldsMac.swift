@@ -26,10 +26,37 @@ extension NodeView {
         field.frame = isNativeTextControl ? bounds : contentBox()
         field.needsDisplay = true
     }
+    /// The AppKit class an input's field is: a password's secure field; a
+    /// native search input's `NSSearchField` (LLP 1115 D8: its magnifier, its
+    /// clear button, Escape clearing it); a plain field otherwise, including
+    /// a search input the author draws (`appearance: none`).
+    var wantedFieldClass: FieldClass {
+        if props["type"] == "password" { return .secure }
+        if props["type"] == "search", props["markup"] != "markdown", style["appearance"]?.string != "none" { return .search }
+        return .plain
+    }
+    /// A different class on AppKit, so a changed `type` or appearance remakes
+    /// the field in place.
+    func remakeFieldIfNeeded() {
+        guard let f = field else { return }
+        let wanted = wantedFieldClass
+        guard FieldClass(f) != wanted else { return }
+        let n = makeField(wanted)
+        n.frame = f.frame
+        n.stringValue = f.stringValue
+        n.font = f.font
+        n.textColor = f.textColor
+        let focused = window != nil && f.currentEditor() != nil
+        f.removeFromSuperview()
+        addSubview(n)
+        field = n
+        if focused { window?.makeFirstResponder(n) }
+    }
     func styleNativeField() {
+        remakeFieldIfNeeded()
         guard let field else { return }
         let native = isNativeTextControl
-        let standard = FieldChromeCache.platformField(kind: field is NSSecureTextField ? 1 : 0)
+        let standard = FieldChromeCache.platformField(kind: FieldClass(field).chromeKind)
         field.isBezeled = native
         field.bezelStyle = standard.bezelStyle
         field.drawsBackground = native && standard.drawsBackground
@@ -86,6 +113,41 @@ final class TextAreaScroll: NSScrollView {
     }
     override func drawFocusRingMask() {
         if !focusRingMaskBounds.isEmpty { NSBezierPath(rect: bounds).fill() }
+    }
+}
+enum FieldClass {
+    case plain, secure, search
+    init(_ field: NSTextField) { self = field is NSSecureTextField ? .secure : field is NSSearchField ? .search : .plain }
+    /// The kernel's `FieldKind` code, which keys `FieldChromeCache`.
+    var chromeKind: UInt8 { switch self { case .plain: 0; case .secure: 1; case .search: 2 } }
+}
+
+/// A search field's cell, as `FieldCell` (Accessibility.swift): its text in
+/// the kernel's content rect (measured from this same class,
+/// `FieldChromeCache`), its buttons where AppKit puts them.
+final class SearchFieldCell: NSSearchFieldCell {
+    private lazy var clipboardEditor: FieldEditor = {
+        let editor = FieldEditor(frame: .zero)
+        editor.isFieldEditor = true
+        return editor
+    }()
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+    }
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+    }
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.searchTextRect(forBounds: rect)
+    }
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
     }
 }
 #endif

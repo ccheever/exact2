@@ -196,37 +196,6 @@ fn percentage_padding_is_of_the_containing_block() {
     }
 }
 
-/// Grok's r4: a height that reads the viewport's height reads the sheet,
-/// so the trial takes it as `auto`. A route at least `100vh` tall would
-/// pin the sheet where it is, and a child `50vh` tall would halve it at
-/// each pass.
-#[test]
-fn viewport_heights_do_not_read_the_sheet() {
-    let src = r##"component Menu
-  view
-    column position="relative" width="100%" height="100%"
-      column testId="sheet" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 min-height="100vh" max-height="200vh"
-        row height=44
-          text "Row"
-        box testId="half" height="50vh"
-"##;
-    let plan = contract::compile(src).unwrap();
-    let (mut host, first) = Host::boot(
-        &plan.encode(),
-        NoData,
-        Box::new(MonospaceMeasurer::default()),
-        390.0,
-        844.0,
-    )
-    .unwrap();
-    let sheet = view(&host, "sheet");
-    assert_eq!(heights(&first, sheet), [44.0]);
-    for h in [44.0, 300.0, 600.0] {
-        let resized = host.resize(390.0, h);
-        assert!(heights(&resized, sheet).is_empty(), "{h}: {resized}");
-    }
-}
-
 /// Grok's r4: a block route's percentage padding changes with its
 /// containing block while its own box, its children and its extent stay
 /// where they are, so nothing under it is laid out anew: it refits on its
@@ -302,4 +271,414 @@ fn a_nested_scroller_grows_the_extent_unless_its_height_is_fixed() {
     let grown = host.dispatch_at(more, Event::Press, 0.0);
     assert_eq!(heights(&grown, flexed), [88.0], "{grown}");
     assert!(heights(&grown, fixed).is_empty(), "{grown}");
+}
+
+/// The routes of `src`, booted at 390 × 844 with that screen set as a
+/// fit-content sheet's host sets it (LLP 1075.003 §9.11): each route's
+/// first extent is `routes`' height; none sends another as the sheet
+/// resizes (844, 44, 200, 844, 44, 200); and the sheet laid out at a
+/// route's extent lays that route's content out at exactly that height —
+/// the measure and the layout agree.
+fn settles_and_agrees(src: &str, routes: &[(&str, f32)]) {
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let mut extent = Vec::new();
+    for &(id, h) in routes {
+        let sent = heights(&first, view(&host, id));
+        assert!(
+            sent.len() == 1 && (sent[0] - h).abs() < 0.01,
+            "{id}: {sent:?}, not {h}"
+        );
+        extent.push(sent[0]);
+    }
+    // The screen, as `ExactViewIOS.fit` sends it before the sheet's
+    // resize: the boot's viewport, so nothing moves.
+    let screened = host.set_screen(Some((390.0, 844.0)));
+    for &(id, _) in routes {
+        assert!(
+            heights(&screened, view(&host, id)).is_empty(),
+            "{id}: {screened}"
+        );
+    }
+    for h in [44.0, 200.0, 844.0, 44.0, 200.0] {
+        let resized = host.resize(390.0, h);
+        for &(id, _) in routes {
+            assert!(
+                heights(&resized, view(&host, id)).is_empty(),
+                "{id} at {h}: {resized}"
+            );
+        }
+    }
+    // Each child's height in a sheet as tall as the screen, where none
+    // is squeezed.
+    let sizes = |host: &Host<NoData>, id: &str| {
+        let k = host.runner().kernel();
+        let route = k.node(view(host, id)).unwrap();
+        let (_, _, _, pad) = k.resolved_padding(route.key).unwrap();
+        let children: Vec<_> = route
+            .children()
+            .into_iter()
+            .filter_map(|c| k.node(c))
+            .map(|c| (c.frame.height, c.frame.y + c.frame.height - route.frame.y))
+            .collect();
+        (route.frame.height, pad, children)
+    };
+    host.resize(390.0, 844.0);
+    let tall: Vec<_> = routes.iter().map(|&(id, _)| sizes(&host, id).2).collect();
+    for ((&(id, _), &h), tall) in routes.iter().zip(&extent).zip(tall) {
+        host.resize(390.0, h);
+        let (laid, pad, children) = sizes(&host, id);
+        assert!(
+            (laid - h).abs() < 0.01,
+            "{id}: laid out {laid}, measured {h}"
+        );
+        let heights: Vec<_> = children.iter().map(|c| c.0).collect();
+        assert_eq!(
+            heights,
+            tall.iter().map(|c| c.0).collect::<Vec<_>>(),
+            "{id}: squeezed"
+        );
+        let bottom = children.iter().map(|c| c.1).fold(0.0_f32, f32::max);
+        assert!(
+            bottom + pad <= h + 0.01,
+            "{id}: content {} past {h}",
+            bottom + pad
+        );
+    }
+}
+
+/// `r` as a route that fills the sheet, with `rest` on it.
+fn route(id: &str, rest: &str) -> String {
+    format!(
+        r#"column testId="{id}" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 {rest}"#
+    )
+}
+
+/// LLP 1075.003 §9.11, the lead's option (b) after the r4–r6 reviews: in a
+/// fit-content sheet `vh` and its kin are the screen's, so a comparison,
+/// a cap, a floor, a `vmax` and a floor of a route all settle, each at
+/// what it is against the 844-point screen, and the layout agrees.
+#[test]
+fn viewport_lengths_are_the_screens_and_settle() {
+    let src = format!(
+        r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      {}
+        row height=44
+          text "Row"
+      {}
+        row height=44
+          text "Row"
+      {}
+        box height="min(80vh, 300px)"
+      {}
+        box height="clamp(10vh, 200px, 40vh)"
+      {}
+        column height="100vmax"
+          row height=44
+            text "Row"
+      {}
+        row height=44
+          text "Row"
+        box height="50vh"
+      {}
+        row height=44
+          text "One"
+        row height=44 margin-top="max(-40px, -10vh)"
+          text "Two"
+"##,
+        route("max", r#"min-height="max(200px, 80vh)""#),
+        route("cap", r#"max-height="min(80vh, 300px)""#),
+        route("min", ""),
+        route("clamp", ""),
+        route("vmax", ""),
+        route("floor", r#"min-height="100vh""#),
+        route("margins", ""),
+    );
+    settles_and_agrees(
+        &src,
+        &[
+            ("max", 0.8 * 844.0),
+            ("cap", 44.0),
+            ("min", 300.0),
+            ("clamp", 200.0),
+            ("vmax", 844.0),
+            ("floor", 844.0),
+            ("margins", 48.0),
+        ],
+    );
+}
+
+/// The same for padding, a flex basis, a native field's floor and widths
+/// in a height unit (through an aspect ratio, and the route's own width),
+/// the cases of Astra's and Grok's r6.
+#[test]
+fn padding_bases_fields_and_widths_in_viewport_lengths_settle() {
+    let src = format!(
+        r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      {}
+        row height=44
+          text "Row"
+        box flex-basis="10vh" flex-shrink=0
+      {}
+        input min-height="100vh" flex-shrink=0
+      {}
+        box width=300 max-width="max(100px, calc(-100vh + 400px))" aspect-ratio=1
+      {}
+        box width="100%" max-width="50vh" aspect-ratio=1
+      {}
+        text "Twenty-six letters wrap at each width the route is given, so its height follows that width."
+"##,
+        route("padding", r#"padding-bottom="50vh""#),
+        route("field", ""),
+        route("floor", r#"display="block""#),
+        route("ratio", ""),
+        route("own", r#"max-width="50vh" padding-left="10vh""#),
+    );
+    settles_and_agrees(
+        &src,
+        &[
+            ("padding", 44.0 + 84.4 + 422.0),
+            ("field", 844.0),
+            ("floor", 100.0),
+            ("ratio", 390.0),
+            ("own", 3.0 * 19.2),
+        ],
+    );
+}
+
+/// The lead's rule after the option (b) reviews: the viewport height units
+/// are the window's for the whole session, every sheet and any detent. In
+/// an 800-point window with a 400-point sheet up, a medium route's `50vh`
+/// and a fit-content route's are both 400, in either order, and a
+/// fit-content route that appears then measures 400 from its first extent.
+#[test]
+fn the_window_is_every_sheets() {
+    for fit_first in [true, false] {
+        let fit = r#"      column testId="fit" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="fit-half" height="50vh" flex-shrink=0
+"#;
+        let medium = r#"      column testId="medium" navigationDetent="medium" position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="medium-half" height="50vh" flex-shrink=0
+"#;
+        let src = format!(
+            r##"component Menu
+  state shown = false
+  action show
+    shown = true
+  view
+    column position="relative" width="100%" height="100%"
+      button press=show testId="show" height=44
+        text "Show"
+{}{}      when shown
+        column testId="late" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+          box height="50vh" flex-shrink=0
+"##,
+            if fit_first { fit } else { medium },
+            if fit_first { medium } else { fit },
+        );
+        let plan = contract::compile(&src).unwrap();
+        let (mut host, _) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            800.0,
+        )
+        .unwrap();
+        host.set_screen(Some((390.0, 800.0)));
+        host.resize(390.0, 400.0);
+        let height = |host: &Host<NoData>, id: &str| {
+            let k = host.runner().kernel();
+            k.node(view(host, id)).unwrap().frame.height
+        };
+        assert_eq!(height(&host, "fit-half"), 400.0, "fit first: {fit_first}");
+        assert_eq!(
+            height(&host, "medium-half"),
+            400.0,
+            "fit first: {fit_first}"
+        );
+        let show = view(&host, "show");
+        let shown = host.dispatch_at(show, Event::Press, 0.0);
+        assert_eq!(heights(&shown, view(&host, "late")), [400.0], "{shown}");
+    }
+}
+
+/// Astra's review of option (b): a route whose width follows the sheet
+/// through a percentage of its height and a ratio (100, 300, 100, … when
+/// the trial took its published width) is measured with its width derived
+/// as the layout derives it, its block size indefinite: it settles.
+#[test]
+fn a_width_through_a_percentage_height_does_not_cycle() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="ratio" navigationDetent="fit-content" position="absolute" top=0 left=0 height="calc(400px - 100%)" aspect-ratio=1 min-width=100 max-width=300
+        row height=44
+          text "Row"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.set_screen(Some((390.0, 844.0)));
+    let ratio = view(&host, "ratio");
+    let start = heights(&first, ratio);
+    let mut last = *start.last().unwrap();
+    for h in [100.0, 300.0, 100.0, 300.0, 100.0] {
+        let resized = host.resize(390.0, h);
+        if let Some(&next) = heights(&resized, ratio).last() {
+            last = next;
+        }
+        assert!(
+            heights(&host.resize(390.0, last), ratio).is_empty(),
+            "at {last}: the next measure moved"
+        );
+    }
+    assert_eq!(last, 100.0);
+}
+
+/// Grok's review of aff8ce152: a parent's horizontal padding in a viewport
+/// unit is the window's, in the layout and so in the edges the trial
+/// copies, so the wrap width and the extent hold as the sheet resizes.
+#[test]
+fn a_parents_viewport_padding_is_the_screens_in_the_measure() {
+    // A border box at the sheet's width, a content box of 100%, and a
+    // plain column whose width fills (auto, content-box: its border box
+    // stays, the padding comes out of its content; Grok's round-3 case).
+    for sizing in [
+        r#"width="100%" box-sizing="border-box""#,
+        r#"width="100%" box-sizing="content-box""#,
+        r#"align-self="stretch""#,
+    ] {
+        let src = format!(
+            r##"component Menu
+  view
+    column testId="page" {sizing} height="100%" padding-left="10vh"
+      column testId="menu" navigationDetent="fit-content" flex=1
+        text "Twenty-six letters wrap at each width the route is given, and a long sentence wraps into more lines where the column is narrower, so its height follows that width exactly."
+"##
+        );
+        let plan = contract::compile(&src).unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        host.set_screen(Some((390.0, 844.0)));
+        let menu = view(&host, "menu");
+        assert_eq!(heights(&first, menu).len(), 1, "{sizing}: {first}");
+        for h in [44.0, 200.0, 844.0, 44.0] {
+            let resized = host.resize(390.0, h);
+            assert!(
+                heights(&resized, menu).is_empty(),
+                "{sizing} at {h}: {resized}"
+            );
+        }
+    }
+}
+
+/// Grok's and Astra's round-3 case: a fixed sibling in a flex row sets the
+/// `flex: 1` route's width, 200 of the row's 400, in the measure as in the
+/// layout; the route's text wraps at 200. The sibling is 300 tall: it sets
+/// the width alone, never the route's height (their review of 1a9b86776).
+#[test]
+fn a_rows_siblings_set_the_routes_width_in_the_measure() {
+    let src = r##"component Menu
+  view
+    row testId="row" width=400 height="100%"
+      column width=200 height=300 flex-shrink=0
+      column testId="menu" navigationDetent="fit-content" flex=1 min-width=0
+        text "Twenty-six letters wrap at each width the route is given, so its height follows that width."
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.set_screen(Some((390.0, 844.0)));
+    let menu = view(&host, "menu");
+    let k = host.runner().kernel();
+    let node = k.node(menu).unwrap();
+    assert_eq!(node.frame.width, 200.0);
+    // The text's laid-out height at that width is the extent.
+    let text = node.children()[0];
+    let laid = k.node(text).unwrap().frame.height;
+    assert_eq!(heights(&first, menu), [laid], "{first}");
+    for h in [44.0, 200.0, 844.0] {
+        let resized = host.resize(390.0, h);
+        assert!(heights(&resized, menu).is_empty(), "at {h}: {resized}");
+    }
+}
+
+/// Grok's review of 1a9b86776: the segment variables are the window's grid
+/// for every sheet. The host is told the window's segments (an 800-point
+/// window folded into two 400-point rows); with a 400-point sheet up, a
+/// medium route and a fit-content route both read 400, not a division of
+/// the sheet.
+#[test]
+fn segments_are_the_windows_in_every_sheet() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="medium" navigationDetent="medium" position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="medium-pane" height="env(viewport-segment-height 0 0)" flex-shrink=0
+      column testId="fit" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0
+        box testId="fit-pane" height="env(viewport-segment-height 0 0)" flex-shrink=0
+"##;
+    exact_kernel::link_segments();
+    let plan = contract::compile(src).unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        800.0,
+    )
+    .unwrap();
+    host.set_screen(Some((390.0, 800.0)));
+    let rects = vec![
+        exact_kernel::Rect::new(0.0, 0.0, 390.0, 400.0),
+        exact_kernel::Rect::new(0.0, 400.0, 390.0, 400.0),
+    ];
+    host.set_segments(1, 1, 2, rects);
+    let first = host.resize(390.0, 400.0);
+    let k = host.runner().kernel();
+    for id in ["medium-pane", "fit-pane"] {
+        assert_eq!(k.node(view(&host, id)).unwrap().frame.height, 400.0, "{id}");
+    }
+    // And the sheet resizing moves neither, nor the fit-content extent.
+    let _ = first;
+    let resized = host.resize(390.0, 200.0);
+    assert!(
+        heights(&resized, view(&host, "fit")).is_empty(),
+        "{resized}"
+    );
+    let k = host.runner().kernel();
+    assert_eq!(
+        k.node(view(&host, "medium-pane")).unwrap().frame.height,
+        400.0
+    );
 }

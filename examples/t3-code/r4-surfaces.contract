@@ -148,21 +148,21 @@ component R4HeaderBar
         R12TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
       when sheet
         box position="relative" flex-shrink=0
-          button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
           TipBubble(label=(keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
       else
         box position="relative" flex-shrink=0
-          button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             MorphMaximize(on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", weight=2, still=still)
           TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
       box position="relative" flex-shrink=0 hover=hover("terminal")
-        button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(terminalAvailable ? (keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
       // Escape stays the page's while the shown Browser tab annotates: the reference's pick focuses the page, whose Escape cancels the pick (PickPreload) and keeps the panel.
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused or panel.browser.capture.pickActive) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused or panel.browser.capture.pickActive) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -185,7 +185,7 @@ component R4TabChip
       local("surface-menu", tab.id, "key")
   view
     row contextmenu=menu(tab.id) contextPopover="r4-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hatch="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
-      button hatch="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button hatch="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         when over
           ShellIcon(name="x", size=12, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         else
@@ -255,7 +255,7 @@ component R4AddSurface
       keyed = kmBump(keyed, false)
   view
     column position="relative" flex-shrink=0
-      button popovertarget="r4-add-surface" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="r4-add-surface" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
       KeyMenuOpen(menuId="r4-add-surface", armed=keyArmed, opened=keyOpened)
       column id="r4-add-surface" popover="auto" position="absolute" margin-top="0.375rem" width="12rem"
@@ -365,7 +365,7 @@ component R4PrsList
             each row in prs.rows key=row.key
               R4LinkedRowView(row=row, menuOpen=(prs.menu == row.key), local=local, command=command, menuEnd=setMenuEnd)
         when prs.menu != ""
-          button press=local("surface-pr-menu", "", "") aria-label="Close actions" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=29 testId="linked-pr-menu-backdrop"
+          button press=local("surface-pr-menu", "", "") aria-label="Close actions" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=29 testId="linked-pr-menu-backdrop" title=""
           each row in filter(prs.rows, (entry) => entry.key == prs.menu) key=row.key
             R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))
         row flex-shrink=0 align-items="center" justify-content="space-between" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
@@ -448,7 +448,7 @@ component R4LinkedRowView
             text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       when over or menuOpen
         row position="absolute" right=0 bottom="0.125rem" padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
-          button press=openMenu key=menuKey focus=menuEnd("") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=openMenu key=menuKey focus=menuEnd("") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             R4Icon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
 
 // The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink),
@@ -567,7 +567,7 @@ component R4DeviceSetup
     command: action
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="device-setup-overlay"
-      button press=local("surface-setup-close", "", "") aria-label="Close device setup" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="device-setup-backdrop"
+      button press=local("surface-setup-close", "", "") aria-label="Close device setup" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="device-setup-backdrop" title=""
       when scheme == "dark"
         R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
       else
@@ -633,7 +633,7 @@ component R4DeviceDialog
         else
           button press=command("shell:surface-device-complete", "", "", 0) disabled=(not device.canContinue) testId="device-setup-done" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
             text device.doneLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-      button press=local("surface-setup-close", "", "") aria-label="Close" testId="device-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=local("surface-setup-close", "", "") aria-label="Close" testId="device-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         R4Icon(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 // WizardSteps' cell: a 20pt numbered disc and the medium label; only earlier steps reopen.

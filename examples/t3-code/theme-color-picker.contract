@@ -126,7 +126,7 @@ component ThemeColorSwatch
   // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
   action push(hh: number, ss: number, vv: number, force: bool)
     if force or not inFlight
-      let t = max(now(), max(sent, row.seq) + 0.001)
+      let t = max(performanceNow(), max(sent, row.seq) + 0.001)
       let c = tcpHex(hh, ss, vv)
       sent = t
       sentHex = c
@@ -230,7 +230,7 @@ component ThemeColorSwatch
     hexDraft = hex
     focusPart = "hex"
   action hexInput(text: string)
-    let t = max(now(), max(sent, row.seq) + 0.001)
+    let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     hexDraft = text
     hexEditing = true
     sent = t
@@ -240,7 +240,7 @@ component ThemeColorSwatch
     rgbDraft = rgb
     focusPart = "rgb"
   action rgbInput(text: string)
-    let t = max(now(), max(sent, row.seq) + 0.001)
+    let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     rgbDraft = text
     rgbEditing = true
     sent = t
@@ -255,7 +255,7 @@ component ThemeColorSwatch
     box position="relative" flex-shrink=0
       // The trigger and its tooltip (TooltipPopup side="top": "Choose <label> color").
       Tip(label=`Choose ${row.label} color`, side="top", align="center", offset=28)
-        button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}`
+        button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}` title=""
           box width="1.25rem" height="1.25rem" border-radius="0.625rem" background-color=row.value
       column id=`theme-color-${row.id}` popover="auto" key=popKey press=popPress retainFocus=true tabindex=-1 position="absolute" position-area=(above ? "top span-right" : "bottom span-right") margin-top=(above ? "0px" : "0.625rem") margin-bottom=(above ? "0.625rem" : "0px") user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
         row align-items="center" justify-content="space-between" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider

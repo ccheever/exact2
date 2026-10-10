@@ -10,6 +10,7 @@ use super::*;
 
 /// A clip the walk pushed: the shape in its transform, and whether it has
 /// been written into the stream (as `CLIP_RRECT` after a save).
+#[derive(Clone)]
 pub(super) struct Clip {
     shape: Shape,
     ts: Transform,

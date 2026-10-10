@@ -21,9 +21,9 @@ component AuthFixture
   mutation left as shape Result refreshes session
   derive busy = pending(prepared) or pending(signed)
   action prepare
-    send prepared = prepareSignIn(time.epochAtZero + now())
+    send prepared = prepareSignIn(time.epochAtZero + performanceNow())
   action signIn
-    send signed = signIn(time.epochAtZero + now())
+    send signed = signIn(time.epochAtZero + performanceNow())
   action signOut
     send left = signOut()
   view

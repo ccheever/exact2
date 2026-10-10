@@ -1,7 +1,14 @@
 // The driver's held key (agent-keys.mjs `typeFor`): it repeats while held, as
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
-import { KEY_REPEAT, typeFor } from './agent-keys.mjs';
+import { KEY_REPEAT, typeFor, cdpKey, withHeldModifiers } from './agent-keys.mjs';
+
+test('ContextMenu is a named physical key with no typed text', () => {
+  expect(cdpKey('ContextMenu')).toEqual({ code: 'ContextMenu', key: 'ContextMenu', vk: 93, modifiers: 0, text: undefined, location: 0 });
+  const event = { type: 'keyDown', code: 'ContextMenu', key: 'ContextMenu', windowsVirtualKeyCode: 93 };
+  expect(withHeldModifiers('Input.dispatchKeyEvent', event, new Map()).type).toBe('rawKeyDown');
+  expect(withHeldModifiers('Input.dispatchKeyEvent', { ...event, type: 'keyUp' }, new Map()).type).toBe('keyUp');
+});
 
 const hold = async (key, ms) => {
   const calls = [];

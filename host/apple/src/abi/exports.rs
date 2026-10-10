@@ -194,6 +194,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.route_matches(len), |_| 0)
         }
 
+        /// The location beneath a visit, UTF-8; empty for none. @ref LLP 1115 D5
+        #[no_mangle]
+        pub extern "C" fn exact_location_beneath(rt: u32, id: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
+        }
+
+        /// The platform's own Back from a visit, a batch. @ref LLP 1115 D5
+        #[no_mangle]
+        pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back(id, now_ms), |n| n)
+        }
+
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
         #[no_mangle]
         pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {
@@ -537,6 +549,14 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_insets(rt: u32, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
+        }
+
+        /// The window's size, which every viewport unit resolves
+        /// against everywhere, or none (a nonpositive size), LLP 1075.003
+        /// §9.11; returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_screen(rt: u32, width: f32, height: f32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.screen(width, height), |n| n)
         }
 
         /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.

@@ -1,7 +1,7 @@
 // Proves caps rules fire in throwaway repositories and a clean repo passes;
 // also exercises the shared build and launch helpers.
 // `bun test ./scripts/caps.test.mjs`.
-import { test } from 'bun:test';
+import { test, expect } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
@@ -753,3 +753,33 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
+
+// Exercise the driver's actual method with a quantized wall clock (#285).
+test('clock +N real never seeks behind the last reply and ends at from + N', async () => {
+  const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf("    async clock(spec = 'settle') {");
+  const end = source.indexOf('\n    /** The window', start);
+  for (const host of ['macos', 'ios', 'host', 'host-ios', 'web', 'linux']) {
+    for (const ahead of [0, 0.75]) {
+      const sent = [], sleeps = [], wall = [18.329417, 18.329417, 18.829417, 20.329417, 20.329417];
+      let reported = 250;
+      const s = { now: ['web', 'linux'].includes(host) ? reported : 0, async op(req) {
+        if (req.take) return { clock: reported };
+        expect(req.to).toBeGreaterThanOrEqual(reported);
+        sent.push(req.to);
+        // Keep the host's last reported time even when it is ahead of the next wall sample.
+        reported = sent.length === 1 ? req.to + ahead : req.to;
+        return { clock: reported };
+      } };
+      const clock = new Function('s', 'carrier', 'performance', 'setTimeout', 'REAL_STEP_MS',
+        `return ({${source.slice(start, end)}}).clock;`)(s, { host }, { now: () => wall.shift() },
+        (done, ms) => { sleeps.push(ms); done(); }, 50);
+      const reply = await clock('+1 real');
+      expect(sent).toEqual([250, Math.max(250.5, 250 + ahead), 251]);
+      expect(reply.clock).toBe(251);
+      expect(s.now).toBe(251);
+      expect(reply.real).toBe(2);
+      expect(sleeps).toEqual([1, 251 - sent[1]]);
+    }
+  }
+});

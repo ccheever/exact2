@@ -181,7 +181,10 @@ fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
             "either named or positional surface arguments (`seed` is named)",
         ),
         ("world(seed=missing)", "unknown name `missing`"),
-        ("world(seed=min(a=1, b=2))", "named arguments belong"),
+        (
+            "world(seed=min(a=1, b=2))",
+            "another call's arguments are positional",
+        ),
     ] {
         let bad = source.replace("world(restart=again, seed=min(9, 7), paused=paused)", call);
         let error = contract::compile(&bad).unwrap_err().to_string();

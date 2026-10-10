@@ -146,6 +146,33 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
 
+test('a new app and a new game get VS Code tasks over their own verbs, and update writes only a missing file', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const verbsOf = (dir) => {
+      const usage = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'nope'], { cwd: parent, encoding: 'utf8' }).stderr;
+      return new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
+    };
+    const app = resolve(parent, 'field-log'), game = resolve(parent, 'block-hop');
+    createApp(app);
+    createGame(game);
+    for (const [dir, extra] of [[app, []], [game, ['test-rust']]]) {
+      const tasks = JSON.parse(readFileSync(resolve(dir, '.vscode/tasks.json'), 'utf8')).tasks, verbs = verbsOf(dir);
+      const used = tasks.map(t => /^bun exact\.mjs (\S+)/.exec(t.command)[1]);
+      for (const verb of used) assert.ok(verbs.has(verb), `${dir}: task verb ${verb} is not one of exact.mjs's (${[...verbs].join(', ')})`);
+      for (const verb of ['contract', 'web', 'test', 'mac', 'ios', ...extra]) assert.ok(used.includes(verb), `${dir}: no task runs ${verb}`);
+      assert.equal(tasks.filter(t => t.group?.isDefault).length, 1);
+    }
+    const tasksPath = resolve(app, '.vscode/tasks.json');
+    writeFileSync(tasksPath, '{"version": "2.0.0", "tasks": []}\n');
+    assert.doesNotMatch(createApp(app, { update: true }), /tasks\.json/);
+    assert.equal(readFileSync(tasksPath, 'utf8'), '{"version": "2.0.0", "tasks": []}\n');
+    rmSync(resolve(app, '.vscode'), { recursive: true });
+    assert.match(createApp(app, { update: true }), /, \.vscode\/tasks\.json/);
+    assert.ok(JSON.parse(readFileSync(tasksPath, 'utf8')).tasks.length > 0);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000); // Three offline Cargo resolutions.
+
 test('a game outside this checkout gets an app\'s runner, with its own verbs and no app.json, and update rewrites it (the platformer\'s diary, R1)', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
