@@ -826,4 +826,8 @@ Task `20261010-realinput-1010f-followups`.
   with `elementFromPoint` over the cells' ids. A node that hears `pointerdown` keeps the press from its ancestors (X71,
   main `issues/20261010-pointer-events-reach-ancestors.md`), so a press on the diff gutter no longer counts as an outside
   press for the window root's light dismiss (`outsidePressDown`, which closes a skill chip's details); the reference's
-  outside press would. The gutter's own popovers are unaffected.
+  outside press would. The gutter's own popovers are unaffected. During the drag the "+" stays on the pressed line under
+  a real pointer, where the reference's follows the pointer (`placeUtility`): the host's hover tracking areas
+  (`NodeViewMac.syncHoverTracking`) have no `.enabledDuringMouseDrag`, so no other line hears an enter while the button
+  is down (the session's "the gutter's hover stays on line 3"). The selection the drag paints is the one to read; not
+  filed.
