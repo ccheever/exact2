@@ -1,0 +1,166 @@
+X75 (not filed): two sends on one mutation in one turn; the first send's work after an await
+main d413487a8489d305bf214c276665931a3faff1f0; macOS 26.6.2 (25G83), Apple Silicon; Exact web (JS target) in the agent's Google Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>. A local Bun server (x75-server.mjs) answers /bump after 300 ms and logs each request it receives.
+
+== app.contract
+// X75: two sends on one mutation in one turn. `bump` records each call when it
+// starts and again when its work after an await finishes (app.ts). The field
+// sends it on focus and on a key (the T3 clone's Files search); Escape sends it
+// and blurs, and the blur sends it again.
+shape Count
+  text: string
+
+component X75app
+  resource counts = counts() as shape Count
+  mutation bumped as shape Count
+  state mode = "sync"
+  state field = ""
+  action pick(m: string)
+    mode = m
+  action edit(v: string)
+    field = v
+  action bump(tag: string)
+    send bumped = bump(tag, mode)
+  action onFocus
+    bump("focus")
+  action onBlur
+    bump("blur")
+  action onKey(k: string)
+    bump(`key-${k}`)
+    if k == "Escape"
+      blur()
+  action read
+    refresh counts
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=10
+      text `mode: ${mode}` testId="mode"
+      row gap=8
+        button press=pick("sync") testId="mode-sync"
+          text "sync"
+        button press=pick("store") testId="mode-store"
+          text "store"
+        button press=pick("fetch") testId="mode-fetch"
+          text "fetch"
+      input value=field input=edit focus=onFocus blur=onBlur key=onKey aria-label="Field" testId="field" width=240
+      button press=read testId="read"
+        text "Read counts"
+      text counts.text testId="out" white-space="pre-wrap" width=380
+
+== app.ts
+import type { Answer, Result, Sources } from './app.contract.d.ts';
+
+export const appId = 'com.example.x75app';
+// A local server that answers after 300 ms (x75-server.mjs, run beside the drive).
+export const grants = 'fs.write app:/data/x75.txt\nnet.fetch http://127.0.0.1:18775\n';
+
+const started: string[] = [], finished: string[] = [], failed: string[] = [];
+const encoder = new TextEncoder();
+
+const sources: Sources = {
+  counts: (): Result<'counts'> => ({ text: `started ${started.length} [${started.join(' ')}]\nfinished ${finished.length} [${finished.join(' ')}]\nfailed ${failed.length} [${failed.join(' ')}]` }),
+  bump: async ([tag, mode], _store, storage): Promise<Result<'bump'>> => {
+    const name = `${mode}:${tag}`;
+    started.push(name);
+    try {
+      if (mode === 'store') await storage.fs.atomicWriteFile('app:/data/x75.txt', encoder.encode(name));
+      else if (mode === 'fetch') await (await fetch(`http://127.0.0.1:18775/bump?tag=${encodeURIComponent(name)}`)).text();
+      finished.push(name);
+    } catch (error) {
+      failed.push(`${name}(${(error as { kind?: string }).kind ?? String(error)})`);
+      throw error;
+    }
+    return { text: name };
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+
+== x75-server.mjs
+// Answers /bump after 300 ms, with CORS for the web build; logs each request it receives.
+Bun.serve({
+  port: 18775, hostname: '127.0.0.1',
+  async fetch(req) {
+    const url = new URL(req.url);
+    if (req.method === 'OPTIONS') return new Response(null, { headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
+    console.log(`${new Date().toISOString()} received ${url.pathname}${url.search}`);
+    await Bun.sleep(300);
+    return new Response('ok', { headers: { 'access-control-allow-origin': '*' } });
+  },
+});
+console.log('x75 server on 127.0.0.1:18775');
+
+== Commands (in the app dir; the same drive on both hosts)
+bun exact.mjs mac
+bun exact.mjs agent <web|macos> --json --storage <name> --size 420x320 'tap mode-fetch' 'type field key a' 'clock settle' 'type field key Escape' 'clock settle' 'tap mode-sync' 'type field key a' 'clock settle' 'type field key Escape' 'clock settle' 'tap mode-store' 'type field key a' 'clock settle' 'type field key Escape' 'clock settle' 'tap read' 'clock settle' 'tree out' logs 'screenshot x75-<host>.png'
+
+'type field key a' on the blurred field focuses it, then types: focus=onFocus and key=onKey each send bumped, in one turn.
+'type field key Escape' sends bumped, then blur(); the blur sends bumped again. The analyzer's analyze-send-twice does not see these:
+each action sends once. mode picks what bump awaits: sync nothing, store storage.fs.atomicWriteFile, fetch a GET to the server.
+
+== W (web): the counts after the drive, and the runner lines
+OUT
+started 12 [fetch:focus fetch:key-a fetch:key-Escape fetch:blur sync:focus sync:key-a sync:key-Escape sync:blur store:focus store:key-a store:key-Escape store:blur]
+finished 12 [fetch:focus fetch:key-a fetch:key-Escape fetch:blur sync:focus sync:key-a sync:key-Escape sync:blur store:focus store:key-a store:key-Escape store:blur]
+failed 0 []
+LOGS
+  t=0 dropped reply for bumped: ticket 1 is no longer held
+  t=0 dropped reply for bumped: ticket 3 is no longer held
+  t=0 dropped reply for bumped: ticket 7 is no longer held
+  t=0 dropped reply for bumped: ticket 9 is no longer held
+  t=0 dropped reply for bumped: ticket 11 is no longer held
+server received (web run): fetch:focus, fetch:key-a, fetch:key-Escape, fetch:blur (all four)
+
+== M (macOS): the counts after the drive, and the runner lines
+OUT
+started 12 [fetch:focus fetch:key-a fetch:key-Escape fetch:blur sync:focus sync:key-a sync:key-Escape sync:blur store:focus store:key-a store:key-Escape store:blur]
+finished 10 [fetch:key-a fetch:blur sync:focus sync:key-a sync:key-Escape sync:blur store:focus store:key-a store:key-Escape store:blur]
+failed 2 [fetch:focus(Aborted) fetch:key-Escape(Aborted)]
+LOGS
+  t=0 request 1 (bumped): GET http://127.0.0.1:18775/bump?tag=fetch%3Afocus
+  t=0 forget request 1 (bumped)
+  t=0 request 2 (bumped): GET http://127.0.0.1:18775/bump?tag=fetch%3Akey-a
+  t=0 fulfil 2 (bumped) [HTTP 200, 2 bytes; wall 306 ms] → epoch 4 (+0 −0 ~0)
+  t=0 request 3 (bumped): GET http://127.0.0.1:18775/bump?tag=fetch%3Akey-Escape
+  t=0 forget request 3 (bumped)
+  t=0 request 4 (bumped): GET http://127.0.0.1:18775/bump?tag=fetch%3Ablur
+  t=0 fulfil 4 (bumped) [HTTP 200, 2 bytes; wall 303 ms] → epoch 4 (+0 −0 ~0)
+  t=0 continuation 5 (bumped): executor token 10
+  t=0 forget request 5 (bumped)
+  t=0 continuation 6 (bumped): executor token 11
+  t=0 bumped: the reply asks for one more request
+  t=0 continuation 7 (bumped): executor token 11
+  t=0 fulfil 6 (bumped) [HTTP 200, 0 bytes; wall 0 ms] → epoch 6 (+0 −0 ~0)
+  t=0 fulfil 7 (bumped) [HTTP 204, 0 bytes; wall 0 ms] → epoch 6 (+0 −0 ~0)
+  t=0 continuation 8 (bumped): executor token 12
+  t=0 forget request 8 (bumped)
+  t=0 continuation 9 (bumped): executor token 13
+  t=0 bumped: the reply asks for one more request
+  t=0 continuation 10 (bumped): executor token 13
+  t=0 fulfil 9 (bumped) [HTTP 200, 0 bytes; wall 0 ms] → epoch 6 (+0 −0 ~0)
+  t=0 fulfil 10 (bumped) [HTTP 204, 0 bytes; wall 3 ms] → epoch 6 (+0 −0 ~0)
+server received (macOS run): fetch:key-a, fetch:blur only; requests 1 (fetch:focus) and 3 (fetch:key-Escape) were forgotten before the host took them
+
+== Server log (all runs; 10:32:40 is a first web run without the storage grant, 10:32:59 the web run above, 10:35:46 the macOS run)
+x75 server on 127.0.0.1:18775
+2026-10-10T10:32:20.555Z received /bump?tag=probe
+2026-10-10T10:32:40.442Z received /bump?tag=fetch%3Afocus
+2026-10-10T10:32:40.444Z received /bump?tag=fetch%3Akey-a
+2026-10-10T10:32:40.770Z received /bump?tag=fetch%3Akey-Escape
+2026-10-10T10:32:40.770Z received /bump?tag=fetch%3Ablur
+2026-10-10T10:32:59.534Z received /bump?tag=fetch%3Afocus
+2026-10-10T10:32:59.535Z received /bump?tag=fetch%3Akey-a
+2026-10-10T10:32:59.870Z received /bump?tag=fetch%3Akey-Escape
+2026-10-10T10:32:59.870Z received /bump?tag=fetch%3Ablur
+2026-10-10T10:35:46.088Z received /bump?tag=fetch%3Akey-a
+2026-10-10T10:35:46.414Z received /bump?tag=fetch%3Ablur
+
+== Verdict: declared behaviour, not filed
+sync: 4/4 finished on both hosts. store: 4/4 finished on both (the let-go calls' storage ran to its end natively, as the docs say).
+fetch: web 4/4 finished; macOS 2/4, the superseded calls rejected with FetchError Aborted and never reached the server.
+docs/reference.md:516-522 (main d413487a8): "A send dropped before it has issued storage does not run. A replaced answer waiting on a
+`fetch` is not stranded: on the web build (the JS target) its fetch completes and the code after the `await` runs; natively and in the
+web's wasm module realm the fetch rejects with a `FetchError` of kind `Aborted` (the request may already have been sent), so a `catch`
+or `finally` runs. A stream's fetch never settles. Its reply is dropped either way; a mutation that needs every reply is declared `queue`."
+docs/agent-pitfalls.md:327-334: "A superseded send's fetch rejects natively and completes on the web build. ... declare the mutation
+`queue` when every send's reply matters (LLP 1092)." LLP 1016 D5, amended 2026-10-05 (llp/1016-async-data-settlement.rfc.md:257-265).
+native.later is a fetch to exact-native: (js/src/prelude.js:1137), so the T3 clone's native.later call falls under the same rule.

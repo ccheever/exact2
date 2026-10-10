@@ -1,0 +1,106 @@
+X74: the macOS host makes a button a leaf, so a heading inside a button is not exposed
+main d413487a8489d305bf214c276665931a3faff1f0; macOS 26.6.2 (25G83), Apple Silicon; Exact web in the agent's Google Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports an empty sources.
+
+== app.contract
+// X74: a heading inside a button (Base UI's CollapsibleTrigger holding an <h2>),
+// beside a plain heading as the control.
+component X74app
+  state open = false
+  action toggle
+    open = not open
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=12
+      text "Settings" role="heading" aria-level=1 testId="title"
+      button press=toggle aria-expanded=open testId="trigger"
+        text "Legacy features" role="heading" aria-level=2 testId="trigger-heading"
+      when open
+        text "Folded rows" testId="rows"
+      text "Plain heading" role="heading" aria-level=2 testId="plain-heading"
+
+== Commands (in the app dir)
+bun exact.mjs mac
+W  bun exact.mjs agent web --json --size 420x300 "tree --ax" "tap trigger" "tree --ax" "screenshot x74-web.png"
+M  bun exact.mjs agent macos --json --size 420x300 "tree --ax" "tap trigger" "tree --ax" "screenshot x74-macos.png"
+
+tree --ax is LLP 1080.002: the platform's accessibility tree, Chrome's over CDP on the web, the host's NSAccessibility tree on macOS,
+joined to Exact's views (view= is the Contract node id; view 4 is the heading inside the button, testId trigger-heading).
+
+== W (web): tree --ax, before and after tap trigger
+# chrome-cdp (Chrome 155.0.0.0), findings: []
+generic "" view=null native=generic/div
+  main "" view=1 testId=root native=main/main
+    heading "Settings" [level=1] view=2 testId=title native=heading/h1
+      StaticText "Settings" view=2 testId=title native=StaticText/#text
+    button "Legacy features" [expanded=false] view=3 testId=trigger native=button/button
+      heading "Legacy features" [level=2] view=4 testId=trigger-heading native=heading/span
+        StaticText "Legacy features" view=4 testId=trigger-heading native=StaticText/#text
+    heading "Plain heading" [level=2] view=5 testId=plain-heading native=heading/h2
+      StaticText "Plain heading" view=5 testId=plain-heading native=StaticText/#text
+-- tap trigger
+# chrome-cdp (Chrome 155.0.0.0), findings: []
+generic "" view=null native=generic/div
+  main "" view=1 testId=root native=main/main
+    heading "Settings" [level=1] view=2 testId=title native=heading/h1
+      StaticText "Settings" view=2 testId=title native=StaticText/#text
+    button "Legacy features" [expanded=true focused=true] view=3 testId=trigger native=button/button
+      heading "Legacy features" [level=2] view=4 testId=trigger-heading native=heading/span
+        StaticText "Legacy features" view=4 testId=trigger-heading native=StaticText/#text
+    generic "" view=6 testId=rows native=generic/div
+      StaticText "Folded rows" view=6 testId=rows native=StaticText/#text
+    heading "Plain heading" [level=2] view=5 testId=plain-heading native=heading/h2
+      StaticText "Plain heading" view=5 testId=plain-heading native=StaticText/#text
+
+== M (macOS): tree --ax, before and after tap trigger
+# appkit (macOS Version 26.6.2 (Build 25G83)), findings: []
+AXScrollArea "" view=null native=AXScrollArea/PageScrollView
+  heading "Settings" [level=1] view=2 testId=title native=AXHeading/NodeView
+  button "Legacy features" view=3 testId=trigger native=AXButton/NodeView
+  heading "Plain heading" [level=2] view=5 testId=plain-heading native=AXHeading/NodeView
+-- tap trigger
+# appkit (macOS Version 26.6.2 (Build 25G83)), findings: []
+AXScrollArea "" view=null native=AXScrollArea/PageScrollView
+  heading "Settings" [level=1] view=2 testId=title native=AXHeading/NodeView
+  button "Legacy features" [expanded=true focused=true] view=3 testId=trigger native=AXButton/NodeView
+  text "Folded rows" view=6 testId=rows native=AXStaticText/NodeView
+  heading "Plain heading" [level=2] view=5 testId=plain-heading native=AXHeading/NodeView
+
+== The HTML oracle: Chrome's own accessibility tree for hand-written HTML (CDP Accessibility.getFullAXTree, headless Chrome 155)
+# Chrome/155.0.8059.39 (headless), CDP Accessibility.getFullAXTree; ignored nodes and InlineTextBox omitted
+
+## button > h2
+<button aria-expanded="false"><h2>Legacy features</h2><svg width="16" height="16" aria-hidden="true"></svg></button>
+generic ""
+  button "Legacy features" [expanded=false]
+    heading "Legacy features" [level=2]
+      StaticText "Legacy features"
+
+## button > span[role=heading]
+<button><span role="heading" aria-level="2">Legacy features</span></button>
+generic ""
+  button "Legacy features"
+    heading "Legacy features" [level=2]
+      StaticText "Legacy features"
+
+## div[role=button] > h2
+<div role="button" tabindex="0"><h2>Legacy features</h2></div>
+button "Legacy features"
+  heading "Legacy features" [level=2]
+    StaticText "Legacy features"
+
+## h2 beside button (the clone)
+<h2 style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0">Legacy features</h2><button>Legacy features</button>
+generic ""
+  heading "Legacy features" [level=2]
+    StaticText "Legacy features"
+  button "Legacy features"
+    StaticText "Legacy features"
+
+== Hand-built AppKit, in-process NSAccessibility walk (macOS 26.6.2)
+NSButton(title: "Legacy features (D, NSButton)") -> AXButton title="Legacy features (D, NSButton)", no children: an AppKit button has a title, not content.
+A SwiftUI Button whose label is Text(...).accessibilityAddTraits(.isHeader) was not read: a bare command-line SwiftUI window answered the AX API as
+the application element (three tries, stopped). Not verified either way.
+
+== PR #327 (head 14493d253, open)
+Its NodeViewMac.swift hunk replaces mouseEntered/mouseMoved/mouseExited with presenter.trackPointer; accessibilityChildren and
+updateRoleAccessibility are unchanged (read from gh pr diff 327, not run).
