@@ -449,4 +449,29 @@ The larger SDK backend's transient memory increase is partly explained by bitmap
 
 The expanded software oracle catches numeric-span font rounding missed by the earlier 225-case corpus. Corrected shared-layout/direct-string variants pass 330 bit-exact metric/pixel comparisons across three densities, including mixed metrics, RTL, clamp, line height, numeric variants and new width offers after paint changes. They also pass the existing release renewal/attachment/FRAME and HWUI corpus. The retained-shaping variant passes the same 330 software comparisons and excluded reflection checks for reuse after owner retirement, count/estimated-byte eviction, rejection of oversized entries, configuration invalidation and close. A separate 60-photo ownership probe verifies cache eviction, pinned View lifetime, cancelled posted delivery, close and HWUI display-list pixel retention after Java bitmap retirement. These are isolated prototype checks on Galaxy A57/API36; they do not establish compatibility on every supported Android version.
 
-Evidence remains in ignored `target/android-heavy-list-20261008/`: `comparative-segments-r1`, `text-layout-offers-r1`, the five prototype directories and `text-layout-exploration-audit.json`. The audit independently reconstructs medians and paired deltas for all 80 untraced processes and verifies thermal status and APK identity. Production C9 retains the public imperative Compose paragraph backend; no native/kernel/JNI or workload change is introduced by this exploration.
+Evidence remains in ignored `target/android-heavy-list-20261008/`: `comparative-segments-r1`, `text-layout-offers-r1`, the five prototype directories and `text-layout-exploration-audit.json`. The audit independently reconstructs medians and paired deltas for all 80 untraced processes and verifies thermal status and APK identity. This historical cohort predates the SDK-layout backend and does not describe the current branch. No native/kernel/JNI or workload change was introduced by that exploration.
+
+## Viewport image cache (2026-10-10)
+
+The Android image cache now follows Apple’s owning-viewport budget policy: eight RGBA viewports, bounded to 32–64 MiB on Android. The existing hidden/detached ExactView lifecycle drops cached leases while active views keep their pixels. This adds 13 runtime lines and no configuration, dependency, JNI or shared-kernel change. Apple bounds resident plus reserved pixels; this Android LRU bounds cached pixels.
+
+The final release cohort uses three repetitions per arm and speed (24 fresh Galaxy A57/API36/120Hz processes), the original 10,000-message/104-JPEG workload, eight-second intervals after 1.5 seconds of warmup, Live OFF and ART speed compilation. Views and Compose use isolated controls with the same 64 MiB viewport budget; the repository’s default reference loader remains 32 MiB. No profiler, video or forced GC enters timing. Scroll acknowledgments and raw medians are verified; thermal status is zero in all phases.
+
+| Speed dp/s | Renderer | Cache cap MiB | UI CPU % | Process CPU % | Endpoint PSS MiB | Window p95 ms |
+|---:|---|---:|---:|---:|---:|---:|
+| 1000 | Previous C9 | 32 | 22.20 | 89.73 | 204.68 | 12.37 |
+| 1000 | C9 viewport cache | 64 | 22.77 | 91.08 | 204.34 | 10.26 |
+| 1000 | Views, equal cache | 64 | 18.97 | 81.31 | 151.29 | 13.76 |
+| 1000 | Compose, equal cache | 64 | 27.11 | 90.88 | 156.33 | 11.29 |
+| 24000 | Previous C9 | 32 | 56.27 | 125.58 | 333.13 | 10.01 |
+| 24000 | C9 viewport cache | 64 | 57.42 | 119.41 | 380.05 | 9.83 |
+| 24000 | Views, equal cache | 64 | 37.58 | 115.12 | 363.21 | 13.76 |
+| 24000 | Compose, equal cache | 64 | 48.90 | 116.50 | 435.36 | 11.39 |
+
+Fast process CPU falls 4.92%, with all three pairs lower, at 46.93 MiB additional endpoint PSS. UI CPU rises 2.04%; Window p95 and deadline directions are mixed. Startup readiness is unchanged. Slow process CPU has mixed pairs and a 1.50% higher median, so no slow-scroll improvement is claimed. C9 remains 3.73% above Views and 2.50% above Compose in fast process CPU. UI CPU and slow-scroll memory remain the main gaps. APK byte length is unchanged; endpoint PSS is not peak memory, readiness is not pixel TTI, and Window metrics are not presented FPS.
+
+An excluded counter capture for the same 64 MiB sizing policy observes 318 → 235 fast decode admissions for 939 → 937 image requests; slow admissions are 33 in both arms. This identifies image reuse as the mechanism without using instrumented CPU for ranking. The Application callback variant is withdrawn after its separate A/B showed higher slow CPU; the retained code uses the existing session visibility path. No benchmark IDs, speeds or dataset properties enter the cache policy.
+
+The actual release SDK passes cache resize/trim/close pixel lifetime checks, real session hiding, SDK text metric/paint checks, borders, pending intrinsics, collection coverage and empty batches. Native Android Rust tests pass (60). Build, Clippy, fmt, caps and boot pass; the full default-member suite still fails only the two unchanged exact-bake asset watcher tests. No current-main or independent presentation claim is made.
+
+Raw build/source/APK receipts, 24 phase logs and verified medians remain in ignored `target/android-image-cache-session-lifetime-20261010/`. Earlier sizing and counter captures are separate cohorts; their percentages are not additive.
