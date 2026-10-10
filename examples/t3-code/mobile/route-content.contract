@@ -404,7 +404,7 @@ component MobileRouteContent
             t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
         button press=toggleFileWrap disabled=not settingsAppearance.ready aria-label=(settingsAppearance.codeWordBreak ? "Disable word wrap" : "Enable word wrap") aria-pressed=settingsAppearance.codeWordBreak
           t3-symbol symbol-name="text.alignleft" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-      MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, preview=filePreview, refresh=refreshFile)
+      MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile)
     else when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
       when focused
         when mediaData.ready
