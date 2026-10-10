@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010g-followups
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/419
 verified_commit: null
 ---
 
@@ -181,6 +181,10 @@ change records and merge `origin/feat(example)/t3-code`'s records (`79cfa3706`).
 ## Decision needed
 
 None.
+
+## Delivery
+
+Draft PR [#419](https://github.com/ccheever/exact2/pull/419) into `feat(example)/t3-code`.
 
 ## Next action
 
