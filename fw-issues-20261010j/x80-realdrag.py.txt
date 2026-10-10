@@ -1,0 +1,21 @@
+# Real pointer drag over the X80 repro's rows via cliclick (CGEvents through the window server).
+import subprocess, sys, time, json
+out, win, wx, wy, col = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+cx = wx + (124 if col == "a" else 364)
+row = lambda i: wy + 32 + 98 + 41 * (i - 1)   # titlebar 32 pt; row centres 41 pt apart
+def cc(*a): subprocess.run(["cliclick", "-w", "40", *a], check=True)
+def shot(name): subprocess.run(["screencapture", "-x", "-l", win, "-o", f"{out}/{name}.png"], check=True)
+cc(f"c:{wx+700},{wy+600}")          # activate the window on its empty ground
+time.sleep(0.5)
+cc(f"m:{cx},{row(1)}")              # rest over row 1
+time.sleep(0.6); shot(f"real-{col}-1-rest")
+steps = [f"dm:{cx},{row(1) + d}" for d in range(4, 124, 4)]
+cc(f"dd:{cx},{row(1)}", *steps)     # press on row 1, drag in 4 pt steps to row 4, button still down
+time.sleep(0.6); shot(f"real-{col}-2-held-over-row4")
+cc(f"du:{cx},{row(4)}")             # release over row 4
+time.sleep(0.6); shot(f"real-{col}-3-released")
+cc(f"m:{cx},{row(4)+2}")            # one free move after the release
+time.sleep(0.6); shot(f"real-{col}-4-moved")
+cc(f"m:{wx+700},{wy+600}")          # leave the rows
+time.sleep(0.6); shot(f"real-{col}-5-away")
+print("done", col)
