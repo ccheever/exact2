@@ -93,6 +93,7 @@ component SettingsWindow
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
     providerVisit: number // audit-wave-followups FU-4: counts the root's provider links that changed the page's target
     paletteOpen: bool // audit-wave-followups FU-5: the command palette over Settings owns Escape (its Dialog prevents it)
+    chipOpen: bool // realinput-1010c-fixes RC-4: a skill chip's details over Settings own Escape (Base UI's Popover dismisses on it)
     editSettingsQueryRoot: action
     coreSearchKeyRoot: action
     corePickRoot: action
@@ -206,7 +207,7 @@ component SettingsWindow
   // Escape closes only itself (FU-5). While one owns it, Back gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
-  derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
+  derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != ""
   action editSettingsQuery(value: string)

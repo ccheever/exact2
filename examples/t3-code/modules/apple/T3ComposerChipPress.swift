@@ -177,6 +177,10 @@ final class T3ComposerChipPress {
             self.view = view
             super.init()
             setAccessibilityRole(.button)
+            // realinput-1010c-fixes RC-4: an NSAccessibilityElement reports itself disabled unless told otherwise
+            // (`isAccessibilityEnabled` is false by default), so Accessibility Inspector and VoiceOver read the
+            // chip's button as dimmed; the reference's PopoverTrigger is an enabled button.
+            setAccessibilityEnabled(true)
             setAccessibilityParent(view)
             setAccessibilityLabel("Skill \(press.styler?.displayLabel(chip) ?? chip.label). Show details")
         }

@@ -70,6 +70,11 @@ shape BrowserProfilesView
   wizard: BrowserImportWizardView
   defaults: BrowserDefaultsView
 
+// The Add profile menu's keyboard rows (menu-keys.contract), its enabled MenuItems in order (realinput-1010c-fixes RC-6):
+// Blank profile, then every browser it can import from, as Base UI's list navigation walks the menu's items. Disabled rows
+// ("Looking for browsers…", the limit, "Connect to an environment…") are not stops.
+fn bpAddItems(view: BrowserProfilesView): list<KmItem> = concat((view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []), (view.sourcesState == "ready" and view.canImport ? map(view.sources, (source) => KmItem(id=`browser-import-source-${source.id}`, label=source.name)) : []))
+
 keyframes bpSpin
   from rotate=0
   to rotate=360
@@ -111,7 +116,7 @@ component BrowserProfilesSetting
             LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
             text "Add profile" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
           KeyMenuOpen(menuId="browser-profiles-add-menu", armed=keyArmed, opened=keyOpened)
-          SkPopup(menuId="browser-profiles-add-menu", label="Add profile", width=216, list=false, endAlign=116, items=(view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []), keyed=keyed)
+          SkPopup(menuId="browser-profiles-add-menu", label="Add profile", width=216, list=false, endAlign=116, items=bpAddItems(view), keyed=keyed)
             SkMenuItem(keysId="browser-profiles-add-menu-keys", label="Blank profile", menuId="browser-profiles-add-menu", itemId="browser-profiles-blank", selected=false, check=false, destructive=false, disabled=(not view.hydrated or view.atLimit), choose=local("browser-profiles-create", ""))
             when view.atLimit
               SkMenuItem(keysId="browser-profiles-add-menu-keys", label="You’ve reached the profile limit", menuId="browser-profiles-add-menu", itemId="browser-profiles-limit", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
