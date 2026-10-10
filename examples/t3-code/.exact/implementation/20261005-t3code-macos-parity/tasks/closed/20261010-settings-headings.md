@@ -3,12 +3,12 @@ name: 20261010-settings-headings
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-settings-headings'
 pr_url: https://github.com/ccheever/exact2/pull/404
-verified_commit: null
+verified_commit: 917ddd3413b360e32d2d51090d41d479cbfff38d
 ---
 
 # Settings section and row titles as headings
@@ -18,7 +18,7 @@ verified_commit: null
 In T3 Code (`1e2ecbd975`) the Settings pages' section titles and some row titles are headings. On Settings › General,
 "New threads" is level 2, and Model, Permissions, Workspace and Submodules are level 3. In the clone they are plain text,
 and its Settings accessibility tree has no headings. Both builds of round 8 matched, so main did not cause this; it
-predates the round. Found by [adopt-main-fixes-r8](closed/20261010-adopt-main-fixes-r8.md) (#402).
+predates the round. Found by [adopt-main-fixes-r8](../closed/20261010-adopt-main-fixes-r8.md) (#402).
 
 ## Steps
 
@@ -132,6 +132,11 @@ children (`NodeViewMac.accessibilityChildren` is nil when `actsAsButton`), so a 
 it is filed, the EXACT2-GAPS entry takes its number, and the clone can nest the heading once main exposes a button's
 heading child. If the difference is accepted, nothing changes here. The rest of the task does not depend on this decision.
 
-## Next action
+## Delivery
 
-The coordinator decides the Legacy features heading ("Decision needed"), then reviews #404.
+Merged on 2026-10-10 as `917ddd341` (#404, squash) after an independent review and its repair round (three should-fix
+items: the Legacy features citation, the open difference listed, the visual evidence widened to every page). #403 landed
+on the base after that round's checks; the coordinator merged the base and ran the Contract-level checks again (Bun
+suite 4,373 pass, strict tsc, contract build, caps). No real-input rows. Open: Legacy features' h2 sits beside its
+button, not inside it, because the Mac host makes a button a leaf; that framework limit is checked against main and
+filed there separately.
