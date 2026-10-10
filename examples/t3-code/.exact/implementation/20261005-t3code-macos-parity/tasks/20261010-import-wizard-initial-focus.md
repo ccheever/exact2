@@ -137,13 +137,17 @@ lane's fixture home `target/t3-audit/lanes/import-wizard-initial-focus/browser-h
 
 ## Checks
 
-On `88f17dfb6` (this branch after merging `origin/feat(example)/t3-code` `db22a32a9`; the commit after it changes only this
-record), each once, all exit 0: `bun test examples/t3-code --timeout 60000` (4389 pass, 1 skip, 0 fail, 299 files);
-strict `tsc` on `app.ts`; `contract build` of `app.contract` (5988 slots, 7983 actions, 110240 nodes; 1380 lines); `git add -A
-&& bun scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests
---no-fail-fast` (3679 passed, 0 failed), `cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt --all --
---check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. No Rust or Swift changed, so no `cargo test -p t3-code-macos` or
-AppKit binary was run.
+Review round, on `5192052d5` (this branch after merging `origin/feat(example)/t3-code` `51d1b13db`; the commit after it
+changes only this record), each once, all exit 0: `bun test examples/t3-code --timeout 60000` (4411 pass, 1 skip, 0
+fail, 300 files); strict `tsc` on `app.ts`; `contract build` of `app.contract` (5989 slots, 7985 actions, 110240 nodes;
+1389 lines); `git add -A && bun scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo
+test --lib --bins --tests --no-fail-fast` (3679 passed, 0 failed), `cargo clippy --all-targets --keep-going -- -D
+warnings`, `cargo fmt --all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. This task changed no Rust or
+Swift, so no `cargo test -p t3-code-macos` or AppKit binary was run. During the round: the four touched or related test
+files (`import-wizard-initial-focus`, `browser-profiles`, `realinput-1010e-followups`, `realinput-1010c-fixes`: 50 pass),
+four mutants of `goTo`/`setGranted` (each fails a row), and one bundle build before the live drive.
+
+First round, on `88f17dfb6`: the same checks, all exit 0 (4389 pass, 1 skip, 0 fail, 299 files; 3679 cargo tests passed).
 
 ## Attempts and evidence
 
