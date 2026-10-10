@@ -68,7 +68,9 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X73 | On macOS Escape closes no `popover="auto"` while the window itself is the first responder: the host's popover Escape (`MenusMac.key`) answers only when the focus owner is a view inside the viewport, and an action's `blur()` (`PresenterMac.blurElement`: `makeFirstResponder(nil)`) makes the window the first responder; on the web Escape closes the top auto popover whatever has the focus, BODY included (found 2026-10-10 in realinput-1010c-fixes from a real-input session; main `issues/20261010-macos-popover-escape-after-blur.md` since 2026-10-10, filed by main PR [#401](https://github.com/ccheever/exact2/pull/401); reproduced on main `a10050516` in a one-file app, agent keys at no focus on macOS against the Exact web in Chrome; not fixed by open main PR #327; plan record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x73-macos-popover-escape-after-blur.md`) | The Pull Requests page's Filters: after an Escape in a submenu with the pointer outside its row (FW-3 drops the focus, as Base UI leaves it on BODY), a real second Escape left Filters open (realinput-1010c RC-3; an agent `type <row> key Escape` focuses its target first, so drives passed) | host | the dropped focus lands on a 1-pt rest box inside the Filters popover (`pr-filters-rest`: `tabindex=-1`, `aria-hidden`, outside both KeyMenus and the submenu's row; `pages-prs.contract` PrFiltersMenu `closeSub`), so the next Escape reaches the host's popover Escape (`20261010-realinput-1010c-fixes`); it goes when the host closes an auto popover on Escape at any focus. The other `blur()` calls were checked by reading (2026-10-10): none leaves an auto popover open that only the host's Escape closes. `PrPageBack` (`pages-prs.contract`) and `UsageKeys` (`pages-usage.contract`) blur and leave the page with nothing shown (a shown menu is `aria-modal`, or the page's Escape closes its popover first), and the next popover opens from a press or keys that give its trigger the focus; the menu and dialog openers (`diff.contract`, `markdown.contract`, `r4-surfaces.contract`, `r4-surfaces-files.contract`, `r6-device.contract`, `pages-pr-actions.contract`) blur for a data-module popup that takes the focus by `autofocus` and closes on its own `aria-keyshortcuts` Escape; the Browser URL field's `go` opens nothing. When the host is fixed, re-check these and remove the rest box |
 | X74 | On macOS a heading inside a button is not exposed: the host makes every button an accessibility leaf (`NodeViewMac.accessibilityChildren` returns nil when `actsAsButton`), so the button is an `AXButton` with no children; on the web Chrome keeps button › heading [level=2], for hand-written `<button><h2>` and the Exact web build alike, since ARIA's "children presentational" does not hide it there (found 2026-10-10 in settings-headings; main `issues/20261010-macos-a-heading-inside-a-button.md` since 2026-10-10, filed by main PR [#405](https://github.com/ccheever/exact2/pull/405); reproduced on main `d413487a8` in a one-file app, `tree --ax` on macOS against the Exact web in Chrome; not fixed by open main PR #327; plan record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x74-macos-heading-inside-button.md`) | Settings › General › Legacy features: the reference's `CollapsibleTrigger` (a button) holds `<h2>Legacy features</h2>` (settings-headings, #404) | host | an sr-only level-2 heading right before the button (`SettingsSrHeading`, settings-kit.contract; `settings-rows.contract` CoreSections): the heading list and levels match the reference, but the heading is the button's sibling, not its child ("Settings headings: a heading beside its button" below); it goes when the host exposes a heading inside a button |
 | X75 | Not an exact2 gap (declared behaviour, not filed): a second send on one mutation before the first's reply lands forgets the first's reply; natively the first call's pending `fetch` (and `native.later`, a fetch to `exact-native:`) then rejects with `FetchError` `Aborted`, and one superseded in the same turn never goes out, while on the web build (the JS target) the fetch completes and the code after the `await` runs; storage steps run to their end on both hosts (main `docs/reference.md` "A replaced answer waiting on a `fetch` is not stranded", `docs/agent-pitfalls.md` "A superseded send's fetch rejects natively and completes on the web build", LLP 1016 D5 as amended 2026-10-05). Checked 2026-10-10 on main `d413487a8` in a one-file app on macOS and the Exact web: a mutation that awaited nothing or storage finished 4 of 4 calls on both hosts; one that awaited a fetch finished 4 of 4 on the web and 2 of 4 natively, and the 2 superseded requests never reached the server. `analyze-send-twice` does not see it, because each action sends once. Open main PR #327 does not touch it. Evidence: [x75-two-sends-web-macos.png](https://raw.githubusercontent.com/ccheever/exact2/5dcf1f60e9b0c24fea18103b894a6ce5f0f5e40d/fw-issues-20261010f/x75-two-sends-web-macos.png), [x75-record.txt](https://raw.githubusercontent.com/ccheever/exact2/5dcf1f60e9b0c24fea18103b894a6ce5f0f5e40d/fw-issues-20261010f/x75-record.txt) | The Files search sent `local(…)` on `localChanged` when it took the focus and again on its first key, or on Escape and again on the blur that followed, in one turn. The drive log showed `forget request 731 (localChanged)`, and the files module never received the first request (`command` awaits `native.later` before its op). Found in right-panel-escape (#403) | runner/js runtime (declared) | the focus state stays in the window and is not sent (`shell-panels.contract` SurfacePanel `filesSearchAt` and `filesSearchFocus`; `r4-surfaces-files.contract` R4Explorer `searchKey`; right-panel-escape, #403). A send whose every reply matters gets its own mutation or `queue`, as `fileCommentChanged` does (audit-wave-followups FU-3) |
-| X76 | On macOS, Tab from a focused box that is no Tab stop (`tabindex=-1`) goes nowhere: the key-view loop (`PresenterMac.swift` `syncKeyViewLoop`) links only Tab stops and paragraphs, so `selectNextKeyView` from such a box finds no next view; on the web, Tab goes on to the next tabbable element after the focused one in tree order, the box's first tabbable descendant (found 2026-10-10 in import-wizard-initial-focus: an agent `type <popup> key Tab` left the focus on the wizard's popup in the clone, live drive 1; the cause read in the host's source; not reproduced on main in a one-file app and not filed: whether to reproduce and file it is the coordinator's decision, PR #409 "Decision needed") | The browser import wizard: after a step change its popup holds the focus, as Base UI's `restoreFocus: "popup"` leaves it, and Tab must reach the popup's first stop (Shift+Tab, the focus trap's guard, its last) | host | the popup's own `key` handler, only while the popup itself holds the focus (its own `focus`/`blur`), sends Tab to the first stop and Shift+Tab to the last (`browser-profiles.contract` BrowserImportWizard `popupKeys`; the stops are `browser-profiles-settings.ts` `wizardTabStops`); it goes when the host continues Tab from a focused box that is no stop; no visible difference meanwhile, but no issue number yet |
+| X76 | On macOS a right-click on unselected page text selects no word: `NodeView.menu(for:)` (`TextSelectionMac.swift`) opens the read-only text menu (LLP 1115 D8) only over an existing selection, and only a double or triple click selects a word; Chrome, a read-only `NSTextView` and WebKit select the word under a secondary click and offer Look Up and Copy for it (found 2026-10-10 in shell-context-menu as S1; main `issues/20261010-macos-right-click-selects-no-word.md` since 2026-10-10, filed by main PR [#410](https://github.com/ccheever/exact2/pull/410); reproduced on main `42fd5d99e` in a one-file app, the agent's secondary click on macOS against the Exact web in Chrome, and a `swiftc` AppKit and WebKit oracle; not fixed by open main PR #327; plan record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x76-macos-right-click-selects-no-word.md`) | The shell's context menu over unselected page text: the reference's Copy is enabled (Chromium selected the word), the clone's is disabled (shell-context-menu, #407) | host | none: the difference stays ("Text context menu" below, S1); it goes when the host selects the word on a secondary click |
+| X77 | On macOS an inline run's `contextmenu` never runs: the compiler accepts it and the web runs it, but the host dispatches `contextmenu` per view only (`MouseEventsMac.swift` `dispatchContextMenu`), and a run is asked only for `press` and `hover`; on macOS the agent's `tap <run> contextmenu` activates the run instead of right-clicking it (found 2026-10-10 in shell-context-menu as S2; main `issues/20261010-macos-inline-run-contextmenu.md` since 2026-10-10, filed by main PR [#410](https://github.com/ccheever/exact2/pull/410); reproduced on main `42fd5d99e` in a one-file app, the agent's secondary click on macOS against the Exact web in Chrome; not fixed by open main PR #327; plan record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x77-macos-inline-run-contextmenu.md`) | A Markdown table cell's web link (`TableCell` → `ChatRuns`, one text node): the reference opens the app's link menu (`externalLinkContextMenu.ts`), the clone the shell's Copy Link menu (shell-context-menu, #407) | host | paragraph, list, quote and heading links are laid out word by word (`FlowRuns`), each word a node, so their link menu opens; a table cell's link stays the difference ("Text context menu" below, S2); it goes when the host dispatches a run's `contextmenu` |
+| X78 | On macOS, Tab from a focused box that is no Tab stop (`tabindex=-1`) goes nowhere: the key-view loop (`PresenterMac.swift` `syncKeyViewLoop`) links only Tab stops and paragraphs, so `selectNextKeyView` from such a box finds no next view; on the web, Tab goes on to the next tabbable element after the focused one in tree order, the box's first tabbable descendant (found 2026-10-10 in import-wizard-initial-focus: an agent `type <popup> key Tab` left the focus on the wizard's popup in the clone, live drive 1; the cause read in the host's source; not reproduced on main in a one-file app and not filed: whether to reproduce and file it is the coordinator's decision, PR #409 "Decision needed") | The browser import wizard: after a step change its popup holds the focus, as Base UI's `restoreFocus: "popup"` leaves it, and Tab must reach the popup's first stop (Shift+Tab, the focus trap's guard, its last) | host | the popup's own `key` handler, only while the popup itself holds the focus (its own `focus`/`blur`), sends Tab to the first stop and Shift+Tab to the last (`browser-profiles.contract` BrowserImportWizard `popupKeys`; the stops are `browser-profiles-settings.ts` `wizardTabStops`); it goes when the host continues Tab from a focused box that is no stop; no visible difference meanwhile, but no issue number yet |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
@@ -685,6 +687,11 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
   muted nor heard, and media in subframes are not covered. WebKit pauses a muted element while its page is out of the
   window (another tab shown, Settings open) and plays it again when the page is shown, so a muted tab's media does not
   advance meanwhile (Chromium's muted background tab plays on); the tab still shows muted.
+- **Context menu (shell-context-menu).** WebKit's own menu, rebuilt as the shell's in `willOpenMenu`
+  (`T3ShellWebView.swift`): its Copy Link and Copy Image act on WebKit's hit element, which `willOpenMenu` does not name,
+  so Copy Link is offered on any link WebKit offers it on (no `parseSafeExternalUrl` check), and Select All turns off in an
+  empty field a moment after the menu opens (read from the page). A right-click past a field's text selects its last word
+  (WebKit), where Chromium selects nothing.
 - **Agent cursor.** Drawn as a layer of the page's view (so the screenshot, which is the page's own paint, leaves it out,
   as the reference's DOM overlay is left out of `capturePage`), with the reference's timings.
 
@@ -730,20 +737,76 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
   usage-metric-cost`: `"title": "Cost (C)"`; `tree usage-period-1`: `"title": "Past 24h (⇧⌘1)"`), not in `tree --ax`,
   whose description is `aria-description`'s. The tooltip itself shows only under a real pointer in an active app.
 
-## Text context menu: the desktop shell's, over selected text (workaround)
+## Text context menu: the desktop shell's wherever the page shows none (workaround; X76 and X77 filed on main)
 
-Task `20261010-realinput-1010d-followups` (RD-4). The T3 desktop shell answers a right-click the page leaves alone with its
-own menu (`DesktopWindow.ts` `installContextMenu`: spelling suggestions, Copy Link, Copy Image, then Cut, Copy, Paste and
-Select All by the page's edit flags). ExactKit answers a right-click on selected text with no authored `contextmenu` with the
-menu an NSTextView shows for read-only text (Look Up, Copy, Speech, Services; LLP 1115 D8). Contract cannot replace that
-menu short of a `contextmenu` on every text node, and an action has no command that copies the window's text selection.
-So the clone's module (`T3TextContextMenu.swift`) takes the right-click in a local monitor wherever ExactKit would show its
-text menu (the menu that carries Look Up) and pops the shell's in its place, on the same text node: Cut and Paste disabled,
-Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). The monitor ends the click
-there, so ExactKit's menu does not follow (the `contextmenu` AppKit rows send the click through `NSApp.sendEvent`, as the
-agent does). Under the agent it logs the items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
-ExactKit shows none (a right-click on text without a selection or on an empty area, which the reference answers with Cut,
-Copy and Paste disabled and Select All) and Copy Link over a link; a `contextmenu` on the window's root could carry them.
+Tasks `20261010-realinput-1010d-followups` (RD-4) and `20261010-shell-context-menu`. The T3 desktop shell answers every
+right-click the page leaves alone (`DesktopWindow.ts` `installContextMenu`, on the window, on windows the page opens and on
+every attached `<webview>`): on a misspelled word up to five suggestions or "No suggestions", over a safe link Copy Link,
+over an image Copy Image, then Cut, Copy, Paste and Select All by Chromium's edit flags. Contract has no window-wide hook for
+a `contextmenu` no node answered, and an action has no command that copies the window's text selection, so the clone's
+module finds the clicks itself (`T3TextContextMenu.swift`, template `T3ShellMenu.swift`):
+
+- A text input (a field, a textarea, the composer): a local right-click monitor takes the click (AppKit's editing menu would
+  open), focuses the input, selects the word or misspelling under the pointer and pops the shell's menu for it
+  (NSSpellChecker's guesses where the input checks spelling).
+- Selected page text: the monitor takes the click where ExactKit would show its read-only text menu (its menu carries Look
+  Up; LLP 1115 D8) and pops the shell's on the same text node.
+- Anywhere else: the click goes on; a node with a `contextmenu` or a context popover ends it, as `preventDefault` keeps
+  Electron's event from firing; an unanswered click goes up the responder chain, and a responder the module places after
+  the window's content view pops the shell's menu. Copy follows ExactView's Edit ▸ Speech ▸ Start Speaking validation
+  (enabled exactly while page text is selected), Copy Link an inline link run's accessibility URL, Copy Image the bitmap of
+  the image node's layer. These lean on ExactKit's present structure (the `ExactView` class name, its validation, the image
+  layer); a host change there takes the item away, not the menu, and another bitmap layer directly on a node (a
+  filtered box, a text shadow) would offer Copy Image too.
+- A Browser page and an HTML attachment's preview (`T3ShellWebView.swift`): WebKit's menu, rebuilt in `willOpenMenu`.
+
+Under the agent the module logs each menu (`t3.textmenu:`; the app's own, `t3.contextmenu:`) and tracks none. Three
+framework gaps were found here (one-file repros, each a Contract app with one view). Main PR
+[#410](https://github.com/ccheever/exact2/pull/410) checked them on main `42fd5d99e` on 2026-10-10: it filed S1 and S2
+as X76 and X77 and did not file S3.
+
+- **S1, X76 (filed on main). A secondary click on unselected text selects nothing.** Chromium on a Mac (and an NSTextView) selects the word under
+  the pointer, so the reference's Copy is enabled there; the clone's shell menu has Copy disabled. Repro: `text "Known
+  words here" testId="t"`; right-click "Known": Chrome selects "Known", the Mac host selects nothing
+  (`TextSelectionMac.swift` selects a word only on a double click). Reproduced with the agent's secondary click: the web
+  showed `selected=[Known]`, macOS `selected=[]`, and a double click on macOS selected "Known". A `swiftc` oracle
+  sent the same right-click to a read-only, selectable `NSTextView` and to a `WKWebView`; both selected "Known" and
+  offered Look Up "Known" and Copy. Main `issues/20261010-macos-right-click-selects-no-word.md` (main PR #410); plan
+  record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x76-macos-right-click-selects-no-word.md`;
+  evidence [x76-right-click-word-web-macos.png](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x76-right-click-word-web-macos.png),
+  [x76-record.txt](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x76-record.txt).
+- **S2, X77 (filed on main). An inline run's `contextmenu` is not dispatched.** The reference's Markdown web links have the app's own menu
+  (Link or Unlink from thread for a pull request, Open in integrated browser, Open in system browser, Copy Link;
+  `externalLinkContextMenu.ts`), and the clone's web link nodes carry it (`markdown.contract`, `external-link-menu.ts`).
+  A paragraph, list item, quote or heading that holds any link is drawn word by word (`FlowRuns`: `flow_tokens` in
+  `macos/src/markdown.rs` flows a block on any `href`, so a reply's plain paragraph with one link does too), and there
+  the link opens it. A Markdown table cell draws its runs inline in one text node (`ChatRuns` in `TableCell`, so a long
+  cell ends in one ellipsis at the column's edge), and ExactKit dispatches `contextmenu` per node only
+  (`MouseEventsMac.swift` `dispatchContextMenu`; a run takes `press` and `hover`), so a table cell's web link opens the
+  shell's menu (Copy Link from the run's accessibility URL) where the reference opens the link menu. (A cell's link
+  also looks different: no favicon, and underlined; the reference's has the favicon and no underline.) Repro: `text`
+  holding a run `text "site" href="https://example.com" contextmenu=act`; right-click "site": `act` never runs on macOS. Reproduced: on the web the run's `contextmenu`
+  ran, on macOS it did not, while a `press` on a run at the same point and a text node's and a `link` node's own
+  `contextmenu` ran on both. On macOS the agent's `tap <run> contextmenu` activates the run (presses it or follows
+  its `href`) instead of right-clicking it. Main `issues/20261010-macos-inline-run-contextmenu.md` (main PR #410);
+  plan record `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x77-macos-inline-run-contextmenu.md`;
+  evidence [x77-inline-run-contextmenu-web-macos.png](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x77-inline-run-contextmenu-web-macos.png),
+  [x77-record.txt](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x77-record.txt).
+- **S3 (checked, not filed). A node's `href` is not exposed to a module.** An inline run's accessibility element carries its `href` as its URL;
+  a node with an `href` (a `link`, or a `text` of its own) does not (`NodeViewMac.swift` `updateRoleAccessibility`), so
+  the shell's menu has no Copy Link over the clone's links that have no menu of their own (provider docs, licenses,
+  check details). Repro: `link href="https://example.com" testId="l"` with a text child; the node's
+  `accessibilityURL()` is nil. Verdict (2026-10-10, main PR #410): not an exact2 gap.
+  Main does file module API gaps where a module surface falls short (data modules' WebSocket send and timers, a
+  native module's storage roots under the agent). This would be a new surface, though: no module on any host is
+  given the page's nodes (LLP 1024 view modules, LLP 1067 data modules). The reference's shell gets the href from
+  Electron's `context-menu` params, not from anything Exact gives a module on the web. And the app writes every
+  href. A `contextmenu` action on a `link` or `text` node runs on macOS (the repro: `link contextmenu=1`, `node
+  contextmenu=1`) and can hand the href to the module. So the links with no menu of their own (provider docs,
+  licenses, check details) can get Copy Link that way, as an app change. Over an inline run the obstacle is X77.
+  Observed while checking, not filed and not checked with VoiceOver: read from another process, the `link` node is
+  an `AXLink` with no `AXURL`, and the inline run's accessibility element answers `kAXErrorInvalidUIElement`
+  (-25202) for every attribute. Record: [s3-record.txt](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/s3-record.txt).
 
 ## Not exact2 asks (stay in the app module)
 

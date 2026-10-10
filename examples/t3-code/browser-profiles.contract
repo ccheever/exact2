@@ -241,7 +241,7 @@ component BrowserImportWizard
     held = on
     track("browser-import-popup", on)
   // From the popup itself the web's Tab goes on to its first Tab stop and Shift+Tab (the focus trap's guard) round to its
-  // last; the Mac's key-view loop has no way on from a box that is no Tab stop (EXACT2-GAPS.md X76), so the popup's own
+  // last; the Mac's key-view loop has no way on from a box that is no Tab stop (EXACT2-GAPS.md X78), so the popup's own
   // keys take it there. Only while the popup holds the focus: a `focus`/`blur` here hears the popup alone, not its buttons.
   action popupKeys(k: string, e: KeyboardEvent)
     if held and k == "Tab" and wizard.tabFirst != ""

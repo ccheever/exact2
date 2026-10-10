@@ -88,7 +88,7 @@ on the confirm left the focus nowhere.
   the X have ids; no button autofocuses (`BiButton` lost `first`). Every tile, button, Allow, the X and the popup tell
   the root when they take and lose the focus (`track`, from `app.contract`'s `importWizardFocusMoved` through `T3Window`,
   `SettingsWindow` and `BrowserProfileDialogs`). While the popup itself holds the focus, its `key` handler sends Tab to
-  `tabFirst` and Shift+Tab to `tabLast` (EXACT2-GAPS X76: the Mac's key-view loop has no way on from a box that is no
+  `tabFirst` and Shift+Tab to `tabLast` (EXACT2-GAPS X78: the Mac's key-view loop has no way on from a box that is no
   Tab stop). The rows' options buttons have ids.
 - `app.contract` (RE-4's `importWizardFocus` kept as it was): `importWizardFocused` is the wizard element that holds the
   focus; `importWizardStepFocus` focuses `openFocus` as a wizard opens (`openedAt` past what the root last saw) and,
@@ -151,7 +151,7 @@ AppKit binary was run.
 | --- | --- | --- | --- |
 | Reference over CDP | T3 Code 1e2ecbd975 | every step recorded twice (the second with element rects for the images), Shift+Tab and Tab from the popup, the confirm's Cancel, Escape and Remove | [ref-focus.mjs](https://raw.githubusercontent.com/ccheever/exact2/a10c8d5b234409b51e37a37a6770357b53d4d93c/import-wizard-initial-focus/ref-focus.mjs.txt), [focus-record.txt](https://raw.githubusercontent.com/ccheever/exact2/28d74170d767434f4768e7589f7b164550e5b8ec/import-wizard-initial-focus/focus-record.txt) |
 | Before drives (agent) | `c03d7e908` (evidence base) | the same ops as the after drive; the focus as above | [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/c0cadd96c0536dc4ed15b1a631d5fe0f7dbd792d/import-wizard-initial-focus/drive.sh.txt) |
-| Live drive 1 (agent) | `28a44bf88` | opening, Cancel and the confirm right; two misses: Tab from the focused popup stayed on it (X76), and after "I’ve quit it" and after Try again the focus was nowhere: the screen went to Checking/Importing and back before the root's task fired, so a key made of the step's name came back to its value and the task disarmed | — |
+| Live drive 1 (agent) | `28a44bf88` | opening, Cancel and the confirm right; two misses: Tab from the focused popup stayed on it (X78), and after "I’ve quit it" and after Try again the focus was nowhere: the screen went to Checking/Importing and back before the root's task fired, so a key made of the step's name came back to its value and the task disarmed | — |
 | Live drive 2, the retry (agent) | `f009dac06` | every row as the reference (the popup's Tab and Shift+Tab; `focusKey` counts screen changes) | [focus-record.txt](https://raw.githubusercontent.com/ccheever/exact2/28d74170d767434f4768e7589f7b164550e5b8ec/import-wizard-initial-focus/focus-record.txt), [compose.py](https://raw.githubusercontent.com/ccheever/exact2/bfe66cecd5bff9ff033637c28434baaddbb06493/import-wizard-initial-focus/compose.py.txt) |
 | Review round: reference over CDP | T3 Code 1e2ecbd975 | scenario (a) twice: the X focused during Checking keeps the focus when Quit comes back; without the key, the popup | [ref-keep.mjs](https://raw.githubusercontent.com/ccheever/exact2/23d914a57396f0019b6feb96e5f2adf50980667e/import-wizard-initial-focus/ref-keep.mjs.txt) |
 | Review round: before and after drives (agent, one each) | `c03d7e908` / this branch | the first drive's ops plus scenario (a); after: the X kept, every other row as live drive 2 | [drive2.sh](https://raw.githubusercontent.com/ccheever/exact2/bd86a6f8f8c967988babd1faebed51072d5ee6fb/import-wizard-initial-focus/drive2.sh.txt), [focus-record-r2.txt](https://raw.githubusercontent.com/ccheever/exact2/00aecc21494bcac2783ced34240d3a306d2ebf28/import-wizard-initial-focus/focus-record-r2.txt), [x-kept.png](https://raw.githubusercontent.com/ccheever/exact2/0135b985042d84f0235f165e7534b921421e026c/import-wizard-initial-focus/x-kept.png), [compose2.py](https://raw.githubusercontent.com/ccheever/exact2/cccedf7bc417fe203883fa002720013ecb838b69/import-wizard-initial-focus/compose2.py.txt) |
@@ -182,12 +182,13 @@ An independent review of PR #409 found four should-fix problems:
    (Fix above); the reference over CDP confirms the X case.
 2. The tests used the pure helpers with synthetic facts only. Fixed: five rows drive the wizard through its ops.
 3. The PR body's Not done list lacked the removal fallback. Fixed: the PR body's list now equals this record's.
-4. X76 was declared from the host's source only, neither reproduced in a one-file app on main nor filed. Not changed by
+4. X78 (first declared as X76; the feature branch has since given X76 and X77 to shell-context-menu's gaps) was
+   declared from the host's source only, neither reproduced in a one-file app on main nor filed. Not changed by
    this task (no framework work or filing here): the row says so, and the PR asks the coordinator to decide.
 
 ## Decision needed
 
-- X76 (Tab from a focused box that is no Tab stop goes nowhere on macOS): reproduce it in a one-file app on main and
+- X78 (Tab from a focused box that is no Tab stop goes nowhere on macOS): reproduce it in a one-file app on main and
   file it, or keep it declared without an issue (the workaround leaves no visible difference). The coordinator's call
   under the framework-fix workflow.
 
@@ -197,4 +198,4 @@ Draft PR [#409](https://github.com/ccheever/exact2/pull/409) into `feat(example)
 
 ## Next action
 
-Coordinator: decide X76 (Decision needed); review the draft PR; run real-input step 1 in the next batch.
+Coordinator: decide X78 (Decision needed); review the draft PR; run real-input step 1 in the next batch.

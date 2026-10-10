@@ -35,4 +35,16 @@ describe('the editable sample', () => {
     expect(source).toContain('appearance="none"'); // the editor is focus:outline-none: no field look or ring
     expect(source).toContain('state prompt = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."');
   });
+  // shell-context-menu: the reference's editor (ComposerPromptEditorTiptap.tsx) sets spellCheck={false} only on its chips, so
+  // the composer and this sample underline a misspelling and the shell's menu suggests (T3TextContextMenu.swift). The Mac
+  // host checks a textarea's spelling unless it says spellcheck="false" (TextAreaMac.allowsInputSpellChecking); autocorrect
+  // stays off, as Chromium replaces no word while one types.
+  test('checks spelling as the composer does, with autocorrect off', async () => {
+    const line = async (file: string, start: RegExp) => (await Bun.file(new URL(file, import.meta.url)).text()).split('\n').find(entry => start.test(entry))!;
+    for (const textarea of [await line('settings-prompt-preview.contract', /^\s*textarea value=prompt /), await line('composer.contract', /^\s*textarea id="composer" /)]) {
+      expect(textarea).toBeDefined();
+      expect(textarea).not.toContain('spellcheck=');
+      expect(textarea).toContain('autocorrect="off"');
+    }
+  });
 });

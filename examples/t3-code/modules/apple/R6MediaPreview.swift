@@ -165,7 +165,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         // The page keeps painting and running while the window is covered (as the reference's frame does).
         if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
-        let web = WKWebView(frame: .zero, configuration: configuration)
+        let web = T3ShellWebView(frame: .zero, configuration: configuration) // the shell's context menu, as in the reference's frame (T3ShellWebView.swift)
         web.navigationDelegate = self
         web.uiDelegate = self
         // A page that declares no color-scheme renders light in a dark window, as the frame does.
