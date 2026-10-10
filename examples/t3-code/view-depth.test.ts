@@ -18,8 +18,9 @@
 // lldb at a forced overflow gives Lowerer::nodes 19,392 + node 512 and expr::compile 12,944 bytes (were 18,816 + 512 and
 // 12,720); the instrumented peak is 1,573 KiB at timeline-files.contract:39 (67 sites, 17 levels; 1,535 KiB on the old
 // compiler), which the old constants under-predicted by 37 KiB. With these, the model gives that peak exactly and is
-// 0 to 13 KiB over on the twelve deepest leaves. Two shallower leaves with handlers it does not count are under:
-// markdown.contract:692 by 36 KiB and shell-tip.contract:83 by 9 KiB, both at 1,320 KiB (record adopt-main-fixes-r7).
+// 0 to 13 KiB over on the twelve deepest leaves; of the 200 leaves the instrumented run listed, 13 whose nodes carry
+// handlers (whose statement frames the model does not count) are under by up to 40 KiB, all at or below 1,320 KiB,
+// 470 KiB under the budget (record adopt-main-fixes-r7).
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 
