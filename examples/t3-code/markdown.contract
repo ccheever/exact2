@@ -479,16 +479,18 @@ component FlowRuns
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
             PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start"
+        // Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost: `if (!href || !faviconHost)
+        // return;`); a mailto, irc, xmpp or fragment link is plain link text below, its click left to the shell's menu.
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start" and webLink(run.href)
           row contextmenu=linkMenu(run.href) flex-shrink=0 align-items="flex-start"
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
               TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
             text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start"
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and not (run.kind == "link-start" and webLink(run.href))
           when run.kind == "link" and webLink(run.href)
             text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
           when not (run.kind == "link" and webLink(run.href))
-            text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+            text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" or run.kind == "link-start" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
