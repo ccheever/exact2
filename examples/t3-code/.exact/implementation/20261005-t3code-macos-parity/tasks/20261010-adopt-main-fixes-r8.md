@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r8'
 pr_url: https://github.com/ccheever/exact2/pull/402
-verified_commit: 922ba1b5bf7743f86ffcae638be723aed9298275
+verified_commit: 883db992af711f19c727ef05911e01c4b0d0b170
 ---
 
 # Main adoption, round 8: merge current main into the T3 branch
@@ -68,11 +68,13 @@ drops main from the branch's ancestry; the content is already here.
   final checks.
 - `cdfd670ff`, `308668781`: after the checks and the records commit, main `d413487a8` (#401: the X73 issue file only)
   and the base `a1ade42f9` (X73 moved to main: plan records and one `EXACT2-GAPS.md` line) landed; both are Markdown
-  only and merged clean. On `308668781` the Bun suite (4,360 pass, 0 fail) and caps ran again.
+  only and merged clean (`git diff --name-only 922ba1b5b 308668781`: five Markdown files, no source file).
+- `450ec805a`, `883db992a`: this record and one `EXACT2-GAPS.md` line.
 
-On `308668781`: `git merge-base --is-ancestor origin/main HEAD` yes (origin/main `d413487a8`), and so for the base
-(`a1ade42f9`); `git diff origin/main -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'` empty. This PR is
-squash-merged like the others, so round 9 starts with `git merge -s ours d413487a8`.
+On `308668781` and on `883db992a`, after a fresh fetch: `git merge-base --is-ancestor origin/main <rev>` yes (origin/main
+`d413487a8`), and so for the base (`a1ade42f9`); `git diff origin/main <rev> -- ':!examples/t3-code' ':!Cargo.lock'
+':!Cargo.toml'` empty (evidence §1). On `883db992a` the Bun suite, caps and the five checks ran again (evidence §7).
+This PR is squash-merged like the others, so round 9 starts with `git merge -s ours d413487a8`.
 
 ## Each item of step 2
 
@@ -98,15 +100,16 @@ squash-merged like the others, so round 9 starts with `git merge -s ours d413487
 
 ## Acceptance results
 
-Evidence: [evidence.txt](https://raw.githubusercontent.com/ccheever/exact2/daa80409c7b971f288a317237c10fdea09c296cd/adopt-main-fixes-r8/evidence.txt)
-(§1 merge, §2 main's changes, §3 the heading guard, §4 Contract tests, §5 the drive, §6 checks);
+Evidence: [evidence.txt](https://raw.githubusercontent.com/ccheever/exact2/d946618e25737bef7c8dbb86747134b131d3223f/adopt-main-fixes-r8/evidence.txt)
+(§1 merge, up to main `d413487a8` on `308668781` and `883db992a`; §2 main's changes; §3 the heading guard; §4 Contract
+tests; §5 the drive; §6 checks on `922ba1b5b`; §7 the checks again on `883db992a`);
 [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/a9f6b1949fed74ab5a64261a6629182005990c80/adopt-main-fixes-r8/drive.sh.txt).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| The branch contains main | pass: `git merge-base --is-ancestor origin/main HEAD` on `922ba1b5b` with origin/main `a10050516` (`1f127a788` at the first merge), and on `308668781` with `d413487a8` | evidence §1; Adopted main |
-| The framework tree is main's | pass: the step 1 diff is empty on `c595a36b2`, `922ba1b5b` and `308668781` | evidence §1; Adopted main |
-| The five checks pass on the merged tree | pass on `922ba1b5b`: build, test (3,679 passed, 0 failed, 34 ignored, 95 suites), clippy, fmt, boot: all exit 0 | evidence §6 |
+| The branch contains main | pass: `git merge-base --is-ancestor origin/main <rev>` on `922ba1b5b` with origin/main `a10050516` (`1f127a788` at the first merge), and on `308668781` and `883db992a` with `d413487a8`, main's tip (also the base `a1ade42f9`) | evidence §1 |
+| The framework tree is main's | pass: the step 1 diff is empty on `c595a36b2`, `922ba1b5b`, `308668781` and `883db992a` | evidence §1 |
+| The five checks pass on the merged tree | pass on `922ba1b5b`: build, test (3,679 passed, 0 failed, 34 ignored, 95 suites), clippy, fmt, boot: all exit 0; again on `883db992a` (main `d413487a8`): all exit 0 | evidence §6, §7 |
 | The clone works | pass: Bun 4,360 pass / 1 skip / 0 fail; strict tsc; contract build; `t3-code-macos` lib 17; AppKit 37 of 37 (mermaid against a scratch T3 server) and `timeline-keyboard`; the live drive of shell, thread, composer, right panel, Settings and Settings › Project: screenshots pixel-identical before and after, trees identical apart from lane ids and the import label's role, no refusal or error in the logs | [shell](https://raw.githubusercontent.com/ccheever/exact2/94922100c7bf17de5b3b3254ac5ff1a0ef013d0b/adopt-main-fixes-r8/1-shell.png), [thread](https://raw.githubusercontent.com/ccheever/exact2/f3b75339268aa85327c49845f0234f522a105981/adopt-main-fixes-r8/2-thread.png), [composer](https://raw.githubusercontent.com/ccheever/exact2/f952a22c8e39efeea149331f6532743fb7000069/adopt-main-fixes-r8/4-composer.png), [right panel](https://raw.githubusercontent.com/ccheever/exact2/9a50bddbede0cd1c45d083b252caea7c650f774e/adopt-main-fixes-r8/5-right-panel.png), [Settings](https://raw.githubusercontent.com/ccheever/exact2/ccf04073f870b58112186b4a83920e2c196e3e3f/adopt-main-fixes-r8/6-settings.png), [Import scripts](https://raw.githubusercontent.com/ccheever/exact2/c97241860a4fb4305d0538dfde3d94c209932a92/adopt-main-fixes-r8/8-import-menu.png); evidence §5, §6 |
 | Each item of step 2 has an outcome | pass: the table above | this record |
 | Every heading says its level (main's default 2) | pass: `headings.test.ts` fails on `c595a36b2` (`r7-device.contract:181`, `settings-projects.contract:286`) and passes on `360e7132a`; the drive's tree shows the import label `presentation` | evidence §3, §5 |
@@ -127,6 +130,12 @@ against a scratch `t3 --mode web` server on the lane's spare port 16583 (stopped
 --tests --no-fail-fast` exit 0 (3,679 passed, 0 failed, 34 ignored, 95 suites); `cargo clippy --all-targets --keep-going
 -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0; `bun scripts/boot.mjs` exit 0. `app.contract`: 1,341 lines.
 
+Checks again on `883db992a` (main `d413487a8` and the base `a1ade42f9` merged; Markdown only since `922ba1b5b`), after
+the review asked for evidence of the last main: `bun test examples/t3-code --timeout 60000` 4,360 pass, 1 skip, 0 fail,
+exit 0; `git add -A && bun scripts/caps.mjs` exit 0; the five checks once, all exit 0 (`cargo test` 3,679 passed,
+0 failed, 34 ignored, 95 suites). No source changed, so tsc, contract build, the macOS lib, the bundle, the AppKit
+binaries and the drive were not rerun (evidence §7).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
@@ -136,6 +145,7 @@ against a scratch `t3 --mode web` server on the lane's spare port 16583 (stopped
 | After drive (the live drive) | the same bundle, lane `adopt-main-fixes-r8` | one try, completed | second column of each image; evidence §5 |
 | Reference | `ref-app.sh adopt-main-fixes-r8 16580`, the same provider settings | shots of the same states (its transcript, like the clone's, shows no rows under the provider error at this size); stopped | third column of each image |
 | Final bundle | `922ba1b5b` (main `a10050516` and base `5e3253cfc` merged) | builds, exit 0; not driven again (one live drive): the later merges add VideoArm's timebase read and #399's clone fixes, which #399 verified | evidence §6 |
+| Review fix: the evidence named main `a10050516` | `883db992a` (main `d413487a8`, base `a1ade42f9`) | evidence.txt re-uploaded: §1 runs the ancestry and framework-diff checks on `308668781` and `883db992a` against `d413487a8`; §7 reruns the Bun suite, caps and the five checks; the PR's rows link it | evidence §1, §7 |
 
 No row needs real input.
 
