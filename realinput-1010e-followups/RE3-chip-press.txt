@@ -1,0 +1,33 @@
+realinput-1010e-followups RE-3: a press on a skill chip, then Escape, then typing (2026-10-10)
+
+Reference over CDP (T3 Code 1e2ecbd975, lane realinput-1010e-followups): "$frontend-design now" (a chip once the draft is
+rebuilt), a click after "now", a click on the chip, Escape, then the key x (Playwright's mouse and keyboard):
+  start            text="Frontend Design\n now" focus=BODY selection={'type': 'text', 'anchor': 6, 'head': 6} popover=closed
+  click after now  text="Frontend Design\n now" focus=DIV[Message].tiptap.ProseMirror selection={'type': 'text', 'anchor': 6, 'head': 6} popover=closed
+  click chip       text="Frontend Design\n now" focus=DIV.relative.flex selection={'type': 'node', 'anchor': 1} popover=open
+  Escape           text="Frontend Design\n now" focus=BUTTON[Skill Frontend Design. Show details].inline-flex.h-[1.41em] selection={'type': 'node', 'anchor': 1} popover=closed
+  type x           text="x now" focus=DIV[Message].tiptap.ProseMirror selection={'type': 'text', 'anchor': 2, 'head': 2} popover=closed
+
+So the press selects the chip (ProseMirror's NodeSelection of the atom, from 1 to 2), the popover takes the focus, Escape
+gives it to the chip's button with the chip still selected (no caret is drawn), and typing replaces the chip: "x now".
+(STATUS expected the caret to stay after "now"; the reference does not do that.)
+
+Clone: the chip is its hidden source text ($frontend-design) drawn as a pill. A press reached the text view, which put a
+caret at the chip's edge (realinput-1010e: position 0) and "x" went in front of it. Now the press on a skill chip is the
+editor's: T3ComposerChipPress selects the chip's whole source and the text view does not see the press.
+
+AppKit test macos/tests/composer chippress.swift testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt (the Settings
+prompt sample, editable as the reference's; the caret at the end, a real click on the chip through NSApp.sendEvent):
+  before (T3ComposerChipPress.swift of 4c13b440f):
+    Test Case '-[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt]' started.
+    examples/t3-code/macos/tests/composer/chippress.swift:126: error: -[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt] : XCTAssertEqual failed: ("{127, 0}") is not equal to ("{4, 16}") - the press selects the chip, as ProseMirror's NodeSelection
+    examples/t3-code/macos/tests/composer/chippress.swift:129: error: -[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt] : XCTAssertEqual failed: ("{127, 0}") is not equal to ("{4, 16}") - and the chip stays selected
+    examples/t3-code/macos/tests/composer/chippress.swift:132: error: -[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt] : XCTAssertEqual failed: ("Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) before shipping.x") is not equal to ("Use x to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) before shipping.") - typing replaces the chip
+    examples/t3-code/macos/tests/composer/chippress.swift:133: error: -[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt] : XCTAssertEqual failed: ("{128, 0}") is not equal to ("{5, 0}") - with the caret after what was typed
+    examples/t3-code/macos/tests/composer/chippress.swift:138: error: -[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt] : XCTAssertTrue failed - the pressed chip's editor takes the focus with the chip selected
+    Test Case '-[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt]' failed (0.018 seconds).
+    Composer: 57 tests, 5 failures
+  after:
+    Test Case '-[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt]' started.
+    Test Case '-[T3composerTests.ComposerChipPressTests testAPressSelectsTheChipSoTypingAfterEscapeReplacesIt]' passed (0.024 seconds).
+    Composer: 57 tests, 0 failures
