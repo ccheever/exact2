@@ -62,6 +62,7 @@ in bold are open (in `../tasks/`); the rest are closed and carry the workaround.
 | [X74](closed/20261010-x74-macos-heading-inside-button.md) | [20261010-macos-a-heading-inside-a-button.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-a-heading-inside-a-button.md) (main #405) | [settings-headings](../tasks/closed/20261010-settings-headings.md) | Legacy features' level-2 heading is an sr-only heading right before its button (`SettingsSrHeading`, `settings-kit.contract`; `settings-rows.contract` `CoreSections`), not inside it (#404) |
 | [X76](closed/20261010-x76-macos-right-click-selects-no-word.md) | [20261010-macos-right-click-selects-no-word.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-right-click-selects-no-word.md) (main #410) | [realinput-1010d-followups](../tasks/closed/20261010-realinput-1010d-followups.md) (RD-4), **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | None: over unselected page text the shell menu's Copy stays disabled, where the reference enables it (#407) |
 | [X77](closed/20261010-x77-macos-inline-run-contextmenu.md) | [20261010-macos-inline-run-contextmenu.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-inline-run-contextmenu.md) (main #410) | **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | Paragraph links are laid out word by word (`FlowRuns`), so their link menu opens; a Markdown table cell's web link opens the shell's Copy Link menu instead of the link menu (#407) |
+| [X79](closed/20261010-x79-macos-tab-from-a-focused-box.md) | [20261010-macos-tab-from-a-focused-box.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-tab-from-a-focused-box.md) (main #411) | **[import-wizard-initial-focus](../tasks/20261010-import-wizard-initial-focus.md)** | While the import wizard's popup itself holds the focus, its own `key` handler sends Tab to the first stop and Shift+Tab to the last (`popupKeys`, `browser-profiles.contract`; stops from `wizardTabStops`); no visible difference (#409) |
 | X67 (no record) | [20261009-compiler-small-stack-depth.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-compiler-small-stack-depth.md) ([#320](https://github.com/ccheever/exact2/issues/320)) | [view-depth-under-test-stack](../tasks/closed/20261009-view-depth-under-test-stack.md), **[clone-on-exact2-main](../tasks/20261005-clone-on-exact2-main.md)** | The clone's views were flattened under main's 2 MiB test-thread stack (#382) |
 | X68 (no record) | [20261009-elements-from-point-read.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-elements-from-point-read.md) ([#321](https://github.com/ccheever/exact2/issues/321)) | [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) (U18) | The theme editor's Inspect is not built (U18) |
 | side, from X26 (no record) | [20261009-macos-menu-stalls-native-work.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-macos-menu-stalls-native-work.md) ([#292](https://github.com/ccheever/exact2/issues/292)) | [adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md) | `T3MenuTurn` keeps native work running while an `NSMenu` tracks; fix in open PR [#327](https://github.com/ccheever/exact2/pull/327) (partial) |
@@ -280,3 +281,16 @@ the page's nodes, and a `contextmenu` action on the link node already hands the 
 | --- | --- | --- |
 | X76 | `issues/20261010-macos-right-click-selects-no-word.md` | macOS: a right-click on unselected page text selects no word, so no text menu opens |
 | X77 | `issues/20261010-macos-inline-run-contextmenu.md` | macOS: an inline text run's `contextmenu` never runs; only a node's own handler does |
+
+### Filed on main, 2026-10-10, sixth round
+
+Main PR [#411](https://github.com/ccheever/exact2/pull/411) (merged as `294a17827`) filed this as a main `issues/` file.
+It was reproduced on main `474999b9f` in one one-file app, with the agent's Tab and Shift+Tab sent to the focused box on
+macOS against the Exact web in Chrome, and checked against a hand-built AppKit window (a `swiftc` oracle). Until then it
+was `EXACT2-GAPS.md`'s X79 row, declared from the host's source after import-wizard-initial-focus's live drive (#409,
+"Decision needed"). It is not the focus trap (X53, `issues/20261009-gui-dialog-action-commands.md`), and open main PR
+#327 does not change it.
+
+| Gap | Main issue | Title |
+| --- | --- | --- |
+| X79 | `issues/20261010-macos-tab-from-a-focused-box.md` | macOS: Tab from a focused box that is no Tab stop (tabindex=-1) goes nowhere |
