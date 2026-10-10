@@ -343,7 +343,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       else if (contents?.state !== 'error') code.contentsDue.set(contentsKey, { path, gap: index });
       return '';
     }
-    case 'row': {
+    case 'row': case 'drag': {
       // DiffRow's commands: `diffreview|expand|<gap>|<path>`, and the gutter's drags (diff-line-drag.ts): `drag:<side>[:shift]`
       // and `gutter:<side>` on a press on a line number or the "+", `to` with the cell id under the pointer, `end` on the release.
       const [, id = '', n = '', path = ''] = fields(value, 4), [action = '', side = '', shift = ''] = id.split(':');

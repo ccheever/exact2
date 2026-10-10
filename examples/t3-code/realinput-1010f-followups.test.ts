@@ -17,6 +17,15 @@ describe('RF-3: the gutter hears the pointer', () => {
     expect(cell).not.toContain('press=pick');
     expect(cell).toContain('elementFromPoint(e.clientX, e.clientY)');
   });
+  test('a drag\'s press, moves and release go out in turn on their own queued send, in both panels', () => {
+    const app = source('app.contract');
+    expect(app).toContain('mutation lineDragChanged as shape Change queue refreshes data');
+    expect(app).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end")\n');
+    expect(app).toContain('      send lineDragChanged = command(op, id, value, n)');
+    expect(app).toContain('    else if op == "pr-code-drag"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0)');
+    const code = source('pages-pr-code.contract');
+    expect(code).toContain('    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end"\n      local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)');
+  });
   test('each cell carries the id elementFromPoint names it by, as the panels parse it', () => {
     expect(cell).toContain('row id=`dl:${side}:${line}:${path}`');
     expect(cell).toContain('overId = `dl:${side}:${line}:${path}`');

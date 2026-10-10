@@ -160,7 +160,11 @@ component DiffCell
       overId = `dl:${side}:${line}:${path}`
       command("diffreview", (gutter ? `gutter:${side}` : e.shiftKey ? `drag:${side}:shift` : `drag:${side}`), path, line)
   action move(e: PointerEvent)
-    if dragging
+    // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
+    if dragging and e.buttons == 0
+      dragging = false
+      command("diffreview", "end", path, line)
+    else if dragging
       let hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "" }
       if hit != "" and hit != overId
         overId = hit
