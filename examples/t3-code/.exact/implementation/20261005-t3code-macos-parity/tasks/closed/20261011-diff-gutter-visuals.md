@@ -1,21 +1,21 @@
 ---
 name: 20261011-diff-gutter-visuals
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-gutter-visuals
 pr_url: https://github.com/ccheever/exact2/pull/416
-verified_commit: null
+verified_commit: 2489c7c27434bd7e795c4f5559782111601967ee
 ---
 
 # The diff gutter's selection colour and '+' position
 
 ## Outcome
 
-[realinput-1010f-followups](20261010-realinput-1010f-followups.md) RF-3 (#413) gave the diff gutter its line drag. While
+[realinput-1010f-followups](../20261010-realinput-1010f-followups.md) RF-3 (#413) gave the diff gutter its line drag. While
 comparing it with T3 Code (`1e2ecbd975`) over CDP, the build saw two visual differences it did not change:
 
 1. Selected lines (a click on a line number, or a drag across numbers) are amber in the clone and blue in the reference.
@@ -127,6 +127,12 @@ were not run. The bundle for the live drive was built from `149170af0` (the code
 
 Draft PR [#416](https://github.com/ccheever/exact2/pull/416) into `feat(example)/t3-code`.
 
+## Delivery
+
+Merged on 2026-10-11 as `2489c7c27` (#416, squash); the independent review found nothing to fix. No real-input rows.
+Two differences the build saw outside its rows are
+[diff-gutter-selection-followups](../20261011-diff-gutter-selection-followups.md).
+
 ## Next action
 
-The coordinator reviews the draft PR.
+Closed.
