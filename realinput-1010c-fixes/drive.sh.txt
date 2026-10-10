@@ -1,0 +1,80 @@
+#!/bin/zsh
+# One drive of the clone for realinput-1010c-fixes. Usage: drive.sh before|after
+# before: the feature-branch tip f0aaaa56d built in t3-code-ri1010c-before; after: this worktree's build. Same steps, same size.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes
+S=$W/target/ri1010c/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-ri1010c-before; LANE=realinput-1010c-fixes-before; else ROOTDIR=$W; LANE=realinput-1010c-fixes; fi
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  'tap "Dismiss notification"' "clock +600 real"
+  'tap "Dismiss"' "clock +600 real"
+  # RC-5 (agent hover only: the agent's hover is hit-tested, so it cannot pass through the 4 pt gap a real pointer crosses).
+  "tap open-usage" "clock +2000 real"
+  "tap usage-metric-cost" "clock +3000 real"
+  "tap usage-unpriced hover" "clock +700 real"
+  "screenshot $S/rc5-1-hover-info.png window"
+  "layout usage-unpriced" "layout usage-seg-pop-unpriced"
+  "tap usage-seg-pop-unpriced hover" "clock +700 real"
+  "screenshot $S/rc5-2-hover-popup.png window"
+  "logs"
+  "type t3-code key Escape" "clock +600 real"
+  "type t3-code key Escape" "clock +1500 real"
+  # RC-2: Shift+click adds Claude Sonnet 5.5, a second Shift+click removes it; the label shrinks below the raster size.
+  "tap model-picker" "clock +800 real"
+  "tap model-claude-sonnet-5-5 modifiers Shift" "clock +800 real"
+  "screenshot $S/rc2-1-added.png window"
+  "tree model-picker"
+  "tap model-claude-sonnet-5-5 modifiers Shift" "clock +800 real"
+  "screenshot $S/rc2-2-removed.png window"
+  "tree model-picker"
+  "tap dismiss-model-picker" "clock +600 real"
+  # RC-4 (composer): the heading, then the chip, then a real-path Escape (a target that takes no focus).
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap draft-hero-heading" "clock +300 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "state"
+  "screenshot $S/rc4-1-chip-open.png window"
+  "type chip-popover key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4-2-chip-escape.png window"
+  # RC-6 (Add profile by keys), then RC-4 (the Settings sample chip).
+  "tap connection-settings" "clock +1200 real"
+  "tap settings-integrations" "clock +1500 real"
+  "type browser-profiles-add key ArrowDown" "clock +2000 real"
+  "state"
+  "screenshot $S/rc6-0-down1.png window"
+  "type browser-profiles-setting key ArrowDown" "clock +500 real"
+  "state"
+  "screenshot $S/rc6-1-down2.png window"
+  "type browser-profiles-setting key ArrowDown" "clock +500 real"
+  "state"
+  "screenshot $S/rc6-2-down3.png window"
+  "type browser-profiles-setting key Escape" "clock +500 real"
+  "tap settings-appearance" "clock +1200 real"
+  "tap prompt-font-preview down at 90 13" "tap up" "clock +1000 real"
+  "screenshot $S/rc4-3-settings-chip.png window"
+  "type chip-popover key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4-4-settings-escape.png window"
+  "type t3-code key Escape" "clock +1000 real"
+  # RC-3: Filters › Author by the pointer, the pointer into Search authors, Escape, ↓, then a real-path Escape.
+  "tap open-pull-requests" "clock +2500 real"
+  "tap pull-requests-filters" "clock +600 real"
+  "tap pr-filter-author hover" "clock +300 real"
+  "tap pr-filter-author" "clock +600 real"
+  "tap pr-author-search hover" "clock +300 real"
+  "tap pr-author-search" "clock +300 real"
+  "type pr-author-search key Escape" "clock +500 real"
+  "state"
+  "screenshot $S/rc3-1-author-escape.png window"
+  "type pr-filters-layer key ArrowDown" "clock +300 real"
+  "state"
+  "type pr-filters-layer key Escape" "clock +600 real"
+  "state"
+  "screenshot $S/rc3-2-second-escape.png window"
+)
+print -rl -- "${ops[@]}" > $S/ops.txt
+T3_BROWSER_IMPORT_HOME=$A/lanes/$LANE/browser-home EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16520 --epoch 2026-10-10T06:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
