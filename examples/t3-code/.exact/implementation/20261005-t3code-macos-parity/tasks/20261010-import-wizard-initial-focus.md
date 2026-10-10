@@ -114,6 +114,16 @@ lane's fixture home `target/t3-audit/lanes/import-wizard-initial-focus/browser-h
 - `browser-profiles.test.ts`: the confirm's view carries the profile's id while open and none after.
 - `realinput-1010e-followups.test.ts` (RE-4's task, unchanged) and `realinput-1010c-fixes.test.ts` pass as they were.
 
+## Checks
+
+On `88f17dfb6` (this branch after merging `origin/feat(example)/t3-code` `db22a32a9`; the commit after it changes only this
+record), each once, all exit 0: `bun test examples/t3-code --timeout 60000` (4389 pass, 1 skip, 0 fail, 299 files);
+strict `tsc` on `app.ts`; `contract build` of `app.contract` (5988 slots, 7983 actions, 110240 nodes; 1380 lines); `git add -A
+&& bun scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests
+--no-fail-fast` (3679 passed, 0 failed), `cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt --all --
+--check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. No Rust or Swift changed, so no `cargo test -p t3-code-macos` or
+AppKit binary was run.
+
 ## Attempts and evidence
 
 | Attempt | Commit | Result | Proof |
