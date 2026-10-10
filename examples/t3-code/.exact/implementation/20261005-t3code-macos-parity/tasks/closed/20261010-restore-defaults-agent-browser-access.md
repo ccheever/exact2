@@ -3,12 +3,12 @@ name: 20261010-restore-defaults-agent-browser-access
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-restore-defaults-agent-browser-access
 pr_url: https://github.com/ccheever/exact2/pull/379
-verified_commit: null
+verified_commit: 88a2ceed58e547c6388ba9d764ece73ffc3e91f0
 ---
 
 # Restore defaults also lists and resets "Agent browser access"
@@ -136,3 +136,7 @@ and the final checks re-run on `d526a4b48`. No live drive: no visible change.
 ## Next action
 
 Review and merge.
+
+## Delivery
+
+Merged on 2026-10-10 as `88a2ceed5` (#379, squash) after an independent review and its repair round.
