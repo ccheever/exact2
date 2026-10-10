@@ -1,0 +1,63 @@
+// import-wizard-initial-focus, review round: scenario (a) on the reference. Brave reads as running (the lane's
+// foreign-host SingletonLock), so I've quit it goes Quit → Checking → Quit. Pressing Tab while Checking shows puts the
+// focus on the close X (the popup's only Tab stop then); the X is the same element across the steps, so Base UI keeps
+// the focus on it when Quit comes back (restoreFocus acts only on a removed element). The control run presses nothing:
+// the focus stays on the popup. Usage: node ref-keep.mjs <cdpPort> <out.json> [shot.png]. Never closes the browser.
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, outFile] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+await page.setViewportSize({ width: 1280, height: 840 });
+const log = [];
+const state = async (label) => {
+  const s = await page.evaluate(() => {
+    const a = document.activeElement;
+    const dialog = [...document.querySelectorAll('[role=dialog]')].find((d) => d.getAttribute('data-slot') === 'dialog-popup') ?? null;
+    const describe = (e) => {
+      if (!e) return null;
+      if (e === document.body) return 'BODY';
+      if (e === dialog) return `${e.nodeName}[role=${e.getAttribute('role')}] (the popup itself)`;
+      const label = e.getAttribute('aria-label');
+      return `${e.nodeName}${label ? `[aria-label=${label}]` : ''} "${(e.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 48)}"`;
+    };
+    return { active: describe(a), focusVisible: a?.matches?.(':focus-visible') ?? false, dialogTitle: dialog?.querySelector('h2')?.innerText ?? null };
+  });
+  log.push({ label, ...s });
+  console.log(JSON.stringify({ label, ...s }));
+};
+const click = async (locator) => { const b = await locator.boundingBox(); await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
+const dialog = () => page.locator('[role=dialog]');
+const openBrave = async () => {
+  await click(page.getByRole('button', { name: 'Add profile' }));
+  await page.waitForTimeout(700);
+  await click(page.getByRole('menuitem', { name: 'Brave' }));
+  await page.waitForTimeout(1500);
+};
+page.setDefaultTimeout(8000);
+console.log('connected', page.url());
+if (!page.url().endsWith('#/settings/integrations')) await page.goto(new URL('#/settings/integrations', page.url()).href);
+await page.waitForTimeout(2500);
+
+await openBrave();
+await state('Brave: open on Quit');
+await click(dialog().getByRole('button', { name: 'I’ve quit it' }));
+await page.keyboard.press('Tab');
+await state('Brave: I’ve quit it, then Tab at once (Checking)');
+await page.waitForTimeout(1500);
+await state('Brave: after the recheck (Quit again), the X held the focus through the change');
+if (process.argv[4]) await page.screenshot({ path: process.argv[4] });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(800);
+
+await openBrave();
+await click(dialog().getByRole('button', { name: 'I’ve quit it' }));
+await state('Control: I’ve quit it, no key');
+await page.waitForTimeout(1500);
+await state('Control: after the recheck (Quit again)');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(800);
+fs.writeFileSync(outFile, JSON.stringify(log, null, 2));
+process.exit(0);
