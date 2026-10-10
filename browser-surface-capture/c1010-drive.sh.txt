@@ -1,0 +1,77 @@
+#!/bin/zsh
+# browser-surface-capture, fix round of realinput-1010c (agent mode, window images; not committed).
+# Usage: drive.sh <run name> <before|after>
+#   before: the bundle the real-input session drove (built from a63794adb), kept in target/fix1010c/before-dev (EXACT_MAC_BIN)
+#   after:  this worktree's build
+# Ports (lane base 16700): the embedded server 16702, the fixture 16703 (already serving, started for the reference drive).
+# Provider state equals the reference lane's: no provider (both CLIs pinned to a missing path).
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture
+F=$W/target/fix1010c
+L=$W/target/capture-lane/lane
+# The audit lane's data (the reference lane's twin): the "Verification fixture" project and thread, and the private
+# git project `work` (feature/audit); a fresh copy of its clone home per run.
+AL=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/browser-surface-capture
+P=${1:?run}; MODE=${2:?before|after}; PART=${3:-all}; OUT=$F/runs/$P; rm -rf $OUT; mkdir -p $OUT
+BUN=$HOME/.bun-1.4.2/bin/bun
+export EXACT_APP_DIR=$W/examples/t3-code
+if [ "$MODE" = before ]; then export EXACT_MAC_BIN="$F/before-dev/standalone/T3 Code (Exact)" EXACT_ASSETS=$F/before-dev/capture; fi
+mkdir -p $F/homes
+export T3_LOCAL_HOME=$F/homes/$P T3_LOCAL_PORT=16702 T3CODE_TELEMETRY_ENABLED=false
+export CODEX_HOME=$AL/codex CLAUDE_CONFIG_DIR=$AL/claude
+export XDG_CONFIG_HOME=$AL/xdg/config XDG_DATA_HOME=$AL/xdg/data XDG_STATE_HOME=$AL/xdg/state XDG_CACHE_HOME=$AL/xdg/cache
+export T3_REMOTE_OPEN_LOG=$OUT/opened-urls.txt
+export PATH=$L/bin:$HOME/.bun-1.4.2/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export T3_LOCAL_RUNTIME_DIR=$L/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64
+rm -rf $T3_LOCAL_HOME; cp -R $AL/clone-t3-home $T3_LOCAL_HOME
+cat > $T3_LOCAL_HOME/userdata/settings.json <<JSON
+{
+  "enableProviderUpdateChecks": false,
+  "providers": { "cursor": { "enabled": false }, "grok": { "enabled": false }, "opencode": { "enabled": false } },
+  "providerInstances": {
+    "claudeAgent": { "driver": "claudeAgent", "enabled": true, "config": { "customModels": [], "binaryPath": "$L/bin/absent/claude", "homePath": "", "launchArgs": "", "autoCompactWindow": "" } },
+    "codex": { "driver": "codex", "enabled": true, "config": { "binaryPath": "$L/bin/absent/codex", "homePath": "", "shadowHomePath": "", "launchArgs": "", "customModels": [] } }
+  }
+}
+JSON
+waitline() { while [ $(cat $OUT/agent.jsonl 2>/dev/null | wc -l) -lt $1 ]; do sleep 0.2; done; }
+S=$OUT/shots; mkdir -p $S
+STEP=("clock +16")
+SETUP=("clock +15000 real" "clock +6000 real"
+  # row 6: the header's Toggle right panel hovered, then pressed (it leaves the header as the panel opens)
+  "tap toggle-right-panel hover" "clock +800 real" "tap toggle-right-panel" "clock +1500 real"
+  "tap surface-browser" "clock +3000 real"
+  "type browser-url 127.0.0.1:16703" "type browser-url key Enter" "clock +4000 real" "screenshot $S/00-page.png window"
+  # the server's "Nightly needs the beta mobile app" notice covers the panel's top right: dismissed
+  "tap toast-dismiss-1" "clock +800 real"
+  # row 7's draft: one chip "101"
+  "tap browser-annotate" "clock +2000 real" "tap browser-page clicks 1 at 120 220" "clock +1500 real"
+  "type browser-page 101" "clock +800 real" "type browser-page key Enter" "clock +4000 real" state
+)
+MID=(  # row 2 (and 6): Float; the pill from the dot onto Pop into separate window; the pointer onto the page
+  # (the pointer leaves the toggle first, as a person's goes to Float: an agent's pointer rests until the next hover)
+  "tap browser-url hover" "clock +600 real"
+  "tap browser-float" "clock +2500 real" tree "screenshot $S/01-float.png window"
+  "tap browser-mini-handle hover" "clock +800 real" "screenshot $S/02-pill-dot.png window"
+  "tap browser-mini-window hover" "clock +800 real" tree "screenshot $S/03-pill-button.png window"
+  "tap browser-mini-page hover" "clock +800 real" "screenshot $S/04-pill-left.png window"
+  # row 3: a (-200, -100) drag of the handle in four moves, the clock moving between them as a person's does
+  layout
+  "tap browser-mini-handle down" "tap move by -50 -25 over 40" "${STEP[@]}" "tap move by -50 -25 over 40" "${STEP[@]}" "tap move by -50 -25 over 40" "${STEP[@]}" "tap move by -50 -25 over 40" "${STEP[@]}" "tap up"
+  "clock +1500 real" layout "screenshot $S/05-dragged.png window"
+  # row 4: the north-west grip 80 pt outward in four moves
+  "tap browser-mini-resize-northwest down" "tap move by -20 -20 over 40" "${STEP[@]}" "tap move by -20 -20 over 40" "${STEP[@]}" "tap move by -20 -20 over 40" "${STEP[@]}" "tap move by -20 -20 over 40" "${STEP[@]}" "tap up"
+  "clock +1500 real" layout "screenshot $S/06-resized.png window"
+  "tap browser-mini-handle hover" "clock +800 real" "tap browser-mini-restore" "clock +2500 real")
+TAIL=(  # row 1: Annotate and a real Escape key in the page
+  "tap browser-annotate" "clock +2000 real" tree "screenshot $S/07-annotating.png window"
+  "type browser-page key Escape" "clock +2500 real" tree logs "screenshot $S/08-escape.png window"
+  # row 7: another thread, so the work draft is a sidebar draft row
+  'tap "Timeline verification"' "clock +3000 real" tree "screenshot $S/09-sidebar-draft.png window")
+if [ "$PART" = tail ]; then OPS=("${SETUP[@]}" "${TAIL[@]}"); else OPS=("${SETUP[@]}" "${MID[@]}" "${TAIL[@]}"); fi
+cd $W
+$BUN scripts/agent.mjs macos --json --size 1280x840 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err &
+AG=$!; echo "agent pid $AG" > $OUT/pids.txt
+waitline 1
+env -i HOME=$AL/home USER=$USER PATH=/usr/bin:/bin TMPDIR="$TMPDIR" T3CODE_TELEMETRY_ENABLED=false $T3_LOCAL_RUNTIME_DIR/t3 app $AL/projects/work --base-dir $T3_LOCAL_HOME > $OUT/t3-app.out 2>&1; echo "t3 app exit $?" >> $OUT/pids.txt
+wait $AG; echo "agent exit $?" >> $OUT/pids.txt
+echo DRIVE-DONE
