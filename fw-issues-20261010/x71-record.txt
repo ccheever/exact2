@@ -1,0 +1,106 @@
+X71 record: a node's pointermove takes its ancestors' pointerdown (pointer events do not bubble)
+exact2 main abc1eadff885e203b68021df6dea76c3d48faf20; PR #327 head 14493d25343529c47938085263935d5b30535071
+macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39 (the agent's and the oracle's)
+
+== app.contract (bun scripts/exact.mjs new <dir>; app.ts exports an empty sources) ==
+component X71app
+  state downs = 0
+  state moves = 0
+  state picked = "-"
+  action rootDown
+    downs = downs + 1
+  action move(e: PointerEvent)
+    moves = moves + 1
+  action pick(name: string)
+    picked = name
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 display="flex" flex-direction="column" gap=12 background-color="#ffffff" color="#111111" pointerdown=rootDown
+      text `root pointerdown: ${downs} · pointermove: ${moves} · picked: ${picked}` white-space="nowrap" testId="out"
+      row gap=16 align-items="flex-start"
+        column testId="plain" padding=8 gap=4 border-width=1 border-style="solid" border-color="#999999"
+          text "box"
+          button press=pick("a") testId="row-a"
+            text "Row A"
+        column testId="moving" padding=8 gap=4 border-width=1 border-style="solid" border-color="#999999" pointermove=move
+          text "box with pointermove"
+          button press=pick("b") testId="row-b"
+            text "Row B"
+        button popovertarget="pop-c" testId="open-c"
+          text "Open popover"
+        button popovertarget="pop-d" testId="open-d"
+          text "Open popover with pointermove"
+      column id="pop-c" popover="auto" testId="pop-c" padding=8 gap=4 background-color="#fefefe" border-width=1 border-style="solid" border-color="#999999"
+        text "popover"
+        button press=pick("c") testId="row-c"
+          text "Row C"
+      column id="pop-d" popover="auto" testId="pop-d" padding=8 gap=4 background-color="#fefefe" border-width=1 border-style="solid" border-color="#999999" pointermove=move
+        text "popover with pointermove"
+        button press=pick("d") testId="row-d"
+          text "Row D"
+
+== drive: bun exact.mjs agent <macos|web> --size 760x220 ... (the out text after each step) ==
+"tree out" "tap row-a" "clock settle" "tree out" "tap row-b" "clock settle" "tree out" "tap row-b hover" "clock settle" "tree out" "tap open-c" "clock settle" "tree out" "tap row-c" "clock settle" "tree out" "tap open-d" "clock settle" "tree out" "tap row-d hover" "clock settle" "tap row-d" "clock settle" "tree out" "screenshot $ev/x71-$label-$host.png$win" 2>&1
+steps: start, Row A, Row B, hover Row B, Open popover, Row C, Open popover with pointermove, Row D
+
+== Exact web, main ==
+"root pointerdown: 0 · pointermove: 0 · picked: -"
+"root pointerdown: 1 · pointermove: 0 · picked: a"
+"root pointerdown: 1 · pointermove: 1 · picked: b"
+"root pointerdown: 1 · pointermove: 2 · picked: b"
+"root pointerdown: 2 · pointermove: 2 · picked: b"
+"root pointerdown: 3 · pointermove: 2 · picked: c"
+"root pointerdown: 4 · pointermove: 2 · picked: c"
+"root pointerdown: 4 · pointermove: 4 · picked: d"
+
+== Exact macOS, main ==
+"root pointerdown: 0 · pointermove: 0 · picked: -"
+"root pointerdown: 1 · pointermove: 0 · picked: a"
+"root pointerdown: 1 · pointermove: 0 · picked: b"
+"root pointerdown: 1 · pointermove: 1 · picked: b"
+"root pointerdown: 2 · pointermove: 1 · picked: b"
+"root pointerdown: 2 · pointermove: 1 · picked: c"
+"root pointerdown: 3 · pointermove: 1 · picked: c"
+"root pointerdown: 3 · pointermove: 2 · picked: d"
+
+== Exact macOS, #327 head ==
+"root pointerdown: 0 · pointermove: 0 · picked: -"
+"root pointerdown: 1 · pointermove: 0 · picked: a"
+"root pointerdown: 1 · pointermove: 0 · picked: b"
+"root pointerdown: 1 · pointermove: 1 · picked: b"
+"root pointerdown: 2 · pointermove: 1 · picked: b"
+"root pointerdown: 2 · pointermove: 1 · picked: c"
+"root pointerdown: 3 · pointermove: 1 · picked: c"
+"root pointerdown: 3 · pointermove: 2 · picked: d"
+
+== oracle: the same page as plain HTML in headless Chrome over CDP (mouse presses at each target's centre) ==
+<!doctype html><meta charset="utf-8"><title>X71</title>
+<body style="margin:0;font:14px system-ui">
+<script>window.log = []; let downs = 0, moves = 0, picked = '-';
+function show() { document.getElementById('out').textContent = `root pointerdown: ${downs} · pointermove: ${moves} · picked: ${picked}`; window.log = [`downs=${downs} moves=${moves} picked=${picked}`]; }
+function pick(n) { picked = n; show(); }</script>
+<main id="root" style="padding:24px;display:flex;flex-direction:column;gap:12px;height:300px;box-sizing:border-box" onpointerdown="downs++; show()">
+  <p id="out" style="margin:0">root pointerdown: 0 · pointermove: 0 · picked: -</p>
+  <div style="display:flex;gap:16px;align-items:flex-start">
+    <div style="padding:8px;border:1px solid #999"><div>box</div><button id="row-a" onclick="pick('a')">Row A</button></div>
+    <div style="padding:8px;border:1px solid #999" onpointermove="moves++; show()"><div>box with pointermove</div><button id="row-b" onclick="pick('b')">Row B</button></div>
+    <button id="open-c" popovertarget="pop-c">Open popover</button>
+    <button id="open-d" popovertarget="pop-d">Open popover with pointermove</button>
+  </div>
+  <div id="pop-c" popover="auto" style="padding:8px;background:#fefefe;border:1px solid #999"><div>popover</div><button id="row-c" onclick="pick('c')">Row C</button></div>
+  <div id="pop-d" popover="auto" style="padding:8px;background:#fefefe;border:1px solid #999" onpointermove="moves++; show()"><div>popover with pointermove</div><button id="row-d" onclick="pick('d')">Row D</button></div>
+</main>
+
+chrome Chrome/155.0.8059.39
+press:row-a -> active: row-a
+log: downs=1 moves=0 picked=a
+press:row-b -> active: row-b
+log: downs=2 moves=1 picked=b
+press:open-c -> active: open-c
+log: downs=3 moves=1 picked=b
+press:row-c -> active: row-c
+log: downs=4 moves=1 picked=c
+press:open-d -> active: open-d
+move:row-d -> active: open-d
+press:row-d -> active: row-d
+log: downs=6 moves=4 picked=d
+png <main worktree>/target/ev/x71-chrome.png
