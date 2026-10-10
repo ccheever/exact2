@@ -539,7 +539,10 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        var p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        // An inline run's `at` is from its first visible fragment's top left, as
+        // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
+        let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
+        var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
         var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {

@@ -240,6 +240,21 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [], "no row was pressed")
     }
 
+    /// A custom row's own views are carried into its cell and take the
+    /// ordinary path: a tap that names the row presses it (round 2).
+    func testATapNamingACustomRowPressesIt() throws {
+        ExactGroupedLists.install()
+        let session = ExactApp.shared.makeSession(label: "grouped-custom")
+        defer { session.destroy() }
+        let p = presenter({ self.model(custom: true) }, on: session.presenter)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        _ = try cell(p, 21)
+        let reply = Agent(session: session).tap(["id": 21])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(pressed, [21], "the custom row: \(reply)")
+    }
+
     func testASwitchFollowsItsControlsStateAndTarget() throws {
         var target: UInt32 = 13
         let p = presenter {

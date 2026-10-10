@@ -93,6 +93,22 @@ final class AddressedTapMacTests: XCTestCase {
         let ring = agent.tap(["id": 22])
         XCTAssertNil(ring["error"], "\(ring)")
         XCTAssertEqual(presses(), [22])
+        // An inline run's `at` is from its own fragment, not its paragraph's
+        // top left, where another run is (round 2).
+        session?.presenter.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "text", "style": ["font_size": 16, "line_height": "20px"]],
+            ["op": "paragraph", "id": 30, "runs": [
+                ["id": 31, "parent": 30, "paint": true, "props": ["text": "first link "], "style": [:], "handlers": ["press"]],
+                ["id": 32, "parent": 30, "paint": true, "props": ["text": "second link"], "style": [:], "handlers": ["press"]],
+            ]],
+            ["op": "children", "id": 1, "ids": [2, 4, 6, 8, 22, 30]],
+            ["op": "frame", "id": 30, "x": 120.0, "y": 600.0, "w": 280.0, "h": 40.0],
+        ]))
+        session?.presenter.viewport.layoutSubtreeIfNeeded()
+        let wire = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: ["id": 32, "at": [2, 2]])) as! [String: Any]
+        let second = agent.tap(wire)
+        XCTAssertNil(second["error"], "\(second)")
+        XCTAssertEqual(presses(), [32], "the second run, at a point in it: \(second)")
     }
 }
 #endif

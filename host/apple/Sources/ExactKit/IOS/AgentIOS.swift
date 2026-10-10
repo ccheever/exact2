@@ -732,7 +732,11 @@ extension Agent {
         // A grouped list's cell: every cell is in the list's node, so its row
         // (LLP 1084) is what a finger there selects, or its switch or detail
         // button is what it presses (`TouchLog.landing`'s projection).
-        if let projected = GroupedListsLink.part?(hit), let row = projected["row"] as? Int, let list = Agent.enclosing(hit).first {
+        // A custom row's own views are carried into its cell and take the
+        // ordinary path (GroupedListIOS `list(drawing:)`): a node of theirs
+        // under the finger is inside the cell too, and is no projection.
+        if let projected = GroupedListsLink.part?(hit), let row = projected["row"] as? Int, let list = Agent.enclosing(hit).first,
+           GroupedListsLink.part?(list) == nil {
             let part = projected["part"] as? String ?? "cell"
             return .part(list, part == "cell" ? "row #\(row)" : "the \(part) of row #\(row)", UInt32(row))
         }
