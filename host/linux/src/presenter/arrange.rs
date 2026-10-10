@@ -390,7 +390,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn needs_animation_frame(&self) -> bool {
         self.host.motion()
             || self.host.canvas_wants_frame()
-            || self.host.wants_frames()
+            || self.wants_frames()
             || self.arrange_edge().is_some()
             || self.group_needs_frame()
     }

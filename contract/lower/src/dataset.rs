@@ -48,7 +48,6 @@ const HOST_WORDS: [&str; 87] = [
     "estimateditemheight",
     "estimateditemwidth",
     "exiting",
-    "fieldstyle",
     "flow-fragment",
     "flow-hold",
     "focusable",
@@ -75,6 +74,7 @@ const HOST_WORDS: [&str; 87] = [
     "module",
     "module-ready",
     "multiple",
+    "native",
     "nativeid",
     "nativeviewmodulename",
     "nativeviewprops",
@@ -352,6 +352,7 @@ mod tests {
             "exact-id",
             "bitmap-width",
             "nativeviewprops",
+            "native",
             "dataset",
             "scroll",
         ] {

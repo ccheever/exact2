@@ -141,6 +141,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         now_ms: 0.0,
         pending_resources: &[],
         failed_resources: &[],
+        failed_why: &[],
         pending_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
@@ -492,6 +493,11 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     assert_eq!(
         CollectionFeedback::decode_with_fill(&filled).unwrap(),
         (f.clone(), fill)
+    );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
     );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
@@ -1047,7 +1053,8 @@ fn key_reuse_harness(clock_key: bool) -> Harness {
             .simple(Opcode::Pop);
         a.load_item(0).field(0).load_slot(dep).simple(Opcode::Add);
         if clock_key {
-            a.call(exact_plan::Stdlib::Now).simple(Opcode::Add);
+            a.call(exact_plan::Stdlib::PerformanceNow)
+                .simple(Opcode::Add);
         }
     });
     let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);

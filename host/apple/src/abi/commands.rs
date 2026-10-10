@@ -4,7 +4,8 @@
 //! runner's journal, a select's options for the menu the presenter
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
-//! whether a followed link names one of the app's routes (LLP 1038 §7).
+//! whether a followed link names one of the app's routes (LLP 1038 §7),
+//! and where the host's own Back goes (LLP 1115 D5).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -21,6 +22,20 @@ impl<D: DataSource> Bridge<D> {
                 .as_ref()
                 .is_some_and(|h| h.runner().route_matches(&location)),
         )
+    }
+
+    /// `exact_location_beneath`: the location of the visit beneath visit
+    /// `id` on its stack, UTF-8 in the output buffer, empty when there is
+    /// none — where the host's own Back goes for a route with no authored
+    /// Back control (LLP 1115 D5). Not a batch: nothing changes.
+    pub fn location_beneath(&mut self, id: u64) -> u32 {
+        let location = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().location_beneath(id))
+            .unwrap_or_default();
+        self.output = location.into_bytes();
+        self.output.len() as u32
     }
 
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
@@ -91,7 +106,7 @@ impl<D: DataSource> Bridge<D> {
     /// instead (`exact_auth` `hold`).
     pub(super) fn auth_arm(
         h: &mut crate::host::Host<D>,
-        x: &crate::executor::Executor,
+        x: &dyn crate::executor::Io,
         presenter: &mut crate::batch::Batch,
         r: &exact_runner::RequestOut,
     ) {
@@ -137,7 +152,7 @@ impl<D: DataSource> Bridge<D> {
                 _ => {}
             }
         }
-        if let Some(x) = self.executor.as_ref() {
+        if let Some(x) = self.executor.as_deref() {
             x.notify();
         }
         0
@@ -151,63 +166,19 @@ impl<D: DataSource> Bridge<D> {
     /// names it, the style's row of the `buttonStyles` table (`bordered` for a
     /// name not in it). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
-        let quote = exact_runner::agent::quote;
-        let (face, style) = self
-            .host
-            .as_ref()
-            .map(|h| {
+        let json = self.host.as_ref().map_or_else(
+            || "{\"button\":false}".into(),
+            |h| {
                 let kernel = h.runner().kernel();
+                let face = kernel.press_face(view);
+                let rows = kernel.button_face_style(view);
                 let style = kernel
                     .node(view)
-                    .and_then(|n| {
-                        n.props
-                            .str(exact_kernel::PropId::ButtonStyle)
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| "bordered".into());
-                (kernel.press_face(view), style)
-            })
-            .unwrap_or_default();
-        let button = face.is_some();
-        let face = face.unwrap_or_default();
-        let row = exact_kernel::generated::button_style(&style);
-        let drawn = row.or_else(|| exact_kernel::generated::button_style("bordered"));
-        let mut json = format!("{{\"button\":{button},\"title\":");
-        match &face.title {
-            Some(t) => quote(t, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(",\"symbol\":");
-        // An SF Symbol's own name, or a role's Apple name (LLP 1035.004.000);
-        // a role with none is "", as `symbolName` is: a symbol that draws no
-        // image, not no symbol (grok's code review).
-        match face.symbol.as_deref().map(|r| {
-            r.strip_prefix("sf/")
-                .or_else(|| exact_kernel::generated::symbol(r).map(|s| s.0))
-                .unwrap_or("")
-        }) {
-            Some(apple) => quote(apple, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(&format!(
-            ",\"raster\":{},\"leading\":{},\"fits\":{},\"label\":",
-            face.raster, face.leading, face.fits
-        ));
-        match &face.label {
-            Some(l) => quote(l, &mut json),
-            None => json.push_str("null"),
-        }
-        json.push_str(",\"style\":");
-        quote(&style, &mut json);
-        if let Some(d) = drawn {
-            json.push_str(",\"ios\":");
-            quote(d.ios, &mut json);
-            json.push_str(",\"iosBefore26\":");
-            quote(d.ios_before_26, &mut json);
-            json.push_str(",\"macos\":");
-            quote(d.macos, &mut json);
-        }
-        json.push_str(&format!(",\"known\":{}}}", row.is_some()));
+                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
+                    .unwrap_or("bordered");
+                crate::button::face_json(face.as_ref(), rows.as_ref(), style)
+            },
+        );
         self.output = json.into_bytes();
         self.output.len() as u32
     }

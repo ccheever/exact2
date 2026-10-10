@@ -1,5 +1,6 @@
 //! The web host's integration tests: one binary, so one link and one launch.
 
+mod again;
 mod agent;
 mod animation;
 mod aria;

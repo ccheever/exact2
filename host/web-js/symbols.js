@@ -69,15 +69,16 @@ function appSource(e, v) {
 // A raster with a `-exact-tint-color` is a template (element.rs `host_css`, LLP
 // 1011 §3): its alpha masks the tint. A source that becomes a raster takes
 // the mask; one that becomes a symbol (or no tint) drops it.
-const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position"];
+const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position", "--exact-grouped-image-mask", "--exact-grouped-image-fit"];
 // (the class rules nest under the root's selector: walk nested rules.)
 const declares = (rules, sel) => [...rules].some(r => [sel, "& " + sel, "&" + sel].includes(r.selectorText) && r.style.getPropertyValue("--exact-tint") || r.cssRules && declares(r.cssRules, sel));
 const tinted = e => !!e.style.getPropertyValue("--exact-tint") || [...e.classList].some(c => [...document.styleSheets].some(sh => { try { return declares(sh.cssRules, "." + c); } catch { return false; } }));
 function template(e, v) {
-  if (e.localName !== "img" || !v || !tinted(e)) { if (e.$template) { for (const p of TEMPLATE) e.style.removeProperty(p); e.style.removeProperty("background-color"); e.$template = false; } return; }
+  if (e.localName !== "img" || !v || !tinted(e)) { if (e.$template) { e.removeAttribute("data-exact-template"); for (const p of TEMPLATE) e.style.removeProperty(p); e.style.removeProperty("background-color"); e.$template = false; } return; }
   const fit = getComputedStyle(e).objectFit, size = { fill: "100% 100%", contain: "contain", cover: "cover", none: "auto" }[fit] ?? "var(--exact-tint-fit,contain)";
   e.style.setProperty("background-color", "var(--exact-tint)");
   e.style.setProperty("mask-image", `url(${JSON.stringify(v)})`); e.style.setProperty("mask-size", size);
+  if (e.hasAttribute("data-grouped-row-separator")) { e.setAttribute("data-exact-template", ""); e.style.setProperty("--exact-grouped-image-mask", `url(${JSON.stringify(v)})`); e.style.setProperty("--exact-grouped-image-fit", size); }
   e.style.setProperty("mask-repeat", "no-repeat"); e.style.setProperty("mask-position", "center"); e.style.setProperty("mask-origin", "content-box"); e.style.setProperty("mask-clip", "content-box"); e.style.setProperty("object-position", "-100000px 0");
   e.$template = true;
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }
@@ -85,6 +86,15 @@ function template(e, v) {
 function refresh() {
   for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
+    // D4/D14: absent symbol axes follow the title, including its own rows.
+    if (el.parentElement?.matches("button[data-button-style]")) {
+      const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);
+      if (title) {
+        const font = getComputedStyle(title); el.style.color = font.color;
+        if (own.getPropertyValue("--exact-symbol-size-authored").trim() !== "1") el.style.fontSize = font.fontSize;
+        if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
+      }
+    }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.

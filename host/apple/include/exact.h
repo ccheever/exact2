@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 13
+#define EXACT_ABI_VERSION 14
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,7 +63,7 @@ typedef struct ExactRasterStats {
 uint64_t exact_raster_session_create(uint64_t budget);
 /* Update capacity without releasing displayed or in-flight backings. */
 void exact_raster_session_budget(uint64_t session, uint64_t budget);
-/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
+/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim, 5 wake a worker (a source to read). */
 void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
@@ -250,6 +250,30 @@ typedef void (*ExactWakeFn)(void *ctx);
 /* Lifecycle. */
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
+/* LLP 1104: UIKit's body font, installed in the host registry before layout. */
+typedef struct {
+    const uint8_t *family; size_t family_len;
+    uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactControlFont;
+/* kind: 0 field/textarea, 1 mini, 2 small, 3 medium/default, 4 large button. */
+typedef ExactControlFont (*ExactControlTextFn)(void *ctx, uint8_t kind);
+typedef struct {
+    uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactFieldChromeRequest;
+typedef struct {
+    float top, right, bottom, left, minimum_height; uint8_t provisional;
+} ExactFieldChrome;
+typedef ExactFieldChrome (*ExactFieldChromeFn)(void *ctx, const ExactFieldChromeRequest *request);
+void exact_set_control_text(ExactRuntime rt, ExactControlTextFn text, ExactFieldChromeFn chrome);
+/* LLP 1069.011.001 D11: identical face/row JSON for sizing and drawing. */
+typedef struct {
+    const uint8_t *face; size_t face_len; uint8_t width_kind; float width;
+} ExactButtonMeasureRequest;
+typedef struct { float width, height; uint8_t provisional; } ExactButtonMeasure;
+typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonMeasureRequest *request);
+void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
+uint32_t exact_control_text_changed(ExactRuntime rt);
+
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for
@@ -332,6 +356,14 @@ uint32_t exact_location_of(ExactRuntime rt, size_t len);
  * link to it navigates in the app), else 0. */
 uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
+/* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
+ * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
+ * for a route with no authored Back control. Not a batch. */
+uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
+ * authored Back control under a root with no `navigate` handler: the
+ * router's `back` as a commit of its own. A batch. */
+uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -432,6 +464,13 @@ uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
+ * stopping the motion engine's input clock. */
+uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);
+/* @ref LLP 1003.001 D7: nonzero, motion a commit begins waits for the first
+ * presented frame, in every host booted after; zero at the agent's takeover,
+ * where what waits starts at at_ms. Returns the batch's length. */
+uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
@@ -479,6 +518,11 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
+ * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
+ * everywhere, root and every sheet, never a sheet's viewport (exact_segments
+ * sends the window's segments too). A nonpositive size clears it. */
+uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;
@@ -501,6 +545,7 @@ uint32_t exact_color_references(ExactRuntime rt);
  *  batch's length. */
 uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
+uint32_t exact_tick_at(ExactRuntime rt, double now_ms, double frame_ms); /* LLP 1003.001 D5: for the frame presented at frame_ms */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its
  * pixels wide, as on the web); a width or height ≤ 0 clears it (the load

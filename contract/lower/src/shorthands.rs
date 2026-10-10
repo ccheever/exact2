@@ -29,6 +29,7 @@ pub(crate) fn rows(name: &str) -> &'static [StyleId] {
         "column-rule" => &[ColumnRuleWidth, ColumnRuleStyle, ColumnRuleColor],
         "column-count" => &[ColumnCount],
         "column-rule-width" => &[ColumnRuleWidth],
+        "font" => &[FontStyle, FontWeight, FontSize, LineHeight],
         _ => unreachable!("known shorthand"),
     }
 }
@@ -39,7 +40,11 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
     // becomes its number, anything else is the row's own value.
     let longhand = matches!(name, "column-count" | "column-rule-width");
     match &mut out {
+        // An unset arm of a conditional class clears each expanded longhand.
+        Expr::None(_) => {},
         Expr::Str(text, span) if longhand => out = columns_longhand(name, text, *span)?,
+        Expr::Str(text, span) if name == "font" => out = font(text, *span)?[index].clone(),
+        Expr::Number(_, span) if name == "font" => return font("", *span).map(|_| out),
         Expr::Number(n, span) if name == "column-count" && *n < 1.0 => {
             return err("lower-attr-value", "`column-count` is a positive integer or `auto`", *span);
         }
@@ -256,6 +261,32 @@ fn columns_longhand(name: &str, text: &str, span: Span) -> Result<Expr, LowerErr
             span,
         ),
     }
+}
+
+/// `font`: a platform text style only (LLP 1115 D3), as WebKit's system
+/// font keywords set every longhand: `normal` style and line height, the
+/// style's weight and its size, which the kernel reads from the platform's
+/// ramp at the root font size. The family stays what it was.
+fn font(text: &str, span: Span) -> Result<[Expr; 4], LowerError> {
+    use exact_kernel::{style::relative::text_style, TEXT_STYLES};
+    let Some(id) = text_style(text) else {
+        let names: Vec<String> = TEXT_STYLES
+            .iter()
+            .map(|s| format!("`-exact-{}`", s.name))
+            .collect();
+        return err(
+            "lower-css-shorthand",
+            format!("`font` takes a platform text style ({}, or WebKit's `-apple-system-*` spelling); anything else is its longhands, `font-size`, `font-weight`, `font-style`, `line-height`", names.join(", ")),
+            span,
+        );
+    };
+    let style = &TEXT_STYLES[usize::from(id)];
+    Ok([
+        Expr::Str("normal".into(), span),
+        Expr::Number(f64::from(style.weight), span),
+        Expr::Str(format!("-exact-{}", style.name), span),
+        Expr::Str("normal".into(), span),
+    ])
 }
 
 fn decoration(text: &str, span: Span) -> Result<String, LowerError> {

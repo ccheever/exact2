@@ -387,7 +387,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
     let setq = b.code(setq);
     let set_query = b.action("setQuery", &[("q", string)], &[query], setq);
     let mut tick = Asm::new();
-    tick.call(Stdlib::Now).store_slot(now_ms);
+    tick.call(Stdlib::PerformanceNow).store_slot(now_ms);
     let tick = b.code(tick);
     let tick = b.action("tick", &[], &[now_ms], tick);
     b.timer(1000, tick, false);

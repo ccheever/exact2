@@ -3,13 +3,15 @@
 // a share sheet exists (`canShare`, LLP 1069.003 D5), whether the document
 // pickers do (`canOpenFiles`), whether the session's window has the focus
 // (`hasFocus`, `document.hasFocus()`: #114), and the root font size `rem`
-// lengths follow (Dynamic Type on iOS; 16 on the Mac, as a browser's
-// `medium`). The runner answers the first five through `exactPage()`; the
-// kernel lays out `rem` against the last. Under the agent the machine is
-// never read: the drive's values stand in (`prefer`'s `page` group), visible,
-// online, a share sheet, the pickers, focus, 16 until it says otherwise (LLP
-// 1069.000 D6), unless `EXACT_DEVICE=real` asks for the machine's (LLP
-// 1069.007 D8: a person looking at the real thing).
+// lengths follow (the platform's body size, LLP 1115 D3: Dynamic Type's body
+// on iOS, 17 at the default; `NSFont.systemFontSize`, 13, on the Mac). The
+// runner answers the first five through `exactPage()`; the kernel lays out
+// `rem` against the last. Under the agent the machine is never read: the
+// drive's values stand in (`prefer`'s `page` group), visible, online, a share
+// sheet, the pickers, focus, the platform's default body size (17 on iOS, 13
+// on the Mac) until it says otherwise (LLP 1069.000 D6), unless
+// `EXACT_DEVICE=real` asks for the machine's (LLP 1069.007 D8: a person
+// looking at the real thing).
 #if os(macOS)
 import AppKit
 typealias FocusWindow = NSWindow
@@ -19,9 +21,9 @@ typealias FocusWindow = UIWindow
 #endif
 import Network
 
-enum PageFacts {
+package enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, hasFocus: true, rootFontSize: 16.0) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, hasFocus: true, rootFontSize: Double(defaultRootFontSize)) {
         didSet { changed() }
     }
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
@@ -95,16 +97,33 @@ enum PageFacts {
         #endif
     }
 
-    /// The root font size in points: iOS scales CSS's 16 by the preferred
-    /// content size category, as `UIFontMetrics` scales body text.
+    /// The root font size in points: the platform's body size (LLP 1115
+    /// D3). iOS: Dynamic Type's body, 17 at the default size and scaled by
+    /// the preferred content size category. macOS: `NSFont.systemFontSize`,
+    /// 13. tvOS keeps CSS's 16 scaled by the category until its own pass
+    /// (its body style is 29 points, read at ten feet).
     static var rootFontSize: Double {
         if substituted { return agent.rootFontSize }
         #if os(macOS)
-        return 16
-        #else
+        return Double(NSFont.systemFontSize)
+        #elseif os(tvOS)
         return Double(UIFontMetrics.default.scaledValue(for: 16))
+        #else
+        return Double(UIFont.preferredFont(forTextStyle: .body).pointSize)
         #endif
     }
+
+    /// The body size at the platform's default settings: what the agent
+    /// pins until its drive says otherwise (`prefer`'s `root-font-size`).
+    package static let defaultRootFontSize: CGFloat = {
+        #if os(macOS)
+        return 13
+        #elseif os(tvOS)
+        return 16
+        #else
+        return 17
+        #endif
+    }()
 
     /// The ABI's form (`exact_set_page`) for a session in `window`: bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet, bit 3 the document
@@ -157,17 +176,17 @@ enum PageFacts {
 /// the Extra Heavy feed at rest — so it is read once and read again after a
 /// lifecycle notification: at it, and a main-queue turn later, since UIKit's
 /// "will" notifications precede the state's update.
-enum AppBackground {
+package enum AppBackground {
     nonisolated(unsafe) private static var cached: Bool?
     nonisolated(unsafe) private static var observing = false
-    static var now: Bool {
+    package static var now: Bool {
         if !observing { observe() }
         if let cached { return cached }
         let value = UIApplication.shared.applicationState == .background
         cached = value
         return value
     }
-    static func invalidate() { cached = nil }
+    package static func invalidate() { cached = nil }
     private static func observe() {
         observing = true
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,

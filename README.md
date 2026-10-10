@@ -295,9 +295,10 @@ bun exact.mjs ios --run                     # an iOS Simulator
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
-guides are and lists the app's commands, including `bun exact.mjs contract …` for the
-compiler and `contract vocab` for every tag and property Contract accepts. Before any of
+`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
+[`docs/start-here.md`](docs/start-here.md), the one guide it must read, and lists the
+app's commands, including `bun exact.mjs contract …` for the compiler and `contract
+vocab` for every tag and property Contract accepts. Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
 is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
@@ -318,8 +319,9 @@ on each host in its own session; for a copy you launched yourself, use
 
 ## Contract
 
-Read the complete [guide for humans](docs/contract-for-humans.md),
-[guide for agents](docs/contract-for-agents.md), or
+An agent building an app starts at [start-here.md](docs/start-here.md), the only
+required reading. For more, read the complete [guide for humans](docs/contract-for-humans.md),
+or look things up in the [guide for agents](docs/contract-for-agents.md) or the
 [grammar and vocabulary reference](docs/contract-grammar.md).
 
 Contract describes what an app shows and how its state changes. It doesn't fetch, read
@@ -446,7 +448,7 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
 | `state` | A value the component owns. Under an `each`, child state belongs to that keyed row. |
 | `derive` | A value computed from others, recomputed when they change. |
 | `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
-| `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, and `pending(x)` and `failed(x)` show progress. |
+| `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, `pending(x)` and `failed(x)` show progress, and `failure(x)` says why a resource failed. |
 | `action` | The only place state changes. What it writes is inferred from its body, and `let` binds a local inside it. |
 | `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
 | `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |
@@ -589,7 +591,6 @@ To learn from, read these four first:
 | [Update Lab](apps/update-lab) | Live replacement of Contract, TypeScript, and Rust in a running app | Hand-testing lab |
 | [Messages Stress](apps/messages-stress), [Completion Storm](apps/completion-storm), [Markdown Stress](apps/markdown-stress) | 100k-message histories, 128 parallel requests, and 4 MiB documents, under load | Opt-in workloads ([LLP 1041](llp/1041-graceful-overload.rfc.md)) |
 | [Native Fixture](apps/native-fixture), [Auth Fixture](apps/auth-fixture) | The native-module interface; OAuth with PAR, DPoP, and PKCE against a local server | Test fixtures |
-| [Messages Legacy](apps/messages-legacy) | The earlier chat app, built on Snapback4 | Needs private Snapback access |
 | [Beacons, Tennis, …](game/games) | Games on the optional [engine add-on](game/README.md): Rust gameplay, Contract menus | `bun game/dev.mjs beacons` |
 
 ## What works today, and what doesn't yet
@@ -644,11 +645,18 @@ else here was admitted because a real app needed it.
   optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
-- **Android.** Deferred.
+- **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs
+  on an emulator or a phone: `bun exact.mjs android` builds it, `bun exact.mjs test
+  android` runs its tests, and `bun exact.mjs agent android …` drives it
+  ([LLP 1107](llp/1107-driving-an-app-on-android.rfc.md)). It needs the Android SDK,
+  the Rust target `aarch64-linux-android`, and the Hermes Android bundle
+  (`bun scripts/hermes-android.mjs build`) until an Ibex release ships one. Delivery and
+  store packaging don't exist yet.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
-- **TypeScript can't import npm packages yet.** `app.ts` imports only its own local
-  files.
+- **TypeScript can't import npm packages' code yet.** `app.ts` imports its own local
+  files; from a package it imports only types (`import type`), which the build checks
+  and never runs.
 - **Code updates in production.** Signed delivery covers plans and assets. Signed
   delivery of TypeScript or Rust modules isn't implemented, and app-store rules limit
   it anyway.

@@ -11,6 +11,13 @@ final class TextField: UITextField {
     /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
     /// Backspace or Return for it does not run them again.
     var heard: String?
+    override func textRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.textRect(forBounds: bounds) }
+    override func editingRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.editingRect(forBounds: bounds) }
+    override func placeholderRect(forBounds bounds: CGRect) -> CGRect { owner?.nativeEditorRect(in: bounds) ?? super.placeholderRect(forBounds: bounds) }
+    #if !os(tvOS)
+    /// A search field's clear button sits where `UISearchTextField`'s does.
+    override func clearButtonRect(forBounds bounds: CGRect) -> CGRect { owner?.searchChrome?.clearButtonRect(forBounds: bounds) ?? super.clearButtonRect(forBounds: bounds) }
+    #endif
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
         if remaining.isEmpty { return }
@@ -54,11 +61,11 @@ final class TextField: UITextField {
     override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 }
 
-final class TextArea: UITextView {
+package final class TextArea: UITextView {
     // UIKit already owns a specialized manager per editor. Its native text
     // undo actions require that manager; observe it without replacing it.
     private var textUndo: NativeTextUndo?
-    override var undoManager: UndoManager? {
+    package override var undoManager: UndoManager? {
         guard let manager = super.undoManager else { return nil }
         if textUndo?.manager !== manager {
             textUndo = NativeTextUndo(manager: manager, before: { [weak self] in
@@ -75,9 +82,9 @@ final class TextArea: UITextView {
 
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
-    var markup: MarkupEditor?
+    package var markup: MarkdownEditing?
 
-    override func insertText(_ text: String) {
+    package override func insertText(_ text: String) {
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
@@ -86,20 +93,20 @@ final class TextArea: UITextView {
         super.insertText(text)
     }
 
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:true) ?? presses
         if remaining.isEmpty || owner?.editorKeyDown(remaining) == true { return }
         super.pressesBegan(remaining,with:event)
     }
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    package override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {owner?.editorKeyUp(remaining); super.pressesEnded(remaining,with:event)}
     }
-    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    package override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
-    override func resignFirstResponder() -> Bool {
+    package override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
         let resigned = super.resignFirstResponder()
@@ -118,7 +125,7 @@ final class TextArea: UITextView {
         #endif
         return resigned
     }
-    override var keyCommands: [UIKeyCommand]? {
+    package override var keyCommands: [UIKeyCommand]? {
         #if os(tvOS)
         // tvOS text views do not edit.
         return super.keyCommands
@@ -135,15 +142,15 @@ final class TextArea: UITextView {
     @objc private func markupBold() { owner?.formatMarkup("bold") }
     @objc private func markupItalic() { owner?.formatMarkup("italic") }
     @objc private func markupLink() { owner?.editMarkupLink() }
-    @objc func copyPlainText() {
+    @objc package func copyPlainText() {
         // tvOS has no pasteboard.
         #if !os(tvOS)
-        guard markup != nil, selectedRange.length > 0, let plain = MarkupCommands.plain((text as NSString).substring(with: selectedRange)) else { return }
+        guard markup != nil, selectedRange.length > 0, let plain = MarkdownLink.installed?.plain((text as NSString).substring(with: selectedRange)) else { return }
         UIPasteboard.general.string = plain
         #endif
     }
     // DOM's clipboard events, before the editor's own (#125, Clipboard.swift).
-    override func copy(_ sender: Any?) {
+    package override func copy(_ sender: Any?) {
         NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) {
             guard markup != nil else { super.copy(sender); return }
             #if !os(tvOS)
@@ -151,8 +158,8 @@ final class TextArea: UITextView {
             #endif
         }
     }
-    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    package override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
     // attributedText would reset a selection (including a read-only one).
@@ -171,10 +178,10 @@ final class TextArea: UITextView {
         typingAttributes.merge(attributes) { _, authored in authored }
     }
     var placeholder = "" { didSet { setNeedsDisplay() } }
-    override func draw(_ rect: CGRect) {
+    package override func draw(_ rect: CGRect) {
         super.draw(rect)
         if text.isEmpty, !placeholder.isEmpty {
-            (placeholder as NSString).draw(in: bounds, withAttributes: [
+            (placeholder as NSString).draw(in: bounds.inset(by: textContainerInset), withAttributes: [
                 .font: font ?? UIFont.systemFont(ofSize: 16),
                 .foregroundColor: UIColor.placeholderText,
             ])
@@ -228,17 +235,30 @@ extension NodeView {
         // `layoutManager`: that would irreversibly switch back to TextKit 1.
         let f = TextArea(frame: .zero)
         f.owner = self
+        #if !os(tvOS)
+        // A CGColor does not retain UIColor's semantic appearance. The
+        // native textarea's drawn separator follows UIKit's trait change.
+        f.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: TextArea, _: UITraitCollection) in
+            if view.owner?.isNativeTextControl == true {
+                view.layer.borderColor = UIColor.separator.resolvedColor(with: view.traitCollection).cgColor
+            }
+        }
+        #endif
         f.backgroundColor = .clear
         f.textContainerInset = .zero
         f.textContainer.lineFragmentPadding = 0
         f.delegate = self
+        #if os(iOS)
+        // Not the screen's scroller: the status bar scrolls that (LLP 1115).
+        f.scrollsToTop = false
+        #endif
         addSubview(f)
         textArea = f
     }
     func configureMarkup() {
         guard let f = textArea as? TextArea else { return }
         if props["markup"] == "markdown" {
-            if f.markup == nil { f.markup = MarkupEditor() }
+            if f.markup == nil { f.markup = MarkdownLink.installed?.editor() }
         } else if let editor = f.markup, f.markedTextRange == nil {
             let storage = f.textStorage
             editor.detach(storage)
@@ -271,24 +291,31 @@ extension NodeView {
         textArea?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
-        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
-        f.tintColor = caretColor
+        f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
+        if isNativeTextControl {
+            f.typingAttributes[.kern] = number("letter_spacing")
+            f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
+        }
+        (f as? TextArea)?.configureNativeChrome(isNativeTextControl)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
         f.setNeedsDisplay()
         layoutTextArea()
     }
-    func layoutTextArea() { textArea?.frame = contentBox() }
-    /// Restyle a Markdown editor's storage for its text and selection.
-    func restyleMarkup() {
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let t = text, let editor = f.markup, f.markedTextRange == nil else { return }
-        let look = MarkupEditor.Look(
-            font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
-            size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
-            italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
-        editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
-        f.typingAttributes = editor.baseAttributes(look)
+    func layoutTextArea() {
+        guard let area = textArea else { return }
+        #if os(tvOS)
+        area.frame = contentBox() // tvOS keeps its read-only presentation.
+        #else
+        if isNativeTextControl {
+            area.frame = bounds
+            if let r = nativeFieldContent {
+                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, bounds.height - r.maxY), right: max(0, bounds.width - r.maxX))
+            }
+        } else { area.frame = contentBox() }
+        #endif
     }
     /// The app's value into the editor: nothing while text is being composed
     /// (held until the composition ends), else the changed middle only, with

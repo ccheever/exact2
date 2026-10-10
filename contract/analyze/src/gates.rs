@@ -1,5 +1,5 @@
 //! @ref LLP 1092 D9 — a gated task's gate and key are read at commits, not
-//! as the clock moves: one that reads `now()`, directly, through a derive
+//! as the clock moves: one that reads `performanceNow()`, directly, through a derive
 //! or through a `fn` body, is refused (`analyze-task-gate-clock`).
 
 use super::AnalyzeError;
@@ -17,7 +17,7 @@ pub(super) fn check(c: &Component, fns: &[FnDecl]) -> Vec<AnalyzeError> {
                 errors.push(AnalyzeError {
                     id: "analyze-task-gate-clock",
                     message: format!(
-                        "`task {}`'s {what} reads `now()`{}. A gate is read at commits, not as the clock moves, so an `after` gated on `now()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time",
+                        "`task {}`'s {what} reads `performanceNow()`{}. A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time",
                         t.name,
                         match at {
                             Through::Direct => String::new(),
@@ -40,7 +40,7 @@ enum Through {
     Fn(String),
 }
 
-/// Where `e` reads the clock, if it does: `now()` itself, or the first
+/// Where `e` reads the clock, if it does: `performanceNow()` itself, or the first
 /// derive or `fn` whose value does.
 fn clock<'a>(
     e: &'a Expr,
@@ -59,7 +59,9 @@ fn clock<'a>(
     };
     match e {
         Expr::Call(name, args, _)
-            if name == "now" && args.is_empty() && !fns.iter().any(|f| f.name == "now") =>
+            if name == "performanceNow"
+                && args.is_empty()
+                && !fns.iter().any(|f| f.name == "performanceNow") =>
         {
             Some(Through::Direct)
         }

@@ -1,9 +1,9 @@
-// Formats of the clock: a view and a timer reading `now()` through
+// Formats of the clock: a view and a timer reading `performanceNow()` through
 // `formatTime`/`formatNumber`, so each advance re-renders them.
 component App
   state base = 1790000000000
   state ticks = 0
-  derive label = formatTime(base + now() * 1000, -420, "short")
+  derive label = formatTime(base + performanceNow() * 1000, -420, "short")
   derive count = formatNumber(ticks * 1234.5, "compact")
   action tick
     ticks = ticks + 1
@@ -13,7 +13,7 @@ component App
     column
       text label testId="label"
       text count testId="count"
-      text formatDate(base + now() * 86400, 60, "medium") testId="day"
+      text formatDate(base + performanceNow() * 86400, 60, "medium") testId="day"
 
 test "advance"
   clock +60000

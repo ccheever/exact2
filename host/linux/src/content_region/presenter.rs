@@ -46,7 +46,13 @@ impl<D: DataSource> Presenter<D> {
         }
     }
     /// Paint a frame and publish its immutable pixels, hits and native source together.
+    /// Text-cache eviction waits for the paint's end
+    /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
+    /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        crate::text::cache::deferring_eviction(|| self.paint_frame())
+    }
+    fn paint_frame(&mut self) -> Arc<Pixmap> {
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
@@ -54,6 +60,11 @@ impl<D: DataSource> Presenter<D> {
         self.brush
             .canvases
             .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
+        // The hatches' overlays as published (LLP 1075.003.000.001 §2.2.1):
+        // read here, at the start of the paint; the walk calls no hatch.
+        self.brush.overlays = (self.hatches.overlays.iter())
+            .map(|(id, shown)| (*id, shown.pixels.clone()))
+            .collect();
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();

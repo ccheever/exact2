@@ -28,7 +28,7 @@ const hostCommitBody = `
   let timelinesMoved = false;
   const exact = globalThis.exact ??= {}, retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
   const root = document.getElementById('root'), listSelection = null, textflow = null, page = null, collectionOp = null;
-  const collections = {commit() {}}, arrange = {commit() {}, destroy() {}, binding() {}, state() {}}, presence = {hold: () => false, live: null};
+  const collections = {commit() {}, restyled() {}}, arrange = {commit() {}, destroy() {}, binding() {}, state() {}}, presence = {hold: () => false, live: null};
   const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {};
   const focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {}, syncLists = () => {};
   const followScroll = () => {}, settleFollow = () => {}, settleValue = () => {}, letGo = () => {}, flowBatch = () => {};

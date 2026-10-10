@@ -2,10 +2,12 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 private var capturedPaintPixels: [[UInt8]] = []
 
 final class PaintCaptureMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func testCanvasCapturesRanksFromTheCurrentBatch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "paint-capture")
@@ -40,12 +42,12 @@ final class PaintCaptureMacTests: XCTestCase {
             child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
             wantsInput: nil, input: nil, messages: nil, published: nil, agent: nil, outPtr: nil)
-        let entry = Canvases.Entry(view: canvas, name: "paint", values: [])
+        let entry = CanvasesHost.Entry(view: canvas, name: "paint", values: [])
         entry.id = 7; entry.module = module; entry.through = true
-        session.canvases.entries[2] = entry
+        session.surfaceHost.entries[2] = entry
         capturedPaintPixels = []
         canvas.needsCapture = true
-        session.canvases.captureIfNeeded()
+        session.surfaceHost.captureIfNeeded()
         XCTAssertEqual(capturedPaintPixels, [[0, 0, 255, 255]])
         // Capture must see pending ranks even inside a nested transaction.
         PaintOrder.begin()
@@ -100,7 +102,7 @@ final class PaintCaptureMacTests: XCTestCase {
         window.orderFront(nil)
         root.displayIfNeeded(); CATransaction.flush()
         let deadline = Date().addingTimeInterval(1)
-        while stroke.presentation() == nil && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while stroke.presentation() == nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
         XCTAssertEqual(try XCTUnwrap(stroke.presentation()).strokeEnd, 0.5, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(faded.presentation()).opacity, 0.5, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(moved.presentation()).transform.m41, 40, accuracy: 0.01)
@@ -206,7 +208,7 @@ final class PaintCaptureMacTests: XCTestCase {
         window.orderFront(nil)
         root.displayIfNeeded(); CATransaction.flush()
         let deadline = Date().addingTimeInterval(1)
-        while stroke.presentation() == nil && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while stroke.presentation() == nil && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
         XCTAssertEqual(try XCTUnwrap(stroke.presentation()).strokeEnd, 0.5, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(faded.presentation()).opacity, 0.5, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(mask.presentation()).opacity, 0.5, accuracy: 0.01)

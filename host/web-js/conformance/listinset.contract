@@ -1,0 +1,61 @@
+// data: carousel
+// Synthetic conformance plan: virtualized lists with main-axis padding
+// (LLP 1010 §6.9), CSS's room before the first row and after the last,
+// on Carousel's sources and wasm: a long list under a header laid over its
+// padding-top, scrolled to its true end (reachend grows it there, past the
+// padding-bottom a tab bar would cover) and back, then `scrollIntoView`
+// within its scroll padding (the first row's start is the very top, a
+// row's end sits above the tab bar); a transcript with end padding that
+// follows its true end as lines come and as that padding alone grows (a
+// border-box list keeps its size); and a list shorter than its port and
+// paddings that opens at its end, in the padding before its rows.
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component ListInset
+  resource cards = cards(2000) as shape list<Card>
+  state hi = 100
+  state said = 4
+  state pad = 24
+  derive shown = filter(cards, c => c.n < hi)
+  derive lines = filter(cards, c => c.n < said)
+  action later
+    hi = min(2000, hi + 60)
+  action say
+    said = said + 3
+  action top
+    scrollIntoView("long", "c0", block="start")
+  action endof
+    scrollIntoView("long", "c30", block="end")
+  action grow
+    pad = pad + 26
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      row gap=8 padding=8 flex-shrink=0
+        button appearance="none" press=say testId="say"
+          text "say"
+        button appearance="none" press=top testId="top"
+          text "top"
+        button appearance="none" press=endof testId="endof"
+          text "end of 30"
+        button appearance="none" press=grow testId="grow"
+          text "grow"
+        text `${hi} rows, ${length(lines)} lines` testId="summary"
+      column flex=1 min-height=0 position="relative"
+        list id="long" virtualized=true reachend=later estimated-item-height=48 testId="long" height="100%" width="100%" overflow-x="hidden" padding-top=92 padding-bottom=83 scroll-padding="92 0 83"
+          each c in shown key=c.id
+            row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+              column width=12 height=12 border-radius=6 background-color=c.color
+              text c.label font-size=14
+        column testId="header" position="absolute" top=0 left=0 right=0 height=92 background-color="#ffffffe6"
+          text "header"
+      list virtualized=true scrollFollowEnd=true testId="transcript" height=140 flex-shrink=0 width="100%" overflow-x="hidden" background-color="#f1f5fa" padding-top=12 padding-bottom=pad box-sizing="border-box"
+        each c in lines key=c.id
+          text `${c.label}, ${c.width} wide` testId=`line-${c.n}` padding=(4 + c.width / 40) font-size=13
+      list virtualized=true scroll-start="end" testId="short" height=300 flex-shrink=0 width="100%" overflow-x="hidden" padding-top=92 padding-bottom=83 estimated-item-height=48
+        each c in filter(cards, c => c.n < 4) key=c.id
+          text c.label testId=`short-${c.n}` height=48 font-size=13

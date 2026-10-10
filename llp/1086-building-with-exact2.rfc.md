@@ -2,12 +2,16 @@
 
 **Type:** RFC
 **Status:** Draft r2, 2026-10-04; implemented the same day (§3 as built). Reviewed blind by Astra (max) and Grok (xhigh): both SOUND WITH CHANGES; §6 lists what r2 changed. Charlie asked for it to be implemented after review (2026-10-04); his request is the approval RULES asks for the build script (D3) and the DEFERRED bullet (D9).
-**Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
+**Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites, `.vscode/tasks.json` among them), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
 **Related:** LLP 1036.001 (apps outside the repository: what `exact new` writes); LLP 1035.005 (Contract authoring ergonomics: `fmt`, `symbols`, maps); LLP 1081 (moves the style-name table out of `tags.rs`, which would make D3's enumeration direct); `docs/agent-pitfalls.md` (its rule: an entry is deleted by the change that fixes the footgun); the authoring diaries: `signal-exact2/DIARY.md` (2026-10-02 to 10-03), `bluesky-exact2/DIARY.md`, the dice-tray diary (2026-10-04, fixes on `origin/tuft/diary-fixes`)
 
 ## Summary
+
+The first submitted diaries are recorded in [LLP 1086.000](1086.000-the-first-submitted-diaries.research.md),
+with proposed follow-up work in [LLP 1086.000.000](1086.000.000-improvements-from-the-first-diaries.rfc.md).
+They distinguish these original fixes from later reported friction.
 
 Charlie asked what the repository still needs so that people, and the agents
 working for them, can build with exact2 as easily as possible.
@@ -100,6 +104,33 @@ template's files; its `exact.mjs` adds `test-rust` (the hostless Rust tests)
 and `prove` (the proof's baseline), its notes point at `game/README.md`, and
 `--update` rewrites only those two, since a game's Cargo workspace is the
 bake's (`.shells/`).
+
+The template's root is full-bleed (2026-10-07, the authoring bench's iOS
+diaries: the status-bar strip was black and finding the fix cost about five
+minutes): `viewport-fit="cover"` on `main`, and padding of
+`calc(env(safe-area-inset-*) + 24px)` on each side, so the background fills
+behind the status bar and the content keeps clear of it. On the web the insets
+are 0 and the page is unchanged.
+
+The app's workspace holds three host crates: `apple/`, `web/` and, since
+2026-10-07 (Charlie, toward Android bench cells, LLP 1107), `linux/`, in the
+shape of the repo's own (`apps/duo-lab/linux`: one executable with the runner,
+the kernel, the baked plan and the TypeScript data module). The Linux host runs
+headless anywhere, so `bun exact.mjs linux` builds it (`scripts/build-linux.mjs`)
+and `test linux` / `agent linux …` drive it on any machine. The Android host is
+the same crate built for Android: `bun exact.mjs android`
+(`scripts/agent-android.mjs build`). `--update` adds `linux/` to an app made
+before, unless the app has its own.
+
+An app, and a game outside the checkout, also gets `.vscode/tasks.json`
+(2026-10-07, Doug Lowder: VS Code support, "declarative first"; this is the
+approval RULES asks for the config file). Its tasks run the app's own
+`bun exact.mjs` verbs: build or format the open `.contract` file, `web`,
+`test web` (the default test task), `mac --run`, `ios --run`, and a game's
+`test-rust`. They read the compiler's lines through `$exact-contract`, the
+problem matcher of exact2's `editors/vscode` extension, and Cargo's through
+rust-analyzer's `$rustc`. The file is the author's once written: `--update`
+writes it only when it is missing and never rewrites it.
 
 Not taken:
 

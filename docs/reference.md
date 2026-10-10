@@ -55,17 +55,15 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
-in `bun.lock`; Cargo pins native devices and schema compilers to the matching
-release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
-Run `bun install --frozen-lockfile` before baking Messages Legacy, and use the pinned CLI
-with `bun run --bun snapback4` from an app directory.
-Messages Legacy and the optional `exact-snapback4` adapter belong to the separate
-`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
-commands need no Snapback access. The `messages-legacy` build commands select
-that workspace automatically; direct Cargo commands use
-`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
-dependency on `snapback4/`.
+Snapback4 consumers use release **0.4.16**: the CLI is pinned in `bun.lock`;
+Cargo pins the device and its client to the matching release source commit
+`468d3aa5be3eee914883e37f3ab0424030ac882d`. `snapback4/` is one client for an
+app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
+the protocol in Rust without I/O, the native device, the web's wasm, and the
+TypeScript driver an app mounts with `typescript.sources`. The client is its
+own Cargo workspace, `snapback4/`; its lock carries the private source, so
+root Cargo commands need no Snapback access. Direct Cargo commands use
+`--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs
@@ -215,6 +213,13 @@ the manifest's `app.command` into the first of `~/.local/bin`, `/usr/local/bin`,
 `~/bin` that is already on `PATH` (`EXACT_BIN_DIR` overrides), and prints the
 line to add when none is.
 
+A standalone macOS app treats `kill -TERM <pid>` as an orderly quit: its
+`beforeunload` handlers can cancel, pending storage gets the same five-second
+hold, and each session's native module is destroyed before exit. Repeated SIGTERM
+requests share that hold's original deadline. A module's `destroy()` still runs
+synchronously on the main thread; the storage deadline does not bound it.
+SIGKILL cannot run this cleanup.
+
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
 it. Each MIME type it accepts must be one the Apple hosts map to a system type
@@ -317,12 +322,13 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
-Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
+Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
+read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
 `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
 The driver supplies its own defaults unless an option (or `open({env: ...})`)
-overrides them. `clock +N` moves the date (`epochAtZero + now()`); `state.time`
+overrides them. `clock +N` moves the date (`epochAtZero + performanceNow()`); `state.time`
 reports all five facts. Before the first host report, the runner
 also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
 from secure platform entropy. A development reload retains that launch's seed.
@@ -347,7 +353,8 @@ present (an `undefined` one is missing, as `JSON.stringify` leaves it out), none
 undeclared at any depth, each value of its declared kind. TypeScript's excess
 property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields),
 so the refusal is at run time, the same on the web as on a device:
-``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```.
+``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```,
+which the agent's `state` shows under `failed` while the resource keeps its last value.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native
@@ -371,7 +378,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. `exactBodyFrom: "app:/tmp/…"` sends an app file instead: the host reads it when it sends the request, under `fs.read` as `readFile` is, at most 64 MiB, and the bytes never enter JavaScript, so a 2 MB upload costs the answer's step nothing; with `body`, or on a GET or HEAD, it is a `TypeError`, and a missing file, a denied path or one over 64 MiB rejects the fetch (`FetchError`, kind `Refused`, naming why) before anything is sent, as does a host with no app files (a drive with no scratch store) or none built yet (Windows), with kind `Unsupported`; no Content-Type is added (LLP 1108 D6 R2). An older binary's prelude would send it as an empty body, so a native app with a TypeScript data module carries `typescriptRuntime` in its compatibility id: the first build after this change gives every such app a new id, and each needs a new binary once. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
@@ -380,6 +387,15 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `queueMicrotask`, `Promise` | |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
+
+On native hosts, ordinary ordered `GET`/`HEAD` reads wait in the same FIFO as
+writes: up to 128 queued, running and unconsumed requests, with at most 64 MiB
+of waiting request buffers. Other ordered work retains a 16-request admission
+bound. A full queue rejects explicitly; the runtime never restarts the whole
+source on that refusal, since earlier turns may have written already. For
+example, 20 resources fetching once beside one source fetching 20 times can
+all wait and answer. A failed resource keeps its last value; `refresh` asks
+again. See LLP 1041 §8.4 for the byte reservations and cancellation policy.
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
@@ -505,9 +521,9 @@ rejects with a `FetchError` of kind `Aborted` (the request may already have
 been sent), so a `catch` or `finally` runs. A stream's fetch never settles. Its reply is
 dropped either way; a mutation that needs every reply is declared `queue`. Unloading finishes storage the module already
 started, within a second, and drops what has not begun. Reads remain
-replaceable. An answer the runner lets go between storage steps (a refresh it
-discards before a mutation lands, a read whose arguments changed or that a
-`refresh` replaced) still runs the steps it began, and the chain behind them, to
+replaceable. An answer the runner lets go between storage steps (one asked in a
+commit that is refused, a read whose arguments changed or that a `refresh`
+replaced) still runs the steps it began, and the chain behind them, to
 their end; only its answer is dropped, so
 serializing storage through one promise chain composes with `refreshes` and
 fast-changing arguments (ledger F12, minesweeper F10).
@@ -552,7 +568,7 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 notification; `closeNotification(tag)` takes one away, shown or still
 waiting. The names are the Notification API's (`showTrigger` is the
 Notification Triggers draft's member, given as the time in epoch
-milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+milliseconds: the date now is `exactTime().epochAtZero + performanceNow()`). A newer notification
 with the same `tag` replaces the older. The app's grants must name
 `device.notifications purpose.notifications` (a strings key, LLP 1069.008;
 iOS shows its own fixed prompt text), or the command is refused. Permission
@@ -612,7 +628,13 @@ each voice ended is the same on every host and under the driver's clock
 Under the driver nothing plays on any host (`output: "agent"`). `app.json`'s
 root `audio_session` is the Apple audio session every sound, video and canvas
 shares: `"ambient"` (the default: the ring/silent switch mutes it, other apps'
-audio keeps playing) or `"playback"`. WebKit's Audio Session API takes it too;
+audio keeps playing) or `"playback"`. Under `"playback"` the session is held
+only while something has sound: the sound arm and a canvas's audio once they
+start, a `video` or `audio` while it has a source and is not muted, and a
+media-session claimant (`metadata=`, which Now Playing needs). When the last
+of those is muted or gone, the session goes back to ambient, which mixes with
+other apps' audio, as Bluesky's player does on re-mute; it is given up, so a
+paused podcast resumes, once no player is left. WebKit's Audio Session API takes it too;
 the Mac has no session. A development run with `EXACT_SOUND_CHECK=1` taps the
 engine's main mixer and journals (and prints) how far each onset after a
 silence reached the speaker from its time.
@@ -651,6 +673,42 @@ declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
 
+### Shrink a picked image for upload (`storage.fs.compressImage`)
+
+`storage.fs.compressImage(from, to, {maxDimension, maxBytes})` decodes the image
+at `from`, scales it so its longer side is at most `maxDimension` pixels, and
+writes a JPEG of at most `maxBytes` bytes at `to`, searching JPEG quality the way
+Bluesky's composer does (from quality 51 down and up; when 51 and 26 both miss,
+the size shrinks by 0.8, at most four sizes). Orientation is applied, and none
+of the source's metadata is written (no EXIF, GPS or orientation); transparency
+becomes white and the colour is sRGB. It resolves `{path, type: 'image/jpeg',
+size, width, height}` ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md)
+Amendment A1):
+
+```ts
+export const grants = 'fs.read app:/tmp\nfs.write app:/tmp';
+// files from `change` on an `input type="file"`; posts: 4000 px and 2 MB
+const out = await storage.fs.compressImage(files[0].path, `app:/tmp/upload/${seed}.jpg`,
+  { maxDimension: 4000, maxBytes: 2_000_000 });
+const body = await storage.fs.readFile(out.path);
+```
+
+Both paths are `app:/` files (`fs.read` on `from`, `fs.write` on `to`); `to` is
+replaced atomically, and left as it was on any failure. It always re-encodes, so
+compare the pick's `size`, `width` and `height` first to skip it. It is one
+storage operation in the module's queue; natively it runs off the JS thread. A bad option
+rejects with a `TypeError`; otherwise a refusal's `code` is `denied`, a
+filesystem code, `failed` (a path that is not `app:/`), `too-large` (over 64 MiB,
+or a header over 64 Mi pixels, checked before decoding), `undecodable`, `unfit`
+(nothing fits `maxBytes`), `timeout` (the search's 20 s, or a native wait that
+ran out with nothing written) or `unsupported`. macOS and iOS encode with
+ImageIO (an HDR photo is tone-mapped), the web with a canvas (in the page or the
+module's worker; JPEG, PNG, GIF, WebP and BMP, never HEIF or AVIF, whose size it
+cannot read before decoding);
+Linux, Windows and Android have no JPEG encoder and answer `unsupported`, so
+upload the original when it already fits. Under the agent it runs for real with
+`--storage <name>`.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
@@ -678,7 +736,11 @@ for (const name of await storage.fs.readdir(folder)) {
 | `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
-refused. A document needs no app storage: a drive without `--storage` reaches
+refused. Native folder handles retain the selected directory even if its
+pathname moves. Descendant symlinks and Windows reparse points are refused,
+including in intermediate folders; explicitly choosing a file through a
+symlink still selects its target. A native selection whose filename is not
+valid Unicode is refused rather than addressing a lossy spelling. A document needs no app storage: a drive without `--storage` reaches
 it. On the web the paths are the `FileSystemHandle`s the page's picker
 returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
 on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
@@ -783,10 +845,98 @@ Browser navigation, both Apple cold/warm handlers and malformed-link refusals ar
 tested. The page cannot detect installation, and does not trigger signing/builds.
 
 **Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
-there); `app.ts` can't import npm packages; signed delivery of TypeScript and Rust
+there); `app.ts` can't import npm packages' code, only their types (`import type`); signed delivery of TypeScript and Rust
 modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
 was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
 and git.
+
+## Access hatches
+
+An access hatch hands the app's native code the platform object Exact built for
+a node, at defined moments, so the app can do what only that object can: add a
+gesture recognizer, set a navigation bar's look, draw into a view. It configures
+what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
+1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
+
+```sh
+bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar
+bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the window's
+```
+
+The verb writes a stub for each target the app builds (Swift in
+`modules/apple/`, the page module in `modules/web/`, Rust in
+`modules/linux/`), adds the word to
+`app.json` `hatches` with those platforms, and tells you the node to mark:
+
+```
+column hatch="avatar" data-tone=(busy ? "busy" : "idle")
+```
+
+`"hatches": ["avatar"]` means every platform the app builds; `"hatches":
+{"avatar": ["ios", "web"]}` names the platforms whose module handles the word.
+Elsewhere the node is shown and no hatch is called for it. A hatch reads state
+only through the node's `data-*` words (declared in `app.json` `data`), and is
+called again when one changes.
+
+| Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
+|---|---|---|
+| A node marked `hatch="word"` | `element(_:)`, `elementEnded(_:)` | `element(e)`, `elementEnded(e)` |
+| A route, a navigation stack, tabs (iOS; the web's elements) | `route`, `routeEnded`, `navigation`, `tabs`, `tabContainer` | `route`, `routeEnded`, `navigation`, `tabs` |
+| The window toolbar (macOS) | `toolbar(_:)` | none |
+| The app: its facts, by the web's names, and the root node's `data-*` words as `data` | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
+| The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
+
+**Linux, Windows and Android paint their own pixels**, so there is no platform
+object to hand over. A hatch there is Rust: one type that implements
+`exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
+`modules/windows/`), named once with `pub type ExactHatches = App;` and
+included by the app's Linux crate (`contract::native::rust_hatch_entry` in its
+`build.rs`, which the Rust-data apps here already call). Its handle carries the
+node's box and words, the same acts, and two things in place of a view:
+`element.overlay().draw(|c, w, h| …)`, a Canvas 2D recording that replaces the
+last one whole, clipped to the node and painted over it; and
+`context.observe(&element, |me, input, cx| …)`, the pointer and key input that
+lands in the box, after Exact has handled it, to read only. It has the app and
+window scopes, `context.frames` and `context.after`, and `diagnostics`. There
+`changed` is also called when the node's size alone changes, and `ended` after
+the commit that removed the node. An Android build is the same crate built for
+Android; its words are the ones `app.json` gives `android`.
+
+No hatch runs before first pixel. A node's end runs while its view is still
+there, so take back there whatever the hatch added. On iOS a hatched node is a
+view of its own and its list row is not reused unless the hatch sets
+`element.reusable`; `logs` says what each word gives up.
+
+**Into Contract only as a person could.** A handle acts on an authored node:
+`click()`, `focus()`, `blur()`, and `input(text)`, which replaces a text
+field's whole value without moving focus. Each is queued and runs after the
+hatch returns. There is no dispatch and no state write.
+
+**The frame clock.** `context.frames { frame in … }` (the web:
+`exact.hatches.frames(frame => …)`) ticks once a frame after that frame's
+tasks, and `context.after(ms) { … }` waits on the session clock. Under the
+agent both run on the virtual display, so a drive repeats. They are for
+behaviour, not for measuring the display.
+
+**Whose window.** `window.window` is nil unless the embedder set
+`session.hatchesOwnWindow`, and `app.application` unless it set
+`session.hatchesOwnProcess`. The standalone iOS app sets both; the standalone
+Mac app sets the first for each document's session.
+
+**Make the hatch visible to the agent.**
+
+| In hatch code | Where it shows |
+|---|---|
+| `diagnostics.log("…")` | `logs`, as `hatch element avatar: …` |
+| `diagnostics.count("swipes")`, `publish("last", value)` | `state.hatches` |
+| `diagnostics.measure("swipe.worst", ms:)`, `begin("swipe") … end()` | `perf hatches`, with Exact's own timing of every call |
+| `element.owns(view: added, "what it is")`, `owns(recognizer:…)` | `tree`, under the node, beside what the host observes of it |
+| `element.parts = [ExactPart(id: "seal", view: v, role: "button", label: "Verified")]` | `tree`; `tap avatar/seal` clicks it as a real pointer event |
+
+Diagnostics are bounded and kept only in a development build. `EXACT_HATCHES=off`
+(`?hatches=off` on a web page) runs a development build with no hatch
+connected; the app must still work. If a run dies inside a hatch, the next
+launch's `logs` say which one.
 
 ## Rust data sources
 
@@ -823,6 +973,7 @@ JSON result or the host's message. The operations:
 | `"sqlite.transaction"` | the same, `execute` commands only | the executes' results, all or none |
 | `"fs.readFile"`, `"fs.atomicWriteFile"`, `"fs.writeFile"`, `"fs.appendFile"` | `{"path"}`, and `"text"` (or `"bytes"`) to write | read: `{"base64"}`; write: `null` |
 | `"fs.mkdir"`, `"fs.rm"`, `"fs.stat"`, `"fs.readdir"`, `"fs.rename"`, `"fs.copyFile"` | `{"path"}`, and `"destination"` to move or copy | as `storage.fs` answers |
+| `"fs.compressImage"` | `{"path", "destination", "maxDimension", "maxBytes"}` | `{"path", "type", "size", "width", "height"}`, as `storage.fs.compressImage` answers |
 
 Grant what it touches: `sqlite.open app:/data/x.db`, `fs.read app:/data`,
 `fs.write app:/data`. Storage is asynchronous and starts after first pixel. It
@@ -881,8 +1032,10 @@ impl DataSource for Scores {
 ```
 
 `Store` (`store.get`, `store.set`, under `secret.keep <name>`) is for
-**secrets**: a session token, a key. Apple keeps them in the Keychain and the
-web in `localStorage`; the host reads them into a snapshot before boot, so a
+**secrets**: a session token, a key. Apple keeps them in the Keychain, Linux
+in a file per secret only the user can read (`0600`, under
+`$XDG_DATA_HOME/exact/<app id>/secrets`; not encrypted), and the web in
+`localStorage`; Windows keeps them in memory for now. The host reads them into a snapshot before boot, so a
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 

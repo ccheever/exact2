@@ -73,9 +73,6 @@ final class ControlHost: NSObject {
     var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
-    /// Raw measurements collected once during sync; reused across batches.
-    /// Grouped-list mounting decides the button row's content margins.
-    private var pendingSizes: [(UInt32, CGSize)] = []
     /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
     var menus: [UInt32: SelectMenu] = [:]
     /// A range's last reported value while it moves, so each is sent once.
@@ -87,6 +84,9 @@ final class ControlHost: NSObject {
     var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
     var picked: [UInt32: String] = [:]
+    /// Each `progress`'s activity indicator (ProgressIOS.swift): a view,
+    /// not a control, so beside `controls`.
+    var spinners: [UInt32: UIActivityIndicatorView] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -125,7 +125,7 @@ final class ControlHost: NSObject {
         made.tag = Int(node.id)
         // Its natural size follows text size, weight and scale, which no batch says.
         MainActor.assumeIsolated {
-            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
+            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self, UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
                 self?.presenter.requestProjectionSync()
             }
         }
@@ -139,7 +139,7 @@ final class ControlHost: NSObject {
     /// `contents`: a control's viewless contents may have changed (a batch
     /// with `controls`, or a sync outside any batch); `touched`, the nodes
     /// the batch changed.
-    func sync(contents: Bool = true, touched: [UInt32] = [], deferIntrinsic: Bool = false) {
+    func sync(contents: Bool = true, touched: [UInt32] = []) {
         if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
@@ -155,7 +155,7 @@ final class ControlHost: NSObject {
             appliedRange.removeValue(forKey: id)
             picked.removeValue(forKey: id)
         }
-        pendingSizes.removeAll(keepingCapacity: true)
+        var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
             let native = owner.style["appearance"]?.string != "none"
             let control = control(for: owner)
@@ -197,13 +197,14 @@ final class ControlHost: NSObject {
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
             let natural = naturalSize(control, owner)
-            let box = owner.contentBox()
+            let box = control is NativeButtonIOS ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size, centred.
+            // others keep their own size. A select aligns its value in
+            // the box; unstyled controls stay centred.
             if let button = control as? NativeButtonIOS {
-                // A carried button row keeps the cell's content margins even
-                // when a trait refresh syncs controls after the grouped list.
+                // Grouped membership owns the inset through cell recycling
+                // and trait refreshes.
                 button.layout(in: box)
             } else {
                 #if os(tvOS)
@@ -211,27 +212,26 @@ final class ControlHost: NSObject {
                 #else
                 let width = control is UISlider ? box.width : natural.width
                 #endif
-                assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                var x = box.midX - width / 2
+                #if os(iOS)
+                if owner.props["type"] == "select" {
+                    switch selectAlignment(owner) {
+                    case .left: x = box.minX
+                    case .right: x = box.maxX - width
+                    default: break
+                    }
+                }
+                #endif
+                assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
-            pendingSizes.append((owner.id, natural))
-        }
-        if !deferIntrinsic { flushIntrinsicSizes() }
-    }
-
-    /// Flush after native rows are mounted, so their slot measurement includes
-    /// the cell margins without measuring the platform control a second time.
-    func flushIntrinsicSizes() {
-        var sizes: [(UInt32, CGSize?)] = []
-        for (id, raw) in pendingSizes {
-            guard let control = controls[id], presenter.views[id] != nil else { continue }
-            let size = (control as? NativeButtonIOS)?.slotSize(raw) ?? raw
-            if reported[id] != size {
-                reported[id] = size
-                sizes.append((id, size))
+            // Native fitting answers are published synchronously, with the
+            // grouped row's semantic inset already charged by the kernel.
+            if !(control is NativeButtonIOS), reported[owner.id] != natural {
+                reported[owner.id] = natural
+                sizes.append((owner.id, natural))
             }
         }
-        pendingSizes.removeAll(keepingCapacity: true)
         // Published outside the batch being applied, as images' are; a
         // control destroyed before then reports nothing.
         if !sizes.isEmpty {
@@ -241,6 +241,7 @@ final class ControlHost: NSObject {
                 if !live.isEmpty { self.presenter.onIntrinsic?(live) }
             }
         }
+        syncProgress()
     }
 
     @objc private func changed(_ sender: UIControl) {
@@ -281,6 +282,7 @@ final class ControlHost: NSObject {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let progress = progressObservation(node) { return progress }
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonIOS { return nativeObservation(b) }
         if let value = valueObservation(control) {
@@ -300,6 +302,8 @@ final class ControlHost: NSObject {
     func reset() {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
+        for spinner in spinners.values { spinner.removeFromSuperview() }
+        spinners.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

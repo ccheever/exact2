@@ -59,6 +59,11 @@ export async function webAx(carrier, opts = {}, readPlain = async () => null) {
     const snapshot = await carrier.call('DOMSnapshot.captureSnapshot', { computedStyles: [], includeDOMRects: true });
     const after = await carrier.ask({ op: 'axStamp' });
     last = { reply: collectWeb(nodes, snapshot, limit), before, plain };
+    // Every part the page stamped, as exposed or not: whether an element of the tree joined it.
+    if (before.parts?.length) {
+      const joined = new Set(last.reply.ax.elements.map(e => e.part).filter(Boolean));
+      last.reply.ax.coverage.parts = before.parts.map(p => ({ node: p.node, id: p.id, ax: joined.has(`${p.node}/${p.id}`) ? 'exposed' : 'not exposed' }));
+    }
     const same = ['epoch', 'incarnation', 'nonce'].every(k => before[k] === after[k]) && (!plain || (plain.epoch === before.epoch && plain.incarnation === before.incarnation));
     if (same) break;
     last.spanned = true;
@@ -118,6 +123,14 @@ function collectWeb(nodes, snapshot, limit) {
       const tag = d !== undefined ? str(doc.nodes.nodeName[d]) : null;
       if (tag === 'INPUT' && el.type === 'password') states.protected = true;
       const e = { i, parent: parent ?? null, id, via, role: cut(role, truncated) ?? 'unknown', name: cut(n.name?.value ?? '', truncated) };
+      // A hatch's part, by ownership: the element is the part's bound one or inside it, below its node (LLP 1075.003.000.001 §3.5).
+      let part = d === undefined && parent != null ? elements[parent].part : undefined;
+      for (let a = d ?? -1; a >= 0 && part === undefined; a = parentOf(a)) {
+        if (!isElement(a)) continue;
+        const at = attrs(a);
+        if (at['data-agent-part'] != null) part = at['data-agent-part']; else if (at['data-agent-view'] != null) break;
+      }
+      if (part !== undefined) e.part = part;
       const from = n.name?.sources?.find(s => s.value != null && !s.superseded)?.type;
       if (from) e.nameFrom = from;
       const value = n.value?.value;

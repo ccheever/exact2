@@ -366,6 +366,14 @@ function imageEvents(el, fire) {
 function refreshSymbols() {
   for (const el of views.values()) {
     if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
+    if (el.parentElement?.matches("button[data-button-style]")) {
+      const title = el.parentElement.querySelector(":scope > [data-exact-text]"), own = getComputedStyle(el);
+      if (title) {
+        const font = getComputedStyle(title); el.style.color = font.color;
+        if (own.getPropertyValue("--exact-symbol-size-authored").trim() !== "1") el.style.fontSize = font.fontSize;
+        if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
+      }
+    }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (!path && !el.dataset.symbolSource?.startsWith("symbol:sf/") && el.symbolRefusal !== el.dataset.symbolSource) {
@@ -735,7 +743,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: (path, grants) => (globalThis.exact.requestBody ? Promise.resolve(globalThis.exact.requestBody) : loadAfterPaint('./storage-request.js', 'requestBody')).then(read => read(globalThis.exact.compat.inputs.app, grants, path)), // `exactBodyFrom` (LLP 1108 D6 R2): the page's store
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
@@ -859,6 +867,7 @@ function apply(batch) {
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
+  else collections.restyled();
   for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
   listSelection?.after();
   syncLists();
@@ -1187,7 +1196,6 @@ async function agentSettled(request) {
   if (textflow) await textflow.settle();
   return agent(request);
 }
-
 // Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
 // 1035.002 D3), read after the operation; a reply's own `clock` (where a
 // `clock` call landed) is kept, and an error is left alone. The driver
@@ -1487,5 +1495,5 @@ async function main() {
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
-function navigate(location) { return globalThis.exact.navigate(location); }
-navigation.connect(root, navigate, log);
+function navigate(location) { const batch = globalThis.exact.navigate(location); return /^NoHandler|no navigation root/.test(batch?.error ?? "") ? false : batch; } // false: unheard, so Back is the runner's own (LLP 1115 D5)
+navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); });

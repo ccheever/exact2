@@ -45,6 +45,61 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(loader.loadingOnScreen, 0)
         XCTAssertEqual(loader.diagnostics["deferred"] as? Int, 0)
     }
+    /// A decode ImageIO declines is asked for again after a delay, loading
+    /// all the while, and paints with no prop change, reload or new source.
+    func testDeclinedDecodeAsksAgainAndPaints() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        try png(root, "busy.png", width: 120, height: 80, identity: 9)
+        loader.testDecline(next: 2)
+        node.loadGeneration = 1
+        let start = Date()
+        XCTAssertTrue(loader.load(node, source: "busy.png", resolver: resolver))
+        settle { declines(loader) == 1 }
+        XCTAssertNil(node.raster)
+        XCTAssertEqual(loader.loadingOnScreen, 1, "a declined decode is still loading")
+        settle { node.raster != nil }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(start), 0.75, "after 250 ms, then 500 ms")
+        XCTAssertEqual(node.raster?.image.naturalSize, CGSize(width: 120, height: 80))
+        XCTAssertEqual(declines(loader), 0)
+        XCTAssertEqual(images(loader).first?["failure"] as? String, "")
+        XCTAssertEqual(loader.loadingOnScreen, 0)
+    }
+    /// Past the last delay a declined decode is the image's failure.
+    func testDecodeDeclinedPastTheLastDelayFails() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        try png(root, "busy.png", width: 120, height: 80, identity: 10)
+        loader.testDecline(next: RasterLoader.declineDelays.count + 1)
+        node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "busy.png", resolver: resolver))
+        settle { images(loader).first?["failure"] as? String == "decode failed" }
+        XCTAssertEqual(declines(loader), RasterLoader.declineDelays.count)
+        XCTAssertNil(node.raster)
+        XCTAssertEqual(loader.loadingOnScreen, 0)
+    }
+    /// A decode that failed for good is let go of: a second view of the same
+    /// source and size decodes it again rather than taking the cached failure.
+    func testAViewAfterAFailedDeclineDecodesAgain() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        let second = NodeView(id: 2, kind: "image", presenter: presenter)
+        presenter.views[2] = second; presenter.viewport.addSubview(second)
+        second.frame = node.frame
+        defer { loader.shutdown(); node.raster = nil; second.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        try png(root, "busy.png", width: 120, height: 80, identity: 11)
+        loader.testDecline(next: RasterLoader.declineDelays.count + 1)
+        node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "busy.png", resolver: resolver))
+        settle { images(loader).first { $0["view"] as? UInt32 == 1 }?["failure"] as? String == "decode failed" }
+        second.loadGeneration = 1
+        XCTAssertTrue(loader.load(second, source: "busy.png", resolver: resolver))
+        settle { second.raster != nil }
+        let view2 = images(loader).first { $0["view"] as? UInt32 == 2 }
+        XCTAssertEqual(view2?["declines"] as? Int, 0)
+        XCTAssertNil(node.raster, "the first view keeps its error")
+    }
+    private func images(_ loader: RasterLoader) -> [[String: Any]] { loader.diagnostics["images"] as? [[String: Any]] ?? [] }
+    private func declines(_ loader: RasterLoader) -> Int? { images(loader).first?["declines"] as? Int }
     /// One decoder while any owner's list travels fast; both once none does.
     func testDecodesOneAtATimeWhileAnyListTravelsFast() {
         let workers = RasterWorkers.shared, a = NSObject(), b = NSObject()
@@ -129,7 +184,7 @@ final class RasterLoaderTests: XCTestCase {
     /// test whose event can never come.
     private func settle(file: StaticString = #file, line: UInt = #line, _ predicate: () -> Bool) {
         let hang = Date(timeIntervalSinceNow: 300)
-        while !predicate() && Date() < hang { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while !predicate() && Date() < hang { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertTrue(predicate(), file: file, line: line)
     }
     private func fixture(sourceLimit: Int = 1152, metadataLimit: Int = 64) throws -> (URL, AssetResolver, Presenter, NodeView, RasterLoader, NSWindow) {

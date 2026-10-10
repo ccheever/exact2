@@ -70,6 +70,16 @@ macro_rules! configured {
             fn native(&self) -> Option<$crate::exact_runner::Native> {
                 $crate::exact_runner::DataSource::native(&self.0)
             }
+            fn overlay(
+                &mut self,
+                source: &str,
+                args: &[$crate::exact_runner::Value],
+                answer: &$crate::exact_runner::Value,
+                writes: &[$crate::exact_runner::Write<'_>],
+            ) -> Result<Option<$crate::exact_runner::Overlaid>, $crate::exact_runner::DataError>
+            {
+                $crate::exact_runner::DataSource::overlay(&mut self.0, source, args, answer, writes)
+            }
             fn forgotten(
                 &mut self,
                 store: &$crate::exact_runner::Store,

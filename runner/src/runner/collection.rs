@@ -105,6 +105,38 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
+        // @ref LLP 1010 §6.9 — the list's own padding and scroll padding,
+        // `env()` and a computed value resolved: the room a host scrolls
+        // before and past the rows, and the inset `scrollIntoView` aligns
+        // within. Not the layout's padding, which adds a route's cover (LLP
+        // 1075.003 §3.5) that Apple's hosts do not scroll.
+        if let Some(node) = self.kernel.node(view) {
+            let env = self.kernel.env();
+            let points = |d: exact_kernel::Dimension| match d.resolve(&env) {
+                exact_kernel::Dimension::Points(n) => n as f64,
+                _ => 0.0,
+            };
+            let (s, r) = (node.style, &node.style.rare);
+            tree.set_collection_insets(
+                view,
+                crate::instance::collection::Insets {
+                    padding: [
+                        s.padding_top,
+                        s.padding_right,
+                        s.padding_bottom,
+                        s.padding_left,
+                    ]
+                    .map(points),
+                    scroll: [
+                        r.scroll_padding_top,
+                        r.scroll_padding_right,
+                        r.scroll_padding_bottom,
+                        r.scroll_padding_left,
+                    ]
+                    .map(points),
+                },
+            );
+        }
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
@@ -244,6 +276,47 @@ impl<D: DataSource> Runner<D> {
                         result.error = Some(error);
                         break;
                     }
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// List `view`'s port is at `offset` (from its first row, as a report's):
+    /// the rows mounted out of the port that now show stop holding what
+    /// waits for them (LLP 1055 D13), in a commit of their own. No report:
+    /// the window and its rows stay the last report's, for a host that
+    /// waits for more travel before its next one.
+    pub fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<Advanced, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let mut result = Advanced {
+            receipts: Vec::new(),
+            now_ms: self.now_ms,
+            error: None,
+        };
+        if !offset.is_finite() {
+            return Ok(result);
+        }
+        let mut tree = self.tree.take().expect("booted");
+        let mut ids = std::mem::take(&mut self.ids);
+        let shown = {
+            let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            tree.show_collection(&mut update, view, offset);
+            update.shown
+        };
+        self.tree = Some(tree);
+        self.ids = ids;
+        self.shown.extend(shown);
+        if (self.shown.revealed.iter()).any(|v| self.kernel.is_awaiting(*v)) {
+            match self.apply(Vec::new()) {
+                Ok(receipt) => result.receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
                 }
             }
         }

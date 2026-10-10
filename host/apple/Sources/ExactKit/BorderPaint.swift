@@ -15,8 +15,13 @@
 // colour are one clip, so no seam shows where they meet.
 import CoreGraphics
 import QuartzCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
-enum BorderPaint {
+package enum BorderPaint {
     /// Percentages use the border box's width and height independently.
     static func radii(_ style: NodeStyle, in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
         ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
@@ -69,7 +74,7 @@ enum BorderPaint {
     /// CSS's radius reduction: every corner scaled by the one factor that
     /// keeps two neighbours from overlapping an edge. `radii` are top-left,
     /// top-right, bottom-right, bottom-left, as (horizontal, vertical).
-    static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
+    package static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
         let sums = [radii[0].width + radii[1].width, radii[3].width + radii[2].width,
                     radii[0].height + radii[3].height, radii[1].height + radii[2].height]
         let edges = [rect.width, rect.width, rect.height, rect.height]
@@ -80,7 +85,7 @@ enum BorderPaint {
 
     /// A rectangle with an elliptical radius per corner, clockwise on screen;
     /// with a `corner-shape`, the kernel's outline (LLP 1077 D1).
-    static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
+    package static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
         if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()
         let (tl, tr, br, bl) = (radii[0], radii[1], radii[2], radii[3])
@@ -198,6 +203,37 @@ enum BorderPaint {
 }
 
 extension NodeView {
+    /// The reduced radii; the layer fast path additionally requires circles.
+    func cornerSizes(in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
+        BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
+    }
+    func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
+        cornerSizes(in: rect, inset: inset).map { $0.width }
+    }
+    #if os(macOS)
+    func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
+        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
+    }
+
+    #else
+    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
+        UIBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
+    }
+
+    #endif
+
+    /// Both drawing hosts paint authored borders and grouped chrome together
+    /// before media and children, sharing the same underlay ordering.
+    func paintBorderAndGroupedSeparator(_ context: CGContext) {
+        let uniform = number("border_width")
+        let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+        let top = color("border_color_top", .clear)
+        let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+        BorderPaint.paint(context, box: bounds, widths: widths, colors: colors,
+                          radii: BorderPaint.radii(style, in: bounds), shape: CornerShape(style["corner_shape"]))
+        paintGroupedSeparator(context)
+    }
+
     /// Grouped chrome is paint inside the row, never a CSS border or an inset
     /// outside its box. UIKit's list draws its own separator for a carried row.
     var groupedSeparatorRect: CGRect? {

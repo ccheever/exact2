@@ -38,6 +38,8 @@ struct InlineText {
     }
 
     var text: String { lightRun.text }
+    /// A run with an `href`: the web's `<a>` in its paragraph.
+    var isLink: Bool { !(props["href"] ?? "").isEmpty }
     /// The run in its paragraph owner's traits: `contrast` and `elevated`
     /// as `BatchValue.channels` takes them (LLP 1095 D5).
     func run(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> Run {
@@ -53,7 +55,7 @@ struct InlineText {
     static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
                     tint: PlatformColor? = nil) -> Run {
         func number(_ key: String, _ fallback: Double = 0) -> Double { style[key]?.number ?? fallback }
-        let size = Float(number("font_size", 16))
+        let size = Float(number("font_size", Double(PageFacts.defaultRootFontSize)))
         let height: CGFloat?
         if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }
         else if let px = style["line_height"]?.string, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
@@ -69,6 +71,21 @@ struct InlineText {
         run.hidden = style["visibility"]?.string == "hidden"
         return run
     }
+}
+
+extension Run {
+    /// Whether it is drawn underlined: written, or a link run with no
+    /// decoration written where the platform underlines links. AppKit's
+    /// `NSTextView.linkTextAttributes` does; UIKit's text links are the tint
+    /// alone (LLP 1115 §3), so iOS invents none.
+    var underlined: Bool {
+        decoration.contains("underline") || (Run.linksUnderlined && decoration.isEmpty && !href.isEmpty)
+    }
+    #if os(macOS)
+    static let linksUnderlined = true
+    #else
+    static let linksUnderlined = false
+    #endif
 }
 
 // Resolved while reading a paragraph; no dictionary of unused layout rows.
@@ -108,6 +125,9 @@ extension Presenter {
     }
     func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }
+        #if os(macOS)
+        let hadLinks = node.inlineText.contains(where: \.isLink)
+        #endif
         forgetParagraph(node)
         var offset = 0
         var rows = runs
@@ -127,6 +147,10 @@ extension Presenter {
         node.invalidateText()
         node.updateInlineInteraction()
         node.updateTextAccessibility()
+        #if os(macOS)
+        // Its `href` runs' pointing hand (`resetCursorRects`).
+        if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
+        #endif
     }
 }
 

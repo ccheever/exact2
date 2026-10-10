@@ -1059,6 +1059,27 @@ pub(super) fn check_command(
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
     }
+    // `Element.scrollBy(x, y)` by the element's `id`: pixels, as the web's
+    // (in a terminal a row is 16, a column 8).
+    if name == "scrollBy" {
+        const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
+        let ok = match args {
+            [id, x, y] => {
+                infer(id, scope, shapes)? == Ty::String
+                    && infer(x, scope, shapes)? == Ty::Number
+                    && infer(y, scope, shapes)? == Ty::Number
+            }
+            _ => false,
+        };
+        if !ok {
+            return err(
+                "type-scroll-by",
+                format!("{USAGE}: an `id` string, then two numbers"),
+                span,
+            );
+        }
+        return Ok(());
+    }
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }
@@ -1394,9 +1415,13 @@ fn spacing_tree(e: &Expr) -> bool {
 /// A style row is one CSS value space — a length or a keyword — so a style
 /// attribute's ternary or `match` may put a number in one arm and a string
 /// in the other; lowering checks each literal against the row and the
-/// runner converts each value. Arms that disagree otherwise are refused as
+/// runner converts each value; `none` clears a row, as a one-sided class does.
+/// Arms that disagree otherwise are refused as
 /// any expression's are.
 fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    if matches!(e, Expr::None(_)) {
+        return Ok(Ty::Unknown);
+    }
     if !matches!(e, Expr::Ternary(..) | Expr::Match { .. }) {
         return infer(e, scope, shapes);
     }

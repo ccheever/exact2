@@ -618,9 +618,55 @@ impl std::fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
+pub const RUNNER_OWNED_SOURCES: &[&str] = &[
+    "exactDelivery",
+    "exactViewport",
+    "exactPage",
+    "exactSurface",
+    "exactTime",
+];
+
+/// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(
-        name,
-        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
-    )
+    RUNNER_OWNED_SOURCES.contains(&name)
+}
+
+impl Plan {
+    /// The bit a platform holds in a `hatches` row's mask (LLP
+    /// 1075.003.000.001 §4.3), in the order the manifest's names are listed.
+    pub fn hatch_platform_bit(platform: &str) -> u16 {
+        ["ios", "tvos", "macos", "web", "linux", "windows", "android"]
+            .iter()
+            .position(|p| *p == platform)
+            .map_or(0, |i| 1 << i)
+    }
+
+    /// Declare a hatch word and the platforms that handle it, after
+    /// lowering: the row comes from `app.json`, not from Contract.
+    pub fn add_hatch(&mut self, word: &str, platforms: u16) {
+        let id = match self.strings.iter().position(|s| s == word) {
+            Some(i) => StrId(i as u32),
+            None => {
+                self.strings.push(word.to_string());
+                StrId(self.strings.len() as u32 - 1)
+            }
+        };
+        self.hatches.push(HatchesRow {
+            word: id,
+            platforms,
+        });
+    }
+
+    /// Whether `platform`'s module handles `word`, as the plan says it: true
+    /// for a plan that lists no words at all (one baked before the row, or an
+    /// app that declares none), since then only the module can say.
+    pub fn handles_hatch(&self, word: &str, platform: &str) -> bool {
+        if self.hatches.is_empty() {
+            return true;
+        }
+        let bit = Self::hatch_platform_bit(platform);
+        self.hatches
+            .iter()
+            .any(|row| self.str(row.word) == word && row.platforms & bit != 0)
+    }
 }

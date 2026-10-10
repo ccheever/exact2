@@ -1,25 +1,39 @@
 # Agent instructions
 
 **Building an app with Exact rather than working on it?** Make it with `bun scripts/exact.mjs
-new <path>`. Its own `AGENTS.md` has the commands. Read `docs/contract-for-agents.md` first,
-then `docs/agent-pitfalls.md`; `contract vocab` lists every tag and property Contract accepts.
+new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
+rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+`docs/reference.md`) is lookup only, by the section its table names: do not read the long
+guides front to back. `contract vocab <name>` answers for any tag or property, and
+`apps/shelf` is the recipe app to grep.
 
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 
-## The web is the standard
+## Write the web, ship the platform
 
-Where a default, a property name, a value vocabulary, or a behavior could follow CSS or
-something else (React Native/Yoga, UIKit, AppKit), it follows CSS — even where a CSS
-reset would usually override it. A bare node is `display: block`, `box-sizing:
-content-box`, `flex-direction: row`, `flex-shrink: 1`. Rows are named `object-fit`,
-`text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`, `numberOfLines`.
-The web is the dev loop and the parity oracle for every other surface; a kernel that
-disagrees with a bare `<div>` reintroduces the four-disagreeing-default-layers bug
-class the predecessor had. An unavoidable deviation (Taffy has no `position: static`)
-is declared in `llp/1001-kernel-v1.spec.md` with the reason.
+LLP 1115 (Charlie, 2026-10-09; James's "no tells"). **What the author writes is CSS**: the
+vocabulary, the layout model, the dev loop. **What the author leaves unsaid is the
+platform's**: controls, colour, type, motion, gestures, presentation, haptics, keyboard and
+accessibility come out as a hand-built UIKit/SwiftUI app following Apple's guidelines would
+have them (AppKit on the Mac, and each platform likewise). **What the author writes wins.**
+Precedence: author > platform > CSS default. One test settles a dispute: *would someone who
+knows the platform notice?* If so it is a tell, and the platform's answer wins; judge against
+a hand-built screen on the same OS version, not against Chrome.
+
+So layout stays CSS (users cannot perceive it): a bare node is `display: block`,
+`box-sizing: content-box`, `flex-direction: row`, `flex-shrink: 1`, and the web is the
+layout parity oracle — a kernel that disagrees with a bare `<div>` reintroduces the
+four-disagreeing-default-layers bug class the predecessor had (an unavoidable deviation is
+declared in `llp/1001-kernel-v1.spec.md`). Names stay CSS (they are what the author writes):
+`object-fit`, `text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`,
+`numberOfLines`; where a common reset (normalize.css, Tailwind's preflight) differs from the
+raw default, its behaviour is a familiar path too (LLP 1104 D4). Unsaid presentation is the
+platform's: a `color` a bar button only inherits from the page leaves UIKit's tint. Agents
+writing apps should therefore say less — structure (a header's heading and buttons, a
+`tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
 
 ## Working here
 
@@ -33,6 +47,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
+- Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
 - The five checks: `cargo build --all-targets --keep-going` ·
   `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
@@ -129,6 +144,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`tests/screen.rs` drives inline mode through the emulator); `harness-data` is not,
   so when you touch the harness run `cargo test -p harness-data`.
   `examples/replay.rs` replays a recorded session through the same emulator.
+  The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile
+  host-dev -p llp-terminal`, then `./target/host-dev/llp [llp/ or a document]`.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters

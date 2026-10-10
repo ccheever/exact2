@@ -42,7 +42,7 @@ async function read(url, limit) {
 // settles after the turn's microtask drain, which is a task, and a frame can
 // render before that task runs; the runner's `request` op for the same GET
 // then claims the response in flight (`claim`) instead of fetching. Only a
-// module's own `net.fetch` origins, and nothing with a body. A GET its turn
+// module's own `net.fetch` origins, and nothing with a body (text or bytes). A GET its turn
 // didn't report is aborted as the turn ends; one the runner didn't claim while
 // the report was delivered is aborted a task later.
 const early = new Map(); // `GET url headers` -> [{ response, controller }]
@@ -51,7 +51,7 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
   // A GET a driver fault will fail is not started early: the request fails it, counted once (LLP 1103 D1).
-  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
+  if (grantError(grants) || request.method !== 'GET' || request.body || request.body_base64 != null || !admitsNetwork(grants, request.url, 'fetch') || faultMatches(request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
@@ -325,6 +325,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
       // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
+      // An overlay shows writes over an answer; it awaits nothing, so it runs in this turn.
+      overlay: request => JSON.parse(win.__exact_overlay(request.source, JSON.stringify(request.args), JSON.stringify({ answer: request.answer, writes: request.writes }))),
       retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
@@ -452,6 +454,7 @@ export function call(request) {
   if (request.op === 'background-round') return realm.backgroundRound ? realm.backgroundRound() : { error: 'no background work in a worker-placed module' };
   if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
+  if (request.op === 'overlay') return realm.overlay ? realm.overlay(request) : { tag: 4, worker: true };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   // A worker realm answers only through turns; a stream's mapper runs now.

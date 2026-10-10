@@ -97,7 +97,7 @@ pub fn case(seed: u64, size: &Size) -> Case {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Env {
     pub(crate) vars: Vec<(String, Ty)>,
-    /// Whether `now()` may be written.
+    /// Whether `performanceNow()` may be written.
     pub(crate) now: bool,
     /// How many `fn`s (in declaration order) may be called.
     pub(crate) fns: usize,

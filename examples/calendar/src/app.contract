@@ -233,7 +233,7 @@ component Calendar
   derive hoverDay = held ? hoverTarget.day : -1000000
 
   action tick
-    minute = floor(now() / 60000) * 60000
+    minute = floor(performanceNow() / 60000) * 60000
   task clockTick mount
     every(60000, tick)
   task dragFrames mount
@@ -286,15 +286,15 @@ component Calendar
               sourceWidth = max(1, packet.sourceWidth)
               sourceHeight = max(1, packet.sourceHeight)
               liftPrepared = false
-              liftReadyAt = now() + 48
+              liftReadyAt = performanceNow() + 48
               returnPrepared = false
               dragPhase = "held"
-              dragFrameTime = now()
+              dragFrameTime = performanceNow()
               calendarScrollRequest = savedScroll(month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)
               calendarScrollMonth = month
               edgeDirection = 0
-              edgeSince = now()
-              edgeReadyAt = now()
+              edgeSince = performanceNow()
+              edgeReadyAt = performanceNow()
               hovered = ""
               match some(frame("calendar-stage"))
                 case some(stage)
@@ -352,7 +352,7 @@ component Calendar
                 dragPhase = "landing"
                 dragCommitted = true
                 dropDay = contactTarget.day
-                dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 300)
+                dragUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 300)
                 ghostX = contactPageX + contactLanding.x
                 ghostY = portY + contactLanding.y - landingScroll
                 calendarScrollMonth = contactMonth
@@ -371,15 +371,15 @@ component Calendar
               else
                 dragPhase = "returning"
                 returnPrepared = viewport.prefersReducedMotion
-                returnReadyAt = now() + 16
-                dragUntil = now()
+                returnReadyAt = performanceNow() + 16
+                dragUntil = performanceNow()
                 ghostX = sourceX
                 ghostY = sourceY
             if packet.phase == "cancel"
               dragPhase = "returning"
               returnPrepared = viewport.prefersReducedMotion
-              returnReadyAt = now() + 16
-              dragUntil = now()
+              returnReadyAt = performanceNow() + 16
+              dragUntil = performanceNow()
               ghostX = sourceX
               ghostY = sourceY
       case none
@@ -426,42 +426,42 @@ component Calendar
       titleFocusPending = false
       focus("schedule-title")
     if held
-      if not liftPrepared and now() >= liftReadyAt
+      if not liftPrepared and performanceNow() >= liftReadyAt
         liftPrepared = true
       if dragMoved and edgeWanted == 0 and hoverInside and portHeight > 0 and edgeSpeed(dragY - portY, portHeight) != 0
         calendarScrollMonth = hoverMonth
-        calendarScrollRequest = max(0, min(hoverTarget.maxScroll, hoverScroll + edgeSpeed(dragY - portY, portHeight) * min(34, max(0, now() - dragFrameTime)) / 1000))
+        calendarScrollRequest = max(0, min(hoverTarget.maxScroll, hoverScroll + edgeSpeed(dragY - portY, portHeight) * min(34, max(0, performanceNow() - dragFrameTime)) / 1000))
       if edgeWanted != edgeDirection
         edgeDirection = edgeWanted
-        edgeSince = now()
-      if edgeWanted != 0 and edgeWanted == edgeDirection and now() - edgeSince >= 420 and now() >= edgeReadyAt
+        edgeSince = performanceNow()
+      if edgeWanted != 0 and edgeWanted == edgeDirection and performanceNow() - edgeSince >= 420 and performanceNow() >= edgeReadyAt
         monthAnchor = some(boundedMonth(month + edgeWanted))
-        edgeSince = now()
-        edgeReadyAt = now() + 650
-      dragFrameTime = now()
-    if dragPhase == "landing" and now() >= dragUntil and pendingMove
+        edgeSince = performanceNow()
+        edgeReadyAt = performanceNow() + 650
+      dragFrameTime = performanceNow()
+    if dragPhase == "landing" and performanceNow() >= dragUntil and pendingMove
       dataRevision = max(dataRevision, pendingMoveRevision)
       pendingMove = false
       selectedDay = some(dropDay)
       dragPhase = "settling"
     if dragPhase == "settling" and not pending(pages) and not pending(agenda)
       dragPhase = "fading"
-      dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 90)
-    if returning and not returnPrepared and now() >= returnReadyAt
+      dragUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 90)
+    if returning and not returnPrepared and performanceNow() >= returnReadyAt
       returnPrepared = true
-      dragUntil = now() + 300
-    if returning and returnPrepared and now() >= dragUntil and not busy
+      dragUntil = performanceNow() + 300
+    if returning and returnPrepared and performanceNow() >= dragUntil and not busy
       dragPhase = "idle"
       dragId = ""
       dragWireId = ""
-    if dragPhase == "fading" and now() >= dragUntil and not busy
+    if dragPhase == "fading" and performanceNow() >= dragUntil and not busy
       dragPhase = "idle"
       dragId = ""
       dragWireId = ""
-    if editorClosing and now() >= editorUntil
+    if editorClosing and performanceNow() >= editorUntil
       editorOpen = false
       editorClosing = false
-    if themeClosing and now() >= themeUntil
+    if themeClosing and performanceNow() >= themeUntil
       themeOpen = false
       themeClosing = false
   action calendarScrolled(page: number, left: number, top: number)
@@ -543,11 +543,11 @@ component Calendar
       if sheetOffset > 120 or vy > 700
         if editorOpen
           editorClosing = true
-          editorUntil = now() + 120
+          editorUntil = performanceNow() + 120
         else
           if themeOpen
             themeClosing = true
-            themeUntil = now() + 120
+            themeUntil = performanceNow() + 120
           else
             popupOpen = false
       else
@@ -633,7 +633,7 @@ component Calendar
         operationSequence = operationSequence + 1
         operation = "complete"
         error = ""
-        send changed = setTodoCompleted(id, not completed, time.epochAtZero + now(), freshToken)
+        send changed = setTodoCompleted(id, not completed, time.epochAtZero + performanceNow(), freshToken)
       if command == "edit" or command == "delete"
         editId = id
         editorKind = kind
@@ -670,7 +670,7 @@ component Calendar
       retryOperation = ""
       blur()
       editorClosing = true
-      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      editorUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
       confirmDelete = false
       error = ""
   action closeEditor
@@ -679,7 +679,7 @@ component Calendar
       retryOperation = ""
       blur()
       editorClosing = true
-      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      editorUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
       confirmDelete = false
       error = ""
 
@@ -687,7 +687,7 @@ component Calendar
     if themeOpen
       if not themeClosing
         themeClosing = true
-        themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+        themeUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
     else
       if libraryReady and not busy and not dragging and not editorOpen
         themeOpen = true
@@ -697,14 +697,14 @@ component Calendar
   action closeThemes
     if themeOpen and not themeClosing
       themeClosing = true
-      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      themeUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
   // The panel's own surface takes its clicks, so the focus stays in the window's view.
   action keepThemes
     hovered = ""
   action chooseTheme(value: number)
     if themeOpen and not themeClosing and not busy and value >= 0 and value <= 6
       themeClosing = true
-      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      themeUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
       if value != theme
         operationSequence = operationSequence + 1
         operation = "theme"
@@ -748,7 +748,7 @@ component Calendar
       operationSequence = operationSequence + 1
       operation = "complete"
       error = ""
-      send changed = setTodoCompleted(id, completed, time.epochAtZero + now(), freshToken)
+      send changed = setTodoCompleted(id, completed, time.epochAtZero + performanceNow(), freshToken)
 
   action writeTitle(value: string)
     retryToken = ""
@@ -824,7 +824,7 @@ component Calendar
             if operation == "save" or operation == "delete"
               blur()
               editorClosing = true
-              editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+              editorUntil = performanceNow() + (viewport.prefersReducedMotion ? 0 : 120)
         else
           dataRevision = max(dataRevision, result.revision)
           error = result.message
@@ -833,8 +833,8 @@ component Calendar
             dragPhase = "returning"
             dragCommitted = false
             returnPrepared = viewport.prefersReducedMotion
-            returnReadyAt = now() + 16
-            dragUntil = now()
+            returnReadyAt = performanceNow() + 16
+            dragUntil = performanceNow()
             ghostX = sourceX
             ghostY = sourceY
       case none
@@ -844,8 +844,8 @@ component Calendar
           dragPhase = "returning"
           dragCommitted = false
           returnPrepared = viewport.prefersReducedMotion
-          returnReadyAt = now() + 16
-          dragUntil = now()
+          returnReadyAt = performanceNow() + 16
+          dragUntil = performanceNow()
           ghostX = sourceX
           ghostY = sourceY
 

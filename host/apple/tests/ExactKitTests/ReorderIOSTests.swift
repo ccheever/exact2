@@ -3,11 +3,13 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 /// UIKit recognizes Arrange: a handle whose touch-action keeps the List's
 /// pan off starts on a vertical drag; any handle starts on a long press. The
 /// recognizer's phases make the web host's sequence (`ReorderMacTests`).
 final class ReorderIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A pan whose phase, location and velocity the test sets.
@@ -83,7 +85,7 @@ final class ReorderIOSTests: XCTestCase {
         XCTAssertEqual(p.views[2]?.layer.zPosition, 0.001, "the lifted row paints above later rows")
         drag.at.y = 180; drag.state = .ended; grip.reorderDragged(drag)
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=50.0", "drop 7 dy=60.0"])
-        let hold = try XCTUnwrap(p.reorder)
+        let hold = try XCTUnwrap(p.reorder as? ReorderHold)
         XCTAssertEqual(hold.phase, .settling)
         XCTAssertEqual(p.collections.interaction, 3, "the pin stays while the source returns")
         hold.observe(ReorderRecorder.finished())
@@ -100,7 +102,7 @@ final class ReorderIOSTests: XCTestCase {
         drag.at = CGPoint(x: 360, y: 150); drag.state = .changed; grip.reorderDragged(drag)
         drag.state = .cancelled; grip.reorderDragged(drag)
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=30.0 outside", "cancel 7"])
-        XCTAssertEqual(p.reorder?.phase, .settling)
+        XCTAssertEqual((p.reorder as? ReorderHold)?.phase, .settling)
     }
 }
 #endif

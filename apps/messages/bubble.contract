@@ -61,7 +61,7 @@ component MessageRow
           box position="relative" opacity=(hidden ? 0 : 1) contextmenu=select(m.id, m.body, m.outgoing) dblclick=select(m.id, m.body, m.outgoing) swiperight=reply(m.id, m.body) touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)" animation=(m.arrival and not m.outgoing and not reduced ? "received 220ms ease-out" : "none") aria-label=m.body
             Balloon(body=m.preview, outgoing=m.outgoing, tail=m.tail, maximum=maximum, identifier=`bubble-${m.id}`)
             when m.truncated
-              button press=read(m.body) testId=`read-${m.id}` aria-label="Read full message" position="absolute" right=10 bottom=7 width=22 height=22
+              button appearance="none" press=read(m.body) testId=`read-${m.id}` aria-label="Read full message" position="absolute" right=10 bottom=7 width=22 height=22
                 text "›" font-size=20 font-weight=600 color=(m.outgoing ? "#ffffff" : "#8a8a8e")
             when m.reaction != ""
               button press=select(m.id, m.body, m.outgoing) retainFocus=true testId=`reaction-${m.id}` position="absolute" top=-19 left=(m.outgoing ? "calc(100% - 27px)" : "-9px") width=36 height=36 border-radius=18 background-color="#0088ff" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #000000)" display="flex" align-items="center" justify-content="center" z-index=2

@@ -90,6 +90,28 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// An input that started or met a sheet's presentation or dismissal
+    /// returns once UIKit has finished it, bounded at two seconds (LLP
+    /// 1035.003 D5, frozen timing). Unanimated, UIKit still takes a few
+    /// frames of the wall to end one, and a sheet over a sheet is presented
+    /// only once the one under it has finished presenting: a drive's next
+    /// `tap`, a few milliseconds later, found the second sheet's route in
+    /// the tree and not on screen (the Bluesky clone's prompt over its muted
+    /// words sheet). Platform timing leaves this to `clock settle`. Answers
+    /// whether the hosts left their transitions.
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool {
+        let modals = presenter.modals, navigation = presenter.navigation
+        guard modals.inTransition else { return true }
+        let deadline = Date(timeIntervalSinceNow: bound)
+        // The navigation host's pending sync is the next sheet waiting on
+        // the one now presenting or leaving.
+        while modals.inTransition || navigation.inTransition {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
@@ -194,14 +216,17 @@ extension Agent {
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
         var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
     /// offset — every enclosing scroll node's offset folded in — with the
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
+    package func box(_ v: UIView, region: CGRect? = nil) -> CGRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport
@@ -399,7 +424,7 @@ extension Agent {
         if let sheet = presenter.modals.coordinateView, host.isDescendant(of: sheet) { native["presentation"] = presenter.modals.presentation == "fullscreen" ? "fullscreen" : "sheet" }
         if let leaf = host.symbolView {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
-            let points = max(0, host.number("font_size", 16))
+            let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
@@ -420,21 +445,34 @@ extension Agent {
     /// view whose middle is out of view is scrolled to the middle of each
     /// enclosing scroll view it is outside of, innermost first, then the
     /// page's — as the web's `scrollIntoView` does there (block centre,
-    /// inline only as far as it takes) — by `scrollRectToVisible`, unanimated,
-    /// as far as each one's range allows; their delegates tell the app, as a
-    /// finger's scroll does.
+    /// inline only as far as it takes) — unanimated, as far as each one's
+    /// range allows; their delegates tell the app, as a finger's scroll does.
+    /// In view is what a person sees: inside the scroll view's insets, as the
+    /// presenter's own reveal of a focused field measures it, so the bars and,
+    /// under the default `interactive-widget`, the keyboard (the viewport's
+    /// bottom inset) are out of view. `overlays-content` insets nothing, so
+    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
+        // The keyboard's top in the window, as the presenter last applied it.
+        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
         var scrolled = false
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            let frame = v.convert(v.bounds, to: sv), port = sv.bounds, mid = CGPoint(x: frame.midX, y: frame.midY)
+            let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
+            var port = sv.bounds.inset(by: i)
+            if let keyboard { port.size.height = max(0, min(port.maxY, sv.convert(CGPoint(x: 0, y: keyboard), from: nil).y) - port.minY) }
             if port.contains(mid) { continue }
-            var rect = port
-            if mid.y < port.minY || mid.y >= port.maxY { rect.origin.y = mid.y - port.height / 2 }
-            if mid.x < port.minX || mid.x >= port.maxX { rect.origin.x = frame.minX; rect.size.width = frame.width }
-            sv.scrollRectToVisible(rect, animated: false)
-            scrolled = true
+            var o = sv.contentOffset
+            if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
+            // Inline, only as far as it takes from the side its middle is on; a
+            // target wider than the port is centred, so its middle comes in.
+            if mid.x < port.minX || mid.x >= port.maxX {
+                o.x += frame.width > port.width ? mid.x - port.midX : mid.x < port.minX ? frame.minX - port.minX : frame.maxX - port.maxX
+            }
+            o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
+            o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+            if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
         }
         guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
         presenter.settlePump()
@@ -459,7 +497,7 @@ extension Agent {
             }
         }
         if let reply = canvasTap(req) { return reply }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
@@ -488,7 +526,7 @@ extension Agent {
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.menus.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "confirmation"]
-                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active"]
+                : ["error": "confirmation #\(id) is unavailable, transitioning, or its source is no longer active; `clock settle` first waits out a push or sheet still moving"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -539,12 +577,23 @@ extension Agent {
             return ["tapped": id, "wheel": wheel]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let b = v.tapBox(box(v))
+        var b = v.tapBox(box(v))
+        // A plain press: `at` is a point in the target, the press whatever a
+        // finger there reaches; without one, the target's own press
+        // (`AgentAddressedTap.swift`).
+        let plain = ["wheel", "hover", "contextmenu", "dblclick", "pinch", "x", "y"].allSatisfy { req[$0] == nil } && v.kind != "iframe"
+        if plain, req["at"] != nil {
+            guard let point = (req["at"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? tapPoint(req, node: v) : nil }) else { return ["error": "tap at needs two finite numbers"] }
+            let whole = box(v)
+            guard whole.contains(point) else { return ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
+            b = CGRect(x: point.x, y: point.y, width: 0, height: 0)
+        }
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
-        let p = vp.convert(CGPoint(x: b.midX + vp.contentOffset.x, y: b.midY + vp.contentOffset.y), to: nil)
-        let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        var p = window(CGPoint(x: b.midX, y: b.midY))
+        var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         let seen = win.hitTest(p, with: nil)
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
@@ -554,9 +603,23 @@ extension Agent {
         if req["wheel"] == nil, let why = offscreen(v, box: b, hit: seen) {
             return ["error": "tap #\(v.id): \(why)"]
         }
-        let hit = seen ?? v
+        var hit = seen ?? v
         if req["wheel"] == nil, req["hover"] == nil, let why = obscured(v, at: p, hit: hit) {
             return ["error": "tap #\(v.id) at (\(at[0]), \(at[1])): \(why)"]
+        }
+        // Named, it presses what it names: its own press, never a control
+        // inside it that its middle happens to reach.
+        var avoided: PressReach?
+        if plain, req["at"] == nil, (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            switch addressedPoint(v, box: b, in: win) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle {
+                    avoided = middle
+                    p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)]
+                    hit = win.hitTest(p, with: nil) ?? v
+                }
+            }
         }
         if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
@@ -587,7 +650,7 @@ extension Agent {
             }
             let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
             let point = handle.convert(offset, to: clip)
-            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            if let error = DragLink.installed?.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
             return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
         }
         if req["hover"] as? Bool == true {
@@ -617,6 +680,12 @@ extension Agent {
         // whatever had it (a field, and the keyboard with it) lets go.
         // An SVG element under the finger takes the press (LLP 1055.000 D17).
         let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        // An inline run with its own press under the finger takes it, as
+        // `touchesEnded` presses it (`tap <paragraph> at <x> <y>` on a run).
+        if element == nil, let node = n as? NodeView, !node.disabled, !node.inert, let run = node.inlineActivationTarget(at: node.local(p)),
+           node.activateInline(run.id) {
+            return ["tapped": Int(v.id), "at": at, "pressed": Int(run.id)]
+        }
         // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
         if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
            let href = node.inlineLink(at: node.local(p)) {
@@ -630,7 +699,7 @@ extension Agent {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
             if cur.canBecomeFirstResponder {
                 // Under `retainFocus` the press takes nothing (`touchesEnded`).
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { if let node = cur as? NodeView { node.takeTouchFocus() } else { _ = cur.becomeFirstResponder() } }; took = true }
                 break
             }
             // A pressed node handles touchesEnded without forwarding it to
@@ -646,7 +715,66 @@ extension Agent {
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
         if let element { presenter.press(element, held: held); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
-        return ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        // Its middle reaches a control inside it: the tap landed beside it.
+        if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        return reply
+    }
+
+    /// What a finger at `p` (in the window) reaches, as `touchesEnded`
+    /// resolves it (`AgentAddressedTap.swift`), nil where it would not land
+    /// on `v` (covered, under the keyboard): an SVG
+    /// element, an inline run or link, a canvas, a native control, else the
+    /// nearest node from the hit one up that takes a press — or a disabled
+    /// one on the way, which stops it.
+    func pressReach(_ v: NodeView, at p: CGPoint, in win: UIWindow) -> PressReach? {
+        guard let hit = win.hitTest(p, with: nil), obscured(v, at: p, hit: hit) == nil else { return nil }
+        // A grouped list's cell: every cell is in the list's node, so its row
+        // (LLP 1084) is what a finger there selects, or its switch or detail
+        // button is what it presses (`TouchLog.landing`'s projection).
+        // A custom row's own views are carried into its cell and take the
+        // ordinary path (GroupedListIOS `list(drawing:)`): a node of theirs
+        // under the finger is inside the cell too, and is no projection.
+        if let projected = GroupedListsLink.part?(hit), let row = projected["row"] as? Int, let list = Agent.enclosing(hit).first,
+           GroupedListsLink.part?(list) == nil {
+            let part = projected["part"] as? String ?? "cell"
+            return .part(list, part == "cell" ? "row #\(row)" : "the \(part) of row #\(row)", UInt32(row))
+        }
+        var at: UIView? = hit, node: NodeView?
+        while let cur = at {
+            if let n = cur as? NodeView { node = n; break }
+            // A native button's control stands for its node (LLP 1069.011 D4);
+            // any other enabled control, or a text editor, takes the touch itself.
+            if let button = cur as? NativeButtonIOS, let owner = button.owner { node = owner; break }
+            if (cur as? UIControl)?.isEnabled == true || (cur as? UITextView)?.isEditable == true, let n = Agent.enclosing(cur).first { return .control(n) }
+            at = cur.superview
+        }
+        guard let node, !node.inert else { return .nothing }
+        let local = node.local(p)
+        if node.kind == "svg", let element = presenter.svg.target(node.id, at: local) { return .part(node, "SVG element #\(element)", element) }
+        if let run = node.inlineActivationTarget(at: local) { return .part(node, "inline run #\(run.id)", run.id) }
+        if let href = node.inlineLink(at: local) { return .part(node, "the link \(href)", nil) }
+        if session.canvases.wantsInput(node.id), !node.isSurfaceControl { return .canvas(node) }
+        var up: UIView? = node
+        while let cur = up {
+            if let n = cur as? NodeView {
+                if n.disabled { return .blocked(n) }
+                if n.takesPress { return n.bounds.contains(n.local(p)) ? .node(n) : .nothing }
+            }
+            up = cur.superview
+        }
+        return .nothing
+    }
+
+    /// A plain tap's point for `v` (`AgentAddressedTap.swift`): `b` is its
+    /// box in the viewport, the answer a point there, or the refusal.
+    func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
+        let vp = presenter.viewport
+        let seen = b.intersection(CGRect(origin: .zero, size: vp.bounds.size))
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
+            pressReach(v, at: window(q), in: win)
+        }
     }
 
     /// Why `v`'s middle is not on screen for a finger, or nil: off the
@@ -814,24 +942,32 @@ extension Agent {
             guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
             let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
-            if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-            else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
-            else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            // A release focuses nothing: a Tab's down has already moved the
+            // focus, which its up must not take back.
+            let phase = req["phase"] as? String
+            if phase != "up" {
+                if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
+                else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
+            }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
             // The release's `keyup` handlers at the focus (#140): after the
             // down, or when a held key comes up. A modifier's own keydown
             // holds it and its keyup no longer does, as DOM's.
-            let phase = req["phase"] as? String, code = device.code, lone = KeyCodes.modifier(code)
+            let code = device.code, lone = KeyCodes.modifier(code)
             let downHeld = lone ? KeyCodes.held(held, name, true) : held, upHeld = lone ? KeyCodes.held(held, name, false) : held
             // A chord's modifiers are their own keys around it, as a keyboard's
             // (KeyCodes.modifierPresses; Charlie, 2026-10-07): down in order
             // before the shortcuts and the key, up in reverse after its keyup,
             // each keyup without its own bit.
             let presses = KeyCodes.modifierPresses(key)
+            // Tab's release, its modifiers' too, reaches where its down left
+            // the focus, as a keyboard's keyup reaches the focused element.
             let heardUp = { [weak presenter, weak focus] in
-                _ = presenter?.keyUp(at: focus, name, held: upHeld, code: code)
+                let at = name == "Tab" ? presenter?.focusedNode : focus
+                _ = presenter?.keyUp(at: at, name, held: upHeld, code: code)
                 for (i, m) in presses.enumerated().reversed() {
-                    _ = presenter?.keyUp(at: focus, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
+                    _ = presenter?.keyUp(at: at, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
                 }
             }
             defer {
@@ -847,7 +983,15 @@ extension Agent {
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
-            if phase != "up", !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true), let focus {
+            let unprevented = phase != "up" && !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true)
+            // Tab's default moves the focus through the sequential order, as a
+            // hardware keyboard's Tab does (`NodeView.tabCommands`), from a field
+            // or textarea too, ending its editing (blur, and change if edited);
+            // Shift goes back. From no focus it takes the first stop. The web and
+            // Linux do the same (LLP 1088 D7.3); bench t9-profile, 2026-10-08.
+            if unprevented, name == "Tab", ["Control+", "Meta+", "Alt+"].allSatisfy({ !held.contains($0) }) {
+                presenter.moveFocus(backward: held.contains("Shift+"))
+            } else if unprevented, let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }

@@ -35,6 +35,10 @@ impl Key {
     pub fn chord(&self) -> String {
         match self {
             Key::Char(' ') => "Space".into(),
+            // A capital letter is the letter with Shift held, as the web's
+            // `KeyboardEvent` has it (`key` "N", `shiftKey`): `n` and
+            // `Shift+N` are two shortcuts.
+            Key::Char(c) if c.is_ascii_uppercase() => format!("Shift+{c}"),
             Key::Char(c) => c.to_string(),
             Key::Named(n) => n.to_string(),
             Key::Ctrl(c) => format!("Control+{c}"),
@@ -71,6 +75,24 @@ enum ById {
     ShowModal(String),
     Close(String),
     Focus(String),
+    /// `scrollIntoView("id", block=…)`: the node, and where in each
+    /// scroller above it it lands (`start`, `center`, `end`, `nearest`).
+    IntoView(String, String),
+    /// `scrollBy("id", x, y)`: the scroller moves by `y` pixels (its rows
+    /// are 16), as the web's `Element.scrollBy`.
+    ScrollBy(String, f32),
+}
+
+impl ById {
+    fn id(&self) -> &str {
+        match self {
+            ById::ShowModal(id)
+            | ById::Close(id)
+            | ById::Focus(id)
+            | ById::IntoView(id, _)
+            | ById::ScrollBy(id, _) => id,
+        }
+    }
 }
 
 /// How the app occupies the terminal (LLP 1101 D10).
@@ -108,6 +130,12 @@ pub struct Host<D: DataSource> {
     pub images: crate::image::Images,
     /// What the terminal last showed, for every pointer event.
     pub(crate) presented: crate::pointer::Presented,
+    /// The data module's work in flight (`requests`).
+    pub(crate) requests: crate::requests::Requests,
+    /// URLs to open outside the app (`openURL`, a followed external link),
+    /// oldest first: the interactive loop hands them to the system's opener,
+    /// the headless driver reports them.
+    pub outbound: Vec<String>,
     /// Frames written to the terminal so far. With the count when each
     /// interactive node appeared, and the count when the keys being handled
     /// were read (LLP 1101.001 P11): a key can press only a node that a
@@ -134,6 +162,23 @@ impl<D: DataSource> Host<D> {
         exact_kernel::timeline::link();
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
         kernel.set_cell_borders(true);
+        // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
+        let font = exact_kernel::ControlFont {
+            family: "ui-monospace".into(),
+            family_id: 5,
+            size: ROW,
+            weight: 400,
+            style: exact_kernel::FontStyle::Normal,
+        };
+        let env = exact_kernel::Env {
+            control_text_styles: Some(exact_kernel::ControlTextStyles {
+                field: font.clone(),
+                textarea: font.clone(),
+                button: font,
+            }),
+            ..kernel.env().clone()
+        };
+        kernel.set_env(env).map_err(|e| format!("{e:?}"))?;
         let viewport = Viewport::sized(cols as f64 * COLUMN as f64, rows as f64 * ROW as f64);
         let runner =
             Runner::boot(plan, data, kernel, viewport, "/").map_err(|e| match e {
@@ -160,6 +205,8 @@ impl<D: DataSource> Host<D> {
             prevented: false,
             images: crate::image::Images::default(),
             presented: crate::pointer::Presented::default(),
+            requests: crate::requests::Requests::default(),
+            outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
             read_at: 0,
@@ -172,14 +219,16 @@ impl<D: DataSource> Host<D> {
     /// Wake `waker` whenever the data module announces a change from another
     /// thread (LLP 1016.002): the loop then calls [`Host::announced`].
     pub fn listen(&mut self, waker: Arc<dyn Fn() + Send + Sync>) {
+        self.requests.listen(waker.clone());
         self.runner.listen(waker);
     }
 
     /// Apply what the data module announced: the watching resources are
     /// asked again.
     pub fn announced(&mut self) {
+        let landed = self.land_requests();
         let (receipts, _) = self.runner.apply_announced();
-        if !receipts.is_empty() {
+        if landed || !receipts.is_empty() {
             self.after_commit();
         }
     }
@@ -229,7 +278,26 @@ impl<D: DataSource> Host<D> {
                 ("close", Some(id)) => layer_ops.push(ById::Close(id)),
                 ("showModal", Some(id)) => layer_ops.push(ById::ShowModal(id)),
                 ("focus", Some(id)) => layer_ops.push(ById::Focus(id)),
+                ("scrollIntoView", Some(id)) => {
+                    // The options come as `none` where the author gave none.
+                    let block = match command.args.get(1) {
+                        Some(exact_plan::Value::Option(Some(v))) => v.as_str(),
+                        Some(v) => v.as_str(),
+                        None => None,
+                    };
+                    let block = block.unwrap_or("start").to_string();
+                    layer_ops.push(ById::IntoView(id, block));
+                }
+                ("scrollBy", Some(id)) => {
+                    let y = command
+                        .args
+                        .get(2)
+                        .and_then(|v| v.as_number())
+                        .unwrap_or(0.0);
+                    layer_ops.push(ById::ScrollBy(id, y as f32));
+                }
                 ("preventDefault", _) => self.prevented = true,
+                ("openURL", Some(url)) => self.open_url(&url),
                 _ => {}
             }
         }
@@ -255,12 +323,12 @@ impl<D: DataSource> Host<D> {
         let t_focus = t0.elapsed();
         self.follow_ends();
         self.images.load(self.runner.kernel());
+        self.run_requests();
         self.changed();
         // Dialogs an action opened or closed, and focus it moved (LLP
         // 1101.001 P5), after the commit that asked for them.
         for op in layer_ops {
-            let (ById::ShowModal(id) | ById::Close(id) | ById::Focus(id)) = &op;
-            let Some(node) = self.find(|n| n.props.str(PropId::Id) == Some(id.as_str())) else {
+            let Some(node) = self.find(|n| n.props.str(PropId::Id) == Some(op.id())) else {
                 continue;
             };
             let is_open = self.layers.iter().any(|(l, _)| *l == node);
@@ -268,6 +336,8 @@ impl<D: DataSource> Host<D> {
                 ById::ShowModal(_) if !is_open => self.open_layer(node),
                 ById::Close(_) if is_open => self.close_layer(node),
                 ById::Focus(_) => self.focus(Some(node)),
+                ById::IntoView(_, block) => self.reveal_to(node, &block),
+                ById::ScrollBy(_, y) => self.scroll_node_by(node, y),
                 _ => {}
             }
         }
@@ -570,6 +640,14 @@ impl<D: DataSource> Host<D> {
 
     /// Scroll every scroller above `id` so its frame is in view.
     fn reveal(&mut self, id: ViewId) {
+        self.reveal_to(id, "nearest");
+    }
+
+    /// Scroll every scroller above `id` to bring it in, as the web's
+    /// `scrollIntoView({block})` does: its top at the scroller's top
+    /// (`start`), its middle at the middle, its bottom at the bottom, or the
+    /// least move that shows it (`nearest`).
+    pub(crate) fn reveal_to(&mut self, id: ViewId, block: &str) {
         let kernel = self.runner.kernel();
         let env = kernel.env();
         let Some(target) = kernel.node(id).map(|n| n.frame) else {
@@ -583,20 +661,23 @@ impl<D: DataSource> Host<D> {
                 let [bt, _, bb, _] = n.style.border_widths_in(&env);
                 let top = n.frame.y + bt;
                 let height = n.frame.height - bt - bb;
+                let reach = (n.content.1 - height).max(0.0);
                 let offset = self.scroll.get(&p).copied().unwrap_or(0.0);
                 let y = target.y - top;
-                let next = if y < offset {
-                    y
-                } else if y + target.height > offset + height {
-                    y + target.height - height
-                } else {
-                    offset
+                let next = match block {
+                    "start" => y,
+                    "center" => y + target.height / 2.0 - height / 2.0,
+                    "end" => y + target.height - height,
+                    _ if y < offset => y,
+                    _ if y + target.height > offset + height => y + target.height - height,
+                    _ => offset,
                 };
-                changes.push((p, next.max(0.0)));
+                changes.push((p, next.clamp(0.0, reach)));
             }
             at = n.parent;
         }
         self.scroll.extend(changes);
+        self.changed();
     }
 
     /// Keep a `scrollFollowEnd` scroller at its end while it was there.
@@ -628,13 +709,49 @@ impl<D: DataSource> Host<D> {
     /// Press a node as a click or Enter would: a field takes the focus, an
     /// invoker opens or closes its dialog, a button runs its handler.
     pub fn press(&mut self, id: ViewId) {
+        self.press_with(id, true);
+    }
+
+    /// Follow a link as Exact's hosts do (LLP 1038 §7, `host/linux`'s
+    /// `presenter/links.rs`): a path naming one of the app's routes is a
+    /// `navigate` on its navigation root; an `http`, `https`, `mailto` or
+    /// `tel` URL leaves the app; anything else goes nowhere.
+    pub fn follow(&mut self, href: &str) {
+        if href.starts_with('/') && self.runner.route_matches(href) {
+            let kernel = self.runner.kernel();
+            let root = self.find(|n| n.props.str(PropId::NavigationBack).is_some());
+            if let Some(root) = root.filter(|r| {
+                self.runner.handlers_of(*r).contains(&EventKind::Navigate)
+                    && kernel.node(*r).is_some()
+            }) {
+                self.dispatch(root, Event::Navigate(href.to_string()));
+            }
+            return;
+        }
+        self.open_url(href);
+    }
+
+    /// `openURL`: an absolute `http`, `https`, `mailto` or `tel` URL, for the
+    /// system to open (the web's one allowlist); anything else is refused.
+    pub(crate) fn open_url(&mut self, url: &str) {
+        let allowed = ["http://", "https://", "mailto:", "tel:"]
+            .iter()
+            .any(|p| url.len() > p.len() && url[..p.len()].eq_ignore_ascii_case(p));
+        if allowed && !url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            self.outbound.push(url.to_string());
+        }
+    }
+
+    /// A press that moves the focus to what was pressed only when `take`:
+    /// a keyboard shortcut acts without moving the person's place.
+    pub(crate) fn press_with(&mut self, id: ViewId, take: bool) {
         if self.is_field(id) {
             self.focus(Some(id));
             return;
         }
         self.invoke(id);
         if let Some(target) = self.handler(id, EventKind::Press) {
-            if self.layers.is_empty() || self.focusables().contains(&id) {
+            if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
                 self.focus(Some(id));
             }
             self.dispatch(target, Event::Press);

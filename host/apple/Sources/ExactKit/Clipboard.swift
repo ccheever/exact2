@@ -100,16 +100,21 @@ extension NodeView {
     @objc func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
     @objc func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
     /// A cut or paste is this node's only while a node hears it.
-    override func responds(to aSelector: Selector!) -> Bool {
+    package override func responds(to aSelector: Selector!) -> Bool {
         if [#selector(cut(_:)), #selector(paste(_:))].contains(aSelector) { return clipboardTarget(aSelector) != nil }
         return super.responds(to: aSelector)
     }
     #else
-    package override func copy(_ sender: Any?) { if !clipboard(#selector(copy(_:))) { super.copy(sender) } }
-    package override func cut(_ sender: Any?) { if !clipboard(#selector(cut(_:))) { super.cut(sender) } }
-    package override func paste(_ sender: Any?) { if !clipboard(#selector(paste(_:))) { super.paste(sender) } }
+    // UIView implements none of the three: forwarding an unheard one to
+    // super raised doesNotRecognizeSelector (a field's Cut, empty, crashed).
+    package override func copy(_ sender: Any?) { clipboard(#selector(copy(_:))) }
+    package override func cut(_ sender: Any?) { clipboard(#selector(cut(_:))) }
+    package override func paste(_ sender: Any?) { clipboard(#selector(paste(_:))) }
+    /// A copy, cut or paste is this node's only while a node hears it;
+    /// UIResponder's default would claim it because the class implements it.
     package override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        clipboardTarget(action) != nil || super.canPerformAction(action, withSender: sender)
+        if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return clipboardTarget(action) != nil }
+        return super.canPerformAction(action, withSender: sender)
     }
     #endif
 }

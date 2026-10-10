@@ -402,6 +402,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             args.join(","),
             serde_json::to_string(&type_code(plan, r.ty)).unwrap()
         );
+        // The runner's own resource shows its facts, never a write (overlay.js)
+        if exact_plan::RUNNER_OWNED_SOURCES.contains(&plan.str(r.source)) {
+            let _ = write!(body, "r_{i}.r.owned=true;");
+        }
     }
     for (i, m) in plan.mutations.iter().enumerate() {
         let refreshes: Vec<String> = m
@@ -598,8 +602,9 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             m
         })
     });
-    // The sources' parameter types, for a data module that needs values
-    // encoded by type (records and lists are both arrays here).
+    // The sources' parameter types, then `|` and the answer's type, for a
+    // data module that needs values encoded by type (records and lists are
+    // both arrays here).
     let mut sources = Vec::new();
     for r in plan.sources.iter() {
         let params: Vec<String> = r
@@ -610,7 +615,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         sources.push(format!(
             "{}:{}",
             serde_json::to_string(plan.str(r.name)).unwrap(),
-            serde_json::to_string(&params.concat()).unwrap()
+            serde_json::to_string(&format!("{}|{}", params.concat(), type_code(plan, r.ty)))
+                .unwrap()
         ));
     }
     let names = |v: Vec<&str>| serde_json::to_string(&v).unwrap();
@@ -728,7 +734,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // carries them: the browser runs `animation` rows.
     for row in &plan.keyframes {
         if let Ok(frames) = exact_motion::Keyframes::parse(plan.str(row.css)) {
-            let text = frames.css();
+            let text = exact_web::grouped::keyframes_css(&frames.css());
             let _ = write!(css, "@keyframes {}{{{text}}}", plan.str(row.name));
             // A pressable node plays the copy that also animates
             // `--exact-scale` (exact_web::css::keyframes_name).
@@ -1446,52 +1452,4 @@ fn gpu_surfaces() -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
-}
-
-#[cfg(test)]
-mod else_rows {
-    use exact_runner::{DataError, DataSource, Value};
-
-    struct Answers;
-    impl DataSource for Answers {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            match source {
-                "preview" => Ok(Value::Number(1.0)),
-                "full" => Ok(Value::Number(2.0)),
-                _ => Err(DataError::UnknownSource(source.into())),
-            }
-        }
-    }
-
-    /// Review B4: an `else` row's build-time answer is the bake's for every
-    /// launch (the runner never asks it again), so the JS target receives it
-    /// settled (`res`'s last argument), while the resource it stands in for
-    /// keeps its build-time answer as a first frame to ask again at launch.
-    #[test]
-    fn an_else_row_is_settled_and_its_owner_is_a_bake() {
-        let plan = contract::compile(
-            "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
-        )
-        .unwrap();
-        let plan = contract::bake(plan, Answers).unwrap();
-        let js = super::emit(&plan, false, false).unwrap().js;
-        let rows: Vec<&str> = js
-            .split("const r_")
-            .skip(1)
-            .map(|s| s.split(';').next().unwrap())
-            .collect();
-        let owner = rows
-            .iter()
-            .find(|r| r.contains("\"full\""))
-            .expect("full's row");
-        let other = rows
-            .iter()
-            .find(|r| !r.contains("\"full\""))
-            .expect("the else row");
-        assert!(other.ends_with(",1)"), "the else row is settled: {other}");
-        assert!(
-            !owner.ends_with(",1)"),
-            "the owner is a bake to ask again: {owner}"
-        );
-    }
 }

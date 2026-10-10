@@ -84,7 +84,8 @@ pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror,
 }
 
 /// The top inset a box's replaced first child cleared for itself: that
-/// child is covered whole and pads its top by `env(safe-area-inset-top)`.
+/// child is covered whole and pads its top by `env(safe-area-inset-top)`
+/// (or a comparison that reads it, LLP 1001 §2).
 /// It counts only while a bar covers the box's top (`top > 0`); a scroller
 /// that goes under the bar is inset by the platform instead.
 pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
@@ -97,6 +98,10 @@ pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
         arena.style(first).padding_top,
     ) {
         (true, Some(HostCover::Whole), Dimension::Env(Edge::Top, _)) => {
+            arena.env().inset(Edge::Top)
+        }
+        // `max(env(safe-area-inset-top), 12px)` clears the inset too.
+        (true, Some(HostCover::Whole), Dimension::Compare(c)) if c.reads(Edge::Top) => {
             arena.env().inset(Edge::Top)
         }
         _ => 0.0,

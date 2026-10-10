@@ -156,7 +156,7 @@ extension NodeView {
         }
         // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
         if let touch = touches.first, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
-        if handlers.contains("press") || defaultLink != nil { pressed = true } else { super.touchesBegan(touches, with: event) }
+        if handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     package override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil; linkPressed = nil
@@ -181,14 +181,17 @@ extension NodeView {
             if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href { presenter?.session?.follow(href) }
             return
         }
+        // Resolve before focus changes, as `activate` does: the field losing
+        // it lowers the keyboard, and under `resizes-content` that moves this
+        // control (a composer's toolbar) out from under the finger at once.
+        let inside = pressed && (touches.first.map(pressInside) ?? false)
         // A press under `retainFocus` leaves the editor its focus, as macOS's
         // mouseDown does: every pressable can take the focus now.
-        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { _ = becomeFirstResponder() }
+        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { takeTouchFocus() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
-        let inside = touches.first.map(pressInside) ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
         if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])); finishPointerPress() }
     }
@@ -212,13 +215,21 @@ extension NodeView {
         target.presenter?.press(target.id)
         return target
     }
+    /// Whether a press is this node's own: a `press` handler, a link, a
+    /// presented menu's closer, a surface control or a native button that
+    /// invokes a command or a popover. A touch stops at the first such node
+    /// from the one it hit up; `activationTarget` resolves it.
+    var takesPress: Bool {
+        handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || isSurfaceControl
+            || isNativeButton && (props["commandfor"]?.isEmpty == false || props["popovertarget"]?.isEmpty == false)
+    }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
         guard !inert else { return nil }
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.isSurfaceControl) {
+            if let n = cur as? NodeView, n.takesPress {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

@@ -109,6 +109,8 @@ pub struct Mixed<J, R> {
     recorded: BTreeMap<u64, (usize, Recorded)>,
     stages: HashMap<Key, VecDeque<Stage>>,
     logs: Vec<String>,
+    /// The sources whose overlay a worker owns, said once each.
+    told_overlay: BTreeSet<String>,
 }
 
 fn unavailable(message: impl Into<String>) -> DataError {
@@ -238,6 +240,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             recorded: BTreeMap::new(),
             stages: HashMap::new(),
             logs: Vec::new(),
+            told_overlay: BTreeSet::new(),
         })
     }
 
@@ -594,6 +597,33 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         self.parse_with(None, store, source, args, outcome)
+    }
+
+    /// The owning child's overlay, called synchronously: one in an ordered set (a
+    /// worker's) cannot be, and shows the answer.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        let rust = self.owner(source)?;
+        // A child on another thread can't be called synchronously; one on main that
+        // only shares ordering with a worker can.
+        if self.set_of[rust as usize].is_some() && self.child_placement(rust) != Placement::Main {
+            if self.told_overlay.insert(source.to_string()) {
+                self.logs.push(format!(
+                    "overlay: {source} runs on its owner thread, so its writes show when answered"
+                ));
+            }
+            return Ok(None);
+        }
+        if rust {
+            self.rust.overlay(source, args, answer, writes)
+        } else {
+            self.javascript.overlay(source, args, answer, writes)
+        }
     }
 
     fn parse_for(

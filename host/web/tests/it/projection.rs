@@ -4,6 +4,59 @@
 use exact_runner::Event;
 use exact_web::Host;
 
+/// The same projection supplies live batches and pre-rendered HTML. The
+/// browser owns the frame; native fields carry no host-authored dimensions.
+#[test]
+fn native_fields_step_out_of_the_reset_in_batches_and_documents() {
+    let plan = contract::compile(include_str!(
+        "../../../web-js/conformance/native-fields.contract"
+    ))
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (host, first) = Host::boot(&plan.encode(), (), Default::default(), "/").unwrap();
+    let document = host.document().unwrap().root;
+    for name in [
+        "plain",
+        "password",
+        "search",
+        "email",
+        "number",
+        "multiline",
+        "padded",
+        "disabled",
+        "inherited",
+        "inherited-area",
+        "bare",
+        "devolved",
+        "markdown",
+    ] {
+        let kernel = host.runner().kernel();
+        let key = kernel.find_by_test_id(name)[0];
+        let id = kernel.node_by_key(key).unwrap().id;
+        let op = first
+            .split("{\"op\":\"create\",")
+            .find(|op| op.starts_with(&format!("\"id\":{id},")))
+            .unwrap()
+            .split("{\"op\":")
+            .next()
+            .unwrap();
+        let native = !matches!(name, "bare" | "devolved" | "markdown");
+        assert_eq!(op.contains("\"data-native\":\"\""), native, "{op}");
+        let tag = document
+            .split(&format!("data-testid=\"{name}\""))
+            .next()
+            .unwrap()
+            .rsplit('<')
+            .next()
+            .unwrap();
+        assert_eq!(tag.contains("data-native"), native, "{name}: {tag}");
+        if matches!(name, "plain" | "password" | "multiline") {
+            let css = op.split("\"css\":\"").nth(1).unwrap();
+            assert!(!css.contains("width:") && !css.contains("height:"), "{css}");
+        }
+    }
+}
+
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
@@ -26,26 +79,26 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
     more = not more
   view
     column
-      button press=grow testId="grow"
+      button appearance="none" press=grow testId="grow"
         text "Grow"
-      button testId="named"
+      button appearance="none" testId="named"
         text "x" testId="label"
-      button testId="styled"
+      button appearance="none" testId="styled"
         text "x" color="#ff0000"
       column testId="pair"
         text "a"
         when more
           text "b"
-      button testId="tall" height=48
+      button appearance="none" testId="tall" height=48
         text "t"
       row
-        button testId="stretched"
+        button appearance="none" testId="stretched"
           text "s"
       row align-items=(more ? "stretch" : "center")
-        button testId="flips" display="flex" flex-direction="column"
+        button appearance="none" testId="flips" display="flex" flex-direction="column"
           text "f"
       row touch-action="none"
-        button testId="touchy"
+        button appearance="none" testId="touchy"
           text "p"
 "##,
     )

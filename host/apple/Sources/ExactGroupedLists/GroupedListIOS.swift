@@ -267,6 +267,7 @@ final class GroupedListHost: GroupedLists {
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
+    var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
 }
 
 /// One projected list.
@@ -305,11 +306,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             var c = view.defaultContentConfiguration()
             c.text = section(at: path.section)?.header
             view.contentConfiguration = c
+            view.marginsIgnoreSafeArea()
         }
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { [unowned self] view, _, path in
             var c = view.defaultContentConfiguration()
             c.text = section(at: path.section)?.footer
             view.contentConfiguration = c
+            view.marginsIgnoreSafeArea()
         }
         source = UICollectionViewDiffableDataSource(collectionView: collection) { view, path, id in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
@@ -414,6 +417,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                     var c = view.defaultContentConfiguration()
                     c.text = kind == UICollectionView.elementKindSectionHeader ? section(at: path.section)?.header : section(at: path.section)?.footer
                     view.contentConfiguration = c
+                    view.marginsIgnoreSafeArea()
                 }
             }
             collection.collectionViewLayout.invalidateLayout()
@@ -430,14 +434,44 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
             // An authored space under a last section with a footer is under
             // the footer: its section's bottom inset is the rows-to-footer gap.
+            // What the list adds to the hidden scroll's insets: an authored
+            // space under a last section with a footer (its section's bottom
+            // inset is the rows-to-footer gap), and the list's own padding,
+            // room before its first section and after its last as a scroll's
+            // is (a tab bar's, under a list that runs beneath it).
+            var added = UIEdgeInsets.zero
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
+            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
+            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
             var inset = scroll.contentInset
-            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
+            inset.top += added.top
+            inset.bottom += added.bottom
+            // A list at rest at its top stays there, its first section below
+            // the new room, as a scroll keeps its top under a new inset.
+            // Only when the inset moves and the list is still, so a drag, a
+            // fling or a bounce past the top is left alone.
+            let moved = collection.contentInset.top != inset.top
+            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             assign(collection, \.contentInset, inset)
-            assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
+                collection.contentOffset.y = -collection.adjustedContentInset.top
+            }
+            // The indicator keeps to the same room.
+            var indicator = scroll.verticalScrollIndicatorInsets
+            indicator.top += added.top
+            indicator.bottom += added.bottom
+            assign(collection, \.verticalScrollIndicatorInsets, indicator)
             // A short list bounces, as Settings does; UICollectionView's own
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
+            // A route's bar follows the scroller its `navigationScroll` names;
+            // this list is drawn in that scroller's place, so the bar follows
+            // the list (a large title over a hidden scroll never showed).
+            let controller = sequence(first: owner as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
+            if let controller, controller.contentScrollView(for: .top) === scroll {
+                controller.setContentScrollView(collection, for: .top)
+            }
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {
@@ -500,6 +534,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         if row.custom {
             cell.contentConfiguration = nil
+            cell.marginsIgnoreSafeArea()
             cell.accessories = []
             carry(id, into: cell)
             return
@@ -527,6 +562,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.imageProperties.tintColor = .tertiaryLabel
         }
         cell.contentConfiguration = c
+        cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row)
     }
 
@@ -646,7 +682,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
-        row.setGroupedNativeButtonContent(cell.contentView)
+        row.layoutGroupedNativeButton()
         row.setNeedsDisplay()
     }
 
@@ -656,7 +692,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             guard let place = carried[id], let row = host.presenter.views[id] else { continue }
             if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
             row.frame = place.frame
-            row.setGroupedNativeButtonContent(nil)
+            row.layoutGroupedNativeButton()
         }
         carried.removeAll()
         carriedOrder.removeAll()
@@ -707,19 +743,24 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 /// A grouped list's collection view, by type, for the agent's wheel.
 final class GroupedCollectionView: UICollectionView, GroupedScroller {}
 
+extension UICollectionViewListCell {
+    /// A row's or header's margins are the list layout's, never the safe
+    /// area's: a cell under the home indicator (a fling past the end)
+    /// otherwise grew by the inset, moved, and shrank a pixel a layout pass
+    /// until UIKit's feedback-loop check stopped the app. The layout's
+    /// sections already keep clear of the sides' safe area (its
+    /// `contentInsetsReference`). Again after each configuration, which may
+    /// replace the content view.
+    func marginsIgnoreSafeArea() {
+        insetsLayoutMarginsFromSafeArea = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+}
+
 /// A list cell; a custom row's is as tall as its carried views.
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
     var height: CGFloat?
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Standard cells have no carried row or native button to lay out.
-        guard height != nil else { return }
-        // UIKit can update content margins after carry, during cell layout.
-        for case let row as NodeView in contentView.subviews {
-            row.setGroupedNativeButtonContent(contentView)
-        }
-    }
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
         let fitted = attributes.copy() as! UICollectionViewLayoutAttributes

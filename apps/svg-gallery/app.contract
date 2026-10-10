@@ -354,7 +354,8 @@ component StageFive
       text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
 
 // Stage 6: presses on SVG elements (LLP 1055.000 D17). A tap on a tile's
-// centre lands on the element there; the agent's `tap fx-hit` is that tap.
+// centre lands on the element there; the agent's `tap fx-hit at 60 40` is
+// that tap (a plain `tap fx-hit` names the svg, and is refused).
 component StageSix
   state picked = "none"
   action pick(which: string)

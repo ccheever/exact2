@@ -49,13 +49,13 @@ final class NodeExtras {
     var swipeDownX: CGFloat?
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
-    var heightHold: HeightDragHold?
+    var heightHold: DragInput?
     var reorderPan: UIPanGestureRecognizer?
     var reorderPress: UILongPressGestureRecognizer?
-    var reorderHold: ReorderHold?
+    var reorderHold: AnyObject?
     var reorderOrigin: CGPoint = .zero
     var transformRecognizer: UIPanGestureRecognizer?
-    var transformHold: TransformDragHold?
+    var transformHold: DragInput?
     var transformContact: TransformContact?
     var swipeOrigin: Double = 0
     var contextRecognizer: UILongPressGestureRecognizer?
@@ -146,32 +146,32 @@ extension NodeView {
     var swipeDownX: CGFloat? { get { extras?.swipeDownX } set { if newValue != nil || extras != nil { more.swipeDownX = newValue } } }
     var swipeArmed: Bool { get { extras?.swipeArmed ?? false } set { if newValue || extras != nil { more.swipeArmed = newValue } } }
     var swipeHold: SwipeHold? { get { extras?.swipeHold } set { if newValue != nil || extras != nil { more.swipeHold = newValue } } }
-    var heightRecognizer: UIPanGestureRecognizer? { get { extras?.heightRecognizer } set { if newValue != nil || extras != nil { more.heightRecognizer = newValue } } }
-    var heightHold: HeightDragHold? { get { extras?.heightHold } set { if newValue != nil || extras != nil { more.heightHold = newValue } } }
-    var reorderPan: UIPanGestureRecognizer? { get { extras?.reorderPan } set { if newValue != nil || extras != nil { more.reorderPan = newValue } } }
-    var reorderPress: UILongPressGestureRecognizer? { get { extras?.reorderPress } set { if newValue != nil || extras != nil { more.reorderPress = newValue } } }
-    var reorderHold: ReorderHold? { get { extras?.reorderHold } set { if newValue != nil || extras != nil { more.reorderHold = newValue } } }
-    var reorderOrigin: CGPoint { get { extras?.reorderOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.reorderOrigin = newValue } } }
-    var transformRecognizer: UIPanGestureRecognizer? { get { extras?.transformRecognizer } set { if newValue != nil || extras != nil { more.transformRecognizer = newValue } } }
-    var transformHold: TransformDragHold? { get { extras?.transformHold } set { if newValue != nil || extras != nil { more.transformHold = newValue } } }
-    var transformContact: TransformContact? { get { extras?.transformContact } set { if newValue != nil || extras != nil { more.transformContact = newValue } } }
+    package var heightRecognizer: UIPanGestureRecognizer? { get { extras?.heightRecognizer } set { if newValue != nil || extras != nil { more.heightRecognizer = newValue } } }
+    package var heightHold: DragInput? { get { extras?.heightHold } set { if newValue != nil || extras != nil { more.heightHold = newValue } } }
+    package var reorderPan: UIPanGestureRecognizer? { get { extras?.reorderPan } set { if newValue != nil || extras != nil { more.reorderPan = newValue } } }
+    package var reorderPress: UILongPressGestureRecognizer? { get { extras?.reorderPress } set { if newValue != nil || extras != nil { more.reorderPress = newValue } } }
+    package var reorderHold: AnyObject? { get { extras?.reorderHold } set { if newValue != nil || extras != nil { more.reorderHold = newValue } } }
+    package var reorderOrigin: CGPoint { get { extras?.reorderOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.reorderOrigin = newValue } } }
+    package var transformRecognizer: UIPanGestureRecognizer? { get { extras?.transformRecognizer } set { if newValue != nil || extras != nil { more.transformRecognizer = newValue } } }
+    package var transformHold: DragInput? { get { extras?.transformHold } set { if newValue != nil || extras != nil { more.transformHold = newValue } } }
+    package var transformContact: TransformContact? { get { extras?.transformContact } set { if newValue != nil || extras != nil { more.transformContact = newValue } } }
     var swipeOrigin: Double { get { extras?.swipeOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.swipeOrigin = newValue } } }
     var contextRecognizer: UILongPressGestureRecognizer? { get { extras?.contextRecognizer } set { if newValue != nil || extras != nil { more.contextRecognizer = newValue } } }
     var doubleRecognizer: UITapGestureRecognizer? { get { extras?.doubleRecognizer } set { if newValue != nil || extras != nil { more.doubleRecognizer = newValue } } }
     #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer? { get { extras?.hoverRecognizer } set { if newValue != nil || extras != nil { more.hoverRecognizer = newValue } } }
     #endif
-    var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
-    var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
+    package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
     var pendingValue: String? { get { extras?.pendingValue } set { if newValue != nil || extras != nil { more.pendingValue = newValue } } }
     var video: VideoView? { get { extras?.video } set { if newValue != nil || extras != nil { more.video = newValue } } }
     var web: UIView? { get { extras?.web } set { if newValue != nil || extras != nil { more.web = newValue } } }
-    var metal: MetalView? { get { extras?.metal } set { if newValue != nil || extras != nil { more.metal = newValue } } }
-    var canvasInput: CanvasInput? { get { extras?.canvasInput } set { if newValue != nil || extras != nil { more.canvasInput = newValue } } }
-    var overlay: PlainView? { get { extras?.overlay } set { if newValue != nil || extras != nil { more.overlay = newValue } } }
-    var needsCapture: Bool { get { extras?.needsCapture ?? false } set { if newValue || extras != nil { more.needsCapture = newValue } } }
-    var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
-    var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue } } }
+    package var metal: MetalView? { get { extras?.metal } set { if newValue != nil || extras != nil { more.metal = newValue } } }
+    package var canvasInput: CanvasInput? { get { extras?.canvasInput } set { if newValue != nil || extras != nil { more.canvasInput = newValue } } }
+    package var overlay: PlainView? { get { extras?.overlay } set { if newValue != nil || extras != nil { more.overlay = newValue } } }
+    package var needsCapture: Bool { get { extras?.needsCapture ?? false } set { if newValue || extras != nil { more.needsCapture = newValue } } }
+    package var paintedThisTurn: Bool { get { extras?.paintedThisTurn ?? false } set { if newValue || extras != nil { more.paintedThisTurn = newValue } } }
+    package var placement: [Double]? { get { extras?.placement } set { if newValue != nil || extras != nil { more.placement = newValue } } }
     var symbolView: UIImageView? { get { extras?.symbolView } set { if newValue != nil || extras != nil { more.symbolView = newValue } } }
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
@@ -217,6 +217,32 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+}
+extension UIColor {
+    /// LLP 1115 D2: what an unset background is, the platform's —
+    /// `systemBackground` (tvOS has none; white stands in).
+    static var platformBackground: UIColor {
+        #if os(tvOS)
+        return .white
+        #else
+        return .systemBackground
+        #endif
+    }
+}
+extension NodeView {
+    /// LLP 1115 §2, "inherited is unsaid": the colour row `key` when it is
+    /// written on this node — not a platform colour, and not the same as
+    /// the nearest node view above it has (what CSS's inheritance gave it).
+    /// Nil leaves the control the platform's tint (D4).
+    func ownColor(_ key: String) -> BatchValue? {
+        guard let row = style[key], !row.isSystemColor else { return nil }
+        let above = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
+        return row.key == above?.style[key]?.key ? nil : row
+    }
+    /// `ownColor` as this node draws it now, or nil.
+    func ownUIColor(_ key: String) -> UIColor? {
+        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+    }
 }
 extension NodeView {
     /// Whether a scroll animation ended at the running animation's target,

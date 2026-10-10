@@ -8,6 +8,10 @@ enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
     static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
+    /// The chrome index's key for a `progress`, the platform's activity
+    /// indicator (LLP 1069.001, amended 2026-10-07): a view, not a control,
+    /// so its own pass, outside `indexed`.
+    static let progress = "type:progress"
     /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
@@ -57,6 +61,32 @@ struct RangeSpec {
 /// platform's `Date` at UTC: HTML's values carry no zone, so the picker
 /// shows the wall time the string names and never converts it.
 enum DateValue {
+    /// The locale's order of fields, written as Chrome writes an empty one.
+    static func placeholder(_ kind: String, _ locale: Locale) -> String {
+        func written(_ template: String) -> String {
+            let pattern = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale) ?? ""
+            var out = "", last: Character?
+            for c in pattern where c != "'" {
+                if c == last, c.isLetter { continue }
+                last = c
+                switch c {
+                case "y": out += "yyyy"
+                case "M", "L": out += "mm"
+                case "d": out += "dd"
+                case "h", "H", "k", "K", "m", "a": out += "--"
+                // A narrow no-break space before `a` too, as Chrome spaces it.
+                default: if c.isWhitespace { out += " " } else if !c.isLetter { out.append(c) }
+                }
+            }
+            return out
+        }
+        switch kind {
+        case "date": return written("yMMdd")
+        case "time": return written("jmm")
+        default: return written("yMMdd") + ", " + written("jmm")
+        }
+    }
+
     static let utc = TimeZone(identifier: "UTC")!
     private static func formatter(_ pattern: String) -> DateFormatter {
         let f = DateFormatter()
@@ -127,6 +157,9 @@ struct ButtonFace: Equatable {
     /// Whether the node is a button at all; the rest is empty when not.
     var button = true
     var title: String?
+    var subtitle: String?
+    var placement: String?
+    var rows = ButtonFaceRows()
     var symbol: String?
     var raster = false
     var leading = true
@@ -143,6 +176,9 @@ struct ButtonFace: Equatable {
         guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
         button = o["button"] as? Bool ?? true
         title = o["title"] as? String
+        subtitle = o["subtitle"] as? String
+        placement = o["placement"] as? String
+        rows = ButtonFaceRows(o["rows"] as? [String: Any] ?? [:])
         symbol = o["symbol"] as? String
         raster = o["raster"] as? Bool ?? false
         leading = o["leading"] as? Bool ?? true
@@ -186,3 +222,22 @@ enum LinkedDesign {
     }()
 }
 
+
+/// Only authored rows cross this dictionary; absence is UIKit's answer (D1–D2).
+struct ButtonFaceRows: Equatable {
+    var title: NodeStyle = [:], subtitle: NodeStyle = [:], symbol: NodeStyle = [:], button: NodeStyle = [:]
+    var imageGap: CGFloat?
+    init() {}
+    init(_ object: [String: Any]) {
+        func value(_ v: Any) -> BatchValue {
+            if let s = v as? String { return .string(s) }
+            if let n = v as? NSNumber { return .number(n.doubleValue) }
+            if let a = v as? [Any] { return .array(a.map(value)) }
+            if let o = v as? [String: Any] { return .object(o.mapValues(value)) }
+            return .null
+        }
+        func rows(_ name: String) -> NodeStyle { (object[name] as? [String: Any] ?? [:]).mapValues(value) }
+        title = rows("title"); subtitle = rows("subtitle"); symbol = rows("symbol"); button = rows("button")
+        imageGap = (object["imageGap"] as? NSNumber).map { CGFloat($0.doubleValue) }
+    }
+}

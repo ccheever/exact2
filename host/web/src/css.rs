@@ -55,8 +55,23 @@ fn css_text_in(
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
             return false;
         };
-        num_into(out, n);
-        out.push_str(if unit == Unit::Rem { "rem" } else { "em" });
+        match unit {
+            Unit::Rem => {
+                num_into(out, n);
+                out.push_str("rem");
+            }
+            Unit::Em => {
+                num_into(out, n);
+                out.push_str("em");
+            }
+            // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
+            // `medium`, in `rem`, so it follows the browser's root size.
+            Unit::TextStyle(_) => {
+                let medium = exact_kernel::style::relative::MEDIUM;
+                num_into(out, n * unit.basis(medium, medium) / medium);
+                out.push_str("rem");
+            }
+        }
         true
     };
     let mut out = String::new();
@@ -265,6 +280,25 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
+            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
+            (StyleId::ControlSize, RowValue::Enum(size)) => {
+                let size = match *size {
+                    "mini" => "x-small",
+                    "small" => "small",
+                    "large" => "large",
+                    _ => "medium",
+                };
+                push_text!(&mut out, "--exact-control-font-size:{};", size);
+            }
+            (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
+                out.push_str("--exact-control-radius:");
+                out.push_str(if *corner == "capsule" {
+                    "calc(infinity * 1px)"
+                } else {
+                    "revert"
+                });
+                out.push(';');
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
@@ -374,7 +408,7 @@ pub fn keyframes_name(a: &exact_motion::animation::Animation, press: bool) -> St
 /// each `scale` keyframe into `--exact-scale`: its important `scale`
 /// composition wins over the animation's own.
 pub fn keyframes_css(a: &exact_motion::animation::Animation, press: bool) -> String {
-    let text = a.keyframes.css();
+    let text = crate::grouped::keyframes_css(&a.keyframes.css());
     if !press_rule(a, press) {
         return text;
     }
@@ -804,6 +838,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         // The browser resolves the segment itself too (LLP 1078 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
+        // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
+        // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
+        Dimension::Compare(c) => c.css(out),
     }
 }
 

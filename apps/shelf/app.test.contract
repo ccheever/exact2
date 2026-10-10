@@ -1,0 +1,134 @@
+// Shelf's flows, the same on the web and on iOS (`bun scripts/agent.mjs <host>
+// --test apps/shelf/app.test.contract`). Each test starts from the seed library.
+
+test "the library opens with the seed books, newest first"
+  expect text "library-count" == "3 of 3 books"
+  expect text "book-status-seed-3" == "Want to Read"
+  expect text "book-status-seed-2" == "44% · page 120 of 272"
+  expect tree has "book-progress-seed-2"
+  expect tree has "book-stars-seed-1"
+  expect state visible.0 .id == "seed-3"
+
+test "search and the segmented filter narrow the list"
+  type "search" "le guin"
+  expect text "library-count" == "2 of 3 books"
+  expect tree missing "book-seed-2"
+  type "search" ""
+  tap "filter-reading"
+  expect text "library-count" == "1 of 3 books"
+  expect tree has "book-seed-2"
+  type "search" "zzz"
+  expect text "library-empty-message" == "Try another search or filter."
+
+test "the add sheet validates, saves and persists"
+  tap "add-book"
+  expect tree has "route-add"
+  tap "add-save"
+  expect text "error-title" == "Enter a title."
+  type "add-title" "Middlemarch"
+  type "add-pages" "12.5"
+  tap "add-save"
+  expect text "error-pages" == "Pages must be a whole number from 1 to 10,000."
+  type "add-pages" "880"
+  tap "add-status-done"
+  tap "add-save"
+  clock data
+  expect text "library-count" == "4 of 4 books"
+  expect state visible.0 .title == "Middlemarch"
+  reload
+  expect text "library-count" == "4 of 4 books"
+
+test "the add sheet's Cancel discards the draft"
+  tap "add-book"
+  type "add-title" "Draft"
+  tap "add-cancel"
+  expect state current.name == "library"
+  expect text "library-count" == "3 of 3 books"
+
+test "a book: progress clamps and moves the status, rating, notes"
+  tap "book-seed-2"
+  expect text "page-label" == "Page 120 of 272"
+  tap "page-forward"
+  clock data
+  expect text "page-label" == "Page 130 of 272"
+  expect text "page-percent" == "48% read"
+  tap "detail-status-done"
+  clock data
+  expect text "page-label" == "Page 272 of 272"
+  tap "star-4"
+  clock data
+  expect state lib.books.1 .rating == 4
+  tap "star-4"
+  clock data
+  expect state lib.books.1 .rating == 0
+  type "notes" "Statues"
+  clock data
+  expect state lib.books.1 .notes == "Statues"
+  tap "detail-status-want"
+  clock data
+  expect tree missing "page-label"
+
+test "a book started from Want to Read counts its pages from the first"
+  tap "book-seed-3"
+  expect tree missing "page-label"
+  tap "detail-status-reading"
+  clock data
+  expect text "page-label" == "Page 0 of 387"
+  tap "page-forward"
+  clock data
+  expect state lib.books.0 .status == "reading"
+  expect text "page-label" == "Page 10 of 387"
+
+test "Remove on a book's screen asks first, and Cancel keeps it"
+  tap "book-seed-3"
+  tap "remove-book"
+  clock settle
+  tap "remove-cancel"
+  clock settle
+  expect tree has "book-detail"
+  expect text "library-count" == "3 of 3 books"
+  tap "remove-book"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state current.name == "library"
+  expect text "library-count" == "2 of 2 books"
+
+test "a long press offers Remove, which asks first"
+  tap "book-seed-1" contextmenu
+  tap "menu-remove"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect text "library-count" == "2 of 2 books"
+  expect tree missing "book-seed-1"
+
+test "a swipe deletes"
+  tap "delete-seed-2"
+  clock data
+  expect text "library-count" == "2 of 2 books"
+  expect tree missing "book-seed-2"
+
+test "stats count the library and keep the goal"
+  tap "tab-stats"
+  expect text "avg-rating" == "5.0 ★"
+  expect text "goal" == "12 books"
+  expect text "goal-left" == "11 to go."
+  tap "goal-down"
+  clock data
+  expect text "goal" == "11 books"
+  reload
+  tap "tab-stats"
+  expect text "goal" == "11 books"
+
+test "discover shows an error, then tries again"
+  fail fetch "https://openlibrary.org/subjects"
+  tap "tab-discover"
+  clock data
+  expect tree has "discover-error"
+  pass fetch "https://openlibrary.org/subjects"
+  tap "retry"
+  clock data
+  expect tree missing "discover-error"

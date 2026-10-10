@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { gameDefaults } from './app/shells.mjs';
+import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
@@ -54,7 +54,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
     // The GPU-only hooks crate (LLP 1046.008, game.render): an empty pass set and
     // an explicitly declared shader root, reflected at build.
     const files = {
-      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
+      'render/Cargo.toml': `# Render hooks (app.json game.render): what the GPU module draws beyond the\n# engine's frame. Only the GPU shell links this crate; the simulation never does.\n# Its workspace, ../.shells, is generated: \`bun exact.mjs test-rust\` (or any build) writes it.\n[package]\nname = "${name}-render"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game-render.workspace = true\nexact-gpu.workspace = true\n\n[build-dependencies]\nexact-gpu-reflect.workspace = true\n`,
       'render/build.rs': `//! Reflect the shader inventory the game bake assembles (gpu.shaderRoots, each\n//! after its gpu.shaderPreludes) in EXACT_GAME_SHADERS: \`shaders::SHADERS\`\n//! names the interfaces the hosts register.\nfn main() {\n    println!("cargo:rerun-if-env-changed=EXACT_GAME_SHADERS");\n    let dir = std::path::PathBuf::from(std::env::var_os("EXACT_GAME_SHADERS").expect("build through the game bake"));\n    println!("cargo:rerun-if-changed={}", dir.display());\n    let generated = exact_gpu_reflect::generate(&dir).unwrap_or_else(|e| panic!("{e}"));\n    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("shaders.rs");\n    std::fs::write(out, generated.rust).unwrap();\n}\n`,
       'render/src/lib.rs': `//! ${title}'s render hooks: implement exact_game_render::Hooks stages here.\n\n/// The reflected shader registry of render/shaders.\npub mod shaders {\n    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));\n}\n\n/// The game's passes; every stage defaults to drawing nothing.\n#[derive(Default)]\npub struct Passes;\nimpl exact_game_render::Hooks for Passes {}\n`,
     };
@@ -76,6 +76,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
     writeFileSync(resolve(destination, 'exact.mjs'), commandsFor(destination, name, {game:true}));
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
+    editorTasks(destination, {game:true});
     writeFileSync(resolve(destination, '.gitignore'), `${readFileSync(resolve(destination, '.gitignore'), 'utf8')}/.exact/\n`);
     return `Created ${destination}
   cd ${quote(destination)}
@@ -121,8 +122,59 @@ export function createApp(destination, options = {}) {
   }
 }
 
+/** The app's Linux host crate (LLP 1086): one executable with the runner, the kernel, the
+ * baked plan and the TypeScript data module, in the shape of the repo's own (apps/duo-lab/linux).
+ * The Android host is this crate built for Android (LLP 1107). */
+function linuxCrate(dir, name, title) {
+  const dep = path => `{ path = ${JSON.stringify(pathFrom(resolve(dir, 'linux'), resolve(ROOT, path)))} }`;
+  return {
+    'linux/Cargo.toml': `[package]
+name = "${name}-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "${name}-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = ${dep('logic')}
+exact-linux = ${dep('host/linux')}
+exact-js = ${dep('js')}
+
+[build-dependencies]
+exact-js-bake = ${dep('js/bake')}
+`,
+    'linux/build.rs': `fn main() {
+    exact_js_bake::build(std::path::Path::new(".."), "linux").expect("bake ${title}");
+}
+`,
+    'linux/src/main.rs': `//! ${title} on Linux (and Android): the Contract UI and the TypeScript data module.
+
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
+
+type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+        .with_canvas_surfaces(CANVAS_SURFACES)
+        .placed(TYPESCRIPT_PLACEMENT)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+fn main() {
+    std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT));
+}
+`,
+  };
+}
+
 function writeApp(dir, name) {
-  for (const host of ['apple', 'web']) mkdirSync(resolve(dir, host));
+  for (const host of ['apple', 'linux', 'web']) mkdirSync(resolve(dir, host));
   const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
   const exact2 = pathFrom(dir, ROOT);
   const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
@@ -131,7 +183,7 @@ function writeApp(dir, name) {
 # (${exact2}). Build profiles are injected by exact2's scripts; the patches
 # below are generated by \`exact new\` and checked on every run.
 [workspace]
-members = ["apple", "web"]
+members = ["apple", "linux", "web"]
 resolver = "2"
 
 [workspace.package]
@@ -157,24 +209,38 @@ ${patchLines(dir).join('\n')}
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
       deploy: { store: { web: '0', macos: '0', ios: '0', linux: '0' } },
     }, null, 2) + '\n',
-    'app.contract': `// ${title}: the view. app.ts answers what it asks for.
+    'app.contract': `// ${title}: the view. app.ts answers what it asks for. Colours, fonts,
+// sizes and the safe area are left unsaid, so each platform supplies its own:
+// the header is the navigation bar, its heading the title, its button a bar item.
 shape Greeting
   text: string
 
+routes nav
+  home "/"
+
 component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
+  state liked = false
+  action like
+    liked = not liked
   view
-    main testId="root"
-      width="100%"
-      height="100%"
-      box-sizing="border-box"
-      padding=24
-      background-color="light-dark(#ffffff, #111111)"
-      text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
+    main testId="root" navigationKey=\`\${top(nav).id}\` navigationBack="back" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" justify-content="space-between"
+            text "${title}" role="heading" aria-level=1
+            button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
+              image (liked ? "symbol:heart-fill" : "symbol:heart")
+          scroll id="content" flex=1 min-height=0
+            text greeting.text testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"
   expect tree has "root"
   expect text "greeting" == "Hello from ${title}."
+
+test "the header's button likes it"
+  tap "like"
+  expect state liked == true
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
@@ -228,8 +294,10 @@ fn embedded_data() -> ExactEmbeddedData {
         .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
 `,
+    ...linuxCrate(dir, name, title),
     'web/Cargo.toml': `[package]
 name = "${name}-web"
 version.workspace = true
@@ -284,6 +352,7 @@ exact_web::host!(
     writeFileSync(resolve(dir, path), text);
   }
   linkClaude(dir);
+  editorTasks(dir);
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
   const deferred = resolveOffline(dir, true);
   const run = 'bun exact.mjs';
@@ -294,7 +363,8 @@ exact_web::host!(
   ${run} test web     build, then run app.test.contract, or the files named (web; macos or ios after mac/ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
-  ${run} mac --run    build and launch on this Mac${deferred ? `
+  ${run} mac --run    build and launch on this Mac
+  ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
@@ -314,9 +384,14 @@ The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), an
 \`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
 the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
-Read before writing code:
+Read before writing code: ${doc('start-here.md')}. It is the only required
+reading (LLP 1115 D7): the workflow, Contract in one pass, the native patterns as
+copyable snippets, the data module, tests, and the pitfalls that cost the most.
 
-- ${doc('contract-for-agents.md')}: the working guide. Start here.
+The rest is lookup only, by the section start-here's last table names, or by grep;
+do not read these front to back:
+
+- ${doc('contract-for-agents.md')}: the full working guide.
 - ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
 - ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
 - ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
@@ -333,6 +408,8 @@ Commands, from this directory:
 | \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
 | \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
+| \`bun exact.mjs hatch <word>\` | an access hatch: a stub for each target the app builds, and its \`app.json\` entry (\`--app\`, \`--window\` for those scopes) |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
 
@@ -348,25 +425,38 @@ host bundle and the iOS/tvOS bundles this Mac builds.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
 names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
 
-Build it native. A hand-built lookalike of a system control is a bug; write the
-Contract form and each host draws its own (the agent guide's "Prefer native
-controls"): \`button appearance="auto"\`, \`list appearance="auto"\` with
-\`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
-date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
-and a route whose first child is a \`header\` holding one heading (the nav bar).
-A screen scrolls only inside a \`scroll\`, a \`list\` or an \`overflow-y="auto"\` box; right after the
-header and named by the route's \`navigationScroll\`, it also collapses a large
-title. A sheet swipes down, and a pushed screen swipes back, only when the route
-has an enabled control whose \`id\` is the root's \`navigationBack\`.
+Build it native and write less style (LLP 1115): say what a thing is (a \`header\`
+with its heading and buttons, a \`tablist\`, a \`dialog role="alertdialog"\`) and leave
+colours, fonts and control metrics to the platform; a hand-built lookalike of a
+system control is a bug. start-here has the forms; the recipe app to copy from is
+${pathFrom(dir, resolve(ROOT, 'apps/shelf/app.contract'))} (and its \`app.ts\`,
+\`app.test.contract\`). \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/no-tells.mjs'))} .\`
+lists every literal colour, font size and weight the app's \`.contract\` files
+still write. Drive by \`testId\`, never by screen coordinates. Match a reference's
+structure, controls and hierarchy, not its pixels.
 
-Drive it by \`testId\`, never by screen coordinates: give every control a \`testId\`,
-find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
-\`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
-authored header and tablist stand in for the native bars and take the same taps.
+Access hatches, for what only the platform's own object can do: mark a node
+\`hatch="word"\` and the app's native code (Swift in \`modules/apple\`, the page
+module in \`modules/web/index.js\`) is handed the view or element Exact built,
+at defined moments. \`bun exact.mjs hatch <word>\` writes the stubs. A hatch
+configures what Exact made; it changes Contract state only by acting on an
+authored node, as a person would: \`click()\`, \`focus()\`, \`blur()\`, and
+\`input(text)\` for a field's whole value. It reads state only through
+\`data-*\` words the Contract puts on the node. The app must work without it:
+\`EXACT_HATCHES=off\` (\`?hatches=off\` on the web) runs a development build
+with no hatch connected. Make a hatch say what it does, so the agent can see
+it: \`diagnostics.log/count/measure/publish\` show in \`logs\`, \`state\`
+(\`state.hatches\`) and \`agent … "perf hatches"\`; \`owns(view, "what")\` puts
+what it added in \`tree\` under its node, and \`parts\` names a control it drew
+so \`tap <testId>/<part>\` can reach it as a real click.
 
-Match a reference's structure, controls and hierarchy, not its pixels: native
-controls set their own metrics. Don't measure sub-point positions; stop when it
-reads as the same app.
+A backend: an app that keeps shared, server-authoritative data (accounts,
+other people's rows, offline writes that sync) uses Snapback 4 through this
+checkout's first-party client, never hand-written HTTP: read
+${pathFrom(dir, resolve(ROOT, 'snapback4/README.md'))} before any data code. It
+mounts \`${pathFrom(dir, resolve(ROOT, 'snapback4/ts'))}\` in \`app.json\`'s
+\`typescript.sources\` and gives \`app.ts\` a local-first device
+(\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`).
 
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
@@ -391,7 +481,8 @@ The world is Rust: \`logic/src/lib.rs\` implements \`Game\` (its \`Options\` are
 canvas's arguments, \`setup\` and \`tick\` its gameplay). Menus, the HUD and accessible
 controls are \`app.contract\` (Contract). \`app.json\` is optional and holds only keys
 you author (a title, \`game.audio\`, \`game.assets\`, a data crate). The bake generates
-the hosts under \`.shells/\` (ignored; never edit it). The game uses the exact2 checkout
+the hosts under \`.shells/\` (ignored; never edit it), and so does \`bun exact.mjs test-rust\`:
+run that once before \`cargo\` in \`render/\` or a render example, whose workspace it is. The game uses the exact2 checkout
 at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 Read before writing code:
@@ -412,9 +503,11 @@ Commands, from this directory:
 | \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
 | \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
-| \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block |
+| \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
+| \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
 
 The loop: \`test-rust\` while tuning gameplay, \`contract build --json\` until it prints
@@ -436,6 +529,29 @@ ${END}
 function linkClaude(dir) {
   try { symlinkSync('AGENTS.md', resolve(dir, 'CLAUDE.md')); }
   catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
+}
+
+/** VS Code's tasks for the app's exact.mjs verbs. `$exact-contract` is the
+ * problem matcher of exact2's editors/vscode extension, `$rustc` is
+ * rust-analyzer's. Written once and the author's after that: `update` writes
+ * it only when it is missing. */
+function editorTasks(dir, {game = false} = {}) {
+  const path = resolve(dir, '.vscode/tasks.json');
+  if (existsSync(path)) return false;
+  const builds = ['$exact-contract', '$rustc'];
+  const task = (label, command, problemMatcher, extra = {}) => ({label, type: 'shell', command: `bun exact.mjs ${command}`, problemMatcher, ...extra});
+  const tasks = [
+    task('contract: build this file', 'contract build "${file}"', '$exact-contract', {presentation: {reveal: 'silent', clear: true}}),
+    task('contract: format this file', 'contract fmt "${file}"', '$exact-contract', {presentation: {reveal: 'silent', clear: true}}),
+    task('app: web dev loop', 'web', '$exact-contract'),
+    task('app: test on web', 'test web', builds, {group: {kind: 'test', isDefault: true}}),
+    task('app: run on macOS', 'mac --run', builds),
+    task('app: run on an iOS simulator', 'ios --run', builds),
+    ...(game ? [task('game: Rust tests', 'test-rust', '$rustc', {group: 'test'})] : []),
+  ];
+  mkdirSync(dirname(path), {recursive: true});
+  writeFileSync(path, JSON.stringify({version: '2.0.0', tasks}, null, 2) + '\n');
+  return true;
 }
 
 /** The diary's own block, from before it joined the generated one. */
@@ -487,11 +603,15 @@ const verbs = {
   agent: ['scripts/agent.mjs', host, '--app', '${name}'],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
+  linux: ['scripts/build-linux.mjs', '${name}'],
+  android: ['scripts/agent-android.mjs', 'build', '${name}'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
   contract: ['scripts/exact.mjs', 'contract'],
+  hatch: ['scripts/exact.mjs', 'hatch'],
   feedback: ['scripts/feedback.mjs'],${game ? `
   // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
   'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
+  lock: ['game/app/shells.mjs', import.meta.dir, '--lock'],
   windows: ['host/windows/build.mjs', '${name}'],
   prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
@@ -578,7 +698,14 @@ function updateApp(dir, name) {
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
-    return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}`;
+    if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
+    // A captured lock exact2 has moved past is said now, not at the next build (LLP 1046.011 D2).
+    let drift = null;
+    if (existsSync(resolve(dir, 'Cargo.lock'))) try {
+      gameShells(dir, gameDefaults(dir).game, resolve(ROOT, 'game'));
+      drift = capturedLockDrift(dir);
+    } catch { /* The next build says what is wrong. */ }
+    return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}${drift ? `\n${drift}` : ''}`;
   }
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
   // The app's crates name it, not its folder: a renamed folder keeps `<name>-web`, `<name>-apple`
@@ -595,7 +722,21 @@ function updateApp(dir, name) {
   mkdirSync(resolve(dir, '.cargo'), { recursive: true });
   writeFileSync(resolve(dir, '.cargo/config.toml'), readFileSync(resolve(ROOT, '.cargo/config.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
+  // An app made before the scaffold wrote a Linux host gains one (LLP 1086), unless it has its own.
+  const addedLinux = !existsSync(resolve(dir, 'linux'));
+  if (addedLinux) {
+    mkdirSync(resolve(dir, 'linux'));
+    const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    for (const [path, text] of Object.entries(linuxCrate(dir, name, title))) {
+      mkdirSync(dirname(resolve(dir, path)), { recursive: true });
+      writeFileSync(resolve(dir, path), text);
+    }
+    const workspace = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
+    writeFileSync(resolve(dir, 'Cargo.toml'), workspace.replace(/^members\s*=\s*\[([^\]]*)\]/m, (line, list) =>
+      /"linux"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"linux"'].sort().join(', ')}]`));
+  }
   const notes = updateNotes(dir, name);
+  if (editorTasks(dir)) notes.push('.vscode/tasks.json');
   const manifestPath = resolve(dir, 'app.json');
   if (existsSync(manifestPath)) {
     const text = readFileSync(manifestPath, 'utf8');
@@ -622,7 +763,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${addedLinux ? ', a linux/ host crate' : ''}${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {

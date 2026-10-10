@@ -4,6 +4,28 @@ use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
 #[test]
+fn native_field_templates_keep_the_marker_for_runtime_and_rendering() {
+    let plan = contract::compile(include_str!("../conformance/native-fields.contract")).unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    let mut fields = 0;
+    for part in parts.into_iter().flatten() {
+        let Some(name) = part.props.get("data-testid") else {
+            continue;
+        };
+        fields += 1;
+        assert_eq!(
+            part.props.contains_key("data-native"),
+            !matches!(name.as_str(), "bare" | "devolved" | "markdown"),
+            "{name}"
+        );
+    }
+    assert_eq!(fields, 13);
+    let emitted = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(emitted.js.contains("data-native"));
+}
+
+#[test]
 fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
     use exact_kernel::style::BackdropFilter;
     exact_kernel::style::link_backdrop_filter();
@@ -632,23 +654,32 @@ impl exact_runner::DataSource for ManyItems {
 #[test]
 fn grouped_separators_follow_visible_siblings_without_dom_boxes() {
     exact_web::link(exact_web_capabilities::ALL);
-    let source = r##"component App
+    let source = r##"keyframes ink
+  from border-bottom-color="#0000ff"
+  to border-bottom-color="#ff0000"
+
+component App
   state changed = false
   action toggle
     changed = not changed
   view
     column
       button "Toggle" press=toggle testId="toggle"
+      button appearance="auto" testId="standalone"
+        text "Native button"
       row testId="ordinary" padding-left=(changed ? 24 : 16)
         text "Ordinary"
       list appearance="auto" width=320 height=280
         section
-          row width="100%" testId="first"
+          row width="100%" position="static" testId="first"
             text "Custom row"
             box flex=1 height=8 background-color="#cccccc"
             text "42"
-          row width="100%" testId="middle" padding=(changed ? 24 : 16) border-color=(changed ? "#ff0000" : "#0000ff")
+          row width="100%" testId="middle" transition="border-bottom-color 1s linear" padding=(changed ? 24 : 16) border-color=(changed ? "#ff0000" : "#0000ff")
             text "Middle"
+          image "symbol:info" height=52 border-bottom-color="#008000" testId="image-row"
+          row padding=0 height=52 border-bottom-color="#0000ff" testId="covered" animation="ink 1s linear -500ms paused"
+            box width="100%" height="100%" background-color="#ff0000"
           button appearance="auto" testId="last" display=(changed ? "none" : "flex")
             text "Native button"
 "##;
@@ -662,6 +693,20 @@ fn grouped_separators_follow_visible_siblings_without_dom_boxes() {
     assert!(output.js.contains("grouped-row-hidden"));
     let dir = std::env::temp_dir().join(format!("exact-js-grouped-{}", std::process::id()));
     write_case(&dir, &plan, &[]);
+    let roles: Vec<_> = exact_kernel::generated::SYMBOL_ROLES
+        .iter()
+        .filter_map(|role| {
+            exact_kernel::generated::symbol(role).map(|(_, path, filled)| (role, (path, filled)))
+        })
+        .collect();
+    std::fs::write(
+        dir.join("symbol-roles.js"),
+        format!(
+            "export default {};",
+            serde_json::to_string(&roles.into_iter().collect::<BTreeMap<_, _>>()).unwrap()
+        ),
+    )
+    .unwrap();
     let program = r#"
 import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync} from 'node:fs';
@@ -669,10 +714,11 @@ import {resolve} from 'node:path';
 import {rolldown} from 'rolldown';
 import {chromium as playwright} from 'playwright-core';
 import {chromium} from './scripts/agent-launch.mjs';
+import {decodePng} from './scripts/png.mjs';
 const dir=process.argv[1],root=process.cwd(),gen=resolve(dir,'.gen');
 mkdirSync(gen,{recursive:true});
 for(const folder of ['host/web','host/web-js'])for(const f of readdirSync(resolve(root,folder)).filter(f=>f.endsWith('.js')))copyFileSync(resolve(root,folder,f),resolve(gen,f));
-for(const f of ['app.js','names.js','paint.js'])copyFileSync(resolve(dir,f),resolve(gen,f));
+for(const f of ['app.js','names.js','paint.js','symbol-roles.js'])copyFileSync(resolve(dir,f),resolve(gen,f));
 writeFileSync(resolve(gen,'entry.js'),`import app from './app.js';app();globalThis.ready=true;`);
 const bundle=await rolldown({input:resolve(gen,'entry.js'),logLevel:'silent',external:['./draw.js']});
 await bundle.write({file:resolve(dir,'client.js'),format:'iife',codeSplitting:false});await bundle.close();
@@ -686,16 +732,26 @@ const {executable,unavailable}=chromium();if(unavailable)throw Error(unavailable
 const browser=await playwright.launch({executablePath:executable,headless:true,args:['--no-sandbox']});
 try{
  const page=await browser.newPage();
- const snapshot=()=>page.evaluate(()=>Object.fromEntries(['first','middle','last'].map(id=>{const e=document.querySelector(`[data-testid="${id}"]`),s=getComputedStyle(e,'::after');return[id,{separator:s.content==='""',left:s.left,color:s.backgroundColor,children:e.children.length,hidden:e.getAttribute('data-grouped-row-hidden'),inset:getComputedStyle(e).getPropertyValue('--exact-grouped-inset').trim()}]})));
+ const snapshot=()=>page.evaluate(()=>Object.fromEntries(['first','middle','image-row','covered','last'].map(id=>{const e=document.querySelector(`[data-testid="${id}"]`),s=getComputedStyle(e);return[id,{separator:s.backgroundImage.startsWith('linear-gradient('),color:s.getPropertyValue('--exact-grouped-separator').trim(),children:e.children.length,hidden:e.getAttribute('data-grouped-row-hidden'),inset:s.getPropertyValue('--exact-grouped-inset').trim()}]})));
+ const pixel=async(id,dx)=>{const r=await page.locator(`[data-testid="${id}"]`).boundingBox(),p=decodePng(await page.screenshot());const x=Math.floor(dx<0?r.x+r.width+dx:r.x+dx),y=Math.floor(r.y+r.height)-1;return [...p.data.slice((y*p.width+x)*4,(y*p.width+x)*4+3)]};
  await page.goto(`${server.url}rust-page.html`);const rust=await snapshot();
  assert.equal(rust.first.separator,true);assert.equal(rust.middle.separator,true);assert.equal(rust.last.separator,false);
- assert.equal(rust.first.left,'16px');assert.equal(rust.middle.color,'rgb(0, 0, 255)');assert.equal(rust.last.inset,'16px');
+ assert.equal(rust.first.inset,'16px');assert.equal(rust.middle.color,'rgb(0, 0, 255)');assert.equal(rust.last.inset,'16px');
  await page.goto(`${server.url}client-page.html`);await page.waitForFunction(()=>globalThis.ready);
  assert.deepEqual(await snapshot(),rust,'the fresh JS client agrees with the Rust document');
+ assert.deepEqual(await pixel('middle',-2),[0,0,255],'the separator reaches the inner trailing edge');
+ assert.deepEqual(await pixel('image-row',-2),[0,128,0],'a replaced image row draws its separator');
+ assert.deepEqual(await pixel('covered',-2),[255,0,0],'opaque row content covers the separator');
+ assert.equal(await page.evaluate(()=>{const style=id=>getComputedStyle(document.querySelector(`[data-testid="${id}"]`));return parseFloat(style('last').paddingLeft)-parseFloat(style('standalone').paddingLeft)}),16,'native face fitting includes exactly one leading inset');
+
  await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());
- const hidden=await snapshot();assert.equal(hidden.first.separator,true);assert.equal(hidden.middle.separator,false);assert.equal(hidden.last.hidden,'true');assert.equal(hidden.middle.inset,'24px');assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('[data-testid="middle"]')).getPropertyValue('--exact-grouped-separator').trim()),'#ff0000');
+ const colours=await page.evaluate(async()=>{await new Promise(requestAnimationFrame);const e=document.querySelector('[data-testid="middle"]');for(const a of e.getAnimations()){a.pause();a.currentTime=500;}const s=getComputedStyle(e);return[s.borderBottomColor,s.getPropertyValue('--exact-grouped-separator').trim()]});
+ assert.deepEqual(colours,['rgb(128, 0, 128)','rgb(128, 0, 128)'],'a compiled bound border colour transitions separator ink');
+ await page.evaluate(()=>{for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});
+ const hidden=await snapshot();assert.equal(hidden.first.separator,true);assert.equal(hidden.middle.separator,true);assert.equal(hidden.covered.separator,false);assert.equal(hidden.last.hidden,'true');assert.equal(hidden.middle.inset,'24px');assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('[data-testid="middle"]')).getPropertyValue('--exact-grouped-separator').trim()),'rgb(255, 0, 0)');
  assert.deepEqual(Object.values(hidden).map(v=>v.children),Object.values(rust).map(v=>v.children),'separator updates add no child boxes');
- await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');
+ await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());await page.evaluate(()=>{getComputedStyle(document.querySelector('[data-testid="middle"]')).borderBottomColor;for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');
+ const animated=await page.evaluate(()=>{const s=getComputedStyle(document.querySelector('[data-testid="covered"]'));return[s.borderBottomColor,s.getPropertyValue('--exact-grouped-separator').trim()]});assert.deepEqual(animated,['rgb(128, 0, 128)','rgb(128, 0, 128)'],'compiled keyframes animate separator ink with the border');
  await page.close();
 }finally{await browser.close();server.stop(true)}
 "#;

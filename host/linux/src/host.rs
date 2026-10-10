@@ -25,6 +25,8 @@ mod activation;
 mod arrange;
 #[path = "content_region/host.rs"]
 mod content;
+#[path = "hatches/host.rs"]
+mod hatch;
 #[path = "height.rs"]
 mod height;
 #[path = "height_binding.rs"]
@@ -46,7 +48,7 @@ mod transform_binding;
 #[path = "value_watch.rs"]
 mod value_watch;
 
-use system::{agent_store_snapshot, persist_agent_writes, physical_memory};
+use system::{persist_store_writes, physical_memory, store_snapshot};
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -134,6 +136,8 @@ pub struct Host<D: DataSource> {
     media_mounts: crate::media_session::Mounts,
     /// The `value`s the presenter keeps typed text against (LLP 1069.001 D4).
     pub(crate) values: value_watch::ValueWatch,
+    /// The plan marks nodes `hatch` (`presenter/hatches.rs` says what follows).
+    pub(crate) hatched: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -215,8 +219,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
-        // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hatch to reach: a plan that marks nodes is told so once, at boot.
+        // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
@@ -228,13 +231,20 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::link_segments();
         exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
-        let kernel = Kernel::new(measurer);
+        let mut kernel = Kernel::new(measurer);
+        let env = exact_kernel::Env {
+            control_text_styles: Some(crate::paint::control::control_text_styles()),
+            ..kernel.env().clone()
+        };
+        kernel
+            .set_env(env)
+            .map_err(|e| HostError::Layout(format!("{e:?}")))?;
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
         // A named drive's secrets, read before the runner takes the source.
         // A carried reload keeps its memory store and does not touch the files.
-        let store_snapshot = agent_store_snapshot(data.app_id(), carried.is_some());
+        let store_snapshot = store_snapshot(data.app_id(), carried.is_some());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -283,10 +293,16 @@ impl<D: DataSource> Host<D> {
             renewed: Vec::new(),
             media_mounts: Default::default(),
             values: Default::default(),
+            hatched,
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         host.runner.set_row_reuse(crate::app::row_reuse());
+        // `EXACT_ROW_MEMO=0`: each list row laid out by its own algorithm
+        // (Taffy patch 29 off), to compare.
+        if std::env::var("EXACT_ROW_MEMO").is_ok_and(|v| v == "0") {
+            host.runner.kernel_mut().set_row_layout_memo(false);
+        }
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         host.lowering_from_env();
@@ -324,11 +340,6 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hatched {
-            host.runner.log(
-                "hatch: this host has no native objects; hatched nodes are shown and never called",
-            );
-        }
         Ok((host, error))
     }
 
@@ -497,6 +508,11 @@ impl<D: DataSource> Host<D> {
         self.runner.kernel()
     }
 
+    /// Whether the plan gives `platform` the hatch `word` (LLP 1075.003.000.001 §4.3).
+    pub(crate) fn plan_gives_hatch(&self, word: &str, platform: &str) -> bool {
+        self.runner.plan().handles_hatch(word, platform)
+    }
+
     /// The commit each media session claimant mounted in (LLP 1098 D9).
     pub(crate) fn media_mounts(&self) -> &crate::media_session::Mounts {
         &self.media_mounts
@@ -535,6 +551,21 @@ impl<D: DataSource> Host<D> {
         feedback: exact_runner::CollectionFeedback,
     ) -> Result<bool, String> {
         self.collection_feedback_filled(feedback, exact_runner::CollectionFill::default())
+    }
+
+    /// [`exact_runner::Runner::collection_shown`]; whether it committed.
+    #[cfg(target_os = "android")]
+    pub(crate) fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<bool, String> {
+        match self.runner.collection_shown(view, offset) {
+            Ok(mut result) if !result.receipts.is_empty() => {
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                self.commit(&result.receipts, None).map_or(Ok(true), Err)
+            }
+            Ok(_) => Ok(false),
+            Err(error) => Err(format!("collection shown: {error:?}")),
+        }
     }
 
     /// [`Host::collection_feedback`] with a fill: the list's velocity and a
@@ -706,6 +737,9 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        if let Some(roots) = self.app_roots() {
+            executor.set_app_roots(roots);
+        }
         self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
@@ -724,6 +758,16 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
+    }
+
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2).
@@ -821,17 +865,17 @@ impl<D: DataSource> Host<D> {
         }
         self.now_ms = now_ms.max(self.now_ms);
         if matches!(event, Event::Press | Event::PressWith(_))
-            && self
-                .runner
-                .kernel()
-                .node(view)
-                .is_some_and(|node| node.props.str(exact_kernel::PropId::Commandfor).is_some())
+            && self.runner.kernel().node(view).is_some_and(|node| {
+                node.props
+                    .str(exact_kernel::PropId::Commandfor)
+                    .is_some_and(|target| !target.is_empty())
+            })
         {
             let refusal = "unsupported: Linux dialog presentation is not implemented";
             self.log(refusal);
             return Some(refusal.into());
         }
-        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = crate::traced(c"exact dispatch", || {
             self.runner.dispatch_at(view, event, self.now_ms)
         });
@@ -854,11 +898,14 @@ impl<D: DataSource> Host<D> {
                 || visibility.1
                 || node.style.display == exact_kernel::Display::None
                 || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
-                || node.props.str(exact_kernel::PropId::Commandfor).is_some()
+                || node
+                    .props
+                    .str(exact_kernel::PropId::Commandfor)
+                    .is_some_and(|target| !target.is_empty())
                 || node
                     .props
                     .str(exact_kernel::PropId::Popovertarget)
-                    .is_some()
+                    .is_some_and(|target| !target.is_empty())
             {
                 return false;
             }
@@ -961,6 +1008,25 @@ impl<D: DataSource> Host<D> {
     /// Views commits renewed since the last call (LLP 1078).
     pub(crate) fn take_renewed(&mut self) -> Vec<ViewId> {
         std::mem::take(&mut self.renewed)
+    }
+
+    /// The safe-area insets (top, right, bottom, left; points) that
+    /// `env(safe-area-inset-*)` resolves to, laid out again when a node
+    /// uses one. Whether anything changed.
+    pub fn set_safe_area(&mut self, [top, right, bottom, left]: [f32; 4]) -> Result<bool, String> {
+        let kernel = self.runner.kernel_mut();
+        let env = exact_kernel::Env {
+            top,
+            right,
+            bottom,
+            left,
+            ..kernel.env().clone()
+        };
+        match kernel.set_env(env) {
+            Ok(true) => self.layout().map(|_| true).map_err(|e| e.to_string()),
+            Ok(false) => Ok(false),
+            Err(e) => Err(format!("safe area: {e:?}")),
+        }
     }
 
     /// Several nodes' natural sizes (pictures a sync decoded), then one
@@ -1254,7 +1320,7 @@ impl<D: DataSource> Host<D> {
         // reload reads them back (platformer R10). The log is taken either way.
         let writes = self.runner.take_store_writes();
         let app_id = self.runner.data().app_id().to_string();
-        for line in persist_agent_writes(&app_id, &writes) {
+        for line in persist_store_writes(&app_id, &writes) {
             self.runner.log(line);
         }
         paint |= self.project_navigation();
@@ -1348,7 +1414,7 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
-            if p.property == Property::Height {
+            if p.property == Property::Height || self.presents_nothing(view, &p) {
                 continue;
             }
             changed = true;
@@ -1387,6 +1453,31 @@ impl<D: DataSource> Host<D> {
             }
         }
         changed
+    }
+
+    /// Whether a value the engine restates is the committed style's own, for
+    /// a node nothing is presented for: a new or renewed node's transform and
+    /// opacity rows (four a node, every node of a rebound list row), which
+    /// show what the style shows.
+    fn presents_nothing(&self, view: ViewId, p: &exact_motion::Presentation) -> bool {
+        if self.presented.contains_key(&view) {
+            return false;
+        }
+        let Some(node) = self.runner.kernel().node(view) else {
+            return false;
+        };
+        let s = node.style;
+        let v = p.value;
+        match p.property {
+            Property::Translate => {
+                (s.translate.x, s.translate.y) == (v.x as f32, v.y as f32)
+                    && (s.translate_percent.x, s.translate_percent.y) == (v.z as f32, v.w as f32)
+            }
+            Property::Scale => s.scale == v.x as f32,
+            Property::Rotate => s.rotate == v.x as f32,
+            Property::Opacity => s.opacity == v.x as f32,
+            _ => false,
+        }
     }
 
     /// Every live node in preorder.

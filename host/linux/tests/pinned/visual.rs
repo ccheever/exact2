@@ -220,6 +220,10 @@ fn inline_shadows_and_strokes_follow_each_runs_computed_style() {
                 p.tap(id).unwrap();
                 p.run_commands(NoData::default);
             }
+            // LLP 1104: Linux's own button ring differs from Chrome's.
+            // Compare this text-paint oracle with the scheme button blurred;
+            // native_buttons tests the focused chrome separately.
+            p.blur();
             failures.extend(held_to_chrome(
                 &mut p,
                 reference,

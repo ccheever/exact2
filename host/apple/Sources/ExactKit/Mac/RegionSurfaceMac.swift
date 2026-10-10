@@ -140,8 +140,12 @@ final class RegionSurfaceMac: NSView {
         }
         // The presenter paints the page background when no authored ancestor does.
         if let found { return found }
-        guard let color = (superview as? NodeView)?.presenter?.pageBackground.usingColorSpace(.deviceRGB),
-              color.alphaComponent == 1 else { return nil }
+        // The unset page is the window background, a dynamic colour: resolve
+        // it in this view's appearance (LLP 1115 D2).
+        guard let page = (superview as? NodeView)?.presenter?.pageBackground else { return nil }
+        var resolved: NSColor?
+        effectiveAppearance.performAsCurrentDrawingAppearance { resolved = page.usingColorSpace(.deviceRGB) }
+        guard let color = resolved, color.alphaComponent == 1 else { return nil }
         return [color.redComponent, color.greenComponent, color.blueComponent, 1]
     }
     /// A terminal refusal clears both the display and every input owner now,

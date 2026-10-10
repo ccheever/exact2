@@ -219,6 +219,82 @@ fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() 
     }
 }
 
+/// LLP 1069.002 D4: an ArrayBuffer or a view as a fetch's body is sent as
+/// its bytes, every value of a byte intact, copied when `fetch` is called.
+#[test]
+fn a_buffer_source_body_is_sent_as_its_bytes() {
+    let mut m = unloaded();
+    m.load().unwrap();
+    m.bind(&contract::compile("component App\n  resource result = upload(\"view\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    for (kind, bytes) in [
+        ("view", vec![0u8, 255, 128, 10, 13, 0]),
+        ("dataview", vec![0, 255, 128, 10, 13, 0]),
+        ("buffer", vec![9, 0, 255, 128, 10, 13, 0, 9]),
+    ] {
+        let args = [Value::str(kind)];
+        let request = later(m.answer(&mut s, "upload", &args).unwrap());
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.body, bytes, "{kind}");
+        assert!(request
+            .headers
+            .contains(&("content-type".into(), "image/png".into())));
+        assert_eq!(
+            now(m
+                .parse(&mut s, "upload", &args, response(200, "ok"))
+                .unwrap()),
+            Value::str("ok")
+        );
+    }
+}
+
+/// Fetch refuses any body on a GET or HEAD, an empty one too, and a view on
+/// a SharedArrayBuffer or a resizable buffer, before any request; a detached
+/// buffer is sent as no bytes (Web IDL's copy of a BufferSource).
+#[test]
+fn a_body_fetch_refuses_is_refused_before_any_request() {
+    let mut m = unloaded();
+    m.load().unwrap();
+    m.bind(&contract::compile("component App\n  resource result = oddUpload(\"get\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    for (kind, message) in [
+        ("get", "a GET request cannot have a body"),
+        ("head", "a HEAD request cannot have a body"),
+        (
+            "shared",
+            "a body on a SharedArrayBuffer is not a BufferSource",
+        ),
+        (
+            "resizable",
+            "a body on a resizable ArrayBuffer is not a BufferSource",
+        ),
+    ] {
+        let refused = match m.answer(&mut s, "oddUpload", &[Value::str(kind)]).unwrap() {
+            Answer::Now(v) => v,
+            Answer::Later(r) => panic!("{kind}: a request for {}", r.url),
+        };
+        let text = refused.as_str().unwrap_or_default();
+        assert!(
+            text == "unsupported" || text.contains(message),
+            "{kind}: {refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0, "{kind}");
+    }
+    let args = [Value::str("detached")];
+    match m.answer(&mut s, "oddUpload", &args).unwrap() {
+        Answer::Now(v) => assert_eq!(v, Value::str("unsupported")),
+        Answer::Later(request) => {
+            assert!(request.body.is_empty());
+            assert_eq!(
+                now(m
+                    .parse(&mut s, "oddUpload", &args, response(200, "ok"))
+                    .unwrap()),
+                Value::str("ok")
+            );
+        }
+    }
+}
+
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
         event: String::new(),
@@ -475,6 +551,34 @@ fn an_answer_may_await_two_fetches_in_a_row() {
     assert_eq!(m.in_flight(), 0);
 }
 
+/// LLP 1109 D3: a fetch's rejection the module lets through keeps its
+/// class, as host/web-js does (shape.js `failureCode`); an aborted one is
+/// the module's error.
+#[test]
+fn a_rejection_let_through_keeps_its_class() {
+    use exact_runner::failure::FailureCode;
+    for (kind, code) in [
+        (FailureKind::Network, Some(FailureCode::Offline)),
+        (FailureKind::Timeout, Some(FailureCode::Timeout)),
+        (FailureKind::Refused, Some(FailureCode::Refused)),
+        (FailureKind::Aborted, None),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        later(m.answer(&mut s, "refusedLater", &[]).unwrap());
+        let message = "the network is gone".to_string();
+        let failed = Outcome::Failed {
+            kind,
+            message: message.clone(),
+        };
+        let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
+        match code {
+            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
+        }
+    }
+}
+
 #[test]
 fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut m = module();
@@ -703,7 +807,7 @@ component App
 /// (LLP 1027.003.000 §13, the module-wide rule; hn-reader F7).
 #[test]
 fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
-    use exact_runner::{Dispatch, Work};
+    use exact_runner::Dispatch;
     let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
     let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
     let mut r = Runner::boot(
@@ -730,11 +834,13 @@ fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
         .unwrap();
     let released = r.release_work();
     assert_eq!(released.len(), 1, "the delivery wakes the waiting answer");
-    let (woken, Dispatch::Run(Work::Now(work))) = released.into_iter().next().unwrap() else {
+    // Asked again with no work to run (LLP 1041 §8.4, amended 2026-10-09).
+    let (woken, Dispatch::Again) = released.into_iter().next().unwrap() else {
         panic!("a waiting answer is asked again at once");
     };
     assert_eq!(woken, token);
-    r.fulfill(waiting[0].ticket, work()).unwrap();
+    r.fulfill(waiting[0].ticket, Dispatch::again_outcome())
+        .unwrap();
     assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
     assert_eq!(text_of(&r, "comments").as_deref(), Some("the story"));
     assert!(!r.has_pending());
@@ -746,7 +852,7 @@ fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
 /// which had already settled (review r4a, finding 1).
 #[test]
 fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
-    use exact_runner::{Dispatch, Work};
+    use exact_runner::Dispatch;
     let plan = contract::compile(&SHARED.replace("thread(story)", "followup(story)"))
         .expect("the fixture's Contract compiles");
     let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
@@ -767,10 +873,11 @@ fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
     r.fulfill(fetch[0].ticket, response(200, "the story"))
         .unwrap();
     assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
-    let (_, Dispatch::Run(Work::Now(work))) = r.release_work().into_iter().next().unwrap() else {
+    let (_, Dispatch::Again) = r.release_work().into_iter().next().unwrap() else {
         panic!("the waiting answer is asked again");
     };
-    r.fulfill(waiting[0].ticket, work()).unwrap();
+    r.fulfill(waiting[0].ticket, Dispatch::again_outcome())
+        .unwrap();
     let more = r.take_requests();
     assert_eq!(more.len(), 1, "its own second fetch is handed out");
     assert_eq!(more[0].request.url, "https://api.castle.xyz/comments/8863");
@@ -1054,4 +1161,70 @@ fn a_let_go_stream_does_not_reject_its_fetch() {
     assert_eq!(m.in_flight(), 0);
     let logs = m.take_logs().join("\n");
     assert!(!logs.contains("unhandled rejection"), "{logs}");
+}
+
+/// A waiting answer whose re-ask is refused for good (a retired executor,
+/// say): the answer fails and keeps its last value, its call is unlinked
+/// from the module's bookkeeping, and nothing is left in flight for it
+/// (LLP 1041 §8.4 Q5). The shared fetch still settles the answer it
+/// belongs to. This is bookkeeping, not cancellation: a continuation the
+/// shared promise runs is not stopped by it.
+#[test]
+fn a_refused_re_ask_fails_its_answer_and_unlinks_its_call() {
+    use exact_runner::{Dispatch, FailureKind, Outcome};
+    let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    let (owner, waiter) = (fetch[0].target.clone(), waiting[0].target.clone());
+    let id = |target: &str| {
+        if target == "detail" {
+            "detail"
+        } else {
+            "comments"
+        }
+    };
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    assert_eq!(r.data().in_flight(), 2);
+    assert_eq!(r.data().calls_open(), Some(2));
+    r.refuse_request(waiting[0].ticket, "native executor retired", true);
+    let (ticket, outcome) = r.take_request_refusal(true).unwrap();
+    assert!(matches!(
+        outcome,
+        Outcome::Failed {
+            kind: FailureKind::Refused,
+            ..
+        }
+    ));
+    r.fulfill(ticket, outcome).unwrap();
+    assert_eq!(
+        r.data().in_flight(),
+        1,
+        "the refused call is no longer parked"
+    );
+    assert_eq!(
+        r.data().calls_open(),
+        Some(1),
+        "and the prelude no longer tracks it: only the fetch's owner is left"
+    );
+    assert_eq!(r.failed_resources().len(), 1);
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, id(&owner)).as_deref(), Some("the story"));
+    assert_eq!(text_of(&r, id(&waiter)).as_deref(), Some(""));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+    assert_eq!(r.data().calls_open(), Some(0));
+    assert!(r.take_requests().is_empty());
 }

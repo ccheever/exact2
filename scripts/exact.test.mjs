@@ -182,3 +182,151 @@ test.skipIf(!tools)('an executable whose name ends in parentheses is read as a f
   assert.ok(saved > 0, 'strip took symbols off');
   assertLinkedSdk(executable, '15.0');
 }));
+
+// LLP 1075.003.000.001 §5: `exact hatch` writes a stub a target, wires it into a module it wrote, and declares the word.
+test('exact hatch writes each target\'s stub, wires it in, and declares the word with its platforms', async () => {
+  const { hatch } = await import('./exact.mjs');
+  const { readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-hatch-'));
+  const was = process.env.EXACT_APP_DIR;
+  try {
+    for (const d of ['apple', 'web']) mkdirSync(resolve(dir, d));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column hatch="avatar"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Scratch', app: { id: 'com.example.scratch', name: 'Scratch' }, host: { ios: {}, web: {} } }));
+    process.env.EXACT_APP_DIR = dir;
+    const said = [];
+    const first = hatch(['avatar'], line => said.push(line));
+    assert.deepEqual(first.platforms, ['ios', 'web']);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'] });
+    const swift = readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8');
+    assert.ok(swift.includes('if element.hatch == .avatar { avatarHatch(element) }') && swift.includes('if element.hatch == .avatar { avatarHatchEnded(element) }'));
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/AvatarHatch.swift'), 'utf8').includes('func avatarHatch(_ element: ExactElement)'));
+    const page = readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8');
+    assert.ok(page.includes("import * as avatarHatch from './hatch-avatar.js';") && page.includes('hatches["avatar"] = avatarHatch;'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/hatch-avatar.js'), 'utf8').includes('export function elementEnded(e)'));
+    // A second word joins the first; the same word again changes nothing; the scopes take no word.
+    hatch(['unread-dot'], () => {});
+    const again = hatch(['avatar'], () => {});
+    assert.deepEqual(again.wrote, []);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'], 'unread-dot': ['ios', 'web'] });
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('if element.hatch == .unreadDot { unreadDotHatch(element) }'));
+    hatch(['--window'], () => {});
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('        windowHatch(window)\n        // exact:window\n'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8').includes('export function window(x) { windowHatch.built(x); }'));
+    assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
+    // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
+    mkdirSync(resolve(dir, 'linux'));
+    const linux = hatch(['unread-dot'], () => {});
+    assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatch_entry')));
+    const rust = readFileSync(resolve(dir, 'modules/linux/hatches.rs'), 'utf8');
+    assert.ok(rust.includes('"unread-dot" => unread_dot_hatch(element, context),') && rust.includes('fn unread_dot_hatch_ended<H: Hatches>'));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches['unread-dot'], ['ios', 'web', 'linux']);
+    // A build.rs that already asks for the app's hatches owes nothing: the first file only makes it run again.
+    rmSync(resolve(dir, 'modules/linux'), { recursive: true });
+    writeFileSync(resolve(dir, 'linux/build.rs'), 'fn main() { let _ = contract::native::rust_hatch_entry; }\n');
+    assert.deepEqual(hatch(['unread-dot'], () => {}).todo.filter(line => line.includes('build.rs')), []);
+    // In a module of the app's own, with no marker, the lines to add are shown, not written.
+    rmSync(resolve(dir, 'modules/apple'), { recursive: true });
+    mkdirSync(resolve(dir, 'modules/apple'));
+    writeFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'final class Mine: ExactModule {}\nlet exactModule: ExactModule.Type = Mine.self\n');
+    const mine = hatch(['seal'], () => {});
+    assert.equal(mine.todo.length, 2);
+    assert.ok(mine.todo.some(line => line.includes('if element.hatch == .seal { sealHatch(element) }')));
+    assert.equal(readFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'utf8').includes('sealHatch'), false);
+  } finally {
+    if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Catalogs are native inputs even when the app declares no native view tags.
+test('Apple asset catalogs select platform modules and invalidate native receipts on additions and deletions', () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const { pendingBuildInputs } = require('./app.mjs');
+  const app = { dir, platform: 'ios', manifest: {} };
+  const build = { binary: { assetCatalogApp: app, metadata: {}, inputs: [], directories: [], missing: [] } };
+  const put = (path, text) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), text); };
+  assert.deepEqual(pendingBuildInputs(build), []);
+  put('modules/apple/Shared.xcassets/Contents.json', '{"info":{"version":1,"author":"xcode"}}');
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  const { appleRunBinary, appleArtifacts } = require('../host/apple/build.mjs');
+  const launchApp = { ...app, id: 'com.exact.catalog', name: 'catalog', displayName: 'Catalog', target: resolve(dir, 'target') };
+  const paths = appleArtifacts(launchApp);
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+  const shared = appleAssetCatalogInventory(app, 'ios');
+  assert.equal(shared[0].path, 'modules/apple/Shared.xcassets');
+  build.binary.metadata.appleAssetCatalogs = shared;
+  assert.deepEqual(pendingBuildInputs(build), []);
+  put('modules/apple/Shared.xcassets/Contents.json', '{"info":{"version":1,"author":"exact"}}');
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  put('ios/modules/Local.xcassets/Contents.json', '{}');
+  assert.deepEqual(appleAssetCatalogInventory(app, 'ios').map(entry => entry.path), ['ios/modules/Local.xcassets']);
+  assert.deepEqual(appleAssetCatalogInventory(app, 'macos').map(entry => entry.path), ['modules/apple/Shared.xcassets']);
+  rmSync(resolve(dir, 'ios/modules'), { recursive: true });
+  assert.equal(appleAssetCatalogInventory(app, 'ios')[0].path, shared[0].path);
+  rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  assert.equal(appleRunBinary(launchApp), paths.binary);
+  mkdirSync(resolve(dir, 'modules/apple/Linked.xcassets'));
+  symlinkSync(resolve(dir, 'outside'), resolve(dir, 'modules/apple/Linked.xcassets/Contents.json'));
+  assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
+}));
+
+test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named images and colours, share the iOS icon pass, and reuse unchanged compiles', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { appleAssets, iosAssets, appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const { readFileSync, readdirSync, statSync } = require('node:fs');
+  useXcode();
+  const put = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), bytes); };
+  const json = (path, value) => put(path, JSON.stringify(value));
+  const info = { version: 1, author: 'xcode' };
+  const source = 'modules/apple/Artwork.xcassets';
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+  json(`${source}/Contents.json`, { info });
+  put(`${source}/Badge.imageset/image.png`, png);
+  json(`${source}/Badge.imageset/Contents.json`, { info, images: [{ idiom: 'universal', filename: 'image.png' }] });
+  const colour = red => ({ info, colors: [{ idiom: 'universal', color: { 'color-space': 'srgb', components: { red, green: '0.0', blue: '0.0', alpha: '1.0' } } }] });
+  json(`${source}/Ink.colorset/Contents.json`, colour('0.2'));
+  put('icon.png', png);
+  const app = { dir, name: 'Catalog', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456' } };
+  const cache = { dir: resolve(dir, 'cache'), stamp: 'fixture-toolchain' };
+  const inventory = appleAssetCatalogInventory(app, 'ios');
+  const ios = resolve(dir, 'iOS.app'); mkdirSync(ios);
+  const keys = iosAssets(app, ios, false, { catalog: true, kept: cache, expected: inventory });
+  assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
+  assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  const inspect = path => {
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(path, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const first = inspect(ios);
+  for (const name of ['Badge', 'Ink', 'AppIcon', 'ExactLaunch']) assert.ok(first.some(asset => asset.Name === name), name);
+  assert.equal(first.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+  const held = readdirSync(cache.dir).find(name => name.startsWith('assets-ios-'));
+  const before = statSync(resolve(cache.dir, held, 'Assets.car'), { bigint: true }).mtimeNs;
+  const second = resolve(dir, 'Second.app'); mkdirSync(second);
+  assert.deepEqual(iosAssets(app, second, false, { catalog: true, kept: cache, expected: inventory }), keys);
+  assert.equal(statSync(resolve(cache.dir, held, 'Assets.car'), { bigint: true }).mtimeNs, before);
+  assert.deepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  json(`${source}/Ink.colorset/Contents.json`, colour('0.8'));
+  assert.throws(() => iosAssets(app, second, false, { kept: cache, expected: inventory }), /changed after the bake/);
+  iosAssets(app, second, false, { catalog: true, kept: cache });
+  assert.notEqual(readdirSync(cache.dir).find(name => name.startsWith('assets-ios-')), held);
+  assert.notDeepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  const mac = resolve(dir, 'Catalog.bundle/Contents/Resources'); mkdirSync(mac, { recursive: true });
+  put('Catalog.bundle/Contents/Info.plist', '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.exact.catalog.test</string></dict></plist>');
+  appleAssets(app, mac, { platform: 'macos', kept: cache });
+  assert.ok(inspect(mac).some(asset => asset.Name === 'Badge'));
+  assert.ok(readdirSync(cache.dir).some(name => name.startsWith('assets-ios-')), 'macOS must not evict the iOS cache');
+  put('Lookup.swift', 'import AppKit\nlet bundle = Bundle(path: CommandLine.arguments[1])!\nguard bundle.image(forResource: "Badge") != nil, let colour = NSColor(named: "Ink", bundle: bundle)?.usingColorSpace(.sRGB), abs(colour.redComponent - 0.8) < 0.01 else { fatalError("named asset lookup failed") }\nprint("named assets loaded")\n');
+  const lookup = resolve(dir, 'lookup');
+  const compile = spawnSync('xcrun', ['swiftc', resolve(dir, 'Lookup.swift'), '-o', lookup], { encoding: 'utf8' });
+  assert.equal(compile.status, 0, compile.stderr);
+  const loaded = spawnSync(lookup, [resolve(dir, 'Catalog.bundle')], { encoding: 'utf8' });
+  assert.equal(loaded.status, 0, loaded.stderr);
+  assert.match(loaded.stdout, /named assets loaded/);
+  rmSync(resolve(dir, source), { recursive: true });
+  appleAssets(app, mac, { platform: 'macos', kept: cache });
+  assert.ok(!existsSync(resolve(mac, 'Assets.car')), 'removing all catalogs clears the previous output');
+}), 60000);

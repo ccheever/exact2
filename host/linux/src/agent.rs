@@ -70,12 +70,19 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     p.poll_development(D::default);
     p.run_commands(D::default);
     p.sync_surfaces();
+    // A command is a turn of the loop for the hatches (LLP 1075.003.000.001
+    // §2.5): what they asked of elements during the last one runs before
+    // this one, a snapshot of it, and its caps start at nothing.
+    p.hatch_command();
+    p.hatch_turn();
     let reply = answer(p, line);
     p.sync_surfaces();
     let reply = p.merge_surfaces(line, reply);
     p.sync_surfaces();
     let reply = p.surfaces.error.take().map_or(reply, |e| error(&e));
     p.run_commands(D::default);
+    // The moments this command's commits caused, after them and before its picture.
+    p.hatch_moments();
     // In the headless carrier a completed paint is presentation. A command
     // may activate a generation after the initial boot's frame was counted.
     if p.dirty() {
@@ -159,6 +166,11 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         // The agent's clock presents no frame (LLP 1079 D4); the display
         // loop's are sampled there (frames.rs). `perf <target>` is the runner's.
         Some("perf") if field_bool(line, "frames") => r#"{"virtual":true}"#.to_string(),
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls,
+        // timed, and what their code counted; a hatched site's row in
+        // `perf <target>` names its hatch's calls and time.
+        Some("perf") if field_bool(line, "hatches") => p.hatch_perf().to_string(),
+        Some("perf") => p.hatch_sites(p.host().agent(line)),
         Some("state") => {
             p.boxes();
             // The runner's state, then the sections a painter cannot observe
@@ -221,6 +233,9 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     }
                 };
                 s.push_str(&format!(",\"storage\":{storage}"));
+                if let Some(hatches) = p.hatch_state() {
+                    s.push_str(&format!(",\"hatches\":{hatches}"));
+                }
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -350,7 +365,18 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let r = match wheel {
                 Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
-                None => p.tap(id),
+                // `at`: a point in the target, whatever a press there reaches (LLP 1012 §1).
+                None => match request.get("at") {
+                    Some(at) => match at
+                        .as_array()
+                        .filter(|v| v.len() == 2)
+                        .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)))
+                    {
+                        Some(point) => p.tap_at(id, Some(point)),
+                        None => Err("tap at needs two finite numbers".into()),
+                    },
+                    None => p.tap(id),
+                },
             };
             // The named modifiers come up in reverse, each without its own bit (#140).
             for name in named.split('+').filter(|n| !n.is_empty()).rev() {
@@ -861,9 +887,9 @@ fn clock_within<D: DataSource>(
     if to < from {
         return error(&format!("the clock cannot go backwards ({from} → {to})"));
     }
-    let mut rounds = 0;
+    let (mut rounds, mut hatch_drains) = (0, 0);
     loop {
-        let (landed, e) = clock_stepped(p, to, deadline);
+        let (landed, e) = clock_hatched(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -873,6 +899,21 @@ fn clock_within<D: DataSource>(
         if settle_to_end {
             // Its error is the next report's to raise; the pass is bounded.
             let _ = p.settle_collections();
+            // What hatches asked of elements (LLP 1075.003.000.001 §2.5) is
+            // drained here, on the thread this loop holds, a snapshot a
+            // drain. A hatch whose acts keep causing acts is named after 16.
+            p.hatch_moments();
+            if p.hatch_in_flight() > 0 {
+                hatch_drains += 1;
+                if hatch_drains > 16 {
+                    return format!(
+                        "{{\"clock\":{},\"settled\":false,\"reason\":\"hatches\"}}",
+                        num(landed)
+                    );
+                }
+                p.hatch_turn();
+                continue;
+            }
         }
         let world = p.worlds(serde_json::json!({"op":"clock","settle":settle_to_end}));
         p.sync_surfaces();
@@ -947,6 +988,28 @@ fn clock_within<D: DataSource>(
         }
         to = next;
     }
+}
+
+/// [`clock_stepped`], stopping at each hatch instant on the way (LLP
+/// 1075.003.000.001 §2.4): the runner is brought there, the ticks and
+/// `after`s due are called on that instant's state, and what they asked is
+/// drained, before the seek goes on. So a callback sees its own instant, and
+/// one seek is the same as its steps. A cap passed is the reply's error.
+fn clock_hatched<D: DataSource>(
+    p: &mut Presenter<D>,
+    to: f64,
+    deadline: std::time::Instant,
+) -> (f64, Option<String>) {
+    while let Some(instant) = p.hatch_instant(to) {
+        let (landed, e) = clock_stepped(p, instant.max(p.host().now()), deadline);
+        if e.is_some() || landed < instant {
+            return (landed, e);
+        }
+        if let Some(limit) = p.hatch_fire() {
+            return (landed, Some(limit.into()));
+        }
+    }
+    clock_stepped(p, to, deadline)
 }
 
 /// To `to`, and what is in flight lands before a timer fires — the runner

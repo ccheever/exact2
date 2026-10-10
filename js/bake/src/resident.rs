@@ -146,14 +146,14 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure, check, assertCapturedModule, ambientRefusals } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, assertCapturedModule, ambientRefusals, packageImports } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true);
   const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
     tsconfig:config,
-    plugins:[{name:'captured-sources',load(id){assertCapturedModule(stage,id);return null;},
+    plugins:[{name:'captured-sources',resolveId:packageImports(stage),load(id){assertCapturedModule(stage,id);return null;},
       transform(code,id){const why=ambientRefusals(stage,id,code,(c,o)=>this.parse(c,o));if(why.length)throw new Error(why.join('\n'));return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }

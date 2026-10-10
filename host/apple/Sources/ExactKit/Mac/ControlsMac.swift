@@ -22,6 +22,11 @@ final class ControlHost: NSObject {
     var appliedRange: [UInt32: String] = [:]
     /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
     var radioGroup: ((UInt32) -> RadioGroup)?
+    /// Each `progress`'s spinner (ProgressMac.swift): a view, not a
+    /// control, so beside `controls`; and those turning, which AppKit does
+    /// not say.
+    var spinners: [UInt32: NSProgressIndicator] = [:]
+    var animating: Set<UInt32> = []
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -102,21 +107,22 @@ final class ControlHost: NSObject {
                 control.setAccessibilityIdentifier(owner.props["testId"])
             }
             let natural = naturalSize(control)
-            let box = owner.contentBox()
+            let box = control is NativeButtonMac ? owner.bounds : owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
             // others keep their own size, centred.
-            if control is NativeButtonMac {
-                // The box is the button's alignment rect, as its natural size
-                // is; its bezel's shadow and insets fall outside it.
-                let frame = control.frame(forAlignmentRect: box)
-                if control.frame != frame { control.frame = frame }
+            if let button = control as? NativeButtonMac {
+                let content = button.layout(in: box)
+                if let face = button.written?.face {
+                    ButtonConfigurationMac.corners(face, to: button, size: content.size)
+                }
             } else {
                 let width = control is NSSlider ? box.width : natural.width
                 control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
                                        width: width, height: natural.height)
             }
-            if reported[owner.id] != natural {
+            // Buttons already received their fitting answer before publication (D11).
+            if !(control is NativeButtonMac), reported[owner.id] != natural {
                 reported[owner.id] = natural
                 sizes.append((owner.id, natural))
             }
@@ -130,6 +136,7 @@ final class ControlHost: NSObject {
                 if !live.isEmpty { self.presenter.onIntrinsic?(live) }
             }
         }
+        syncProgress()
     }
 
     @objc private func changed(_ sender: NSControl) {
@@ -164,6 +171,7 @@ final class ControlHost: NSObject {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let progress = progressObservation(node) { return progress }
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonMac { return nativeObservation(b) }
         if let value = valueObservation(control) {
@@ -176,6 +184,9 @@ final class ControlHost: NSObject {
     func reset() {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
+        for spinner in spinners.values { spinner.stopAnimation(nil); spinner.removeFromSuperview() }
+        spinners.removeAll()
+        animating.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

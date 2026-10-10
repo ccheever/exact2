@@ -29,7 +29,7 @@ class SvgFilterLiveTests: XCTestCase {
             if i % 7 == 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.001)) }
         }
         let end = Date(timeIntervalSinceNow: 10)
-        while SvgFilterLive.inFlight > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005)) }
+        while SvgFilterLive.inFlight > 0 && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
         XCTAssertEqual(SvgFilterLive.inFlight, 0)
         for p in pictures {
             XCTAssertNotNil(p.layer.contents, "a picture landed")

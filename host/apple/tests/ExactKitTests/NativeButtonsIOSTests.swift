@@ -13,10 +13,11 @@ import XCTest
 final class NativeButtonsIOSTests: XCTestCase {
     private var window: UIWindow!
 
-    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
+    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:],
+                           options: SelectMenu = SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0)) -> Presenter {
         let p = Presenter()
         p.buttonFace = { faces[$0] ?? ButtonFace() }
-        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0) }
+        p.selectOptions = { _ in options }
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -24,6 +25,21 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    func testReferencedAccessibleNameWinsAndFollowsItsText() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityLabelledBy": "name", "accessibilityLabel": "Fallback"])
+                          + box(3, ["id": "name", "text": "Delete permanent copy"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertEqual(button.accessibilityLabel, "Delete permanent copy", "aria-labelledby precedes aria-label and the face")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Delete archived copy"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Delete archived copy", "a referenced text-only batch refreshes the control")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": ""]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Fallback", "an empty referenced name falls back to aria-label")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Go", "without an authored name the face names the control")
+    }
+
     private func face(_ title: String?, symbol: String? = nil, style: String = "bordered", ios: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.symbol = symbol; f.style = style; f.ios = ios; f.iosBefore26 = "bordered"
@@ -75,8 +91,15 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(seen["style"] as? String, "filled")
         XCTAssertEqual(send.accessibilityLabel, "Send", "the title names it")
         XCTAssertEqual(send.accessibilityIdentifier, "send")
+        XCTAssertTrue(send.isAccessibilityElement, "the native button exposes its explicit name even before UIKit loads its accessibility runtime")
+        XCTAssertTrue(send.accessibilityTraits.contains(.button))
         XCTAssertEqual(p.views[2]?.accessibleName, "Send", "the agent's name for it is its title")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).isAccessibilityElement, "the control is the element, not the node")
+        let ax = p.axElements(roots: [p.viewport])
+        let named = (ax["elements"] as? [[String: Any]])?.filter { $0["testId"] as? String == "send" } ?? []
+        XCTAssertEqual(named.count, 1, "the platform tree exposes the native button once")
+        XCTAssertEqual(named.first?["name"] as? String, "Send")
+        XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
@@ -125,6 +148,52 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
+    func testAuthoredColoursFollowALightToDarkSwitch() throws {
+        var f = face("Scheme", symbol: "lock.fill", style: "filled", ios: "filled")
+        let pair: BatchValue = .array([.array([.number(0), .number(0), .number(0), .number(255)]),
+            .array([.number(255), .number(255), .number(255), .number(255)])])
+        f.rows.title["text_color"] = pair; f.rows.symbol["tint_color"] = pair
+        let p = presenter(native(2) + [["op": "roots", "ids": [2]]], faces: [2: f])
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        let b = try button(p, 2); b.updateTraitsIfNeeded(); p.controls.sync()
+        let old = b.written
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [0, 0, 0, 1])
+        window.overrideUserInterfaceStyle = .dark; window.updateTraitsIfNeeded(); b.updateTraitsIfNeeded(); p.controls.sync()
+        XCTAssertNotEqual(b.written, old, "appearance invalidates the title and baked symbol tint")
+        XCTAssertEqual(b.configuration?.baseForegroundColor?.cgColor.components, [1, 1, 1, 1])
+        XCTAssertEqual(b.configuration?.image?.renderingMode, .alwaysOriginal)
+    }
+    private final class LocatedTouch: UITouch {
+        let target: UIView
+        init(_ target: UIView) { self.target = target; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: view) }
+    }
+    func testProductionTouchesLightDismissAndHideANativeInvokersPopover() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + native(3)
+            + box(4, ["popover": "auto", "id": "choices"]) + native(5, ["popovertarget": "choices", "popovertargetaction": "hide"], handlers: [])
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "children", "id": 4, "ids": [5]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open"), 3: face("Outside"), 5: face("Hide")])
+        let pop = try XCTUnwrap(p.views[4]), opener = try button(p, 2)
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        let watcher = try XCTUnwrap(p.viewport.gestureRecognizers?.first { String(describing: type(of: $0)) == "PopoverTouch" }, "production touch observer")
+        XCTAssertFalse(watcher.cancelsTouchesInView); XCTAssertFalse(watcher.delaysTouchesBegan)
+        watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "its invoker is excluded from light dismiss")
+        watcher.reset()
+        watcher.touchesBegan([LocatedTouch(try button(p, 5))], with: UIEvent())
+        XCTAssertTrue(p.menus.isOpen(pop), "a touch inside keeps it until activation")
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "hide-only native button closes it")
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["commandfor": "choices", "command": "hide-popover"]]]))
+        opener.sendActions(for: .primaryActionTriggered)
+        try button(p, 5).sendActions(for: .primaryActionTriggered)
+        XCTAssertFalse(p.menus.isOpen(pop), "the command invoker closes it too")
+        opener.sendActions(for: .primaryActionTriggered)
+        watcher.reset(); watcher.touchesBegan([LocatedTouch(try button(p, 3))], with: UIEvent())
+        XCTAssertFalse(p.menus.isOpen(pop), "outside touch reaches production dismissal without agentTap")
+    }
     func testAPanCancelsItsTouchAsACustomButtons() {
         let scroll = ScrollView()
         XCTAssertTrue(scroll.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())))
@@ -143,6 +212,189 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertNil(p.controls.activate(try XCTUnwrap(p.views[2])), "a native button takes the ordinary tap path")
         XCTAssertNil(p.controls.unopened(try XCTUnwrap(p.views[2])))
         XCTAssertNil(p.controls.type(try XCTUnwrap(p.views[2]), "x"))
+    }
+
+    private func selectMenu() -> SelectMenu {
+        SelectMenu(options: [.init(value: "plain", label: "Plain", disabled: false),
+                             .init(value: "wide", label: "Chocolate Strawberry", disabled: false),
+                             .init(value: "off", label: "Unavailable", disabled: true)], chosen: 0)
+    }
+
+    private let selectOps: [[String: Any]] = [["op": "create", "id": 3, "kind": "control", "props": ["type": "select"],
+                                               "handlers": ["input", "change"], "style": [:]],
+                                              ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0],
+                                              ["op": "roots", "ids": [3]]]
+
+    private func selectPresenter(_ menu: SelectMenu) -> Presenter {
+        let p = presenter(selectOps)
+        p.selectOptions = { _ in menu }
+        var batch = wireBatch([])
+        batch.controls = true
+        p.apply(batch)
+        return p
+    }
+
+    private func popupReference(_ menu: SelectMenu, alignment: UIControl.ContentHorizontalAlignment) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.indicator = .popup
+        configuration.contentInsets = .zero
+        let button = UIButton(configuration: configuration)
+        button.showsMenuAsPrimaryAction = true
+        button.changesSelectionAsPrimaryAction = true
+        button.contentHorizontalAlignment = alignment
+        button.menu = UIMenu(children: menu.options.enumerated().map { i, option in
+            UIAction(title: option.label, attributes: option.disabled ? .disabled : [],
+                     state: i == menu.chosen ? .on : .off) { _ in }
+        })
+        window.addSubview(button)
+        return button
+    }
+
+    private func popupTitleRect(_ button: UIButton) throws -> CGRect {
+        button.setNeedsLayout()
+        button.layoutIfNeeded()
+        let title = try XCTUnwrap(button.titleLabel)
+        XCTAssertFalse(title.bounds.isEmpty, "the native selected title must be laid out")
+        return button.convert(title.bounds, from: title)
+    }
+
+    func testSelectAlignmentMovesItsNativeTitleWithoutRebuildingTheMenu() throws {
+        let menu = selectMenu(), p = selectPresenter(selectMenu())
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let natural = p.controls.naturalSize(select, node)
+        var widestMenu = menu
+        widestMenu.chosen = 1
+        let widest = popupReference(widestMenu, alignment: .center)
+        XCTAssertEqual(natural.width, ceil(widest.intrinsicContentSize.width), "the slot measures the widest native option")
+        widest.removeFromSuperview()
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0,
+                            "w": Double(natural.width), "h": 52.0]]))
+        let originalMenu = try XCTUnwrap(select.menu)
+        let reference = popupReference(menu, alignment: .center)
+        reference.frame = CGRect(origin: .zero, size: select.bounds.size)
+        defer { reference.removeFromSuperview() }
+        var titleRects: [String: CGRect] = [:]
+        let cases: [(String?, UIControl.ContentHorizontalAlignment)] = [
+            (nil, .center), ("right", .right), ("left", .left), ("center", .center), (nil, .center)
+        ]
+        for (alignment, expected) in cases {
+            let style: [String: Any] = alignment.map { ["text_align": $0] } ?? [:]
+            p.apply(wireBatch([["op": "style", "id": 3, "style": style]]))
+            if reference.contentHorizontalAlignment != expected {
+                reference.contentHorizontalAlignment = expected
+                let configuration = reference.configuration
+                reference.configuration = nil
+                reference.configuration = configuration
+            }
+            let actual = try popupTitleRect(select), native = try popupTitleRect(reference)
+            XCTAssertEqual(select.currentTitle, "Plain")
+            XCTAssertEqual(actual.minX, native.minX, accuracy: 0.5, "restyled \(alignment ?? "default") popup matches UIKit")
+            XCTAssertEqual(actual.width, native.width, accuracy: 0.5)
+            XCTAssertTrue(select.menu === originalMenu, "a style-only change keeps the native menu")
+            XCTAssertEqual(p.controls.naturalSize(select, node), natural, "alignment does not change widest-option sizing")
+            XCTAssertEqual(select.frame.width, natural.width)
+            titleRects[alignment ?? "default"] = actual
+        }
+        XCTAssertGreaterThan(try XCTUnwrap(titleRects["right"]).minX, try XCTUnwrap(titleRects["center"]).minX)
+        XCTAssertLessThan(try XCTUnwrap(titleRects["left"]).minX, try XCTUnwrap(titleRects["center"]).minX)
+        XCTAssertEqual(titleRects["default"], titleRects["center"], "clearing alignment restores UIKit's centering")
+    }
+
+    func testSelectLogicalEdgesRespectDirectionInsideAWidePaddedBox() throws {
+        let p = selectPresenter(selectMenu())
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let natural = p.controls.naturalSize(select, node), menu = try XCTUnwrap(select.menu)
+        let cases: [(String, String, UIControl.ContentHorizontalAlignment)] = [
+            ("start", "ltr", .left), ("end", "ltr", .right),
+            ("start", "rtl", .right), ("end", "rtl", .left),
+            ("left", "rtl", .left), ("right", "rtl", .right),
+            ("justify", "ltr", .left), ("justify", "rtl", .right), ("center", "rtl", .center)
+        ]
+        for (alignment, direction, expected) in cases {
+            p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": alignment, "direction": direction,
+                               "padding_left": 17.0, "padding_right": 29.0, "padding_top": 3.0, "padding_bottom": 7.0]]]))
+            let content = node.contentBox()
+            XCTAssertEqual(content.minX, 17)
+            XCTAssertEqual(content.maxX, 291)
+            let x = expected == .left ? content.minX : expected == .right ? content.maxX - natural.width : content.midX - natural.width / 2
+            XCTAssertEqual(select.frame.minX, x, accuracy: 0.001)
+            XCTAssertEqual(select.frame.midY, content.midY, accuracy: 0.001)
+            XCTAssertEqual(select.frame.size, natural)
+            XCTAssertEqual(select.contentHorizontalAlignment, expected)
+            XCTAssertTrue(select.menu === menu)
+            XCTAssertEqual(node.bounds.width, 320, "alignment preserves the authored slot")
+        }
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["direction": "rtl"]]]))
+        XCTAssertEqual(select.contentHorizontalAlignment, .center, "clearing alignment restores UIKit's centering even in RTL")
+        XCTAssertEqual(select.frame.midX, node.contentBox().midX, accuracy: 0.001)
+    }
+
+    func testAlignedSelectKeepsItsChoiceEventsAndWidestOptionMeasurement() throws {
+        var menu = selectMenu()
+        let p = selectPresenter(menu)
+        p.selectOptions = { _ in menu }
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let natural = p.controls.naturalSize(select, node)
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": "right"]]]))
+        var heard: [String] = []
+        p.onControlValue = { id, value, input, change in
+            XCTAssertEqual(id, 3)
+            if input { heard.append("input:\(value)") }
+            if change { heard.append("change:\(value)") }
+            menu.chosen = menu.options.firstIndex { $0.value == value }
+        }
+        let choice = try XCTUnwrap(p.controls.type(node, "wide"))
+        XCTAssertNil(choice["error"])
+        XCTAssertEqual(heard, ["input:wide", "change:wide"])
+        XCTAssertEqual(select.currentTitle, "Chocolate Strawberry")
+        XCTAssertEqual(select.contentHorizontalAlignment, .right)
+        XCTAssertTrue(select.showsMenuAsPrimaryAction)
+        XCTAssertTrue(select.changesSelectionAsPrimaryAction)
+        XCTAssertEqual(p.controls.naturalSize(select, node), natural)
+        XCTAssertEqual(p.controls.valueObservation(select)?["value"] as? String, "wide")
+        let reference = popupReference(menu, alignment: .right)
+        reference.frame = CGRect(origin: .zero, size: select.bounds.size)
+        XCTAssertEqual(try popupTitleRect(select).minX, try popupTitleRect(reference).minX, accuracy: 0.5)
+        reference.removeFromSuperview()
+        XCTAssertNotNil(p.controls.type(node, "off")?["error"], "disabled menu options stay unavailable")
+        XCTAssertEqual(heard, ["input:wide", "change:wide"], "a refused choice emits nothing")
+        XCTAssertEqual(select.currentTitle, "Chocolate Strawberry")
+    }
+
+    /// App farm 008: a select with no options was given an empty UIMenu,
+    /// which UIKit refuses under `changesSelectionAsPrimaryAction` ("Menu
+    /// does not have a valid element for default selection"), aborting the
+    /// app. It holds no menu and shows no title until options come.
+    func testASelectWithNoOptionsHoldsNoMenuUntilItHasSome() throws {
+        var menu = SelectMenu()
+        let p = presenter(selectOps, options: menu)
+        p.selectOptions = { _ in menu }
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        var batch = wireBatch([])
+        batch.controls = true
+        func expectEmpty(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertNil(select.menu, "\(when): no options, no menu")
+            XCTAssertNil(select.configuration?.title, "\(when): no title drawn")
+            XCTAssertNil(p.controls.valueObservation(select)?["title"] as? String, "\(when): no title observed")
+            XCTAssertNotNil(p.controls.type(node, "plain")?["error"], "\(when): nothing to choose")
+        }
+        func expectOptions(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertEqual(select.menu?.children.count, 3, when)
+            XCTAssertEqual(select.currentTitle, "Plain", when)
+            XCTAssertEqual(p.controls.valueObservation(select)?["title"] as? String, "Plain", when)
+        }
+        expectEmpty("at creation")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when options come")
+        menu = SelectMenu()
+        p.apply(batch)
+        expectEmpty("when they go")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when they come back")
     }
 
     func testAGlassButtonIsIsolatedInItsGroupAndGivenBack() throws {

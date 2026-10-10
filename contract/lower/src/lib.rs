@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod buttons;
 mod class;
 mod collection;
 mod color_profile;
@@ -56,7 +57,7 @@ pub use fields::Profile;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
-pub use sites::{Declared, NodeSite, Origin, Sites};
+pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
@@ -85,8 +86,6 @@ pub fn compiler_identity() -> u64 {
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
-    /// The surface the plan is for: a text field's sheet differs.
-    profile: Profile,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -198,7 +197,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
-    profile: Profile,
+    _profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -217,7 +216,6 @@ fn lower_with_sites(
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
-        profile,
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -647,32 +645,24 @@ impl<'a> Lowerer<'a> {
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
                 // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
+                let button_context = grouped::button_context(attrs);
                 let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
-                let native = expanded
-                    .iter()
-                    .flatten()
-                    .chain(attrs.iter())
-                    .rev()
-                    .find(|a| a.name == "appearance");
-                if tag == "button"
-                    && native.is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"))
-                {
+                let button = self.button_appearance(
+                    tag,
+                    expanded.as_deref().unwrap_or(&[]),
+                    attrs,
+                    children,
+                    button_context,
+                    *span,
+                )?;
+                if button.as_ref().is_some_and(|b| b.native) {
                     grouped::native_rows(&mut sheet);
                 }
-                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
-                let dressed = fields::sheet(
-                    tag,
-                    expanded.iter().flatten().chain(attrs),
-                    *span,
-                    &mut sheet,
-                    self.profile,
-                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
-                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
@@ -720,18 +710,18 @@ impl<'a> Lowerer<'a> {
                 // type is a text field, `checkbox` a form control.
                 let canonical_type = controls::canonical_type_attrs(tag, expanded);
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
-                let control = controls::control(tag, expanded)?;
+                let control =
+                    controls::control(tag, expanded, button.as_ref().is_some_and(|b| b.native))?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
-                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
                 let children = face.as_ref().unwrap_or(children);
-                if control == Some("button") {
-                    self.check_native_button(expanded, children, *span)?;
-                }
                 controls::check_nesting(tag, parent_tag, *span)?;
+                controls::check_progress(tag, expanded, children)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
+                let closedby = menus::implied_closedby(tag, expanded, *span);
+                let expanded = closedby.as_deref().unwrap_or(expanded);
                 let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
@@ -832,6 +822,18 @@ impl<'a> Lowerer<'a> {
                         kind: BindingKind::Prop,
                         id: *prop as u16,
                         expr: self.fixed(false, value),
+                    });
+                }
+                self.link_run_color(tag, parent_tag, expanded, &mut bindings);
+                self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
+                // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
+                // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
+                // fixed prop (text) cannot be.
+                if tag == "progress" {
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Prop,
+                        id: exact_kernel::PropId::AccessibilityBusy as u16,
+                        expr: self.b.constant(&Value::Bool(true)),
                     });
                 }
                 // @ref LLP 1048.003 D4 — the page scrolls where this does.
@@ -937,6 +939,26 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                if button.as_ref().is_some_and(|b| !b.native)
+                    && !bindings
+                        .iter()
+                        .any(|b| b.kind == BindingKind::Style && b.id == StyleId::Appearance as u16)
+                {
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Style,
+                        id: StyleId::Appearance as u16,
+                        expr: self.fixed(true, "none"),
+                    });
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
+                    }
+                }
+                if t.node_type == NodeType::TextInput {
+                    self.field_appearance(tag, expanded, *span, &mut bindings)?;
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
                     }
                 }
                 // @ref LLP 1057.003 C6 — a transform drag needs both halves:
@@ -1059,6 +1081,7 @@ impl<'a> Lowerer<'a> {
                     sites.nodes.push(sites::node_site(
                         *span,
                         *instance,
+                        button,
                         &bindings,
                         origins.as_deref().expect("site origins"),
                     ));

@@ -9,6 +9,10 @@ use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
 
+/// Whether a led window leans ([`CollectionFill::lean`]): off unless asked.
+static LEAN: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_LEAN").is_ok_and(|v| v == "1"));
+
 /// One future model position, not the acknowledged picture's input position.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct ModelScroll {
@@ -47,7 +51,9 @@ struct Cursor {
     sequence: u64,
     corrected: Option<u64>,
     dimensions: Option<(f64, f64, f64, f64)>,
-    sent: Option<CollectionFeedback>,
+    /// The last report, and the list's main-axis padding it went with: a
+    /// change of padding alone is news to the runner (LLP 1010 §6.9).
+    sent: Option<(CollectionFeedback, [f64; 2])>,
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
@@ -197,7 +203,7 @@ impl State {
 /// A collection's port facts along its axis (LLP 1070 H1): `main` is the
 /// inner height of a vertical list and the inner width of a horizontal one;
 /// `origin` is the main-axis padding before the content; `max` the offset's
-/// range on the main axis.
+/// range on the main axis; `padding` the main-axis padding at each end.
 struct Geometry {
     axis: ListAxis,
     width: f64,
@@ -205,6 +211,7 @@ struct Geometry {
     cross: f64,
     origin: f64,
     max: f32,
+    padding: [f64; 2],
 }
 impl Geometry {
     fn main(&self) -> f64 {
@@ -312,6 +319,7 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
         max: (content - frame)
             .max((snapshot.total_extent + origin + end - main) as f32)
             .max(0.),
+        padding: [origin, end],
     })
 }
 
@@ -683,6 +691,45 @@ impl<D: DataSource> Presenter<D> {
         self.collection_scroll_turn(view, false);
     }
 
+    /// A wheel moved `view`: its collection turn now, or after the frame
+    /// when turns are deferred.
+    pub(super) fn collection_scrolled_or_deferred(&mut self, view: ViewId) {
+        match &mut self.deferred_collections {
+            Some(views) => {
+                if !views.contains(&view) {
+                    views.push(view);
+                }
+            }
+            None => self.collection_scrolled(view),
+        }
+    }
+
+    /// Run a scrolled list's collection turn (feedback, rows mounted and
+    /// unmounted, the commit's layout) after the frame that shows the new
+    /// offset rather than before it: the frame paints the rows already
+    /// mounted — the list's overscan covers the travel — and the turn runs
+    /// in the time left before the next one (RecyclerView's prefetch after
+    /// the frame). The host calls [`Presenter::run_deferred_collections`]
+    /// once its frame is submitted.
+    pub fn set_deferred_collections(&mut self, on: bool) {
+        if !on {
+            self.run_deferred_collections();
+        }
+        self.deferred_collections = on.then(Vec::new);
+    }
+
+    /// The collection turns deferred since the last call; whether any ran.
+    pub fn run_deferred_collections(&mut self) -> bool {
+        let views = match &mut self.deferred_collections {
+            Some(views) if !views.is_empty() => std::mem::take(views),
+            _ => return false,
+        };
+        for id in views {
+            self.collection_scrolled(id);
+        }
+        true
+    }
+
     // Only Arrange's prevalidated, adapter-owned edge step uses this order.
     // External scroll still retires stale contact before accepting new facts.
     pub(super) fn collection_scrolled_by_arrange(&mut self, view: ViewId) {
@@ -749,6 +796,37 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.dirty
+    }
+
+    /// The scrolled list's rows that show where its port now is start what
+    /// waited for that ([`exact_runner::Runner::collection_shown`]), without
+    /// a report: for a pass that waits.
+    #[cfg(target_os = "android")]
+    pub(crate) fn show_collection(&mut self) {
+        let Some(view) = self.last_wheel else {
+            return;
+        };
+        let Some(snapshot) = self.host.collection(view) else {
+            return;
+        };
+        let Some(g) = geometry(self.host.kernel(), &snapshot, self.viewport.0 as f64) else {
+            return;
+        };
+        let main = self
+            .scroll
+            .get(&view)
+            .map_or(0., |off| main_of(g.axis, *off));
+        let offset = (main as f64 - g.origin).max(-g.origin);
+        match self.host.collection_shown(view, offset) {
+            Ok(true) => {
+                if let Some(error) = self.sync_commit() {
+                    self.host.log(error);
+                }
+                self.dirty = true;
+            }
+            Ok(false) => {}
+            Err(error) => self.host.log(error),
+        }
     }
 
     /// Slice the next passes ([`State::limit`]) with the scrolled list's
@@ -900,7 +978,9 @@ impl<D: DataSource> Presenter<D> {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                offset: (feedback_main as f64 - g.origin).max(0.),
+                // From the first row: negative in the padding before it, down
+                // to that padding (LLP 1010 §6.9).
+                offset: (feedback_main as f64 - g.origin).max(-g.origin),
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,
@@ -936,18 +1016,24 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            // Unchanged facts are news only to a list a slice left pending.
-            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
+            // Unchanged facts and padding are news only to a list a slice left
+            // pending.
+            let sent = (feedback.clone(), g.padding);
+            if cursor.sent.as_ref() == Some(&sent) && !snapshot.pending {
                 continue;
             }
-            cursor.sent = Some(feedback.clone());
+            cursor.sent = Some(sent);
+            let velocity = (self.collection.velocity)
+                .filter(|(v, _)| *v == view)
+                .map_or(0.0, |(_, v)| v);
             let fill = CollectionFill {
-                velocity: self
-                    .collection
-                    .velocity
-                    .filter(|(v, _)| *v == view)
-                    .map_or(0.0, |(_, v)| v),
+                velocity,
                 limit: self.collection.limit,
+                // `EXACT_LEAN=1`: a window this host leads keeps half a
+                // viewport behind it (crypto rests 4 MB lower after a fling;
+                // a turn back at 24,000 dp/s shows up to 58% of its view
+                // blank for one to four frames, against 35% for two).
+                lean: velocity != 0.0 && *LEAN,
                 ..CollectionFill::default()
             };
             match self.host.collection_feedback_filled(feedback, fill) {

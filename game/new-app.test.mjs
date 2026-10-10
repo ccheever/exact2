@@ -146,6 +146,33 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
 
+test('a new app and a new game get VS Code tasks over their own verbs, and update writes only a missing file', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const verbsOf = (dir) => {
+      const usage = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'nope'], { cwd: parent, encoding: 'utf8' }).stderr;
+      return new Set(/Usage: bun exact\.mjs <([^>]*)>/.exec(usage)[1].split('|'));
+    };
+    const app = resolve(parent, 'field-log'), game = resolve(parent, 'block-hop');
+    createApp(app);
+    createGame(game);
+    for (const [dir, extra] of [[app, []], [game, ['test-rust']]]) {
+      const tasks = JSON.parse(readFileSync(resolve(dir, '.vscode/tasks.json'), 'utf8')).tasks, verbs = verbsOf(dir);
+      const used = tasks.map(t => /^bun exact\.mjs (\S+)/.exec(t.command)[1]);
+      for (const verb of used) assert.ok(verbs.has(verb), `${dir}: task verb ${verb} is not one of exact.mjs's (${[...verbs].join(', ')})`);
+      for (const verb of ['contract', 'web', 'test', 'mac', 'ios', ...extra]) assert.ok(used.includes(verb), `${dir}: no task runs ${verb}`);
+      assert.equal(tasks.filter(t => t.group?.isDefault).length, 1);
+    }
+    const tasksPath = resolve(app, '.vscode/tasks.json');
+    writeFileSync(tasksPath, '{"version": "2.0.0", "tasks": []}\n');
+    assert.doesNotMatch(createApp(app, { update: true }), /tasks\.json/);
+    assert.equal(readFileSync(tasksPath, 'utf8'), '{"version": "2.0.0", "tasks": []}\n');
+    rmSync(resolve(app, '.vscode'), { recursive: true });
+    assert.match(createApp(app, { update: true }), /, \.vscode\/tasks\.json/);
+    assert.ok(JSON.parse(readFileSync(tasksPath, 'utf8')).tasks.length > 0);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000); // Three offline Cargo resolutions.
+
 test('a game outside this checkout gets an app\'s runner, with its own verbs and no app.json, and update rewrites it (the platformer\'s diary, R1)', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {
@@ -206,8 +233,8 @@ test('a sibling app resolves every host dependency from its own manifest', () =>
     const result = spawnSync('cargo', ['metadata', '--offline', '--locked', '--no-deps', '--format-version', '1'], { cwd: dir, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const packages = JSON.parse(result.stdout).packages;
-    assert.equal(packages.length, 2);
-    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
+    assert.equal(packages.length, 3);
+    const paths = { 'exact-logic': 'logic', 'exact-apple': 'host/apple', 'exact-linux': 'host/linux', 'exact-web': 'host/web', 'exact-web-capabilities': 'host/web-capabilities', 'exact-js': 'js', 'exact-js-web': 'js/web', 'exact-js-bake': 'js/bake' };
     for (const pkg of packages) for (const dep of pkg.dependencies) {
       assert.equal(realpathSync(dep.path), realpathSync(resolve(root, paths[dep.name])), `${pkg.name}: ${dep.name}`);
     }
@@ -246,7 +273,7 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    for (const guide of ['contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
+    for (const guide of ['start-here.md', 'contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
@@ -267,6 +294,32 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     rmSync(resolve(dir, 'AGENTS.md')); rmSync(resolve(dir, 'CLAUDE.md'));
     createApp(dir, { update: true });
     assert.ok(existsSync(resolve(dir, 'AGENTS.md')) && existsSync(resolve(dir, 'CLAUDE.md')));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
+
+// LLP 1086 / LLP 1107: the scaffold writes a Linux host crate (the Android host is the same crate), with
+// `linux` and `android` build verbs; an app made before it gains the crate on update.
+test('a new app has a Linux host crate, and update adds one to an older app', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    const linux = readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8');
+    assert.match(linux, /^name = "field-log-linux"$/m);
+    assert.match(linux, /^exact-linux = \{ path = "[^"]*host\/linux" \}$/m);
+    assert.match(readFileSync(resolve(dir, 'linux/src/main.rs'), 'utf8'), /exact_linux::run::<AppData>\(PLAN, COMPAT\)/);
+    assert.match(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
+    const commands = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
+    assert.match(commands, /linux: \['scripts\/build-linux\.mjs', 'field-log'\]/);
+    assert.match(commands, /android: \['scripts\/agent-android\.mjs', 'build', 'field-log'\]/);
+    // An older app: no linux/, and a workspace that does not list it.
+    rmSync(resolve(dir, 'linux'), { recursive: true });
+    const manifest = resolve(dir, 'Cargo.toml');
+    writeFileSync(manifest, readFileSync(manifest, 'utf8').replace('members = ["apple", "linux", "web"]', 'members = ["apple", "web"]'));
+    assert.match(createApp(dir, { update: true }), /a linux\/ host crate/);
+    assert.ok(readFileSync(resolve(dir, 'linux/Cargo.toml'), 'utf8').includes('name = "field-log-linux"'));
+    assert.match(readFileSync(manifest, 'utf8'), /^members = \["apple", "linux", "web"\]$/m);
+    assert.doesNotMatch(createApp(dir, { update: true }), /linux\/ host crate/, 'a second update leaves it');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000);
 

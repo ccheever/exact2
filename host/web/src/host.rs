@@ -591,8 +591,21 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
-        // At the event's time: an action's `now()` is the page's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
+    }
+
+    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        let at_ms = self.now_ms;
+        match a.error.is_none().then(|| self.runner.host_back(id)) {
+            Some(Ok(r)) => a.receipts.extend(r.map(|receipt| Timed { at_ms, receipt })),
+            Some(Err(e)) => a.error = Some(e),
+            None => {}
+        }
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
@@ -1101,6 +1114,8 @@ impl<D: DataSource> Host<D> {
                 batch.request(&r);
             }
             Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            // A re-ask settles at once, as the no-op it replaces did.
+            Dispatch::Again => immediate.push((r.ticket, Dispatch::again_outcome())),
             Dispatch::Run(Work::Later(_)) => immediate.push((
                 r.ticket,
                 Outcome::Failed {
@@ -1361,7 +1376,7 @@ impl<D: DataSource> Host<D> {
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                let css = host_css(&node, css, tag);
+                let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
                 let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));

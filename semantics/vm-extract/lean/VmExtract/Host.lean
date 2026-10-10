@@ -87,6 +87,7 @@ def encIns (pc : Usize) : Contract.Vm.Instr → Result machine.Instruction
   | .nativeProps n => mkIns pc .NativeProps (operand 32 n) zero zero
   | .map off => mkIns pc .Map (operand 32 (pc.val + 1 + off)) zero zero
   | .filter off => mkIns pc .Filter (operand 32 (pc.val + 1 + off)) zero zero
+  | .failureResource r => mkIns pc .FailureResource (operand 32 r) zero zero
 
 /-- Entry `i` of a table. -/
 def lookup {α} (xs : List α) (i : U64) : Option α := xs[i.val]?
@@ -147,6 +148,13 @@ def resourceFlag (h : LHost) (op : Op) (i : U64) (pc : Usize) :
       | .FailedResource => (lookup h.env.failedResources i).getD false
       | _ => (lookup h.env.pendingResources i).getD false))
   | _ => ok (.Err (.Pending pc))
+
+/-- `failure(x)` (LLP 1109 D3): known once settled, as `resourceFlag`. -/
+def resourceFailure (h : LHost) (i : U64) (pc : Usize) :
+    Result ((core.result.Result Value Trap) × LHost) :=
+  match lookup h.env.resources i with
+  | Option.some (Option.some _) => ok (.Ok (Contract.Vm.failureValue h.env i.val), h)
+  | _ => ok (.Err (.Pending pc), h)
 
 def recordLen (h : LHost) (ty : U64) (pc : Usize) : Result (core.result.Result Usize Trap) :=
   match lookup h.code ty with
@@ -216,6 +224,7 @@ def hostInst : machine.Host LHost Value Unit where
   load_param := LHost.loadParam
   load_frame := LHost.loadFrame
   resource_flag := LHost.resourceFlag
+  resource_failure := LHost.resourceFailure
   pending_mutation := fun h i => ok ((lookup h.env.pendingMutations i).getD false)
   some := fun h v _ => ok (.Ok (.some v), h)
   list := fun h items _ => ok (.Ok (.list items.val), h)

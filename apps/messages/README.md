@@ -1,14 +1,16 @@
 # Messages
 
-The canonical Exact2 Messages test app. The older Snapback-backed app is preserved in
-[`../messages-legacy`](../messages-legacy/README.md), with separate package names and
-`com.exact.messages.legacy` app identity.
+The canonical Exact2 Messages test app.
 
 This is an Exact Contract/TypeScript port of
 [Expo's chat-demo](https://github.com/expo/react-native/tree/chat-demo/packages/chat-demo)
 at `da3b4d6ad3d6a4ac9fa95fb2efd9a532bdf0544e`. Its `ui-metrics.md`, Composer,
 ChatScreen, and native balloon-path implementation supply the measurements. The
 reference's MIT license is in `assets/reference-LICENSE.txt`.
+
+It is a pixel-match port of that reference, with its colours and sizes written
+out in hex and points, not a style guide: a new app leaves those unsaid and names
+colour roles (LLP 1115, `docs/contract-for-agents.md`, "Prefer native controls").
 
 Run from the repository root in two terminals:
 

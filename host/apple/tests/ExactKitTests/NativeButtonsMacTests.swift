@@ -5,7 +5,7 @@ import XCTest
 
 /// LLP 1069.011 on AppKit: a `Control` of type `button` is AppKit's own
 /// `NSButton` with its row's look and the node's face (D2, D5); its action is
-/// a custom button's click, once (D4); it never takes the key view; it is the
+/// a custom button's click, once (D4); it owns the key view (LLP 1104 D6); it is the
 /// one accessibility element; a glass look's button is isolated in a glass
 /// group (D9).
 final class NativeButtonsMacTests: XCTestCase {
@@ -23,6 +23,21 @@ final class NativeButtonsMacTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    func testReferencedAccessibleNameWinsAndFollowsItsText() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityLabelledBy": "name", "accessibilityLabel": "Fallback"])
+                          + box(3, ["id": "name", "text": "Delete permanent copy"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        XCTAssertEqual(button.accessibilityLabel(), "Delete permanent copy", "aria-labelledby precedes aria-label and the face")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Delete archived copy"]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Delete archived copy", "a referenced text-only batch refreshes the control")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": ""]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Fallback", "an empty referenced name falls back to aria-label")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertEqual(button.accessibilityLabel(), "Go", "without an authored name the face names the control")
+    }
+
     private func face(_ title: String?, macos: String = "push", style: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.macos = macos; f.style = style
@@ -38,6 +53,28 @@ final class NativeButtonsMacTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
     }
 
+    func testGroupedNativeButtonKeepsLeadingInsetInsideItsSlot() throws {
+        let p = presenter(box(1) + native(2, ["groupedRowSeparator": "true"])
+                          + native(3, ["groupedRowSeparator": "false"]) + native(4)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Grouped"), 3: face("Last or cardless"), 4: face("Standalone")])
+        let grouped = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        let last = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        let standalone = try XCTUnwrap(p.controls.controls[4] as? NativeButtonMac)
+        let row = try XCTUnwrap(p.views[2])
+        let inset = CGRect(x: 16, y: 0, width: 104, height: 24)
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), inset)
+        XCTAssertEqual(last.alignmentRect(forFrame: last.frame), inset, "separator visibility does not define membership")
+        XCTAssertEqual(standalone.alignmentRect(forFrame: standalone.frame), p.views[4]?.bounds)
+        XCTAssertEqual(row.bounds.width, 120, "the native slot retains its entire authored width")
+        p.apply(wireBatch([]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), inset)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 10.0, "h": 24.0]]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), CGRect(x: 16, y: 0, width: 0, height: 24))
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["groupedRowSeparator"]]]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), row.bounds, "leaving grouped membership removes the inset")
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
@@ -48,7 +85,7 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(go.title, "Go")
         XCTAssertEqual(go.drawn, "push-accent")
         XCTAssertNotNil(go.bezelColor)
-        XCTAssertFalse(go.acceptsFirstResponder, "the node keeps the key view")
+        XCTAssertTrue(go.acceptsFirstResponder, "the native control owns focus")
         XCTAssertEqual(go.accessibilityLabel(), "Go")
         XCTAssertEqual(go.accessibilityIdentifier(), "go")
         XCTAssertEqual(p.views[2]?.accessibleName, "Go", "the agent's name for it is its title")
@@ -59,7 +96,7 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.controls.controls[4]).isEnabled)
         XCTAssertNil(p.controls.activate(try XCTUnwrap(p.views[2])), "the agent clicks it as a person does")
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[2]))?["view"] as? String, "NSButton")
-        XCTAssertTrue(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "the node is in the key loop")
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "only the native control is in the key loop")
     }
 
     func testItFocusesAsAClickDoesAndPressesOnlyAnAncestorItIsIn() throws {
@@ -69,7 +106,7 @@ final class NativeButtonsMacTests: XCTestCase {
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac).performClick(nil)
-        XCTAssertTrue(window.firstResponder === p.views[2], "with no press anywhere, the clicked node still takes the focus")
+        XCTAssertTrue(window.firstResponder === p.controls.controls[2], "with no press anywhere, the clicked node still takes the focus")
         XCTAssertEqual(pressed, [])
         try XCTUnwrap(p.controls.controls[5] as? NativeButtonMac).performClick(nil)
         XCTAssertEqual(pressed, [4], "inside its ancestor: the ancestor's press")

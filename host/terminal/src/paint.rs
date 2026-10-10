@@ -16,6 +16,7 @@ use exact_kernel::{
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+mod grouped;
 
 /// A painted frame: the grid, and the boxes a press can hit, in paint order.
 pub struct Painted {
@@ -31,6 +32,9 @@ pub struct Painted {
     pub images: Vec<(ViewId, CellRect)>,
     /// The open top layer's cells, when one is painted.
     pub layer: Option<CellRect>,
+    /// Inline runs a click reaches (a `text` inside a paragraph, as an
+    /// HTML `a` or `span` is): the run's node and its cells on one line.
+    pub runs: Vec<(ViewId, CellRect)>,
 }
 
 /// What the walk needs from the host.
@@ -64,6 +68,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         scrollers: Vec::new(),
         images: Vec::new(),
         layer: None,
+        runs: Vec::new(),
     };
     let clip = out.grid.bounds();
     let dy = top as f32 * ROW;
@@ -75,6 +80,7 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         out.grid.dim();
         out.hits.clear();
         out.scrollers.clear();
+        out.runs.clear();
         let (dx, ldy) = placement(scene, layer, cols, rows, dy);
         if let Some(n) = scene.kernel.node(layer) {
             let f = n.frame;
@@ -167,7 +173,19 @@ fn node(
     let visible =
         n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility) == Visibility::Visible;
     let current = n.text_color();
+    let native_button =
+        n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
+    let native_field =
+        n.node_type == NodeType::TextInput && n.style.appearance == exact_kernel::Appearance::Auto;
     if visible {
+        if native_field {
+            let fill = if scene.dark {
+                Rgb(48, 48, 48)
+            } else {
+                Rgb(228, 228, 228)
+            };
+            out.grid.fill(rect, clip, fill);
+        }
         if let Some(bg) = n
             .style
             .background_color
@@ -177,14 +195,20 @@ fn node(
             out.grid.fill(rect, clip, bg);
         }
         border(scene, out, &n, rect, clip, current);
+        grouped::separator(scene, out, &n, clip, dx, dy);
     }
     let [bt, br, bb, bl] = n.style.border_widths_in(&scene.env);
     let (pl, pt, pr, pb) = kernel.resolved_padding(n.key).unwrap_or_default();
-    let content = cells(
-        f.x - dx + bl + pl,
-        f.y - dy + bt + pt,
-        f.width - bl - br - pl - pr,
-        f.height - bt - bb - pt - pb,
+    let content = n.field_content_rect().map_or_else(
+        || {
+            cells(
+                f.x - dx + bl + pl,
+                f.y - dy + bt + pt,
+                f.width - bl - br - pl - pr,
+                f.height - bt - bb - pt - pb,
+            )
+        },
+        |c| cells(f.x - dx + c.x, f.y - dy + c.y, c.width, c.height),
     );
     if matches!(
         n.node_type,
@@ -200,6 +224,7 @@ fn node(
                 let px = f.width - bl - br - pl - pr;
                 text(scene, out, &n, content, columns(px), clip, current)
             }
+            NodeType::Control if native_button => button(scene, out, &n, rect, clip),
             NodeType::TextInput => field(scene, out, &n, content, clip, current),
             NodeType::Image => image(scene, out, &n, content, clip),
             _ => {}
@@ -253,13 +278,76 @@ fn node(
             }
         }
     }
-    if n.node_type != NodeType::Text {
+    if n.node_type != NodeType::Text && !native_button {
         for child in n.children() {
             node(scene, out, child, child_clip, dx, child_dy, false);
         }
     }
-    if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput {
+    if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
+    }
+}
+
+/// LLP 1104 D7: a native face is host paint, never its unlaid-out children.
+fn button(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, rect: CellRect, clip: CellRect) {
+    let inset = if n.props.contains(PropId::GroupedRowSeparator) {
+        2
+    } else {
+        0
+    };
+    let rect = CellRect {
+        x: rect.x + inset,
+        w: (rect.w - inset).max(0),
+        ..rect
+    };
+    let face = scene.kernel.press_face(n.id).unwrap_or_default();
+    let rows = scene.kernel.button_face_style(n.id).expect("button");
+    let lines = crate::measure::button_lines(
+        &face,
+        &rows,
+        exact_kernel::AxisOffer::Definite(rect.w as f32 * COLUMN),
+    );
+    let style = Style {
+        fg: rgb(rows.title.text_color.resolve(scene.dark)),
+        reverse: true,
+        bold: scene.focus == Some(n.id) || rows.title.font_weight >= 600,
+        faint: faded(scene.kernel, n.id) || n.props.bool(PropId::Disabled) == Some(true),
+        ..Style::default()
+    };
+    let inner = rect.intersect(clip);
+    for y in rect.y..rect.y + rect.h {
+        for x in rect.x..rect.x + rect.w {
+            out.grid.put(x, y, " ", 1, style, inner);
+        }
+    }
+    let width = rect.w.saturating_sub(2).max(0) as usize;
+    let title_clip = inner.intersect(CellRect {
+        x: rect.x + 1,
+        y: rect.y,
+        w: width as i32,
+        h: rect.h,
+    });
+    let top = rect.y + (rect.h - lines.len() as i32).max(0) / 2;
+    for (row, line) in lines.iter().enumerate() {
+        let slack = width.saturating_sub(line.cols()) as i32;
+        let mut x = rect.x
+            + 1
+            + match rows.button.text_align {
+                exact_kernel::TextAlign::Left | exact_kernel::TextAlign::Start => 0,
+                exact_kernel::TextAlign::Right | exact_kernel::TextAlign::End => slack,
+                _ => slack / 2,
+            };
+        for glyph in &line.glyphs {
+            out.grid.put(
+                x,
+                top + row as i32,
+                &glyph.text,
+                glyph.cols,
+                style,
+                title_clip,
+            );
+            x += glyph.cols as i32;
+        }
     }
 }
 
@@ -374,13 +462,16 @@ fn base_style(scene: &Scene<'_>, n: &NodeRef<'_>, current: ColorValue) -> Style 
     }
 }
 
-/// Whether the node or a box around it is see-through (`opacity` under 1,
-/// as a disabled field's sheet sets): a cell has no alpha, so its text is
-/// faint instead.
+/// A cell has no alpha: a see-through box's text, or a native disabled
+/// field, is faint instead (LLP 1104 D7).
 fn faded(kernel: &Kernel, id: ViewId) -> bool {
     let mut at = kernel.node(id);
     while let Some(n) = at {
-        if n.style.opacity < 1.0 {
+        if n.style.opacity < 1.0
+            || (n.node_type == NodeType::TextInput
+                && n.style.appearance == exact_kernel::Appearance::Auto
+                && n.props.bool(PropId::Disabled) == Some(true))
+        {
             return true;
         }
         at = n.parent.and_then(|p| kernel.node(p));
@@ -506,11 +597,33 @@ fn text(
                 exact_kernel::TextAlign::Center => slack / 2,
                 _ => 0,
             };
+        let mut reach: Option<(ViewId, CellRect)> = None;
         for glyph in &line.glyphs {
             let style = styles.get(glyph.run).copied().unwrap_or_default();
             out.grid.put(x, y, &glyph.text, glyph.cols, style, inner);
+            // The run's own node, where it has one (not the paragraph's):
+            // its cells on this line, for a click.
+            let leaf = ids
+                .get(glyph.run)
+                .filter(|id| ids.len() == runs.len() && **id != n.id);
+            match (leaf, &mut reach) {
+                (Some(id), Some((at, r))) if at == id => r.w += glyph.cols as i32,
+                (Some(id), _) => {
+                    out.runs.extend(reach.take());
+                    let r = CellRect {
+                        x,
+                        y,
+                        w: glyph.cols as i32,
+                        h: 1,
+                    };
+                    reach = Some((*id, r));
+                }
+                (None, _) => out.runs.extend(reach.take()),
+            }
             x += glyph.cols as i32;
         }
+        out.runs
+            .extend(reach.take().map(|(id, r)| (id, r.intersect(inner))));
     }
 }
 

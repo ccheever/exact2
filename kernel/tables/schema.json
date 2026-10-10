@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect.",
+  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect. Prop 253 (fieldStyle) was retired by LLP 1104 r8; never reuse its number.",
   "nodeTypes": [
     {
       "id": 0,
@@ -1289,6 +1289,7 @@
       "id": 217,
       "name": "buttonStyle",
       "kind": "str",
+      "measure": true,
       "styleable": true,
       "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
     },
@@ -1468,12 +1469,6 @@
       "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
     },
     {
-      "id": 253,
-      "name": "fieldStyle",
-      "kind": "str",
-      "_comment": "@ref LLP 1104 D4: set by Contract, never authored: `default` on a text field that wears the default field rows (not `appearance=\"none\"`). The web shows such a field's `:focus-visible` ring; a host may mark its focus."
-    },
-    {
       "id": 254,
       "name": "statusBarStyle",
       "kind": "str",
@@ -1522,6 +1517,14 @@
         "contain"
       ],
       "default": "auto"
+    },
+    "ControlSize": {
+      "values": ["mini", "small", "medium", "large"],
+      "default": "medium"
+    },
+    "ControlCornerStyle": {
+      "values": ["dynamic", "small", "medium", "large", "capsule"],
+      "default": "dynamic"
     },
     "FlexDirection": {
       "values": [
@@ -2182,7 +2185,7 @@
       "default": "manual"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree \u2014 style/compare.rs, LLP 1001 \u00a72) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
@@ -3582,6 +3585,48 @@
       "rare": true,
       "codec": "enum:AnimationTrigger",
       "_comment": "@ref LLP 1055 D13: `-exact-animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
+    },
+    {
+      "bit": 194,
+      "field": "scroll_padding_top",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0,
+      "_comment": "@ref LLP 1010 \u00a76.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by a virtualized list's `scrollIntoView` (the runner, the JS target) and written as CSS on the web; nothing else reads it."
+    },
+    {
+      "bit": 195,
+      "field": "scroll_padding_right",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 196,
+      "field": "scroll_padding_bottom",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 197,
+      "field": "scroll_padding_left",
+      "rare": true,
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 198,
+      "field": "control_size",
+      "codec": "enum:ControlSize",
+      "layout": true,
+      "_comment": "@ref LLP 1069.011.001 D8: -exact-control-size, a native button's named platform size. An unset mask means leave the platform's size alone."
+    },
+    {
+      "bit": 199,
+      "field": "control_corner_style",
+      "codec": "enum:ControlCornerStyle",
+      "_comment": "@ref LLP 1069.011.001 D9, D15: -exact-corner-style, a native button's named corners; an authored border-radius wins. An unset mask leaves the platform's corners alone."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -3972,6 +4017,36 @@
       "info",
       "info.circle",
       "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 11v6M12 7.5v.5"
+    ],
+    [
+      "camera",
+      "camera",
+      "M3 8h4l2-3h6l2 3h4v12H3ZM16 13.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"
+    ],
+    [
+      "star",
+      "star",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "star-fill",
+      "star.fill",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "minus",
+      "minus",
+      "M5 12h14"
+    ],
+    [
+      "chart",
+      "chart.bar",
+      "M4 20h16M6 20v-7h3v7M10.5 20V5h3v15M15 20v-10h3v10"
+    ],
+    [
+      "sparkles",
+      "sparkles",
+      "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
@@ -4032,7 +4107,7 @@
   "colors": [
     ["Canvas", "", "systemBackgroundColor", "textBackgroundColor", "#ffffff", "#000000"],
     ["CanvasText", "", "labelColor", "textColor", "#000000", "#ffffff"],
-    ["LinkText", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["LinkText", "", "@tint", "linkColor", "#007aff", "#0984ff"],
     ["GrayText", "", "tertiaryLabelColor", "disabledControlTextColor", "#3c3c434d", "#ebebf54d"],
     ["Highlight", "", "@tint/0.2", "selectedTextBackgroundColor", "#007aff33", "#0a84ff33"],
     ["HighlightText", "", "labelColor", "selectedTextColor", "#000000", "#ffffff"],
@@ -4073,5 +4148,20 @@
     ["system-pink", "-apple-system-pink", "systemPinkColor", "systemPinkColor", "#ff2d55", "#ff375f"],
     ["system-brown", "-apple-system-brown", "systemBrownColor", "systemBrownColor", "#a2845e", "#ac8e68"],
     ["system-gray", "-apple-system-gray", "systemGrayColor", "systemGrayColor", "#8e8e93", "#8e8e93"]
+  ],
+  "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
+  "textStyleBodies": [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53],
+  "textStyles": [
+    ["large-title", "", "largeTitle", "largeTitle", 400, [26, 31, 32, 33, 34, 36, 38, 40, 44, 48, 52, 56, 60]],
+    ["title1", "-apple-system-title1", "title1", "title1", 400, [22, 25, 26, 27, 28, 30, 32, 34, 38, 43, 48, 53, 58]],
+    ["title2", "-apple-system-title2", "title2", "title2", 400, [17, 19, 20, 21, 22, 24, 26, 28, 34, 39, 44, 50, 56]],
+    ["title3", "-apple-system-title3", "title3", "title3", 400, [15, 17, 18, 19, 20, 22, 24, 26, 31, 37, 43, 49, 55]],
+    ["headline", "-apple-system-headline", "headline", "headline", 600, [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53]],
+    ["body", "-apple-system-body", "body", "body", 400, [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53]],
+    ["callout", "", "callout", "callout", 400, [12, 13, 14, 15, 16, 18, 20, 22, 26, 32, 38, 44, 51]],
+    ["subheadline", "-apple-system-subheadline", "subheadline", "subheadline", 400, [11, 12, 13, 14, 15, 17, 19, 21, 25, 30, 36, 42, 49]],
+    ["footnote", "-apple-system-footnote", "footnote", "footnote", 400, [10, 12, 12, 12, 13, 15, 17, 19, 23, 27, 33, 38, 44]],
+    ["caption1", "-apple-system-caption1", "caption1", "caption1", 400, [10, 11, 11, 11, 12, 14, 16, 18, 22, 26, 32, 37, 43]],
+    ["caption2", "-apple-system-caption2", "caption2", "caption2", 400, [10, 11, 11, 11, 11, 13, 15, 17, 20, 24, 29, 34, 40]]
   ]
 }

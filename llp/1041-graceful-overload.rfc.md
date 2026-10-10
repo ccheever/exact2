@@ -2,6 +2,7 @@
 
 **Type:** RFC
 **Status:** Campaign in progress. Three stress examples, bounded native HTTP/pump work, viewport collections and interruptible Messages gestures are implemented. Native image admission, the three continuous gallery gestures, measured worker placement and physical 120 Hz remain incomplete; evidence and limitations are recorded below.
+**Amended 2026-10-09:** §8.4, reads wait at the ordered lane's limit ((a), approved by Charlie 2026-10-09) and a re-ask is never executor work ((b), as narrowed by design review 2026-10-09); built.
 **Systems:** Data execution, runner settlement, host completion pumps, presentation, workload diagnostics
 **Author:** Tuft / Codex for Charlie Cheever
 **Implementer:** Tuft / Codex with Astra workers; first examples start 2026-09-16. Runtime changes follow measured examples and the accepted worker-placement design.
@@ -434,27 +435,56 @@ ordered capacity. It adds no worker, grant, timer, or larger queue.
 
 Native requests now stay ordered by default. A source can explicitly promise
 that an HTTP operation **and its settlement** may overlap/reorder, with a declared
-response ceiling. Storage and native continuations cannot opt in. Two independent
-HTTP owners use separate transports; the original ordered owner retains control
-capacity. Completion Storm opts its held data requests in and keeps release
+response ceiling. Storage and native continuations cannot opt in. Six independent
+HTTP owners use separate transports (two until 2026-10-09; see below); the
+original ordered owner retains control capacity. Completion Storm opts its held data requests in and keeps release
 controls ordered. No independence is inferred from GET or matching origins.
 
 Independent admission counts queued, running and undrained outcomes against
-128 requests / 32 MiB. The ordered lane has 16 requests / 512 MiB. It has one
-worker, so a waiting call is charged its request buffers, the running call its
+128 requests / 64 MiB. (Amended 2026-10-09, the Bluesky clone: with two
+owners a source's `Promise.all` of 19 feed reads finished strictly two at a
+time, 50–100 ms apart; six owners, a browser's connections a host, overlap
+them, and the lane's bytes doubled from 32 MiB so that six 4 MiB-ceiling reads,
+each charged twice its ceiling while running, fit. The process bound is
+sixteen executors' workers. Measured on the simulator, cold launches signed
+out, eight interleaved pairs: runtime zero to the first post 822 → 662 ms
+median, worst 1295 → 808. Six bounds an executor's concurrent independent
+requests across origins, not connections per origin; each owner's transport
+is its own session pool, so a cold `Promise.all` opens a connection per busy
+owner, and one multiplexed HTTP/2 session is the further step.) The ordered lane has one worker and a 512 MiB budget.
+As built 2026-10-08 (issue #286), a plain HTTP `GET`/`HEAD` without opaque work
+may be admitted up to 128 total ordered tickets; other work retains the
+16-ticket total-lane admission bound. The request buffers of all admitted
+ordered calls still waiting are capped at 64 MiB, leaving room to start the head
+(requests held behind a refusal, below, have their own 64 MiB). Reads stay in
+the same FIFO as writes and continuations. A waiting call is charged its
+request buffers, the running call its
 64 MiB response ceiling (twice, for growth), and a completed one what it retains
-until consumed; the worker waits for those bytes rather than refusing, and the
-16-call count is the practical limit. (Measured 2026-09-24: reserving the
+until consumed; the worker waits for those bytes rather than refusing.
+(Measured 2026-09-24: reserving the
 ceiling for every queued call admitted three, and a worker-placed app with
 three `else` placeholders refused its fourth ask at every launch — Seth's Crew
 port, F2.) Request buffers are capped at 4 MiB; response limits apply during
 HTTP reads. One completion or admission refusal settles per pump,
 with alternating opportunities for ready lanes/refusals and coalesced wakes.
 Ordered refusals wait for prior admitted work and prevent later ordered effects
-from bypassing their settlement. Refusals occupy existing current runner tickets,
-not a new unbounded failure queue. A resource ask refused ordered admission,
-whose source can't shape the refusal, is asked again once the last ordered
-refusal settles; a refused mutation ends unsent, never retried.
+from bypassing their settlement. As built 2026-10-08, later ordered requests are
+held behind the refusal, not refused with it (on current tickets, capped at 128
+and 64 MiB of request buffers), and admitted in order once it settles; one over
+a limit then is refused alone and the rest wait again. A request refused while
+others are held (invalid, or past those caps) keeps its place among them, so its
+refusal settles after the held work before it, a module's background round
+(LLP 1097 D5) included, whose refusal settles through its own completion; held
+work let go or retired is destroyed by a worker, as queued work is. (The Bluesky clone: a
+seventeenth answer at boot was refused and so was every later ordered request,
+and the app stayed on skeletons.) The request over the limit is still refused,
+not queued: D2 leaves durable queues to the application. Refusals occupy existing current runner tickets,
+not a new unbounded failure queue. A full queue refuses explicitly. A refusal
+the source cannot settle clears pending and records the resource's failure,
+keeping its last value. Capacity refusal never restarts the source: earlier
+turns, even before its first yielded request, may already have performed
+writes. Only the refused request is known not to have executed. An explicit
+refresh or a watched-topic change still asks again under LLP 1016.002 D4.
 
 A ticket the runner forgets or supersedes releases its work after the commit
 (D4): an undrained outcome is dropped, a queued `GET`/`HEAD` is never sent and
@@ -463,7 +493,8 @@ begun, and releases when it ends; none holds a later ordered completion back.
 
 Retirement clears interest, aborts HTTP and drops queued work on its executor
 owner. It never joins arbitrary native closures on the UI thread. Each native
-host implementation limits live and retiring executor workers to 48 until exit.
+host implementation limits live and retiring executor workers to sixteen
+executors' worth (48 until 2026-10-09, 112 since) until exit.
 Opaque Rust closure captures and transient allocations remain **count-bounded
 only**, outside the transport byte reservation. D2 is not fully satisfied for
 arbitrary native work; this is no absolute heap bound. Nor does one transaction
@@ -497,6 +528,281 @@ until the enclosing batch is applied. Five web request-path Rust tests and three
 JavaScript response/refusal tests pass, alongside scoped Clippy and formatting.
 The rebuilt 128-lane browser drive passes again in
 `target/scheduler-final-web-refusal/`; the native executor sources are unchanged.
+
+#### Amendment, 2026-10-09: reads wait at the limit, and a re-ask is never executor work
+
+**Status:** built 2026-10-09. (a) is **approved by Charlie 2026-10-09**.
+(b) is as narrowed by the design review of 2026-10-09 (Astra and Grok,
+`llp/reviews/1041-read-queue.{astra,grok}.md`; the lead ruled the conservative reading
+where the two differed). One point departs from both reviews, the re-ask
+markers' own window; it is a **decision, approved 2026-10-09** (lead, for
+Charlie), below.
+
+**What happened.** The Bluesky clone, on 2eca0ad80, signed in at launch:
+about twenty sources each `await loadModeration()`, one shared promise that
+itself fetches twice through the host, before their own fetch. Two sources
+were refused at the sixteen-ticket bound and Home stayed on its skeletons.
+With fewer sources awaiting the shared load it loads. The suspicion was a
+deadlock: answers awaiting JavaScript holding all sixteen slots. The code
+and the repro (`js/tests/it/admission.rs`) say otherwise. Nothing
+deadlocked. A few answers were refused for good:
+
+1. **A waiting answer is not charged to executor admission while it waits.**
+   An answer awaiting a promise another answer's work settles parks as
+   `WAITING` (parsed at `js/src/lib.rs:687-692`, parked by `park`). At
+   dispatch the module holds its continuation (`Dispatch::Held`,
+   `js/src/source.rs:52-61`), and the host keeps it in its own `parked` map,
+   outside the executor (`host/apple/src/abi.rs`, `run_dispatch`; Linux
+   `presenter.rs`; render `lib.rs` `run`). It still holds runner state, the
+   host's request, and its JavaScript call.
+2. **Its re-ask took a slot.** The module asks a waiting answer again
+   whenever anything has moved since it parked (`js/src/turns.rs`, `wake`).
+   Every new answer counts as movement, and so does every delivery. All the
+   waiters are released at once (`source.rs`, `release`). The re-ask was
+   `Dispatch::Run(Work::Now)` with a no-op closure, so the executor saw
+   opaque ordered work and counted it against the sixteen, not against the
+   128 of a plain read. Twenty answers begun in one commit made one fetch
+   and eighteen re-asks at dispatch. The sixteenth re-ask was refused, and
+   the barrier went up.
+3. **The shared load waited behind the fence and was not starved.** Its
+   second fetch was held behind the refusal until the lane went idle and
+   the refusal had settled. When it landed, the waiters were all asked
+   again at once, and one more was refused.
+4. **A refused waiting answer was never asked again.** Its refusal failed
+   the answer, and the runner let the request go: "failed and is no longer
+   pending: it keeps its last value" (`runner/src/runner/admission.rs`,
+   `release_failed`). In the twenty-row repro, rows 15 and 16 stayed on
+   their placeholders on every run. If one of them is the feed's, Home sits
+   on skeletons.
+5. **The refused answer's JavaScript kept running.** The failed resume
+   neither unlinked nor interrupted the call. Its own fetch went out during
+   whichever answer's turn was current, and could be claimed by that answer.
+
+**(a) Reads wait at the sixteen; effects are still refused** (approved by
+Charlie 2026-10-09). The host classifies the **current operation** from
+what it already knows. It never classifies the whole answer, whose earlier
+turns may have written, and never infers anything from intent.
+
+- **Read**: HTTP `GET` or `HEAD` on the ordered lane, with no continuation,
+  storage, work beside it, surface, auth or native call (`read()` and
+  `safe()` in `executor_core.rs`). This is the classification issue #286
+  built, unchanged. Being a read is permission to queue, not a promise that
+  its settlement commutes: settlement stays ordered.
+- **Re-ask**: `Dispatch::Again`, a new dispatch the data seam returns for a
+  waiting answer's check (`Module::ask_again`). It carries no closure, and
+  it means "this dispatch has no executor work". It does not mean "this
+  answer has done nothing".
+- **Effect**: everything else on the ordered lane: `POST` and every other
+  non-safe method, storage steps (a TypeScript module's step is a closure
+  that drains a queue that may hold writes), module turns (`Now` or handed
+  off), background rounds, and native calls or auth explicitly scheduled
+  ordered. A long native call defaults to the independent lane. Auth and
+  surfaces have their own host paths before the executor.
+
+**(b) A re-ask is never executor work** (as narrowed by design review
+2026-10-09).
+
+**The one rule for the ordered lane:**
+
+- **Settlement obligations.** `counts[0]` counts every ordered ticket
+  admitted and not yet drained or forgotten: queued, running and complete,
+  re-ask markers included. `ordered_idle()` is `counts[0] == 0`, exactly as
+  before. A retained ordered refusal settles only when it is true (Apple and
+  Linux pumps), and the render host lifts its fence only then. The fence
+  cannot open while any earlier ticket, a re-ask included, is undrained.
+- **The sixteen counts effects.** Precisely, it counts `counts[0]` minus
+  re-ask markers and finished reads: every effect from admission until it
+  drains, and every read while it is queued or running. A finished write
+  keeps its slot until the UI drains it, so sixteen undrained `POST`s still
+  refuse the seventeenth. A finished read leaves the sixteen at `complete`.
+  A burst of queued `GET`s still refuses a write behind them.
+- **The 128 counts real tickets.** Every ordered request except a re-ask
+  marker counts against it: reads, effects, finished or not.
+- **Re-ask markers have their own window of 128.** Decision, approved
+  2026-10-09 (lead, for Charlie): re-ask markers get their own window of
+  128; they do no I/O and are bounded, and a shared window demonstrably
+  starved the shared load's real read (the 300-answer test). Both reviews
+  had markers share the 128. Running the 300-answer case that way, 127
+  markers plus the shared load's first fetch filled that window; the load's
+  second fetch, a real read, was refused at 128, the shared promise
+  rejected, and every answer failed. With their own window, markers never
+  take the room the work they wait on needs.
+- **Bytes.** A marker is charged its record (`size_of::<Completed>()`)
+  against the lane's 512 MiB until drained, and never a response ceiling.
+  Reads and effects are charged as before: request buffers while queued
+  (the 64 MiB waiting cap), the ceiling while running, retained bytes once
+  complete.
+
+**What `Again` does on the Apple, Linux and render executors**
+(`Core::again`, `place_waiting`, `settle_again`):
+
+- **In the window.** With no barrier and room in the markers' window, the
+  ticket is appended to the ordered sequence with an empty success already
+  complete. The worker never sees it. It drains in its turn, one per pump,
+  like any completion.
+- **Waiting.** When the markers' window is full, or an ordered refusal is
+  retained, the executor keeps a **waiting record**: one ticket, never a
+  closure.
+  - A re-ask never enters the refusal's fence, so the fence's 128 stay for
+    real requests, and a re-ask never settles before a refusal that came
+    before it.
+  - The executor owns the retry. Once `Again` is emitted, the module has
+    already consumed its mapping (`Module::release`, and composers such as
+    `mixed.rs` and `data/host` drop theirs when dispatch is not `Held`), so
+    the source never sees it again.
+  - Records are kept one per ticket: asking again for a placed or waiting
+    ticket adds nothing. They are placed oldest first among themselves
+    whenever there is room and no fence. Placement is retried on every
+    drain, every forget and every fence lift, and each wakes the host when
+    something becomes ready.
+  - The answer stays pending, and nothing re-enters `answer()`. Room never
+    refuses a re-ask.
+- **Order** is entry into the ordered settlement sequence, not numeric
+  ticket order.
+  - A source-held request enters when it is released.
+  - A waiting re-ask enters when it is placed. That is after anything
+    admitted while it waited, the requests held behind a refusal included.
+  - Within the sequence, settlement is in entry order, one completion per
+    pump, as before.
+- **Refused** only when the executor is retired or never started, as all
+  work then is. Such a refusal is terminal: the answer fails as before, and
+  its call is unlinked from the prelude's bookkeeping (Q5).
+
+**Bounds, the whole envelope.** The ordered lane's executor holds at most
+256 admitted ordered tickets: 128 real ones (queued, running and complete)
+and 128 re-ask markers. The shared-load case needs the two windows apart
+(above).
+
+- **Behind a refusal:** 128 held real requests, plus one refused-in-place
+  entry per current ticket.
+- **Waiting records:** the executor sets no count for them. Each costs a
+  ticket in a queue and in a set, about 24 bytes. Their number is bounded by
+  the runner's current tickets, one request per target. A re-ask is only
+  ever a current ticket, and a forgotten one is pruned.
+- **Bytes:** the lane's 512 MiB of reservations (markers' records
+  included), 64 MiB of waiting request buffers, 64 MiB of buffers held
+  behind the fence, and the records.
+- **Outside the executor:** parked calls (their runner state, host request
+  and JavaScript objects), bounded by the same current tickets.
+- Opaque closure captures remain count-bounded only, as before.
+
+**A known gap, left as it was.** A handed-off module turn reserves no
+response growth when it starts, and `complete` adds what its outcome
+retains without checking the lane's aggregate, so several large outcomes
+can pass 512 MiB. This amendment does not widen the gap: handed-off turns
+are effects and stay in the sixteen until drained, so at most sixteen are
+outstanding. It is recorded in `QUEUE.md`, not fixed here.
+
+**Cancellation and teardown.**
+
+- `forget` drops a queued read unsent and aborts a running one. Noncancellable
+  work it marks forgotten, and that work keeps its slot until it ends.
+- A forgotten complete outcome or marker is dropped unparsed, returning its
+  ticket, `light` count and bytes. A forgotten held request is dropped, its
+  work destroyed by a worker. A forgotten waiting record is dropped. Each
+  forget then retries placement.
+- Retirement clears complete outcomes, markers and waiting records, and
+  refuses later `Again`s. A marker has no closure, so nothing runs on the
+  UI thread.
+- A background round is an effect. Beside undrained re-asks it is admitted.
+  Behind sixteen outstanding effects it is refused, and that refusal still
+  settles through `background_landed` (2eca0ad80).
+
+**Hosts.**
+
+- **Apple** (`Bridge::run_dispatch`), **Linux** (`Presenter::run_dispatch`)
+  and **render** (`run`, and the pages enumerator) send `Again` to
+  `Executor::again`. The render host keeps marking a real refusal busy.
+  Both its settle loop and the pages enumerator check their deadline on
+  every turn, so a source that re-asks without end meets it.
+- **Web (wasm)** puts `Again` on its immediate-outcome path, as it ran the
+  no-op. That preserves its behaviour; it is not a new cross-host ordering
+  guarantee.
+- **Terminal** replies the empty success directly. It has no admission
+  bound.
+- **The JS target** never sees `Dispatch`: sources await in the page.
+
+**Evidence** (2026-10-09, M4):
+
+- `cargo test -p exact-js --test it admission` runs the Apple Bridge,
+  executor and pump over the TypeScript fixture. The scripted transport is
+  gated, and after the first pump each pump waits for the executor's wake;
+  a missing wake fails the drive.
+  - Twelve and twenty rows load. With the old no-op re-ask restored, the
+    twenty-row test leaves rows 15 and 16 refused for good.
+  - 300 waiting answers through the storage composer load: more than the
+    markers' window at every wave, none refused, none begun twice.
+  - Every URL is fetched exactly once. (Pump counts are printed, not
+    asserted.)
+- The core's tests (`executor_again_tests.rs`, on the Apple and Linux
+  builds of the core) cover:
+  - the re-ask's place and no transport call;
+  - the seventeenth `GET`, `HEAD` and re-ask waiting, while `POST`, storage,
+    opaque work, ordered native, handed-off and ordered auth are refused;
+  - undrained writes holding the sixteen and finished reads not;
+  - 128 finished reads refusing the next read;
+  - 300 re-asks with no I/O placed in order;
+  - 2,000 re-asks and a following write all settling, none refused;
+  - a forget freeing the last room;
+  - forgetting in every state;
+  - re-asks behind a refusal waiting and entering after the held requests;
+  - a wave of re-asks behind a refusal leaving the fence to a later read;
+  - the fence lifted with the markers' window full keeping re-asks in
+    order;
+  - a background round beside re-asks and behind writes;
+  - retirement.
+- Linux: 200 re-asked answers settle on the executor's wake alone.
+- Render: 150 re-asks complete a page, and a never-ending waiter meets the
+  deadline, in both a page render and the pages enumerator.
+- Web: a re-ask settles on the immediate path.
+- JavaScript: a refused re-ask fails its answer and unlinks its call from
+  the prelude (`Module::calls_open`).
+- Code review round 1 (Astra and Grok,
+  `llp/reviews/1041-read-queue-code.{astra,grok}.md`) fixed four things
+  against the first build:
+  - the 1,153rd re-ask (past 1,024 waiting records) had been refused for
+    good, outside the fence;
+  - re-asks had filled the fence and a later read had been refused;
+  - a lift with the window full had reordered fenced re-asks;
+  - the pages enumerator had spun.
+
+##### Design note: questions as answered by the review, and alternatives
+
+| Question | Answer (design review 2026-10-09) |
+|---|---|
+| **Q1**, reads that are not `GET` | No `exactRead`. `POST` stays an effect. A later amendment may mark a specific operation at the seam; an app bit is the wrong layer. |
+| **Q2**, storage reads | Not now. Opaque storage continuations stay effects. Later, classify an identified read-only operation or batch, not a closure. The clone's `hiddenFirst` storage fan-out is outside this fix: a green twenty-row test is not a green Home drive. |
+| **Q3**, what the sixteen counts | Effects until drained, and reads while queued or running. Re-ask markers and finished reads are excluded; they keep their window and byte charges. |
+| **Q4**, release at completion | Only a finished read leaves the sixteen at `complete`. Writes, storage, native calls and module turns stay in it until drained. The independent lane's completed-results test is kept as it was. |
+| **Q5**, the refused call | A terminally refused re-ask unlinks its call from the prelude (`forget_calls`). This is bookkeeping, not cancellation: a continuation the shared promise runs is not stopped. |
+| **Q6**, the herd | Kept: still O(deliveries × waiters) JavaScript settles, now runner work rather than worker jobs. One record per call holds. Pumps to load are recorded above as the baseline. Selective wake-up of waiters whose chain moved is the follow-up. |
+| **Q7**, past the window | Stays pending in an executor-owned waiting record, placed oldest first on drain, forget or lift, never refused for room (no cap; code review round 1). |
+| **Q8**, pending or failed | A capacity-blocked re-ask stays pending. Resuming the same call replays nothing. A fresh `answer()` or a `refresh` would replay, and neither happens. |
+
+Alternatives considered:
+
+- **Classify the no-op as a read.** The smallest patch, but it moves the
+  permanent failure to the 129th waiter, and each re-ask still takes the
+  one ordered worker and a response ceiling.
+- **Refuse past the window and re-park the call in the module** (Grok's
+  overflow). This needs the source to see the token again, which today's
+  composers cannot do once dispatch is not `Held`.
+- **Fulfil re-asks with no ordered gate.** This loses settlement order
+  against earlier effects. Keeping the gate is `Again`.
+- **Free every job's slot at completion.** This lets new writes run while
+  completed writes are undrained, and makes `ordered_idle` true too early.
+  Rejected.
+- **Coalesce a wave into one commit.** Useful later. It changes the
+  one-completion-per-pump rule and one-ticket-per-target bookkeeping.
+- **Raise the sixteen.** This moves the cliff.
+- **App-side only** (the clone's `needed` flag; sharing the resolved value).
+  This works, but the web runs the shared promise as written.
+
+What this does not promise: progress behind a hung predecessor (FIFO
+prevents overtaking, not stalls), admission for writes under continuous
+read saturation, or more than 128 real reads at once. Rows that each fetch
+after a shared load are still refused past the read backlog when more than
+128 answer at once.
 
 ### 8.5 Continuously interactive collections: expanded campaign
 

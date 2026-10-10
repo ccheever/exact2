@@ -119,7 +119,7 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
             "appears twice in one keyframe",
         ),
         (
-            app("keyframes k\n  to color=now()\n", ""),
+            app("keyframes k\n  to color=performanceNow()\n", ""),
             "lower-keyframes",
             "known when the app compiles",
         ),
@@ -313,7 +313,7 @@ fn a_keyframe_takes_light_dark_through_a_palette_function() {
     // Only what the app knows when it compiles.
     let computed = "fn tone(): string = 1 > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to color=tone()\ncomponent App\n  view\n    text \"a\"\n";
     contract::compile(computed).unwrap();
-    let unknown = "fn tone(x: number): string = x > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to color=tone(now())\ncomponent App\n  view\n    text \"a\"\n";
+    let unknown = "fn tone(x: number): string = x > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to color=tone(performanceNow())\ncomponent App\n  view\n    text \"a\"\n";
     let error = contract::compile(unknown).unwrap_err();
     assert!(
         error.message.contains("known when the app compiles"),

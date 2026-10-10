@@ -32,6 +32,12 @@ const ABI_HEADER: &str = include_str!(concat!(
 pub const GPU_MODULE_ABI: u32 = 1;
 /// The separately linked Rust data-source request/outcome wire ABI.
 pub(crate) const RUST_ABI: u32 = 3;
+/// The data-module runtime a TypeScript bundle may rely on in the binary's
+/// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
+/// prelude learns something a bundle cannot do without and an older prelude
+/// would silently ignore. 1: `fetch`'s `exactBodyFrom` (LLP 1108 D6 R2),
+/// which an older prelude would send as an empty body.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 1;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 
@@ -147,6 +153,11 @@ pub fn compatibility_id_sources(
     }
     crate::reach::derive(app_dir, platform, &mut compat)?;
     if let Some(out) = std::env::var_os("OUT_DIR") {
+        // What an Apple archive links is part of its cohort (LLP 1047.001
+        // D2), named before anything binds the id.
+        if matches!(platform, "ios" | "macos") {
+            crate::link::name_into(&mut compat, manifest, Path::new(&out))?;
+        }
         crate::receipt::emit(
             &mut compat,
             &trust,
@@ -374,6 +385,12 @@ fn compatibility_with_trust(
         .filter(|m| m.as_object().is_some_and(|m| !m.is_empty()))
     {
         inputs["gpuModules"] = modules.clone();
+    }
+    // A native TypeScript module runs on the binary's prelude: what it may
+    // ask of it is identity. Only apps with one carry the key, so no other
+    // app's id moves.
+    if hermes {
+        inputs["typescriptRuntime"] = json!(TYPESCRIPT_RUNTIME);
     }
     let id = compatibility_digest(&inputs);
     Ok(Compat {
@@ -863,6 +880,14 @@ mod tests {
             serde_json::json!({"world":["world"]})
         );
         std::fs::write(dir.join("app.json"), &manifest).unwrap();
+        // A TypeScript module runs on the binary's prelude: its runtime is
+        // identity, so a bundle using `exactBodyFrom` never reaches a shell
+        // whose prelude would send an empty body (LLP 1108 D6 R2).
+        let m = Manifest::read(&dir).unwrap();
+        assert!(inputs(&m).get("typescriptRuntime").is_none());
+        std::fs::write(dir.join("app.ts"), "export const appId = 'x';\n").unwrap();
+        assert_eq!(inputs(&m)["typescriptRuntime"], super::TYPESCRIPT_RUNTIME);
+        std::fs::remove_file(dir.join("app.ts")).unwrap();
         // A byte in the data crate is identity.
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
         assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");

@@ -1,7 +1,7 @@
-# Messages and the optional Snapback adapter resolve private sources here,
-# outside exact2's root lock. External apps still depend on this crate by path.
+# The Snapback4 client resolves its private sources here, outside exact2's
+# root lock. Apps depend on this crate by path.
 [workspace]
-members = ["../apps/messages-legacy/web", "../apps/messages-legacy/apple", "../apps/messages-legacy/linux"]
+members = ["client", "web"]
 resolver = "2"
 
 [workspace.package]
@@ -9,12 +9,12 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# Snapback4 0.2.30 release source: a397218e2332964ebe29aa1d30918c436713cc8a.
+# Snapback4 0.4.16 release source: 468d3aa5be3eee914883e37f3ab0424030ac882d.
 # Match the published CLI and browser device, without a mutable sibling checkout.
 [workspace.dependencies]
-snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
-snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
-snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "a397218e2332964ebe29aa1d30918c436713cc8a", version = "=0.2.30" }
+snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
+snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16", default-features = false }
+snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "468d3aa5be3eee914883e37f3ab0424030ac882d", version = "=0.4.16" }
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
@@ -34,9 +34,20 @@ description = "App-scoped Snapback4 native device, behind Exact's data seam."
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false }
+exact-snapback4-client = { path = "client" }
 serde_json = "1"
-snapback4-device.workspace = true
+snapback4-device = { workspace = true, features = ["native"] }
 
 [dev-dependencies]
-snapback4-core.workspace = true
+snapback4-core = { workspace = true, features = ["sqlite", "native", "server-search"] }
 snapback4-lang.workspace = true
+
+# The web's wasm (web/build.mjs): size first, as Snapback builds its own.
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+incremental = false
+strip = true

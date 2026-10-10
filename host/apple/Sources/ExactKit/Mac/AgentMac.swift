@@ -61,6 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// A sheet is a route in the window here, with no native presentation
+    /// to wait for (the iOS host's `awaitModalTransitions`).
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
@@ -114,7 +118,7 @@ extension Agent {
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
-            session.natives.ownsFocus(n) || responder === n || responder === n.textArea || (n.field.flatMap { f in f.currentEditor().map { responder === $0 } } ?? false)
+            session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
         }).min(by: { $0.id < $1.id }) {
             focus["logical"] = Int(node.id)
             if node.field != nil || node.textArea != nil { focus["editor"] = Int(node.id) }
@@ -140,7 +144,10 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
                 "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
@@ -148,7 +155,7 @@ extension Agent {
     /// origin — every enclosing scroll node's offset folded in — with the
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
-    func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
+    package func box(_ v: NSView, region: CGRect? = nil) -> NSRect {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
@@ -309,7 +316,7 @@ extension Agent {
         }
         if let leaf = host.symbolView {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
-            let points = max(0, host.number("font_size", 16))
+            let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
@@ -387,7 +394,25 @@ extension Agent {
                 // Through the application, as a hand's event comes: its local
                 // monitors see it (a grouped drag's, whose grip is hidden while
                 // its ghost stands for it; LLP 1094 D6), then the window.
-                NSApp.sendEvent(e)
+                if contactTracksNative {
+                    if type == .leftMouseDown {
+                        // Return the down reply first. Common-mode blocks let
+                        // the agent's next request run inside AppKit tracking.
+                        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                            NSApp.sendEvent(e)
+                        }
+                        CFRunLoopWakeUp(CFRunLoopGetMain())
+                    } else {
+                        // AppKit reads these from its tracking queue rather
+                        // than a reentrant sendEvent. Its queue reconstructs
+                        // locationInWindow from the CG event's screen point.
+                        let screen = win.convertPoint(toScreen: e.locationInWindow)
+                        e.cgEvent?.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
+                        NSApp.postEvent(e, atStart: false)
+                    }
+                } else {
+                    NSApp.sendEvent(e)
+                }
             }
         }
         let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }
@@ -402,8 +427,10 @@ extension Agent {
             // The button is down: the pointer no longer rests where it hovered.
             presenter.agentPointer = nil
             contactFlags = named
-            send(.leftMouseDown, p)
+            let hit = win.contentView?.hitTest(toWindow(p))
+            contactTracksNative = sequence(first: hit, next: { $0?.superview }).contains { $0 is NativeButtonMac }
             contact = p
+            send(.leftMouseDown, p)
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
         case "move":
             guard let from = contact else { return ["error": "no contact is down"] }
@@ -435,13 +462,19 @@ extension Agent {
             send(.leftMouseUp, p)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
-            send(.leftMouseUp, p)
+            // Queue a drag-away and lift to end native tracking. The contact
+            // test still exposes an action on cancel (QUEUE, LLP 1104 F6).
+            let release = contactTracksNative ? CGPoint(x: -10000, y: -10000) : p
+            if contactTracksNative { send(.leftMouseDragged, release) }
+            send(.leftMouseUp, release)
             contact = nil
             contactFlags = []
+            contactTracksNative = false
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
@@ -460,7 +493,7 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
@@ -506,8 +539,11 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
-        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
+        // An inline run's `at` is from its first visible fragment's top left, as
+        // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
+        let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
+        var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
@@ -617,6 +653,18 @@ extension Agent {
             session.presenter.settlePump()
             return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
         }
+        // Named, a plain click presses what it names (`AgentAddressedTap.swift`):
+        // its own press, never a control inside it that its middle reaches.
+        var avoided: PressReach?
+        if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
+           (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            let window = { (q: CGPoint) in clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil) }
+            switch Agent.addressedAim(v, middle: center, area: b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle { avoided = middle; p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)] }
+            }
+        }
         // The modifiers held through the click (gallery F20: shift-click).
         guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         // A right click (minesweeper F8), or the middle button's (`auxclick`,
@@ -632,6 +680,9 @@ extension Agent {
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
         guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
+        PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
+        PartLanding.delivered = true
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
@@ -655,7 +706,10 @@ extension Agent {
                 NSApp.sendEvent(up)
             }
         }
-        return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        // Its middle reaches a control inside it: the click landed beside it.
+        if let avoided { reply["avoided"] = ["middle": [Agent.r2(center.x), Agent.r2(center.y)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        return reply
     }
 
     private func nativeType(_ v: NodeView, _ req: [String: Any], token: UInt32? = nil) -> [String: Any] {
@@ -756,8 +810,9 @@ extension Agent {
                 if !editing { win.makeFirstResponder(f) }
             } else if v.isSurfaceControl && v.ownsSurfaceControl {
                 _ = v.focusSurfacePointer()
-            } else if v.acceptsFirstResponder {
-                if win.firstResponder !== v { win.makeFirstResponder(v) }
+            } else if presenter.keyView(of: v).acceptsFirstResponder {
+                let owner = presenter.keyView(of: v)
+                if win.firstResponder !== owner { win.makeFirstResponder(owner) }
             }
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,

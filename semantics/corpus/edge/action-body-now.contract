@@ -1,8 +1,8 @@
-// now() read in an action body after an idle clock advance.
+// performanceNow() read in an action body after an idle clock advance.
 component App
   state at = -1
   action mark
-    at = now()
+    at = performanceNow()
   view
     button "mark" press=mark testId="mark"
 

@@ -331,7 +331,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     .unwrap();
     let key = r.kernel().find_by_test_id("post")[0];
     let button = r.kernel().node_by_key(key).unwrap();
-    assert_eq!(button.node_type, NodeType::Pressable);
+    assert_eq!(button.node_type, NodeType::Control);
     assert_eq!(button.props.str(PropId::AccessibilityRole), Some("button"));
     let children = button.children();
     assert_eq!(children.len(), 1);
@@ -347,7 +347,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
 /// author's own row wins, as on any tag.
 #[test]
 fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
-    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump height=40 testId=\"save\"\n      button press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
+    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" appearance=\"none\" press=bump height=40 testId=\"save\"\n      button appearance=\"none\" press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -837,9 +837,8 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
-    // `max-height` bounds the content box; the field's sheet adds its
-    // padding and border outside it (LLP 1104 D2).
-    assert_eq!(height(&mut r), 88.0 + 14.0);
+    // No compiled field sheet adds padding or border (LLP 1104 r8 D1).
+    assert_eq!(height(&mut r), 88.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
         fixed_height

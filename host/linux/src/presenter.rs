@@ -31,6 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+mod addressed_tap;
 mod arrange;
 mod arrange_geometry;
 mod clock;
@@ -45,6 +46,7 @@ mod field;
 #[cfg(test)]
 mod field_tests;
 mod group;
+mod hatch;
 mod painter;
 mod pan_release;
 mod picker;
@@ -82,6 +84,8 @@ mod typing;
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
 #[path = "presenter/swipe_tests.rs"]
@@ -101,6 +105,9 @@ pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
+    /// Scrolled lists whose collection turn waits for the frame (see
+    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
+    deferred_collections: Option<Vec<ViewId>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -208,6 +215,8 @@ pub struct Presenter<D: DataSource> {
     content_registration: Option<crate::content_region::ContentRegionRegistration>,
     last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
+    /// The app's hatches (LLP 1075.003.000.001; `presenter/hatch.rs`).
+    pub(crate) hatches: crate::hatches::Session,
 }
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
@@ -399,6 +408,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: Vec::new(),
             boxes_serial: 0,
             dirty: true,
+            deferred_collections: None,
             scheme: (None, false),
             segments: Vec::new(),
             surfaces: Default::default(),
@@ -420,6 +430,7 @@ impl<D: DataSource> Presenter<D> {
             content_registration: region,
             last_region_frame: None,
             last_region_scale: None,
+            hatches: Default::default(),
         };
         p.set_system_scheme(false);
         let e = p.after_commit();
@@ -594,6 +605,11 @@ impl<D: DataSource> Presenter<D> {
         self.focus
     }
 
+    /// Paint again at the next frame (a host whose surface came back).
+    pub fn repaint(&mut self) {
+        self.dirty = true;
+    }
+
     /// Whether the picture is stale.
     pub fn dirty(&self) -> bool {
         self.dirty
@@ -624,7 +640,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A display needs another animation or GPU canvas frame.
     pub fn wants_display_frames(&self) -> bool {
-        self.host.wants_frames() || self.surfaces.has_rendered_canvas()
+        self.wants_frames() || self.surfaces.has_rendered_canvas()
     }
 
     /// The viewport changed.
@@ -670,13 +686,17 @@ impl<D: DataSource> Presenter<D> {
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        self.hatches.stale = true;
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
@@ -788,6 +808,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -828,6 +850,7 @@ impl<D: DataSource> Presenter<D> {
         for id in &renewed {
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
         if reports.is_empty() {
             return None;
@@ -1073,58 +1096,6 @@ impl<D: DataSource> Presenter<D> {
             .find_map(|b| self.svg_hit(b, x, y))
     }
 
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
-    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
-            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
-        }
-        let b = self
-            .box_of(id)
-            .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
-        let mut hit = self.hit(x, y);
-        while hit.is_some() && hit != Some(id) {
-            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
-        }
-        if hit != Some(id) {
-            return Err(format!(
-                "view {id} is covered or not hit at its projected center"
-            ));
-        }
-        let now = self.host.now();
-        let actual = self.hit(x, y).and_then(|hit| {
-            self.control_target(hit)
-                .or_else(|| self.handler_target(hit, EventKind::Press))
-        });
-        if let Some(actual) = actual.filter(|actual| {
-            *actual != id
-                && !self.drawn_in(*actual, id)
-                && self
-                    .control_target(id)
-                    .or_else(|| self.handler_target(id, EventKind::Press))
-                    != Some(*actual)
-        }) {
-            return Err(format!(
-                "view {id} activates view {actual} at its projected center"
-            ));
-        }
-        let activated = self.press_at(x, y, now);
-        if actual.is_some() && activated.is_none() {
-            return Err(format!("view {id} did not accept activation"));
-        }
-        let id = activated.unwrap_or(id);
-        Ok(format!(
-            "{{\"tapped\":{id},\"at\":[{},{}]}}",
-            num(r2(x)),
-            num(r2(y))
-        ))
-    }
-
     /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
     /// A phase-less tick is its own gesture and is not split (LLP 1070 G2,
     /// Chrome's measured tick): the innermost scroll container under the point
@@ -1206,7 +1177,7 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.insert(id, (nx, ny));
                     self.last_wheel = Some(id);
                     self.dirty = true;
-                    self.collection_scrolled(id);
+                    self.collection_scrolled_or_deferred(id);
                     if let Some(error) = self.refresh_transform_geometry() {
                         self.host.log(error);
                     }
@@ -1363,6 +1334,7 @@ impl<D: DataSource> Presenter<D> {
         self.menu = None;
         self.hovered.clear();
         self.pointer_held = None;
+        self.hatch_reset();
         self.hosts += 1;
         self.measure();
     }
@@ -1389,6 +1361,7 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.advance_effects(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
+        self.hatch_timers(now_ms);
         e.or(after)
     }
 
@@ -1398,12 +1371,14 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.frame(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
+        self.hatch_presented(now_ms);
         e.or(after)
     }
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
         if self.host.tick(now_ms) {
+            self.hatches.stale = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {

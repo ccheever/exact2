@@ -18,23 +18,97 @@
 import AppKit
 import UniformTypeIdentifiers
 
+extension Presenter {
+    /// Chrome on macOS opens an unmodified ContextMenu keydown at the
+    /// current focus, after its key handlers; Shift+F10 has no such default.
+    func contextMenuKey(_ event: NSEvent, in owner: NSWindow? = nil) -> Bool {
+        guard event.type == .keyDown, NodeView.keyName(event) == "ContextMenu",
+              event.modifierFlags.intersection([.shift, .control, .option, .command]).isEmpty,
+              let window = owner ?? event.window, window === viewport.window,
+              (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
+        let point: NSPoint
+        var next: NSView?
+        if let focus = keyTarget(window.firstResponder) {
+            guard !focus.disabled, !focus.inert, !focus.isHiddenOrHasHiddenAncestor,
+                  !dialogs.blocks(focus), focus.field == nil, focus.textArea == nil else { return false }
+            // AppKit's visibleRect clips the untransformed frame. Clip the
+            // drawn anchor instead, including a frame translated into view.
+            var drawn = focus.drawnRect(menus.anchor(focus, in: focus))
+            var ancestor = focus.superview
+            while let view = ancestor {
+                if let node = view as? NodeView, node.overflowClips {
+                    drawn = drawn.intersection(node.drawnRect(node.bounds))
+                } else if let clip = view as? NSClipView {
+                    let rect = (clip.superview?.superview as? NodeView).map {
+                        $0.drawnRect($0.convert(clip.bounds, from: clip))
+                    } ?? clip.convert(clip.bounds, to: nil)
+                    drawn = drawn.intersection(rect)
+                }
+                ancestor = view.superview
+            }
+            guard !drawn.isEmpty else { return false }
+            point = NSPoint(x: drawn.midX, y: drawn.midY)
+            next = focus
+        } else {
+            // A handler removed the focus: Chrome hits the page at (1,1).
+            // An embedded view/editor still owns its keys, even when its
+            // responder is not one of our focusable nodes.
+            let responder = window.firstResponder
+            guard responder == nil || responder === window || responder === viewport
+                    || responder === root || responder === session?.view,
+                  session?.view?.ownsShortcutFocus() ?? true else { return false }
+            let clip = viewport.contentView
+            point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
+            next = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+        }
+        let client = self.client(point)
+        while let view = next {
+            if let node = view as? NodeView, (node.field != nil || node.textArea != nil) { return false }
+            if let node = view as? NodeView, views[node.id] === node,
+               node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false {
+                let local = node.local(point), box = node.contentBox()
+                let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
+                                           buttons: 0, pressure: 0, type: "mouse", id: 1,
+                                           clientX: Double(client.x), clientY: Double(client.y))
+                return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
+            }
+            next = menus.parent(of: view)
+        }
+        return false
+    }
+}
+
 extension NodeView {
+    /// The context action runs before the menu is read, for pointer and
+    /// keyboard alike. A context action cannot leak its preventDefault to
+    /// another input; keydown cancellation was handled before this default.
+    func dispatchContextMenu(at point: NSPoint, sample: PointerSample) -> Bool {
+        guard let presenter, presenter.views[id] === self, !disabled, !inert else { return false }
+        let action = handlers.contains("contextmenu"), menu = props["contextPopover"]?.isEmpty == false
+        let outer = presenter.defaultPrevented
+        presenter.defaultPrevented = false
+        defer { presenter.defaultPrevented = outer }
+        if action { presenter.mouseEvent(id, 10, sample.line) }
+        if menu { presenter.menus.context(self, at: point) }
+        return action || menu
+    }
+
     // Any button holds the pointer, as in a browser (review b5-b 1): the
     // secondary's moves and the middle button's down, moves and up are the
     // held node's pointer events too, `buttons` 2 or 4 (`pointerSample`).
-    override func rightMouseDragged(with event: NSEvent) {
+    package override func rightMouseDragged(with event: NSEvent) {
         pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.rightMouseDragged(with: event) }
     }
-    override func otherMouseDown(with event: NSEvent) {
+    package override func otherMouseDown(with event: NSEvent) {
         pointerPressed(event)
         if canvasInput?.pointer(event, phase: "down") != true { super.otherMouseDown(with: event) }
     }
-    override func otherMouseDragged(with event: NSEvent) {
+    package override func otherMouseDragged(with event: NSEvent) {
         pointerDragged(event)
         if canvasInput?.pointer(event, phase: "move") != true { super.otherMouseDragged(with: event) }
     }
-    override func otherMouseUp(with event: NSEvent) {
+    package override func otherMouseUp(with event: NSEvent) {
         pointerReleased(event)
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
@@ -92,20 +166,20 @@ extension NodeView {
     /// The dragged files this node would take: file URLs of a type the
     /// manifest declares.
     private func droppable(_ info: NSDraggingInfo) -> [URL] {
-        guard handlers.contains("drop"), !formDisabled, !inert else { return [] }
+        guard handlers.contains("drop"), !disabled, !inert else { return [] }
         let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         return urls.filter(ExactDocuments.accepts)
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    package override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         droppable(sender).isEmpty ? [] : .copy
     }
 
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    package override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         droppable(sender).isEmpty ? [] : .copy
     }
 
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    package override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         drop(droppable(sender), at: sender.draggingLocation)
     }
 

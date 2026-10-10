@@ -10,7 +10,7 @@ import os
 /// Which live views carry the few props the chrome passes look for.
 ///
 
-final class Presenter {
+package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
@@ -35,9 +35,23 @@ final class Presenter {
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
-        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
+        if view.disabled { view.showFieldFocus(false) }
         // HTML's `title`: the platform's tooltip (studio diary R24).
-        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+        // An icon-only button's help tag is its label (LLP 1115 wave 1), as
+        // a toolbar item's is; settled once the batch has mounted its face.
+        if view.isButton && !view.isNativeButton && view.props["title"] == nil && view.authoredLabel != nil { pendingTips.insert(view.id) }
+        else if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
+    /// Custom buttons with a label and no `title`, whose help tag waits for
+    /// the batch to mount their content.
+    var pendingTips: Set<UInt32> = []
+    func settleTips() {
+        for id in pendingTips {
+            guard let view = views[id] else { continue }
+            let tip = view.props["title"] ?? (view.accessibleText.isEmpty ? view.authoredLabel : nil)
+            if view.toolTip != tip { view.toolTip = tip }
+        }
+        pendingTips.removeAll()
     }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
@@ -58,27 +72,26 @@ final class Presenter {
     var pendingScrolls: Set<UInt32> = []
     /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
     var anchorChanges = ScrollAnchoring.Changes()
-    var heightBindings: [UInt32: HeightDragBinding] = [:]
-    var transformBindings: [UInt32: TransformDragBinding] = [:]
-    lazy var transformGeometry = TransformGeometryHost(self)
+    package var heightBindings: [UInt32: HeightDragBinding] = [:]
+    package var transformBindings: [UInt32: TransformDragBinding] = [:]
+    lazy package var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
-    lazy var collections = CollectionHost(self)
+    lazy package var collections = CollectionHost(self)
     lazy var stickies = StickyHost(self)
     /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
-    lazy var selection = TextSelection(self)
+    lazy package var selection = TextSelection(self)
     let textRasters = TextRasterizer()
     lazy var mouseSwipe = MouseSwipe(self)
     lazy var mouseLayoutPan = MouseLayoutPan(self)
-    lazy var mouseHeightDrag = MouseHeightDrag(self)
-    lazy var mouseTransformDrag = MouseTransformDrag(self)
-    lazy var mouseReorder = MouseReorder(self)
+    /// The mouse drags (LLP 1047.001 D4: the Drag module's, when linked).
+    lazy var mouseDrags = DragLink.installed?.mouseDrags(self) ?? .none
     lazy var mouseChain = MouseChain(self)
     /// The one Arrange contact, until its source settles; a test's calls.
-    var reorder: ReorderHold?
-    var reorderCalls: ReorderCalls?
+    package var reorder: ReorderLift?
+    package var reorderCalls: ReorderCalls?
     /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
-    var reorderGroup: ReorderGroupHold?
+    package var reorderGroup: ReorderGroupHold?
     var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
@@ -91,7 +104,7 @@ final class Presenter {
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
     let boxFilters = BoxFilters()
-    let canvas2d = Canvas2DHost()
+    let canvas2d: Canvas2DCanvases = SurfacesLink.installed?.canvas2D() ?? NoCanvas2D()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
@@ -131,7 +144,9 @@ final class Presenter {
         viewport.automaticallyAdjustsContentInsets = false
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
-        viewport.backgroundColor = .white
+        // LLP 1115 D2: an unset page background is the platform's window
+        // background, which follows Dark Mode, never a fixed white.
+        viewport.backgroundColor = .windowBackgroundColor
         viewport.contentView.postsBoundsChangedNotifications = true
         // LLP 1050.000 stage 1: a collection reports its travel and builds
         // ahead in the pump's slices.
@@ -573,9 +588,9 @@ final class Presenter {
         session?.rasters.reset()
         mouseSwipe.cancel()
         mouseLayoutPan.abandon()
-        mouseHeightDrag.cancel()
-        mouseTransformDrag.cancel()
-        mouseReorder.cancel()
+        mouseDrags.height.cancel()
+        mouseDrags.transform.cancel()
+        mouseDrags.reorder.cancel()
         reorder?.abandon()
         reorderGroup?.abandon()
         collections.reset()
@@ -645,6 +660,17 @@ final class Presenter {
     /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
     var composedChord: NSEvent?
 
+    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
+    /// `dialog` by its id, in the session's top layer as its invoker's
+    /// `command="show-modal"` puts it (DialogsMac).
+    func dialogCommand(_ name: String, _ id: String) {
+        guard let dialog = carrying("tag:dialog").first(where: { $0.props["id"] == id }) else {
+            if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
+            return
+        }
+        if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
@@ -662,7 +688,7 @@ final class Presenter {
             if selectText { fieldSelections.selectAll(target) }
             return
         }
-        let responder: NSView = target.textArea ?? target.field ?? target
+        let responder = keyView(of: target)
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
         if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }
@@ -678,7 +704,7 @@ final class Presenter {
                 window.makeFirstResponder(nil)
                 return
             }
-            let responder: NSView = target.textArea ?? target.field ?? target
+            let responder = keyView(of: target)
             guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
         }
         window.makeFirstResponder(nil)
@@ -750,9 +776,9 @@ final class Presenter {
         if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
-        mouseHeightDrag.retire(id)
-        mouseTransformDrag.retire(id)
-        mouseReorder.retire(id)
+        mouseDrags.height.retire(id)
+        mouseDrags.transform.retire(id)
+        mouseDrags.reorder.retire(id)
         session?.canvases.destroy(view: id)
         svg.forget(id)
         canvas2d.forget(id)
@@ -883,7 +909,7 @@ final class Presenter {
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) {
+    package func message(_ id: UInt32, _ value: String) {
         guard let view = views[id], view.handlers.contains("message") else { return }
         send(id) { [weak self, weak view] in
             guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
@@ -893,6 +919,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
+        session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
@@ -1074,7 +1101,7 @@ final class Presenter {
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.contentBox()
+                v.layoutField()
                 v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
@@ -1082,6 +1109,8 @@ final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+            case .fieldContent:
+                views[id]?.applyFieldContent(op.payload)
             case .content:
                 if let v = views[id] {
                     v.content = CGSize(width: op.w, height: op.h)
@@ -1104,11 +1133,13 @@ final class Presenter {
         }
         if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
+        if !pendingTips.isEmpty { settleTips() }
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
+        // Unset, the platform's window background (LLP 1115 D2).
+        let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
         if viewport.backgroundColor != color { viewport.backgroundColor = color }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
@@ -1201,6 +1232,7 @@ final class Presenter {
     /// The same editing descendant takes explicit, sequential and modal focus.
     func keyView(of v: NodeView) -> NSView {
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
+        if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
         return v.textArea ?? v.field ?? v
     }
 
@@ -1281,7 +1313,7 @@ final class Presenter {
 }
 
 /// A view's subtree as pixels (LLP 1014 D3).
-enum Capture {
+package enum Capture {
     /// A capture is drawing: its draws are not repaints (D4 b).
     nonisolated(unsafe) static var capturing = false
     /// Guest pictures for this turn; the remote platform views are hidden
@@ -1290,7 +1322,7 @@ enum Capture {
 
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
-    static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
+    package static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue

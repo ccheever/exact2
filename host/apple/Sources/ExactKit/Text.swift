@@ -14,31 +14,31 @@
 // font and color classes, and the same CoreText answers the kernel on both.
 #if canImport(UIKit)
 import UIKit
-typealias PlatformFont = UIFont
+package typealias PlatformFont = UIFont
 package typealias PlatformColor = UIColor
 #else
 import AppKit
-typealias PlatformFont = NSFont
+package typealias PlatformFont = NSFont
 package typealias PlatformColor = NSColor
 #endif
 import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
-struct Run: Hashable {
-    var text: String
-    var size: CGFloat
-    var weight: Int
-    var family: Int
-    var italic: Bool
-    var lineHeight: CGFloat?
+package struct Run: Hashable {
+    package var text: String
+    package var size: CGFloat
+    package var weight: Int
+    package var family: Int
+    package var italic: Bool
+    package var lineHeight: CGFloat?
     var letterSpacing: CGFloat
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums`, the face's own
     /// `tnum` feature. It changes advances: a metric (LLP 1053 G4).
     var numeric: Int = 0
-    var color: [Double]? = nil
-    var decoration: String = ""
-    var href: String = ""
+    package var color: [Double]? = nil
+    package var decoration: String = ""
+    package var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
     /// CSS visibility hides ink without changing shaping or descendant visibility.
@@ -50,10 +50,10 @@ struct Run: Hashable {
     var stroke: [Double]? = nil
     /// A Markdown list item's head indent and hung marker (LLP 1045 D4,
     /// `LineInsets`): where its paragraph's lines start, so a metric.
-    var indent: CGFloat = 0
-    var hang = false
+    package var indent: CGFloat = 0
+    package var hang = false
 
-    static func == (lhs: Run, rhs: Run) -> Bool {
+    package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
@@ -67,7 +67,7 @@ struct Run: Hashable {
         return a.withUTF8 { left in b.withUTF8 { right in left.elementsEqual(right) } }
     }
 
-    func hash(into hasher: inout Hasher) {
+    package func hash(into hasher: inout Hasher) {
         // Native Strings expose their existing storage; no byte-array key or
         // full-text copy is created for each lookup. Foreign Strings may need
         // UTF8 materialization, but use the identical byte/hash contract.
@@ -494,15 +494,21 @@ package final class TextEngine {
     /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
-    private var catalog: [Int: [RegisteredFace]] = [:]
+    var catalog: [Int: [RegisteredFace]] = [:]
+    var fieldChrome: FieldChromeCache?
+    var buttonMeasurements: ButtonMeasureCache?
+    var platformControlID: UInt16?
+    var platformControlFont: PlatformFont?
+    var platformControlName = NSData()
     /// Declared family names to their plan stacks, for Canvas 2D's `font`
     /// (LLP 1056 D8).
     private var familyStacks: [String: Int] = [:]
-    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8).
-    private(set) lazy var canvasText = CanvasText(engine: self)
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8), which the
+    /// Surfaces module makes at first use (LLP 1047.001 D4).
+    package var canvasTextCache: AnyObject?
 
     /// A declared family's stack, by name.
-    func stack(named name: String) -> Int? { familyStacks[name] }
+    package func stack(named name: String) -> Int? { familyStacks[name] }
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
@@ -562,11 +568,15 @@ package final class TextEngine {
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
         private let familyStacks: [String: Int]
+        private let controlID: UInt16?
+        private let controlFont: PlatformFont?
+        private let controlName: NSData
         private let measurer: Checkpoint?
 
         fileprivate init(_ engine: TextEngine) {
             // The measurer's state is the owner's (LLP 1072 §8.1).
             measurer = engine.measurer.map { m in Owner.shared.sync { Checkpoint(m) } }
+            controlID = engine.platformControlID; controlFont = engine.platformControlFont; controlName = engine.platformControlName
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             residency = engine.residency
@@ -575,13 +585,14 @@ package final class TextEngine {
         }
 
         fileprivate func restore(into engine: TextEngine) {
+            engine.platformControlID = controlID; engine.platformControlFont = controlFont; engine.platformControlName = controlName
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.residency = residency
             engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.familyStacks = familyStacks
-            engine.canvasText = CanvasText(engine: engine)
+            engine.canvasTextCache = nil
             engine.dropMeasuredBreaks()
             if let measurer, let m = engine.measurer { Owner.shared.sync { measurer.restore(into: m) } }
         }
@@ -601,9 +612,10 @@ package final class TextEngine {
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         residency.keepsAnswers = !publishes
         dropMeasuredBreaks()
+        platformControlID = nil
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
-        canvasText = CanvasText(engine: self)
+        canvasTextCache = nil
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
         var staged: [Int: [RegisteredFace]] = [:]
@@ -663,13 +675,13 @@ package final class TextEngine {
         return resolve(source)
     }
 
-    func font(_ run: Run) -> PlatformFont {
+    package func font(_ run: Run) -> PlatformFont {
         font(size: run.size, weight: run.weight, family: run.family, italic: run.italic, numeric: run.numeric)
     }
 
     /// CSS `tabular-nums` is the chosen face's own OpenType `tnum` feature,
     /// never a substitute monospaced face; a face without it is unchanged.
-    func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int) -> PlatformFont {
+    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int) -> PlatformFont {
         let base = font(size: size, weight: weight, family: family, italic: italic)
         guard numeric & 1 != 0 else { return base }
         let key = "\(family)/\(size)/\(weight)/\(italic)/tnum"
@@ -681,7 +693,8 @@ package final class TextEngine {
         return f
     }
 
-    func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+        if let f = controlFont(size: size, weight: weight, family: family, italic: italic) { return f }
         let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {
@@ -786,7 +799,7 @@ package final class TextEngine {
             }
             if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
@@ -1199,31 +1212,27 @@ package final class TextEngine {
             residency.putMinimum(identity, width: CSSLineBox.layoutWidth(widest))
             return CSSLineBox.layoutWidth(widest)
         }
-        // Repeated words previously reused entire cached Paragraphs. Keep that
-        // benefit with probe-local scalars, bounded by the same logical-payload
-        // target; unique words beyond it are measured normally, never omitted.
-        var words: [Run: CGFloat] = [:]
-        var wordBytes = 0
-        // CSS `text-indent` is part of the first line, so of its first word's
-        // piece; a list item's indent of each of its words, its marker hung.
+        // Each piece is measured as a line of the paragraph's typesetter, so
+        // the paragraph is shaped once. A resident shape is used if there is
+        // one; this measure does not make one resident.
+        // `text-indent` applies to the first line only (CSS Text 3 §8.1), so
+        // only to the first piece. A run's own indent (a list item's) applies to
+        // each of its pieces.
+        let resident = residency.shape(TextShapeKey(identity: identity, paint: TextPaint(spec)))
+        let source = resident?.attributed ?? attributed(spec)
+        let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
-        for r in spec.runs where !r.hang {
-            for word in unbreakablePieces(r.text) {
-                var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
-                let key = one.runs[0]
-                defer { indent = 0 }
-                let inset = indent + r.indent
-                if let width = words[key] { widest = max(widest, width + inset); continue }
-                // This probe needs one scalar, never a cached width-specific
-                // Paragraph or a historical per-word CTTypesetter.
-                let line = CTLineCreateWithAttributedString(attributed(one))
-                let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width + inset)
-                let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
-                if bytes <= residency.softTargetBytes - wordBytes {
-                    words[key] = width; wordBytes += bytes
-                }
+        var offset = 0
+        for r in spec.runs {
+            let text = r.text as NSString
+            defer { offset += text.length }
+            guard !r.hang else { continue }
+            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+                let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
+                var line = CTTypesetterCreateLine(typesetter, range)
+                if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
+                widest = max(widest, CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) + indent + r.indent)
+                indent = 0
             }
         }
         residency.putMinimum(identity, width: widest)
@@ -1345,7 +1354,7 @@ package final class TextEngine {
         var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
-        if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
+        if request.markup != 0, let source = runs.first { runs = MarkdownLink.installed?.expand(source.text, base: source, color: nil) ?? runs }
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)

@@ -14,8 +14,11 @@ routes nav
     detail "/detail"
     rows "/rows"
     sheet "/sheet"
+    menu "/menu"
     chat "/chat"
     photo "/photo"
+    plain "/plain"
+    note "/note"
   tab second "/second"
 
 // The hatched list's rows (LLP 1075.003.000), from the fixture's data source,
@@ -118,6 +121,18 @@ component NativeFixture
   state armed = false
   state looping = false
   state hatchPresses = 0
+  // A post that opens with a card at its middle, and a box with no press
+  // with Like at its middle, on Detail (LLP 1012 §1: a tap that names a
+  // node presses that node, never a control inside it).
+  state postOpens = 0
+  state cardOpens = 0
+  state likes = 0
+  action openPost
+    postOpens = postOpens + 1
+  action openCard
+    cardOpens = cardOpens + 1
+  action like
+    likes = likes + 1
   action setFed(v: string)
     fed = v
   action feed
@@ -130,8 +145,29 @@ component NativeFixture
     looping = true
   action stopLoop
     looping = false
+  // The hatches' frame clock (§2.4): while clocking, a frame task counts
+  // frames, and the `clock` hatch's ticket reads the count at each tick. Its
+  // third tick presses the node 65 times; the 65th press changes its words,
+  // and its `changed` presses once more.
+  state clocking = false
+  state frameCount = 0
+  state clockPresses = 0
+  action startClock
+    clocking = true
+  action stopClock
+    clocking = false
+  action countFrame
+    frameCount = frameCount + 1
+  action clockPress
+    clockPresses = clockPresses + 1
+  task framer when clocking
+    every(frame, countFrame)
   action unbump
     count = 0
+  // A confirmation raised from an action (LLP 1115 D6): the context menu's
+  // Clear asks first, as a hand-built app's long-press → alert does.
+  action askClear
+    showModal("clear-confirm")
   action fire
     emit = emit + 1
   action toggle
@@ -191,6 +227,15 @@ component NativeFixture
     nav = push(nav, "/detail")
   action back
     nav = back(nav)
+  // LLP 1115 D5: Plain (pushed) and Note (a sheet) declare no Back control;
+  // the platform's Back still goes, delivered here as the web's history
+  // Back is: the location beneath.
+  action openPlain
+    nav = push(nav, "/plain")
+  action openNote
+    nav = push(nav, "/note")
+  action follow(url: string)
+    nav = go(nav, url)
   action breakOwnership
     violate = not violate
   action customTransition
@@ -222,8 +267,31 @@ component NativeFixture
     toast = "Saved"
   action hush
     toast = ""
+  // LLP 1075.003 §9.11: a sheet at its rows' height, following them; with
+  // `menuLarge`, draggable to large from there.
+  state menuItems = [0]
+  state menuLarge = false
+  action openMenu
+    nav = push(nav, "/menu")
+  action moreMenu
+    menuItems = concat(menuItems, [length(menuItems)])
+  action fewerMenu
+    menuItems = slice(menuItems, 0, -1)
+  action toggleMenuLarge
+    menuLarge = not menuLarge
   action openSheet
     nav = push(nav, "/sheet")
+  // The menu over Sheet and Sheet, closed at once.
+  action closeSheets
+    nav = back(back(nav))
+  // The menu over Sheet opened by an answer's `then`, as a confirmation
+  // shown once a request answers (the answer itself is unused); from home,
+  // Sheet and the menu over it at once.
+  mutation asked as shape Providers then askedMenu
+  action askMenu
+    send asked = providers()
+  action askedMenu
+    nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
   // route pushed with the tablist hidden, and one with no header.
   state subtitle = "Online"
@@ -246,14 +314,14 @@ component NativeFixture
   action toggleChoosing
     choosing = not choosing
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
+    main data-mood=(composed > 0 ? "busy" : "calm") navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
                 // A route with no header has no bar (§9.10).
-                when e.name != "photo"
+                when e.name != "photo" and e.name != "menu"
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     when e.name == "detail" or e.name == "rows" or e.name == "chat"
                       button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
@@ -274,9 +342,11 @@ component NativeFixture
                       input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
                       // A text tablist in the header: the item's segmented title view.
                       row role="tablist" testId="header-segments"
-                        button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
+                        // The projected segmented control owns the chrome; its
+                        // authored tabs keep their bare text widths.
+                        button appearance="none" role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
                           text "All"
-                        button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
+                        button appearance="none" role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
                           text "Missed"
                     // A pressable group around the heading, with an avatar and
                     // a subtitle: the item's title, drawn, tapped (§9.10).
@@ -295,12 +365,12 @@ component NativeFixture
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
-                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                 when e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
-                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
+                    button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
                 when e.name == "home"
                   column testId="fixture" gap=8 padding=12
@@ -315,8 +385,18 @@ component NativeFixture
                         text "Transition"
                       button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
                         text "Sheet"
+                      button press=askMenu testId="ask-sheets" padding=6 background-color="#e5e7eb"
+                        text "Sheets once asked"
+                      button press=openMenu testId="menu" padding=6 background-color="#e5e7eb"
+                        text "Menu"
+                      button press=toggleMenuLarge testId="menu-large" padding=6 background-color="#e5e7eb"
+                        text (menuLarge ? "Menu: fit-content large" : "Menu: fit-content")
                       button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
                         text "Chat"
+                      button press=openPlain testId="open-plain" padding=6 background-color="#e5e7eb"
+                        text "Plain"
+                      button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
+                        text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
@@ -379,12 +459,24 @@ component NativeFixture
                         image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
                         text "Bump"
                       hr margin-left=0 margin-right=0
-                      button press=unbump destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
+                      button press=askClear destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
                         text "Clear"
+                    // The platform's alert (LLP 1115 D6): a title (its
+                    // aria-label), a message (its text), a destructive action
+                    // and Cancel, centred on iOS; opened by its button or by
+                    // `showModal` from an action (the context menu's Clear).
+                    button commandfor="clear-confirm" command="show-modal" testId="ask-clear" padding=6 background-color="#e5e7eb"
+                      text "Clear count…"
+                    dialog id="clear-confirm" role="alertdialog" aria-label="Clear the count?" padding=16
+                      text "The count goes back to zero."
+                      button press=unbump destructive=true commandfor="clear-confirm" command="close" testId="clear-confirm-clear"
+                        text "Clear"
+                      button commandfor="clear-confirm" command="close" testId="clear-confirm-cancel"
+                        text "Cancel"
                     row gap=6
-                      button press=grow testId="grow" padding=6
+                      button appearance="none" press=grow testId="grow" padding=6
                         text "Grow content"
-                      button press=sizing testId="sizing" padding=6
+                      button appearance="none" press=sizing testId="sizing" padding=6
                         text "Toggle intrinsic size"
                     text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
                     when shown
@@ -448,6 +540,17 @@ component NativeFixture
                       text "Loop"
                     button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
                       text "Stop"
+                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
+                      text "Clock"
+                    button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
+                      text "Halt"
+                when e.name == "detail"
+                  row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0
+                    row testId="post-row" press=openPost flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6 background-color="#f3f4f6"
+                      column testId="post-card" press=openCard flex=1 height=24 background-color="#dbeafe"
+                    row testId="post-actions" flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6
+                      column testId="post-like" press=like flex=1 height=24 background-color="#fee2e2"
                 when e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
@@ -484,6 +587,32 @@ component NativeFixture
                         text "Muted"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
                       column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                // Rows that may shrink (CSS's default), measured as asked for.
+                when e.name == "menu"
+                  column testId="menu-rows" padding=16
+                    button press=moreMenu testId="menu-more" height=44
+                      text "More"
+                    button press=fewerMenu testId="menu-fewer" height=44
+                      text "Fewer"
+                    each i in menuItems key=i
+                      row height=44
+                        text `Row ${i}`
+                    button id="back" press=back testId="menu-close" height=44
+                      text "Close"
+                    button press=closeSheets testId="menu-home" height=44
+                      text "Close both"
+                // A sheet over a sheet: the menu pushed over Sheet presents
+                // from Sheet's controller, and closing it returns to Sheet.
+                when e.name == "sheet"
+                  column testId="sheet-body" padding=16
+                    button press=openMenu testId="sheet-menu" height=44
+                      text "Menu over the sheet"
+                    button press=askMenu testId="sheet-ask" height=44
+                      text "Menu once asked"
+                    // A route pushed in the sheet's own stack: its bar's
+                    // Back and the edge swipe pop it back to Sheet.
+                    button press=detail testId="sheet-detail" height=44
+                      text "Detail in the sheet"
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"

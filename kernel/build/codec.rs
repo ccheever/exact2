@@ -1,7 +1,8 @@
-const CODEC_PATHS: [&str; 5] = [
+const CODEC_PATHS: [&str; 6] = [
     "../vendor/taffy/src/style/grid.rs",
     "build.rs",
     "build/codec.rs",
+    "src/style/compare.rs",
     "src/style/grid.rs",
     "src/wire/codec.rs",
 ];
@@ -499,6 +500,41 @@ pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&
             "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x} }},\n",
             rgba(light),
             rgba(dark)
+        ));
+    }
+    w.push_str("];\n");
+}
+/// A `textStyles` row: name, WebKit alias, UIFont's and NSFont's text
+/// style, weight, and the size at each of `textStyleBodies`.
+type TextStyleRow = (String, String, String, String, u16, Vec<f32>);
+/// `textStyles` (LLP 1115 D3): the platform's type ramp.
+pub fn write_text_styles(w: &mut String, bodies: &[f32], styles: &[TextStyleRow]) {
+    assert!(
+        !bodies.is_empty() && bodies.windows(2).all(|p| p[0] < p[1]),
+        "schema: textStyleBodies ascend"
+    );
+    assert!(styles.len() <= 64, "schema: at most 64 text styles");
+    w.push_str(concat!(
+        "/// One platform text style (LLP 1115 D3): written `-exact-<name>` (or\n",
+        "/// its WebKit alias) as a `font-size`, and what a heading's level lowers to.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub struct TextStyle {\n",
+        "    /// The style's name, without `-exact-`.\n    pub name: &'static str,\n",
+        "    /// WebKit's `-apple-system-*` name for it, or empty.\n    pub alias: &'static str,\n",
+        "    /// `UIFont.TextStyle`'s.\n    pub ios: &'static str,\n",
+        "    /// `NSFont.TextStyle`'s.\n    pub macos: &'static str,\n",
+        "    /// Its weight, CSS's number.\n    pub weight: u16,\n",
+        "    /// Its size at each of [`TEXT_STYLE_BODIES`].\n    pub sizes: &'static [f32],\n",
+        "}\n",
+    ));
+    w.push_str(&format!(
+        "/// The body sizes (root font sizes) the ramp is given at.\npub const TEXT_STYLE_BODIES: &[f32] = &{bodies:?};\n"
+    ));
+    w.push_str("/// Every text style, by id.\npub const TEXT_STYLES: &[TextStyle] = &[\n");
+    for (name, alias, ios, macos, weight, sizes) in styles {
+        assert_eq!(sizes.len(), bodies.len(), "schema: text style {name} has a size per body");
+        w.push_str(&format!(
+            "TextStyle {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, weight: {weight}, sizes: &{sizes:?} }},\n"
         ));
     }
     w.push_str("];\n");
