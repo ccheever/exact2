@@ -1,0 +1,38 @@
+#!/bin/zsh
+# import-wizard-initial-focus: one agent drive of the clone's browser import wizard (open, step changes) and the removal
+# confirm; the same ops before and after. Usage: drive.sh <before|after> <worktree> [base]. Output: drive-<which>.jsonl
+L=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/import-wizard-initial-focus
+WHICH=$1; WT=$2; BASE=${3:-16680}; S=$L/shots; mkdir -p $S
+LANE=import-wizard-initial-focus; [ "$WHICH" = before ] && LANE=import-wizard-initial-focus-before
+export T3_BROWSER_IMPORT_HOME=$L/browser-home
+cd $L/drive
+EXACT_ROOT=$WT /Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/clone-drive.sh $LANE $BASE \
+  "clock +20000 real" "clock +3000 real" \
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +2500 real" \
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-chrome" "clock +2500 real" \
+  "state" "tree" "layout" "screenshot $S/$WHICH-chrome-configure-open.png window" \
+  "tap browser-import-cancel" "clock +1500 real" "state" "tree" "layout" \
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-brave" "clock +2500 real" \
+  "state" "tree" "layout" "screenshot $S/$WHICH-brave-quit-open.png window" \
+  "tap browser-import-quit" "clock +3500 real" "state" "tree" "layout" "screenshot $S/$WHICH-brave-quit-again.png window" \
+  "type browser-import-step-quit key Tab" "clock +500 real" "state" "tree" "layout" \
+  "tap browser-import-cancel" "clock +1500 real" \
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-safari" "clock +2500 real" \
+  "state" "tree" "layout" "screenshot $S/$WHICH-safari-fda-open.png window" \
+  "tap browser-import-cancel" "clock +1500 real" \
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-firefox" "clock +2500 real" \
+  "state" "tree" "layout" \
+  "tap broken" "clock +800 real" "tap browser-import-run" "clock +4000 real" "state" "tree" "layout" "screenshot $S/$WHICH-firefox-blocked.png window" \
+  "type browser-import-step-blocked key Shift+Tab" "clock +500 real" "state" "tree" "layout" \
+  "tap browser-import-retry" "clock +4000 real" "state" "tree" "layout" \
+  "tap browser-import-close" "clock +1500 real" \
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-firefox" "clock +2500 real" \
+  "tap browser-import-run" "clock +5000 real" "state" "tree" "layout" "screenshot $S/$WHICH-firefox-done.png window" \
+  "tap browser-import-done" "clock +2000 real" \
+  "tap \"Firefox options\"" "clock +1500 real" "tap \"Remove profile and data\"" "clock +2000 real" \
+  "state" "tree" "layout" "screenshot $S/$WHICH-remove-open.png window" \
+  "tap browser-profile-remove-cancel" "clock +1500 real" "state" "tree" "layout" \
+  "tap \"Firefox options\"" "clock +1500 real" "tap \"Remove profile and data\"" "clock +2000 real" \
+  "tap browser-profile-remove-confirm" "clock +3000 real" "state" "tree" "layout" \
+  > drive-$WHICH.jsonl 2> drive-$WHICH.err
+echo "exit $?"
