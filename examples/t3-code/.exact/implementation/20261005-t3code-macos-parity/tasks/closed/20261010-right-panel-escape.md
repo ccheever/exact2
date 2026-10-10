@@ -3,12 +3,12 @@ name: 20261010-right-panel-escape
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-right-panel-escape
 pr_url: https://github.com/ccheever/exact2/pull/403
-verified_commit: null
+verified_commit: dcbb7bdf49f35381b17db351c089ddf90c1ead61
 ---
 
 # Escape and the right panel
@@ -142,8 +142,11 @@ in one session; the logs held no error lines. Before: three sessions of the evid
 Reference: this lane's T3 Code over CDP (the sheet's search reopened with no search; inline its Escape left the field
 with `""`).
 
-## Next action
+## Delivery
 
-Coordinator review of the draft PR [#403](https://github.com/ccheever/exact2/pull/403) (review round done: the Files
-search's Escape, and the sheet's URL field, inline Browser and Diff driven).
-
+Merged on 2026-10-10 as `dcbb7bdf4` (#403, squash) after an independent review and its repair round (two should-fix
+items: the Files search's Escape now clears and blurs as FileSearchField does, inline and in the sheet; every changed
+case was driven against the before build and the live reference). The inline right panel no longer closes on Escape;
+the narrow-window sheet does, as the reference's Base UI Dialog. No real-input rows. Found while building: a second send
+on the same mutation in one turn dropped the first one's effect (`forget request 731 (localChanged)`), worked around in
+the clone by keeping the search focus in the window; checked against main separately.
