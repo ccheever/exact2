@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010c-native
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/398
 verified_commit: null
 ---
 
@@ -77,7 +77,7 @@ Included: RC-1, RC-7 and RC-9 (RC-7 and RC-9 start as checks). The UI rows are i
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| RC-1 | implemented, not verified (real input). Before: the panel prevents activation, so a click left T3 Code inactive and its own activation request was refused (B2). After: AppKit's activation flag for the panel is off, the activating click reaches the row, and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. Open until real-input batch steps 1-2 run. | [rc1-activation-readback.txt](https://raw.githubusercontent.com/ccheever/exact2/b67fa776e9f9034f47a7c735b2c9fc124723c2ad/realinput-1010c-native/rc1-activation-readback.txt), AppKit test output (PR) |
+| RC-1 | implemented, not verified (real input). Before: the panel prevents activation, so a click left T3 Code inactive and its own activation request was refused (B2). After: AppKit's activation flag for the panel is off, the activating click reaches the row, and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. Open until real-input batch steps 1-2 run. | [rc1-activation-readback.txt](https://raw.githubusercontent.com/ccheever/exact2/b67fa776e9f9034f47a7c735b2c9fc124723c2ad/realinput-1010c-native/rc1-activation-readback.txt), [rc1-appkit-snapshot.txt](https://raw.githubusercontent.com/ccheever/exact2/9f3a84c9ebd9e99a985d2e1da9a339e5b8cc0caf/realinput-1010c-native/rc1-appkit-snapshot.txt) |
 | RC-7 | pass by check, no change: the accessor is codex (and claude, git) run by the T3 server in a lane home inside a git worktree whose gitdir is in `~/Documents`; the reference lane makes the same access; a lane outside any repository makes none. | [rc7-documents-access.txt](https://raw.githubusercontent.com/ccheever/exact2/55bf6a49ba06d3ccf74bfcafcfc22780c2b4e096/realinput-1010c-native/rc7-documents-access.txt) |
 | RC-9 | pass by reference comparison, no change: both default to Hold, and Hold quits on a 1.2 s hold or two presses within 0.5 s. | [rc9-quit-default.txt](https://raw.githubusercontent.com/ccheever/exact2/93df05a1efd938c9ab5d81423ace87e4158fbc92/realinput-1010c-native/rc9-quit-default.txt) |
 
@@ -108,8 +108,12 @@ CLIs read the worktree's gitdir in `~/Documents` and raise a Documents prompt fo
   (`acceptsFirstMouse`), that a mouse click on the row reveals, and the reveal's calls from a click-activated app (yield,
   select, activate Finder) and from an inactive one (activate T3 Code first).
 
-Checks: see the PR ("Checks").
+Checks (final head `c326c090d`, all exit 0): bun test 4242 pass / 1 skip / 0 fail; strict tsc; contract build (`app.contract` 1329
+lines); `cargo test -p t3-code-macos --lib` 17 pass; AppKit `snapshot`; caps; the five checks (cargo test 3675 pass, 0 fail);
+the bundle build. Live drive (agent mode, once): the app launches and connects
+([live-main.png](https://raw.githubusercontent.com/ccheever/exact2/c7bb0e0a07a16e2a37cd9eacaea994ee82cf81ce/realinput-1010c-native/live-main.png)).
 
 ## Next action
 
-Coordinator: review the draft PR; real-input batch steps 1-2 close RC-1 (front app read-back).
+Coordinator: review draft PR [#398](https://github.com/ccheever/exact2/pull/398); real-input batch steps 1-2 close RC-1 (front app
+read-back).
