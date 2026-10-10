@@ -30,6 +30,81 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('mobile V2 transcript presentation', () => {
+  const commentary = (id: string, text: string, seconds: number, extra: Obj = {}) => item(id, 'assistant_message',
+    { text, messageId: `message-${id}`, streaming: false, startedAt: at(seconds), updatedAt: at(seconds), ...extra });
+  const command = (id: string, seconds: number, extra: Obj = {}) => item(id, 'command_execution',
+    { input: id, output: '', exitCode: 0, startedAt: at(seconds), updatedAt: at(seconds), ...extra });
+
+  test('keeps initial commentary before Worked while intermediate prose and tools share the existing fold', async () => {
+    const client = fixture([user('Inspect'), commentary('first', 'I will inspect it.', 1), command('pwd', 2),
+      commentary('middle', 'Checking status next.', 3), command('status', 4), answer('Done')]);
+    const before = structuredClone(client.projection), key = (id: string) => JSON.stringify(['t1', id]);
+    const collapsed = mobileThreadRows(client, now);
+    expect(collapsed.map(row => row.id)).toEqual([key('user'), key('first'), 'turn-fold:r1', key('answer')]);
+    expect(collapsed[1]).toMatchObject({ body: 'I will inspect it.', showMeta: false });
+    expect(collapsed[2]).toMatchObject({ kind: 'work', expanded: false, toggleId: 'r1' });
+    expect(collapsed[3]).toMatchObject({ body: 'Done', showMeta: true });
+    expect(transcriptRows(client).some(row => row.id === key('first'))).toBe(false);
+    await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
+    const expanded = mobileThreadRows(client, now);
+    expect(expanded.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'entry', 'assistant', 'entry', 'assistant']);
+    expect(expanded.filter(row => row.id === key('first'))).toHaveLength(1);
+    expect(expanded.find(row => row.id === key('middle'))?.body).toBe('Checking status next.');
+    expect(expanded[2]).toMatchObject({ toggleId: 'r1', expanded: true });
+    await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
+    expect(mobileThreadRows(client, now)).toEqual(collapsed);
+    expect(client.projection).toEqual(before);
+  });
+
+  test('two assistant messages alone remain visible without a spurious Worked fold', () => {
+    const client = fixture([user('Inspect'), commentary('first', 'Starting.', 1), answer('Done')]);
+    expect(mobileThreadRows(client, now).map(row => row.body)).toEqual(['Inspect', 'Starting.', 'Done']);
+    expect(mobileThreadRows(client, now).some(row => row.kind === 'work')).toBe(false);
+  });
+
+  test('fold stays at the first hidden tool when work precedes the initial assistant message', () => {
+    const client = fixture([user('Inspect'), command('pwd', 1), commentary('first', 'Checked the directory.', 2), answer('Done')]);
+    expect(mobileThreadRows(client, now).map(row => [row.kind, row.body])).toEqual([
+      ['user', 'Inspect'], ['work', ''], ['assistant', 'Checked the directory.'], ['assistant', 'Done'],
+    ]);
+    expect(transcriptRows(client, true).find(row => row.kind === 'work')?.createdAt).toBe(at(1));
+  });
+
+  test('middle assistant prose can fold even when a turn has no tools', () => {
+    const client = fixture([user('Explain'), commentary('first', 'Starting.', 1), commentary('middle', 'More detail.', 2), answer('Done')]);
+    expect(mobileThreadRows(client, now).map(row => [row.kind, row.body])).toEqual([
+      ['user', 'Explain'], ['assistant', 'Starting.'], ['work', ''], ['assistant', 'Done'],
+    ]);
+  });
+
+  test('runless prompts retain their own initial commentary and independent fold ownership', async () => {
+    const prompt = (id: string, seconds: number) => item(id, 'user_message',
+      { text: id, runId: null, messageId: id, inputIntent: 'turn_start', attachments: [], startedAt: at(seconds), updatedAt: at(seconds) });
+    const items = [prompt('one', 0), commentary('first-one', 'First turn.', 1, { runId: null }), command('pwd', 2, { runId: null }),
+      commentary('final-one', 'Done one.', 3, { runId: null }), prompt('two', 4), commentary('first-two', 'Second turn.', 5, { runId: null }),
+      command('status', 6, { runId: null }), commentary('final-two', 'Done two.', 7, { runId: null })];
+    const client = fixture(items, { runs: [] }), collapsed = mobileThreadRows(client, now);
+    expect(collapsed.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'assistant', 'user', 'assistant', 'work', 'assistant']);
+    const folds = collapsed.filter(row => row.kind === 'work');
+    expect(folds[0]!.toggleId).not.toBe(folds[1]!.toggleId);
+    await chatLocal(client, { available: true } as Native, 'fold', folds[0]!.toggleId, '');
+    expect(mobileThreadRows(client, now).filter(row => row.kind === 'work').map(row => row.expanded)).toEqual([true, false]);
+    expect(mobileThreadRows(client, now).filter(row => row.body.endsWith('turn.'))).toHaveLength(2);
+  });
+
+  for (const state of ['running', 'streaming', 'failed', 'interrupted']) {
+    test(`initial commentary remains visible without a completed-work fold during ${state}`, () => {
+      const rows = [user('Inspect'), commentary('first', 'Starting.', 1), command('pwd', 2),
+        commentary('final', 'Done', 3, { streaming: state === 'streaming' })];
+      if (state === 'interrupted') rows.push(item('interrupt', 'run_interrupt_result', { interrupted: true }));
+      const client = fixture(rows, { runs: [{ id: 'r1', status: state === 'running' ? 'running' : state === 'failed' ? 'failed' : 'completed',
+        startedAt: at(0), completedAt: state === 'running' ? null : at(4) }] });
+      const shown = mobileThreadRows(client, now);
+      expect(shown.find(row => row.body === 'Starting.')).toBeDefined();
+      expect(shown.some(row => row.kind === 'work')).toBe(false);
+    });
+  }
+
   for (const files of [[], [{ path: 'src/app.ts', additions: 2, deletions: 1 }]]) {
     test(`omits ${files.length ? 'populated' : 'empty'} checkpoints before row boundaries and retains reconnect projection`, () => {
       const checkpoint = (id: string) => item(id, 'checkpoint', { checkpointId: id, scopeId: 'workspace', files });

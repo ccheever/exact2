@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/timeline-presentation.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/timeline-presentation.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile365aa87982: pass the first-assistant fold policy through the existing pure row derivation.
 import { runnableShellCommands } from './terminal-integrations';
 import { runTerminalCommand } from './terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
@@ -253,7 +254,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
 }
 
 /** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
-export function transcriptRows(client: T3Client): Message[] {
+export function transcriptRows(client: T3Client, keepFirstAssistant = false): Message[] {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const runs = arr(projection.runs), running = activeRun(projection), runless = runlessWorkStartedAt(projection);
   const setup = threadWorktreeSetup(client);
@@ -263,7 +264,7 @@ export function transcriptRows(client: T3Client): Message[] {
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: open('fold'), expandedAttempts: open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false, keepFirstAssistant });
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));
