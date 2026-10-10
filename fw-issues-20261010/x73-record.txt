@@ -1,0 +1,71 @@
+X73: macOS Escape closes no popover="auto" after an action's blur() (the window itself is the first responder)
+main a10050516b549be8273668b4c9fdd6caa3ee746e; macOS 26.6.2 (25G83), Apple Silicon; Exact web in the agent's Google Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports an empty sources.
+
+== app.contract
+component X73app
+  state log = "-"
+  action drop
+    blur()
+    log = "blurred"
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 display="flex" flex-direction="column" align-items="flex-start" gap=12 background-color="#ffffff" color="#111111"
+      text `last: ${log}` testId="out"
+      button popovertarget="pop" testId="open"
+        text "Open"
+      column id="pop" popover="auto" testId="pop" padding=12 gap=8 background-color="#f4f4f4"
+        text "An auto popover"
+        button press=drop testId="drop"
+          text "Drop focus"
+
+== Commands (in the app dir)
+bun exact.mjs mac
+A  bun exact.mjs agent macos --json --size 420x260 "tap open" state "tap drop" state "type root key Escape" state "screenshot x73-macos.png window"
+A2 bun exact.mjs agent macos --json --size 420x260 "tap open" "tap drop" "screenshot before.png window" "type root key Escape" "screenshot after.png window" "type root key Escape" state
+C1 bun exact.mjs agent macos --json --size 420x260 "tap open" state "type root key Escape" state
+C2 bun exact.mjs agent macos --json --size 420x260 "tap open" "tap drop" "type drop key Escape" state
+W  bun exact.mjs agent web --json --size 420x260 "tap open" state "tap drop" state "type root key Escape" state
+W2 bun exact.mjs agent web --json --size 420x260 "tap open" "tap drop" "screenshot before.png" "type root key Escape" "screenshot after.png"
+
+root (main) takes no focus, so the agent's type root key Escape leaves the focus where it is (AgentMac: "A target that takes no focus leaves it where it is"; web: root.focus() is a no-op).
+state below: focus = state.focus, popover = state.navigation.popover (macOS MenuHost.observation; null = none shown). The web state has no popover section; the screenshots show it.
+
+== A (mac-run1): blur(), then Escape at the window
+op: {"delivery":"platform","tapped":3,"at":[52.5,64],"target":"open","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+state: {"log":"-","focus":{"responder":"NativeButtonMac","pending":null,"logical":3,"editor":null},"popover":{"path":"navigation.popover","v":{"popover":5,"source":3,"phase":"open"}}}
+op: {"tapped":7,"delivery":"platform","at":[85.87,124],"target":"drop","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+state: {"log":"blurred","focus":{"logical":null,"responder":null,"editor":null,"pending":null},"popover":{"path":"navigation.popover","v":{"popover":5,"source":3,"phase":"open"}}}
+op: {"key":"Escape","value":"","typed":1,"target":"root","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+state: {"log":"blurred","focus":{"logical":null,"responder":null,"editor":null,"pending":null},"popover":{"path":"navigation.popover","v":{"phase":"open","source":3,"popover":5}}}
+op: {"screenshot":"x73-macos.png","h":260,"epoch":3,"clock":0,"scale":2,"w":420,"incarnation":1,"window":true}
+
+== A2 (mac-run2): the same, two Escapes
+op: {"tapped":3,"delivery":"platform","at":[52.5,64],"target":"open","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+op: {"tapped":7,"delivery":"platform","at":[85.87,124],"target":"drop","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+op: {"screenshot":"x73-macos-before.png","incarnation":1,"window":true,"h":260,"clock":0,"w":420,"epoch":3,"scale":2}
+op: {"value":"","typed":1,"key":"Escape","target":"root","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+op: {"w":420,"scale":2,"clock":0,"epoch":3,"incarnation":1,"window":true,"h":260,"screenshot":"x73-macos-after.png"}
+op: {"typed":1,"key":"Escape","value":"","target":"root","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+state: {"log":"blurred","focus":{"responder":null,"logical":null,"editor":null,"pending":null},"popover":{"path":"navigation.popover","v":{"phase":"open","popover":5,"source":3}}}
+
+== C1 (mac-ctlA): control, no blur(): Escape with the focus on Open
+op: {"at":[52.5,64],"delivery":"platform","tapped":3,"target":"open","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+state: {"log":"-","focus":{"responder":"NativeButtonMac","logical":3,"pending":null,"editor":null},"popover":{"path":"navigation.popover","v":{"phase":"open","popover":5,"source":3}}}
+op: {"key":"Escape","typed":1,"value":"","target":"root","delivery":"platform","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+state: {"log":"-","focus":{"responder":"NativeButtonMac","logical":3,"pending":null,"editor":null},"popover":{"path":"navigation.popover","v":null}}
+
+== C2 (mac-ctlB): control, blur(), then the agent focuses Drop focus before Escape
+op: {"at":[52.5,64],"tapped":3,"delivery":"platform","target":"open","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+op: {"at":[85.87,124],"tapped":7,"delivery":"platform","target":"drop","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+op: {"typed":7,"key":"Escape","value":"","target":"drop","delivery":"platform","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+state: {"log":"blurred","focus":{"editor":null,"logical":3,"responder":"NativeButtonMac","pending":null},"popover":{"path":"navigation.popover","v":null}}
+
+== W (web-run1): the Exact web, blur(), then Escape
+op: {"at":[51.671875,66],"tapped":3,"target":"open","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":1,"incarnation":1}
+state: {"log":"-","focus":{"logical":3,"editor":null,"responder":"button","pending":null},"popover":null}
+op: {"at":[210,143],"tapped":7,"target":"drop","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+state: {"log":"blurred","focus":{"logical":null,"editor":null,"responder":null,"pending":null},"popover":null}
+op: {"at":[210,130],"typed":1,"target":"root","delivery":"platform","carrier":"web","mode":"agent","clock":0,"epoch":2,"incarnation":1}
+state: {"log":"blurred","focus":{"logical":null,"editor":null,"responder":null,"pending":null},"popover":null}
+op: {"clock":0,"epoch":2,"incarnation":1,"screenshot":"x73-web.png","w":420,"h":260}
+
