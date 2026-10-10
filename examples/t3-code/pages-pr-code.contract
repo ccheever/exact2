@@ -124,9 +124,12 @@ component PrdCode
   state draftText = ""
   action press(op: string, value: string)
     local(`pr-code-${op}`, ref, value)
-  // DiffRow's commands (diff.contract): a line number's press (Shift extends) and a hidden range's.
+  // DiffRow's commands (diff.contract): a hidden range's, and the gutter's drags (their own queued send, app.contract).
   action rowCommand(op: string, id: string, value: string, n: number)
-    local("pr-code-row", ref, `${op}|${id}|${n}|${value}`)
+    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end"
+      local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)
+    else
+      local("pr-code-row", ref, `${op}|${id}|${n}|${value}`)
   action begin(path: string, side: string, line: number)
     draftText = ""
     local("pr-code-begin", ref, `${side}|${line}|${path}`)

@@ -18,6 +18,7 @@ import type { T3Client } from './client';
 import { messageTime } from './timeline-presentation';
 import { lineTokens, overlay } from './timeline-diff-syntax';
 import type { Token } from './timeline-highlight';
+import { utilityPlacement, type LineDrag } from './diff-line-drag';
 
 /** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). */
 export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null };
@@ -44,6 +45,8 @@ export class DiffState {
   expansions: Record<string, Expansion> = {};
   /** Line comments (diff-review.ts): the selected lines, the open draft, and the saved comments behind composer chips. */
   selection: { scope: string; path: string; range: SelectedLineRange } | null = null;
+  /** The gutter's drag in progress (diff-line-drag.ts), in the selection's scope. */
+  drag: LineDrag | null = null;
   draft: { scope: string; path: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
   /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it
@@ -262,6 +265,9 @@ type DiffItemView = { id: string; kind: string; path: string; name: string; stat
   rightTone: string; rightNumber: string; rightSegments: Segment[]; label: string; gutter: number;
   /** Line items: the side and line a press on the gutter selects (split: left deletions, right additions), and whether it is selected. */
   side: string; line: number; selected: boolean; leftLine: number; rightLine: number; leftSelected: boolean; rightSelected: boolean;
+  /** Line items: the file has a selection, so its "+" is pinned to the selection's bottom line and the pointer does not move it;
+   * which of the row's cells draws it there (diff-line-drag.ts utilityPlacement). */
+  pinned: boolean; pin: boolean; leftPin: boolean; rightPin: boolean;
   /** File headers: Retry, the partial mark, a header whose patch is not there (chevron off). Gaps: a press opens hidden lines. */
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean;
   /** Comment items (`note`, `draft`): the entry's id (a saved one's context id) and text. */
@@ -319,7 +325,8 @@ export function diffSnapshot(client: T3Client, now: number) {
   let rows = 0;
   const base = { tone: '', number: '', segments: [] as Segment[], leftTone: '', leftNumber: '', leftSegments: [] as Segment[], rightTone: '', rightNumber: '', rightSegments: [] as Segment[],
     label: '', gutter: 33.3, name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-    leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
+    leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '',
+    statAligned: false, addText: '', delText: '' };
   // A draft or the selected lines belong to the scope they were made in; saved comments stay while their chip is in the prompt.
   const draft = state.draft?.scope === scope ? state.draft : null, picked = state.selection?.scope === scope ? state.selection : null;
   const saved = state.saved.filter(entry => entry.scope === scope && client.draft.includes(`review-comment/${entry.contextId})`));
@@ -344,8 +351,9 @@ export function diffSnapshot(client: T3Client, now: number) {
       const from = at.get(sideKey(range.side, range.start)), to = at.get(sideKey(range.endSide, range.end));
       return from === undefined || to === undefined ? null : [Math.min(from, to), Math.max(from, to)] as const;
     };
-    const chosen = span(draft?.path === file.path ? draft.range : picked?.path === file.path ? picked.range : undefined);
+    const range = draft?.path === file.path ? draft.range : picked?.path === file.path ? picked.range : undefined, chosen = span(range);
     const isSelected = (side: string, line: number) => { const index = line > 0 ? at.get(sideKey(side, line)) : undefined; return !!chosen && index !== undefined && index >= chosen[0] && index <= chosen[1]; };
+    const utility = utilityPlacement(range ?? null, point => at.get(sideKey(point.side, point.line)) ?? null);
     // Comments sit under the range's end line, on its side; one card per line, entries stacked (AnnotatableCodeView).
     const notes = [...saved.filter(entry => entry.path === file.path).map(entry => ({ kind: 'note', id: entry.contextId, range: entry.range, label: entry.rangeLabel, text: entry.text })),
       ...(draft?.path === file.path ? [{ kind: 'draft', id: draft.id, range: draft.range, label: draft.rangeLabel, text: '' }] : [])];
@@ -361,14 +369,15 @@ export function diffSnapshot(client: T3Client, now: number) {
     };
     const push = (row: Row | { left: Row; right: Row }, key: string) => {
       if (++rows > ROW_LIMIT) return;
-      const common = { ...base, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter };
+      const common = { ...base, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter, pinned: utility.pinned };
       if ('left' in row) {
         items.push({ ...common, kind: 'split', leftTone: row.left.tone, leftNumber: row.left.number, leftSegments: row.left.segments, rightTone: row.right.tone, rightNumber: row.right.number,
-          rightSegments: row.right.segments, leftLine: row.left.oldLine, rightLine: row.right.newLine, leftSelected: isSelected('deletions', row.left.oldLine), rightSelected: isSelected('additions', row.right.newLine) });
+          rightSegments: row.right.segments, leftLine: row.left.oldLine, rightLine: row.right.newLine, leftSelected: isSelected('deletions', row.left.oldLine), rightSelected: isSelected('additions', row.right.newLine),
+          leftPin: utility.holds('deletions', row.left.oldLine, true), rightPin: utility.holds('additions', row.right.newLine, true) });
         annotate(row.left.oldLine, row.right.newLine);
       } else {
         const side = row.tone === 'deletion' ? 'deletions' : 'additions', line = side === 'deletions' ? row.oldLine : row.newLine;
-        items.push({ ...common, kind: 'line', tone: row.tone, number: row.number, segments: row.segments, side, line, selected: isSelected(side, line) });
+        items.push({ ...common, kind: 'line', tone: row.tone, number: row.number, segments: row.segments, side, line, selected: isSelected(side, line), pin: utility.holds(side, line, false) });
         annotate(row.tone === 'addition' ? 0 : row.oldLine, row.tone === 'deletion' ? 0 : row.newLine);
       }
     };

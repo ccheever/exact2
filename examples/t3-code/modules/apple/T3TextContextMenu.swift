@@ -51,8 +51,13 @@ final class T3TextContextMenu: NSObject {
     private var tails: [ObjectIdentifier: T3ShellMenuTail] = [:]
     /// What the last answered click showed (the agent's log line, and the tests).
     private(set) var lastShown: [String] = []
-    /// Pops the shell's menu (tracks until the menu closes); a test records it instead.
-    var present: (NSMenu, NSEvent, NSView) -> Void = { NSMenu.popUpContextMenu($0, with: $1, for: $2) }
+    /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
+    /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, which Electron's menu has not
+    /// (realinput-1010f RF-1).
+    var present: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
+        menu.allowsContextMenuPlugIns = false
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
     /// The editors that are a contenteditable in the reference (the composer, Settings › Appearance's prompt sample):
     /// their Select All stays enabled when they are empty, a text control's does not.
     var richEditors: () -> [NSTextView] = { [] }

@@ -401,6 +401,7 @@ component T3Code
   mutation prHandoffChanged as shape Change refreshes data // pr-handoffs-and-quick-actions: a checkout hand-off's second half, its own send
   mutation terminalFocusChanged as shape Change refreshes data
   mutation fileCommentChanged as shape Change queue refreshes data // audit-wave-followups FU-3: the Files preview's line comments (chatLocal)
+  mutation lineDragChanged as shape Change queue refreshes data // realinput-1010f RF-3: a diff gutter drag's press, moves and release, each in turn
   mutation terminalChanged as shape Change refreshes data then terminalCompleted
   action terminalCompleted
     match terminalChanged
@@ -725,6 +726,11 @@ component T3Code
   action command(op: string, id: string, value: string, n: number)
     if op == "chatlocal:item-detail"
       send timelineDisclosureChanged = command(op, id, value, n)
+    else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end")
+      // realinput-1010f RF-3: a gutter drag sends at its press, on each line and at its release; a click's press and
+      // release come within a few ms, so they queue on their own send (a later send on one mutation would replace the
+      // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
+      send lineDragChanged = command(op, id, value, n)
     else
       if endsWith(op, ":focus-in") or endsWith(op, ":focus-out")
         send terminalFocusChanged = command(op, id, value, n)
@@ -1185,6 +1191,8 @@ component T3Code
     // save before it closed the draft. Queued, the draft's focus reports wait behind its save too.
     if startsWith(op, "surface-files-comment-")
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "pr-code-drag" or op == "pr-code-begin"
+      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // realinput-1010f RF-3: the Code tab's gutter drags and "+", in turn
     else
       send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
   state foldHold = false

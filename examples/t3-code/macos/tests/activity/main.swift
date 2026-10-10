@@ -1,5 +1,12 @@
-import Foundation
+import AppKit
 import XCTest
+
+/// A view that counts the mouse moves AppKit sends it (as a focused ExactKit node with a `hover` would hear them).
+private final class MoveCounter: NSView {
+    private(set) var moves = 0
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseMoved(with event: NSEvent) { moves += 1 }
+}
 
 final class ActivityTests: XCTestCase {
     func testExpiresInteractionIndependentlyOfWindowFocus() {
@@ -123,6 +130,44 @@ final class ActivityTests: XCTestCase {
         XCTAssertEqual(saved["backgroundActivityClientId"] as? String, id)
         XCTAssertEqual(saved["version"] as? Int, 2)
         first.destroy(); second.destroy()
+    }
+}
+extension ActivityTests {
+    /// realinput-1010f RF-5: the reporter hears the pointer through a tracking area of its own over the window's content.
+    /// It leaves `acceptsMouseMovedEvents` off: a window that accepts mouse moves sends each one to its first responder,
+    /// and a focused ExactKit node with a `hover` took it as the pointer over it wherever the pointer was (the Usage
+    /// page's pressed Cost segment held the unpriced (i)'s hover).
+    func testPointerMovesReachTheReporterAndNoFocusedView() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let focused = MoveCounter(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        window.contentView!.addSubview(focused)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        XCTAssertTrue(window.makeFirstResponder(focused))
+        let reporter = T3ActivityReporter(persistent: false, dataDirectory: nil)
+        reporter.connect(UUID(), environment: "e") { _, done in done() }
+        let observed = expectation(description: "observing")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { observed.fulfill() }
+        wait(for: [observed], timeout: 2)
+        XCTAssertFalse(window.acceptsMouseMovedEvents, "the window does not send its moves to the first responder")
+        let move = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: 300, y: 200), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+        NSApp.sendEvent(move)
+        XCTAssertEqual(focused.moves, 0, "a move away from the focused view does not reach it")
+        let area = window.contentView!.trackingAreas.first { $0.owner is T3ActivityPointer }
+        XCTAssertNotNil(area, "a tracking area over the window's content hears the pointer")
+        XCTAssertEqual(area?.options.isSuperset(of: [.mouseMoved, .activeAlways, .inVisibleRect]), true)
+        let before = reporter.lastInteractionAt()
+        usleep(5_000)
+        (area?.owner as? NSResponder)?.mouseMoved(with: move)
+        XCTAssertGreaterThan(reporter.lastInteractionAt(), before, "each move over the content is an interaction")
+        reporter.destroy()
+        let destroyed = expectation(description: "destroyed")
+        DispatchQueue.main.async { destroyed.fulfill() }
+        wait(for: [destroyed], timeout: 2)
+        XCTAssertFalse(window.contentView!.trackingAreas.contains { $0.owner is T3ActivityPointer }, "destroy removes it")
     }
 }
 let suite = ActivityTests.defaultTestSuite
