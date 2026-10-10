@@ -296,6 +296,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         // A small embedded view can fit only after boot reveals authored cover.
         // Use positive local bounds provisionally, then settle the actual policy.
         val next = if (valid) Rect(left, top, right, bottom) else Rect(0, 0, w, h)
+        presenter.rasterViewport(next.width(), next.height())
         val safe = if (cover) Rect(systemInsets) else Rect()
         if (keyboard) safe.bottom = 0
         val resized = next.width() != viewport.width() || next.height() != viewport.height()
@@ -345,6 +346,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     override fun onDetachedFromWindow() {
         viewTreeObserver.removeOnGlobalLayoutListener(oldImeLayout)
         visible = false
+        presenter.trimRaster()
         handler.removeCallbacks(timer); handler.removeCallbacks(pump); pumping = false
         choreographer.removeFrameCallback(frame); frameQueued = false
         super.onDetachedFromWindow()
@@ -359,6 +361,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         hostVisible = value
         visible = value && isAttachedToWindow && windowVisibility == View.VISIBLE
         if (!visible) {
+            presenter.trimRaster()
             handler.removeCallbacks(timer); handler.removeCallbacks(pump); pumping = false
             choreographer.removeFrameCallback(frame); frameQueued = false
         } else if (!closed) arm()

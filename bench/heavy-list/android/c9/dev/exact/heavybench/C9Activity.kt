@@ -69,6 +69,7 @@ class C9Activity : Activity() {
         val probe = HeavyBenchHarness(this, "c9", created)
         harness = probe
         if (HeavyOptions.boolean(intent, "BENCH_VERIFY")) view.post {
+            Log.i("HeavyBench", com.exact.android.NativeRenewalTest.runSessionVisibility(view))
             com.exact.android.NativeCollectionCoverageTest.runAsync(this) { Log.i("HeavyBench", it) }
         }
         probe.attach(view, target, { view.startupReady && view.creationToFirstHostDrawNs != null && target.visibleRows() > 0 }, {

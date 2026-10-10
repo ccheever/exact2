@@ -39,6 +39,13 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
             oldValue.release()
         }
     }
+    fun viewport(width: Int, height: Int) {
+        require(width >= 0 && height >= 0)
+        // Scale to the owning viewport as on Apple; bound retained software pixels.
+        val budget = (width.toDouble() * height * 4 * 8)
+            .coerceIn(32.0 * 1024 * 1024, 64.0 * 1024 * 1024).toInt()
+        if (cache.maxSize() != budget) cache.resize(budget)
+    }
     private var closed = false
 
     private fun Request.key() = Key(source, width, height, fit)
@@ -112,6 +119,7 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
         bitmap.density = density
         return Image(bitmap, naturalWidth, naturalHeight)
     }
+    fun trim() { cache.evictAll() }
     override fun close() {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (closed) return

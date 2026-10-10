@@ -166,8 +166,69 @@ internal object NativeRenewalTest {
             return "EmptyCollectionBatchTest: PASS (schedule and metadata, untouched pixels/owners, ordinary events, control updates, operations, malformed/error/canvas rejection)"
         } finally { fixture.close() }
     }
+    @Suppress("UNCHECKED_CAST") private fun runCacheBudget(context: Context) {
+        val images = NativeImages(context)
+        val cache = field(images, "cache") as LruCache<Any, NativeImages.Image>
+        val constructor = Class.forName("com.exact.android.NativeImages\$Key")
+            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java)
+            .apply { isAccessible = true }
+        val leases = ArrayList<NativeImages.Image>()
+        try {
+            images.viewport(2560, 2560)
+            for ((index, color) in listOf(Color.RED, Color.GREEN, Color.BLUE).withIndex()) {
+                val bitmap = Bitmap.createBitmap(2048, 2048, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(color)
+                val image = NativeImages.Image(bitmap, bitmap.width, bitmap.height)
+                image.retain(); leases.add(image)
+                cache.put(constructor.newInstance("cache-lease-$index", 2048, 2048, "fill"), image)
+            }
+            check(cache.size() == 48 * 1024 * 1024) { "viewport budget did not retain three images" }
+            // A smaller owning viewport evicts the oldest cache lease; its
+            // visible ImageView lease must still keep the exact pixels alive.
+            images.viewport(0, 0)
+            check(cache.size() == 32 * 1024 * 1024)
+            check(!leases[0].bitmap.isRecycled && leases[0].bitmap.getPixel(0, 0) == Color.RED)
+            val oldest = leases.removeAt(0); oldest.release()
+            check(oldest.bitmap.isRecycled) { "evicted image survived its last owner" }
+            images.trim()
+            check(cache.size() == 0) { "background trim retained cached pixels" }
+            leases.forEachIndexed { index, image ->
+                image.retain()
+                cache.put(constructor.newInstance("close-lease-$index", 2048, 2048, "fill"), image)
+            }
+            images.close()
+            check(cache.size() == 0) { "closed cache retained images" }
+            for ((image, color) in leases.zip(listOf(Color.GREEN, Color.BLUE))) {
+                check(!image.bitmap.isRecycled && image.bitmap.getPixel(0, 0) == color)
+            }
+            while (leases.isNotEmpty()) {
+                val image = leases.removeAt(0); image.release()
+                check(image.bitmap.isRecycled) { "closed cache retained pixels after the last view" }
+            }
+        } finally { images.close(); leases.forEach { it.release() } }
+    }
+    @Suppress("UNCHECKED_CAST") fun runSessionVisibility(view: ExactView): String {
+        val presenter = ExactView::class.java.getDeclaredField("presenter")
+            .apply { isAccessible = true }.get(view) as Presenter
+        val images = field(presenter, "images") as NativeImages
+        val cache = field(images, "cache") as LruCache<Any, NativeImages.Image>
+        val constructor = Class.forName("com.exact.android.NativeImages\$Key")
+            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java)
+            .apply { isAccessible = true }
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val image = NativeImages.Image(bitmap, 2, 2)
+        image.retain()
+        try {
+            cache.put(constructor.newInstance("session-visibility-lease", 2, 2, "fill"), image)
+            view.setSessionVisible(false)
+            check(cache.size() == 0 && !bitmap.isRecycled && bitmap.getPixel(0, 0) == Color.RED)
+        } finally { view.setSessionVisible(true); image.release() }
+        check(bitmap.isRecycled)
+        return "SessionImageVisibilityTest: PASS (hidden session drops cache while preserving active pixels)"
+    }
     fun run(context: Context): String {
         check(Looper.myLooper() == Looper.getMainLooper())
+        runCacheBudget(context)
         val renewed = Fixture(context); val fresh = Fixture(context); val flat = Fixture(context)
         try {
             renewed.populate(); fresh.populate("new-button"); flat.populate(flat = true)
@@ -241,7 +302,7 @@ internal object NativeRenewalTest {
             for (kind in listOf("input", "textarea", "native", "control", "list", "scroll", "web", "canvas", "video", "svg"))
                 fails("stateful $kind admitted") { NativeRenewal.requireSupported(kind, false, false) }
             fails("navigation carrier admitted") { NativeRenewal.requireSupported("view", false, true) }
-            return "NativeRenewalTest: PASS (fresh pixels, unchanged/premeasured content metrics, hot paint, authored props/style/handlers, SDK state, testId, owner/touch, virtual accessibility, atomic refusal, fractional RowBox)"
+            return "NativeRenewalTest: PASS (cache resize/trim/close pixel leases, fresh pixels, unchanged/premeasured content metrics, hot paint, authored props/style/handlers, SDK state, testId, owner/touch, virtual accessibility, atomic refusal, fractional RowBox)"
         } finally { renewed.close(); fresh.close(); flat.close() }
     }
     /** Allow real posted SDK focus/click and cached image callbacks to run. */

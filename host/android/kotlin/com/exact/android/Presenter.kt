@@ -42,6 +42,8 @@ internal class Presenter(
 ) {
     private val scale = context.resources.displayMetrics.density
     private val images = NativeImages(context)
+    fun rasterViewport(width: Int, height: Int) = images.viewport(width, height)
+    fun trimRaster() = images.trim()
     private val accessibility = context.getSystemService(AccessibilityManager::class.java)
     val root = Box(context)
         .apply { isFocusableInTouchMode = true }
