@@ -71,6 +71,7 @@ final class T3ComposerChipPress {
         if window.firstResponder !== view { window.makeFirstResponder(view) }
         guard NSMaxRange(chip.range) <= (view.string as NSString).length else { return }
         view.setSelectedRange(chip.range)
+        styler?.noteSelection()
     }
 
     var isOpen: Bool { chip != nil }

@@ -143,6 +143,7 @@ final class T3ComposerEditor {
     private func selectionChanged() {
         if styler.snapSelection() { return }
         styler.restyleIfTextMoved()
+        styler.noteSelection()
         refresh()
     }
 

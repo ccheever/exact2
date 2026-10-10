@@ -1,13 +1,13 @@
 ---
 name: 20261010-realinput-1010e-followups
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-realinput-1010e-followups
+pr_url: @@PR@@
 verified_commit: null
 ---
 

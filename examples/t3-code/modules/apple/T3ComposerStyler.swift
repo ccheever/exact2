@@ -208,6 +208,31 @@ final class T3ComposerStyler {
         tips.refresh()
         press.validate()
         press.refreshAccessibility()
+        noteSelection()
+    }
+
+    /// realinput-1010e-followups RE-3: the chip whose whole source is the selection (ProseMirror's NodeSelection, which a
+    /// press on a skill chip makes). The text view's highlight would cover the pill painted below it, so while a chip is
+    /// the selection the highlight is clear and the underlay tints the pill instead, as the reference paints a selected
+    /// chip (`data-composer-chip-selected`: Highlight at 30% over it).
+    private(set) var selectedChip: T3ComposerChip?
+    private var plainSelection: [NSAttributedString.Key: Any]?
+    func noteSelection() {
+        guard let view else { return }
+        let selection = view.selectedRange()
+        let chip = selection.length > 0 && view.string == styled ? chips.first { $0.range == selection } : nil
+        guard chip != selectedChip else { return }
+        selectedChip = chip
+        if chip != nil {
+            if plainSelection == nil { plainSelection = view.selectedTextAttributes }
+            var clear = view.selectedTextAttributes
+            clear[.backgroundColor] = NSColor.clear
+            view.selectedTextAttributes = clear
+        } else if let plain = plainSelection {
+            view.selectedTextAttributes = plain
+            plainSelection = nil
+        }
+        underlay?.needsDisplay = true
     }
 
     /// An edit the text view is about to make (the delegate's change hook).
@@ -653,6 +678,11 @@ final class T3ComposerUnderlay: NSView {
         path.lineWidth = 1
         if !resolved { path.setLineDash([3, 2], count: 2, phase: 0) }
         path.stroke()
+        if chip == styler.selectedChip {
+            let key = styler.view?.window?.isKeyWindow == true && styler.view?.window?.firstResponder === styler.view
+            (key ? NSColor.selectedTextBackgroundColor : NSColor.unemphasizedSelectedTextBackgroundColor).withAlphaComponent(0.3).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: size * 0.25, yRadius: size * 0.25).fill()
+        }
         let icon = size * 1.17
         let iconRect = NSRect(x: rect.minX + 1 + size * 0.5, y: rect.midY - icon / 2, width: icon, height: icon)
         if let image {

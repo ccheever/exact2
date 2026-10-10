@@ -124,6 +124,9 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.click(fixture.center(chip))
         XCTAssertTrue(press.isOpen, "the press opens the details")
         XCTAssertEqual(fixture.view.selectedRange(), chip.range, "the press selects the chip, as ProseMirror's NodeSelection")
+        // The text view's highlight would hide the pill painted below it: clear while a chip is the selection (the underlay tints the pill).
+        XCTAssertEqual(fixture.preview.styler.selectedChip, chip)
+        XCTAssertEqual(fixture.view.selectedTextAttributes[.backgroundColor] as? NSColor, NSColor.clear)
         fixture.base.escape()
         XCTAssertFalse(press.isOpen, "Escape closes the details")
         XCTAssertEqual(fixture.view.selectedRange(), chip.range, "and the chip stays selected")
@@ -131,6 +134,8 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.base.tick()
         XCTAssertEqual(fixture.view.string, previewSample.replacingOccurrences(of: "$frontend-design", with: "x"), "typing replaces the chip")
         XCTAssertEqual(fixture.view.selectedRange(), NSRange(location: chip.start + 1, length: 0), "with the caret after what was typed")
+        XCTAssertNil(fixture.preview.styler.selectedChip)
+        XCTAssertNotEqual(fixture.view.selectedTextAttributes[.backgroundColor] as? NSColor, NSColor.clear, "a text selection is highlighted again")
         // The press gives the chip's editor the focus, wherever it was.
         fixture.view.string = previewSample; fixture.view.didChangeText(); fixture.base.tick()
         fixture.base.window.makeFirstResponder(fixture.base.editor)
