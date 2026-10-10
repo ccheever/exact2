@@ -1,0 +1,25 @@
+// realinput-1010g-followups RG-2: what AppKit asks a field editor's text checking for, with and without automatic
+// spelling correction (ExactKit's `autocorrect="off"` turns it off, with smart quotes, dashes and text replacement), and
+// how the spell checker hands back a capitalization (a `.correction` result).
+import AppKit
+_ = NSApplication.shared
+let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+let field = NSTextField(frame: NSRect(x: 10, y: 10, width: 200, height: 24))
+window.contentView!.addSubview(field)
+window.makeFirstResponder(field)
+let editor = field.currentEditor() as! NSTextView
+func types(_ t: NSTextCheckingTypes) -> String {
+    let names: [(UInt64, String)] = [(1, "orthography"), (2, "spelling"), (4, "grammar"), (64, "quote"), (128, "dash"), (256, "replacement"), (512, "correction"), (8192, "text completion")]
+    return "\(t) = " + names.filter { t & $0.0 != 0 }.map(\.1).joined(separator: " + ")
+}
+print("NSSpellChecker.isAutomaticCapitalizationEnabled (this Mac's setting):", NSSpellChecker.isAutomaticCapitalizationEnabled)
+print("NSTextView responds to a capitalization switch of its own:", NSTextView.instancesRespond(to: NSSelectorFromString("isAutomaticCapitalizationEnabled")))
+print("field editor, AppKit's defaults:", types(editor.enabledTextCheckingTypes))
+editor.isAutomaticSpellingCorrectionEnabled = false
+editor.isAutomaticQuoteSubstitutionEnabled = false
+editor.isAutomaticDashSubstitutionEnabled = false
+editor.isAutomaticTextReplacementEnabled = false
+print("field editor, autocorrect=\"off\" (ExactKit applyTextChecking + keepsTypedText):", types(editor.enabledTextCheckingTypes))
+var orthography: NSOrthography?; var count = 0
+let results = NSSpellChecker.shared.check("i am here ", range: NSRange(location: 0, length: 10), types: 0xFFFF_FFFF, options: [:], inSpellDocumentWithTag: 0, orthography: &orthography, wordCount: &count)
+print("NSSpellChecker on \"i am here \":", results.filter { $0.resultType != .orthography }.map { "\(types($0.resultType.rawValue)) \($0.range) -> \($0.replacementString ?? "")" })
