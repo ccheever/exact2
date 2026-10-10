@@ -1,0 +1,56 @@
+#!/bin/zsh
+# One agent drive of the clone for realinput-1010f-followups. Usage: drive.sh before|after
+# before: the feature-branch tip (596672b62) built in t3-code-realinput-1010f-before; after: this worktree's bundle.
+# Same steps, same size. Pairs the GitHub lane's primary server (`bun lane.mjs start primary --port 16703`) with a fresh
+# single-use link, opens #168's Code tab, reveals docs/usage.md, then RF-4 (a pending comment and its trash) and RF-3
+# (a drag in the gutter from new line 3 to new line 5).
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010f-followups
+S=$W/target/rf1010f/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010f-before; LANE=realinput-1010f-followups-before; else ROOTDIR=$W; LANE=realinput-1010f-followups; fi
+G=$W/examples/t3-code/tools/github-lane
+( cd $G && PATH=$HOME/.bun-1.4.2/bin:$PATH T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane bun lane.mjs pair primary >/dev/null )
+PAIR=$(cat $W/target/github-lane/servers/primary/pairing-url); rm -f $W/target/github-lane/servers/primary/pairing-url
+F=docs/usage.md
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  # Pair the GitHub lane's server (the embedded one stays focused), then #168's Code tab.
+  "tap connection-settings" "clock +1500 real"
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +1000 real"
+  "type server-origin $PAIR" "clock +500 real"
+  "tap connect" "clock +12000 real"
+  "screenshot $S/0-paired.png window"
+  "type t3-code key Escape" "clock +1500 real"
+  "tap open-pull-requests" "clock +6000 real"
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap pull-request-code-fold-$F" "clock +4000 real"
+  "screenshot $S/1-usage.png window"
+  # RF-4: the "+" on new line 3 opens a draft; a body; Cmd-Return adds it to the review; the trash on the pending card.
+  "tap diff-comment-$F-additions-3" "clock +1500 real"
+  "type pull-request-comment-text lane check" "clock +500 real"
+  "type pull-request-comment-text key Meta+Enter" "clock +1500 real"
+  "screenshot $S/2-pending.png window"
+  "tap pull-request-code-list into pending:pending-review-comment-1 block center" "clock +1500 real"
+  "screenshot $S/2b-pending-centered.png window"
+  "tap pull-request-pending-discard-pending-review-comment-1" "clock +1500 real"
+  "screenshot $S/3-after-discard.png window"
+  # RF-3: press on new line 3's number, drag to new line 5's, release.
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap diff-line-$F-additions-3 drag to diff-line-$F-additions-5 mouse" "clock +1500 real"
+  "screenshot $S/4-after-drag.png window"
+  "state"
+  "logs"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16700 --epoch 2026-10-10T09:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
