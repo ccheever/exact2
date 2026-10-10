@@ -52,6 +52,16 @@ internal class NativeBorders {
         val y1 = top
         val x2 = (width - right).coerceAtLeast(x1)
         val y2 = (height - bottom).coerceAtLeast(y1)
+        // A square single-sided border is a rectangle, not a ring with a hole.
+        if (radii.all { it == 0f } && widths.count { it > 0f } == 1) {
+            when (widths.indexOfFirst { it > 0f }) {
+                0 -> ring.addRect(0f, 0f, width, top, Path.Direction.CW)
+                1 -> ring.addRect(x2, 0f, width, height, Path.Direction.CW)
+                2 -> ring.addRect(0f, y2, width, height, Path.Direction.CW)
+                3 -> ring.addRect(0f, 0f, x1, height, Path.Direction.CW)
+            }
+            return
+        }
         ring.fillType = Path.FillType.EVEN_ODD
         ring.addRoundRect(0f, 0f, width, height, radii, Path.Direction.CW)
         if (x2 > x1 && y2 > y1) {

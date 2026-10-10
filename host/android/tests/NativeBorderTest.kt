@@ -12,6 +12,21 @@ internal object NativeBorderTest {
         val border = NativeBorders()
         val radii = FloatArray(8) { 12f }
         try {
+            val midpoints = arrayOf(50 to 2, 97 to 40, 50 to 77, 2 to 40)
+            for (side in 0..3) {
+                val widths = FloatArray(4).apply { this[side] = 6f }
+                border.invalidate(); bitmap.eraseColor(Color.WHITE)
+                border.draw(canvas, 100f, 80f, widths, IntArray(4) { Color.BLUE }, FloatArray(8))
+                for (other in 0..3) {
+                    val (x, y) = midpoints[other]
+                    check(bitmap.getPixel(x, y) == if (other == side) Color.BLUE else Color.WHITE)
+                }
+                check(bitmap.getPixel(50, 40) == Color.WHITE) { "separator covered content" }
+            }
+            border.invalidate(); bitmap.eraseColor(Color.WHITE)
+            border.draw(canvas, 100f, 80f, floatArrayOf(120f, 0f, 0f, 0f), IntArray(4) { Color.BLUE }, FloatArray(8))
+            check(bitmap.getPixel(50, 79) == Color.BLUE) { "oversized separator was not clamped" }
+            border.invalidate()
             bitmap.eraseColor(Color.WHITE)
             border.draw(canvas, 100f, 80f, floatArrayOf(0f, 0f, 0f, 6f), IntArray(4) { Color.RED }, radii)
             check(bitmap.getPixel(2, 40) == Color.RED) { "left border missing" }
@@ -22,7 +37,7 @@ internal object NativeBorderTest {
             check(bitmap.getPixel(50, 1) == Color.RED && bitmap.getPixel(98, 40) == Color.BLUE)
             check(bitmap.getPixel(50, 78) == Color.GREEN && bitmap.getPixel(2, 40) == Color.MAGENTA)
             check(bitmap.getPixel(50, 40) == Color.WHITE) { "border covered content" }
-            return "NativeBorderTest: PASS (rounded one-sided border, unequal widths and separate side colors)"
+            return "NativeBorderTest: PASS (square separators, oversized widths, rounded border and separate side colors)"
         } finally { bitmap.recycle() }
     }
 }
