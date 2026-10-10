@@ -62,8 +62,13 @@ focus the clicks left, as a keyboard's does.
   tree, the capture path and the accessible name had the new text (the session's image). The fix is X64's documented
   workaround, already used by the Providers list: the label is `each shown in [label] key=shown`, a new text node per
   label. The agent's drive shows the cause, not the paint (agent captures draw the right text either way): the label's
-  node id stays 195 through both labels before and changes with each label after. EXACT2-GAPS X64 names this consumer;
-  the workaround goes when main #327 (which fixes #316) is adopted.
+  node id stays 195 through both labels before and changes with each label after. The key holds the composer's resting
+  size as well (`` key=`${xs}:${shown}` ``, review round): a resting composer in a wide window keeps the label but draws
+  it at 12/400 in at most 10.5rem for 14/500, so the same text can shrink below the raster size. The review's example,
+  a two-model label (about 18,560 device px at 14 pt, 12,700 at 12 pt), cannot rest (a fan-out exists only on a draft,
+  `fanoutSelections` returns null with a thread, and only a thread's composer rests, `canRest`); a long single-model
+  label (a custom model's name above about 205 pt at 14 pt) can. EXACT2-GAPS X64 names this consumer; the workaround
+  goes when main #327 (which fixes #316) is adopted.
 - **RC-3 (Filters' last Escape).** FW-3 (#378) drops the focus with `blur()` when the pointer left the submenu's row
   (Base UI leaves it on BODY). On macOS `blur()` makes the window itself the first responder, and the host's popover
   Escape (`MenusMac.key`) closes a popover only while the focus owner is a view inside the window's content, so a real
@@ -72,19 +77,30 @@ focus the clicks left, as a keyboard's does.
   `tabindex=-1`, `aria-hidden`), outside both KeyMenus and the submenu's row: no row is lit, ↓ moves nothing (no `key`
   handler hears it there), no ring (not pressable), and the next Escape reaches the host's popover Escape, which closes
   Filters and gives the focus back to the Filters button, as the reference does (CDP: BODY, ↓ nothing, Escape →
-  `BUTTON Filters`).
+  `BUTTON Filters`). The host limit is EXACT2-GAPS X73 (review round), with the other `blur()` callers checked against
+  it by reading: `PrPageBack` and `UsageKeys` blur and leave their page with nothing shown, and the menu and dialog
+  openers blur for a popup that takes the focus by `autofocus` and closes on its own Escape shortcut, so none leaves an
+  auto popover open that only the host's Escape closes.
 - **RC-4 (the skill chip's details).**
   - Escape after a click elsewhere: the details closed on Escape only through the native text view's `cancelOperation`,
     which runs only while that text view is the first responder. In the session the heading's click (a paragraph takes
     the focus) left the focus off the text view when the chip was clicked, so Escape reached nothing. The agent drive
     shows the same state (focus on the heading's text node after the chip's press) because its window is never key; on
     the feature-branch tip an Escape at that focus leaves the details open, as in the session. Base UI's Popover
-    dismisses on an Escape anywhere in the document. The popover layer now has a hidden Escape shortcut button
+    dismisses on an Escape anywhere in the document. The window now has a hidden Escape shortcut button for the details
     (`chip-popover-escape`, the pattern of `palette-escape` and the diff menus' Escape buttons), which a key reaches
     from any focus in the window before a field or text view does.
-    It gives Escape up while the palette, the model picker, the composer's options, the project picker or a confirmation
-    holds it (`escape=false`): the host gives an Escape to the oldest shortcut button, and T3 Code's palette over the
-    details closes alone (realinput-1010c H, step 5).
+    The host gives an Escape to the oldest shortcut button that declares it (ShortcutsMac `nodes()`: the lowest node
+    id). The first version put the button in the details layer, made when the chip opened, so a holder made before it
+    kept the key: with a right panel open (Diff, Files, Browser) its toggle holds Escape (`r4-surfaces.contract`), and
+    Escape closed the panel and left the details open (review round; T3 Code binds no Escape to the right panel,
+    `rightPanel.close` is mod+w, so its Popover takes the key). The button is now its own component,
+    `ChipPopoverEscape`, the window's first node (made with the window, so older than every holder made later: the
+    right panel's toggle, the notice stack's "Hide other notices", a surface menu's backdrop beside the composer), and
+    declares Escape only while the details show (`held`).
+    It gives Escape up while the SSH prompt, the palette, the model picker, the composer's options, the project picker
+    or a confirmation holds it (`held=false`; the SSH prompt because the button now sits outside the prompt's inert
+    background), and T3 Code's palette over the details closes alone (realinput-1010c H, step 5).
   - Escape over Settings: Settings' Back holds an `aria-keyshortcuts="Escape"` unless something owns Escape
     (`escapeOwned`); the chip's details were not one, and shortcuts run before any text view, so Escape closed Settings
     (and the details with it). `escapeOwned` now includes `chipOpen` (the window's `chipShown`): the first Escape closes
@@ -126,7 +142,14 @@ focus the clicks left, as a keyboard's does.
 - `MenusMac.key` (the host's popover Escape) answers only when the window's first responder is a view inside the
   viewport, and `blurElement` (`blur()`) makes the window itself the first responder, so on macOS a popover cannot be
   closed by Escape after `blur()`; on the web, Escape closes an auto popover whatever has the focus (BODY included).
-  The clone works around it (RC-3); not filed (the coordinator files).
+  The clone works around it (RC-3); recorded as EXACT2-GAPS X73 with the other `blur()` callers checked against it;
+  not filed (the coordinator files).
+- The host gives an Escape to the oldest shortcut button that declares it (ShortcutsMac `nodes()`, the lowest node id),
+  where the web's popovers and dialogs give it to the newest layer; RC-4's button is placed as the window's first node
+  for that reason. Not a gap row: the clone states the order it needs in each Escape owner (`held`, `escapeOwned`).
+- Not changed (outside this task's rows): the clone's right panel toggle closes the panel on Escape
+  (`r4-surfaces.contract`), while T3 Code's keymap binds none to the right panel (`rightPanel.close` is mod+w,
+  `packages/shared/src/keybindings.ts`); whether another path in T3 Code closes it on Escape was not checked.
 - On an agent drive the window is never key (`key=false` in the R9 input log), so a `tap … mouse` into an NSTextView
   never moves the first responder; rows about a text view's focus after a click need real input.
 
@@ -148,11 +171,13 @@ ops ([drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/0685361b82
 
 ## Tests
 
-- `realinput-1010c-fixes.test.ts` (new): RC-2's keyed label, RC-6's `bpAddItems` and its source rows' ids.
+- `realinput-1010c-fixes.test.ts` (new): RC-2's label keyed on the resting size and the text, RC-6's `bpAddItems` and
+  its source rows' ids.
 - `menu-keys.test.ts` FW-3: `closeSub` focuses `pr-filters-rest` (no `blur()`), the rest box is the popover's first child,
   outside the row that holds the submenu and both KeyMenus.
-- `composer-chip-popover.test.ts`: the layer's `dismiss` and `escape`, the hidden Escape button, `escapeOwned` with
-  `chipOpen`, and the window passing `chipOpen=chipShown`.
+- `composer-chip-popover.test.ts`: the hidden Escape button (`ChipPopoverEscape`, `held`), the window's first node
+  after `main` (review round), its `held` terms, `escapeOwned` with `chipOpen`, and the window passing
+  `chipOpen=chipShown`.
 - AppKit `macos/tests/composer` `chippress.swift`: the chip's button is enabled (56 tests, 0 failures; 1 failure with the
   tip's `modules/apple`).
 
@@ -182,7 +207,10 @@ step 1.
    Claude Sonnet 5.5". Shift+click the original's row: the trigger reads exactly "Claude Sonnet 5.5", nothing of the old
    label painted or clipped, in a box that fits it. Shift+click "Claude Opus 5.5", then Shift+click it again: "Claude
    Sonnet 5.5" again, cleanly. Pass: the painted label equals the accessible name (Accessibility Inspector on the
-   trigger) after every click. Fail: record the painted text.
+   trigger) after every click. Fail: record the painted text. Then, only if a model whose label is wider than about
+   205 pt is at hand (a custom model with a long name; add none for this): on a thread with enough messages to scroll,
+   with Settings › General "Collapse composer on scroll" on and the window wide, choose that model, scroll the timeline
+   until the composer rests (its controls shrink), then back to the end: the label paints whole at both sizes.
 2. **RC-3, Filters' last Escape.** Pull Requests › click Filters › click Author ("Search authors" has the caret) › click
    inside "Search authors" › Escape: Author closes, Filters stays, no row lit, no ring › ↓: nothing moves › Escape: Filters
    closes and the Filters button has the ring. Repeat with State: click Filters › click State › move the pointer onto
@@ -194,7 +222,9 @@ step 1.
    details stay above the palette; Escape closes only the palette; Escape again closes the details. (b) Settings ›
    Appearance › click the prompt sample's chip › Escape: the details close and Settings stays; Escape again: Settings
    closes. (c) Accessibility Inspector on the composer's text area: the child button "Skill Frontend Design. Show details"
-   reads Enabled: true.
+   reads Enabled: true. (d) The right panel open (review round): open a Diff, Files or Browser panel (⌘⌥B or the
+   header's panel button), click the heading, click the chip, press Escape: the details close and the panel stays;
+   Escape again closes the panel (the clone's own panel Escape). Repeat with the notice stack expanded if one shows.
 4. **RC-6, Add profile by keys.** Settings › Integrations › Browser profiles: Tab (or click then Escape) until "Add
    profile" has the ring, press ↓: the menu opens on Blank profile. ↓: Chrome. ↓: Brave, then Arc, Safari, Firefox, and
    ↓ from Firefox wraps to Blank profile; ↑ goes back. Return on Chrome opens the import wizard (Cancel it; do not
