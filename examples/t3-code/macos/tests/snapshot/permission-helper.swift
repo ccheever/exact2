@@ -72,11 +72,13 @@ func runPermissionHelperChecks() {
     guard let panel = helper.panel else { fatalError("helper panel opens") }
     expect(!panel.isVisible, "the panel waits for the Settings window before it shows")
     expect(panel.title == "Set up Screen Recording" && panel.level == .floating && !panel.hidesOnDeactivate && !panel.hasShadow && !panel.isOpaque, "a frameless, always-on-top panel titled for its permission")
-    // realinput-1010c RC-1: the reference's helper is an ordinary window, so a click in it activates T3 Code (the
-    // window server's own activation, which no app can refuse); a non-activating panel left T3 Code inactive and its
-    // reveal behind System Settings. AppKit's activation flag for the window is what the window server reads on the click.
-    expect(!panel.styleMask.contains(.nonactivatingPanel) && panel.value(forKey: "preventsActivation") as? Bool == false, "a click in the panel activates T3 Code, as a click in the reference's window does")
-    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.content.appRow.acceptsFirstMouse(for: nil), "the click that activates T3 Code makes the panel key and also reaches the row")
+    // realinput-1010c RC-1: the panel is an activating window, as the reference's ordinary BrowserWindow is, so a click
+    // in it activates T3 Code; the non-activating panel left T3 Code inactive and its reveal behind System Settings.
+    expect(!panel.styleMask.contains(.nonactivatingPanel), "a click in the panel activates T3 Code (no .nonactivatingPanel), as the reference's window is activating")
+    // Declared difference (RC-1): the reference's window keeps Electron's macOS default acceptFirstMouse false, so its
+    // first click from System Settings only activates T3 Code and a second press reveals or drags; the row accepts the
+    // first mouse (since #359), so the activating click also reveals or drags, as RC-1 asks.
+    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.content.appRow.acceptsFirstMouse(for: nil), "the click that activates T3 Code makes the panel key and also reaches the row (the reference's first click only activates)")
     let content = panel.content
     content.pointer = { NSPoint(x: -10_000, y: -10_000) } // the real pointer may rest where the panel docks
     expect(content.title.stringValue == "↑ Drag T3 Code into the list above" && content.appRow.label.stringValue == "T3 Code", "reference header and app row text")

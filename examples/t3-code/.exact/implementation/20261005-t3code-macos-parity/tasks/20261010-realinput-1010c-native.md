@@ -50,13 +50,24 @@ Included: RC-1, RC-7 and RC-9 (RC-7 and RC-9 start as checks). The UI rows are i
   Settings, with Settings still frontmost and the helper still docked. The reference's helper is an ordinary focusable
   `BrowserWindow` (`MacPermissionHelper.ts:100-117`, shown with `showInactive()`): a click in it is a window-server
   activation, which no app refuses, and `shell.showItemInFolder` (`:145,148`) then runs from the active app. The panel
-  is now `[.borderless]` (AppKit's `preventsActivation` is off), so the same click activates T3 Code; showing it still
-  never activates (`orderFrontRegardless`, the reference's `showInactive`). `T3FinderReveal` asks to activate T3 Code
-  only when it is not active (a VoiceOver press, which is no click), then yields to Finder, asks for the reveal and asks
-  Finder to activate. A press that starts a drag now activates T3 Code too, as in the reference; the panel is then key,
-  so `sync` keeps it shown while System Settings is not frontmost (the reference's `!frontmost && !isFocused`), and it
-  hides once Finder or another app is front. This removes the previous record's undeclared difference "the panel does
-  not activate T3 Code" (snapshot-permission-helper).
+  is now `[.borderless]` (no `.nonactivatingPanel`), so a click in it activates T3 Code; showing it still never
+  activates (`orderFrontRegardless`, the reference's `showInactive`). That the window server does activate T3 Code on
+  the click is real-input batch step 1; agent mode cannot read it. `T3FinderReveal` asks to activate T3 Code only when
+  it is not active (a VoiceOver press, which is no click), then yields to Finder, asks for the reveal and asks Finder
+  to activate. A press on the panel now activates T3 Code too, as in the reference; the panel is then key, so `sync`
+  keeps it shown while System Settings is not frontmost (the reference's `!frontmost && !isFocused`), and it hides
+  once Finder or another app is front. This removes the previous record's undeclared difference "the panel does not
+  activate T3 Code" (snapshot-permission-helper).
+- RC-1, the first click (a declared difference, review round 1; Decision needed in #398): the reference's
+  `BrowserWindow` never sets `acceptFirstMouse`, whose macOS default is false (Electron 44.4.2 `electron.d.ts:3824-3828`,
+  "Whether clicking an inactive window will also click through to the web contents"). So in the reference the first
+  click on the helper while System Settings is front only activates T3 Code and focuses the helper; the `click` or
+  `dragstart` that sends `finder` or `drag` needs a second press. The clone's row and close button return
+  `acceptsFirstMouse` true (unchanged since #359), so the activating click also reveals (or starts the drag, or
+  closes). That is what RC-1 (and RI-2 before it) asks for, but it differs from the reference: one press here, two
+  there. It is not an Exact limit, so it is not in `EXACT2-GAPS.md`. Batch step 3 checks the reference's first click,
+  and the user decides whether the clone keeps one press or matches the reference (`acceptsFirstMouse` false on the
+  row and the close button).
 - RC-7: no change; the access is not the app's. The TCC log of the session attributes every Documents request of a
   lane copy to a child of the embedded T3 server, never to the app: the real `codex` CLI (26 requests), `claude` (6),
   Xcode's `git` (5). Reproduced from a shell with the pinned server started as the clone starts it in a lane (cwd = home
@@ -77,7 +88,7 @@ Included: RC-1, RC-7 and RC-9 (RC-7 and RC-9 start as checks). The UI rows are i
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| RC-1 | implemented, not verified (real input). Before: the panel prevents activation, so a click left T3 Code inactive and its own activation request was refused (B2). After: AppKit's activation flag for the panel is off, the activating click reaches the row, and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. Open until real-input batch steps 1-2 run. | [rc1-activation-readback.txt](https://raw.githubusercontent.com/ccheever/exact2/b67fa776e9f9034f47a7c735b2c9fc124723c2ad/realinput-1010c-native/rc1-activation-readback.txt), [rc1-appkit-snapshot.txt](https://raw.githubusercontent.com/ccheever/exact2/9f3a84c9ebd9e99a985d2e1da9a339e5b8cc0caf/realinput-1010c-native/rc1-appkit-snapshot.txt) |
+| RC-1 | implemented, not verified (real input). Before: the panel was `.nonactivatingPanel`, so a click left T3 Code inactive and its own activation request was refused (B2). After: the panel has no `.nonactivatingPanel`, so a click in it is expected to activate T3 Code; the row takes that activating click (`acceptsFirstMouse`, unchanged), and the reveal runs from the active app (yield, reveal, activate Finder). AppKit `snapshot` test: 57 permission helper checks pass. One press reveals here; the reference's first press only activates (Electron's default `acceptFirstMouse` false): a declared difference, Decision needed in #398. Open until real-input batch steps 1-3 run. | [rc1-activation-readback-v2.txt](RB2_URL), [rc1-appkit-snapshot-v2.txt](SNAP2_URL) |
 | RC-7 | pass by check, no change: the accessor is codex (and claude, git) run by the T3 server in a lane home inside a git worktree whose gitdir is in `~/Documents`; the reference lane makes the same access; a lane outside any repository makes none. | [rc7-documents-access.txt](https://raw.githubusercontent.com/ccheever/exact2/55bf6a49ba06d3ccf74bfcafcfc22780c2b4e096/realinput-1010c-native/rc7-documents-access.txt) |
 | RC-9 | pass by reference comparison, no change: both default to Hold, and Hold quits on a 1.2 s hold or two presses within 0.5 s. | [rc9-quit-default.txt](https://raw.githubusercontent.com/ccheever/exact2/93df05a1efd938c9ab5d81423ace87e4158fbc92/realinput-1010c-native/rc9-quit-default.txt) |
 
@@ -94,19 +105,31 @@ CLIs read the worktree's gitdir in `~/Documents` and raise a Documents prompt fo
    and the helper is not on screen. T3 Code's main window stays where it was (a click activation brings forward only the
    clicked panel). Click System Settings: Settings is front and the helper is back at its docked place. If Finder stays
    behind, record the front app right after the press (T3 Code means the click activated it; System Settings means it
-   did not) and the helper's state.
+   did not) and the helper's state. (One press reveals here; the reference's first press only activates: step 3.)
 2. **RC-1, the drag after the change.** With the helper docked and System Settings front: press on the "T3 Code" row
-   (T3 Code becomes the front app, as in the reference; the helper stays docked), drag a short way into the Screen
+   (T3 Code becomes the front app, as in the reference, and the drag starts on this first press, unlike the reference:
+   step 3; the helper stays docked), drag a short way into the Screen
    Recording list and back onto the helper, release there: the drag image slides back, nothing is added or revealed,
    and the helper is still docked. Click System Settings: the helper stays docked. Whether to drop T3 Code into the list
    (a real grant) is the user's call; if dropped, the helper closes within a second once the grant is detected.
+3. **RC-1, the reference's first click.** Start the reference lane (`A/ref-app.sh <lane> <base>`) and open the same
+   setup there (SnapShots › Set up › Allow (Screen Recording); `DesktopSnapShot.ts:1311`): System Settings opens and
+   the reference's helper docks in it. With System Settings front, click the helper's "T3 Code" row once (no drag).
+   Record the front app right after, whether a Finder window with the bundle selected came up, and whether the helper is
+   still docked; then click the row a second time and record the same. Expected from Electron's documented default
+   (`acceptFirstMouse` false): the first click only makes the reference app front (no Finder; the helper stays docked
+   and focused), and the second reveals and brings Finder front. If so, the clone's one-press reveal (step 1) is the
+   declared difference under "Cause and fix" (Decision needed in #398); if the reference's first click already reveals,
+   the two match and the difference is withdrawn. Stop it with `A/ref-stop.sh <lane>`.
 
 ## Tests
 
-- AppKit `macos/tests/snapshot`: the permission helper checks (57) now read AppKit's activation flag for the panel
-  (`preventsActivation` off, no `.nonactivatingPanel`), check that the activating click reaches the row
-  (`acceptsFirstMouse`), that a mouse click on the row reveals, and the reveal's calls from a click-activated app (yield,
-  select, activate Finder) and from an inactive one (activate T3 Code first).
+- AppKit `macos/tests/snapshot`: the permission helper checks (57) now check that the panel is an activating window (no
+  `.nonactivatingPanel`; this fails on the base build's style mask), that the activating click reaches the row
+  (`acceptsFirstMouse`, the declared difference from the reference's first click), that a mouse click on the row
+  reveals, and the reveal's calls from a click-activated app (yield, select, activate Finder) and from an inactive one
+  (activate T3 Code first). Public AppKit API only: review round 1 dropped a key-value read of AppKit's private
+  `preventsActivation`, which would raise and stop the whole binary on an AppKit without it.
 
 Checks (final head `c326c090d`, all exit 0): bun test 4242 pass / 1 skip / 0 fail; strict tsc; contract build (`app.contract` 1329
 lines); `cargo test -p t3-code-macos --lib` 17 pass; AppKit `snapshot`; caps; the five checks (cargo test 3675 pass, 0 fail);
@@ -115,5 +138,7 @@ the bundle build. Live drive (agent mode, once): the app launches and connects
 
 ## Next action
 
-Coordinator: review draft PR [#398](https://github.com/ccheever/exact2/pull/398); real-input batch steps 1-2 close RC-1 (front app
-read-back).
+Coordinator: review draft PR [#398](https://github.com/ccheever/exact2/pull/398); real-input batch steps 1-3 close RC-1 (front app
+read-back; step 3 is the reference's first click). Decision needed (in #398): keep the one-press reveal from System
+Settings that RC-1 asks for (a declared difference) or match the reference's documented first click, which only
+activates (`acceptsFirstMouse` false on the row and the close button: two presses).

@@ -70,13 +70,14 @@ final class T3SettingsWindowWatcher {
 }
 
 /// Reference shell.showItemInFolder, asked by the active app: the reference's helper is an ordinary window, so the click
-/// that reveals has already made T3 Code active (the window server activates an app on a click in its window), and a
-/// reveal asked by the active app brings Finder's window to the front (the helper then hides, System Settings being
-/// covered). The panel is that kind of window too (T3PermissionPanel), so a click reaches here with T3 Code active, and
-/// T3 Code yields activation to Finder, asks for the reveal and asks Finder to activate. A request to activate itself
-/// from an inactive app is refused under real input (realinput-1010c RC-1: two clicks left Finder behind System
-/// Settings with T3 Code inactive), so it is only a fallback for a press that is no click (VoiceOver's press). Nothing
-/// waits for Finder's window: the reveal reaches Finder as a request, and the activation request follows it at once.
+/// that reveals finds T3 Code active (the window server activates an app on a click in its window; there the first
+/// click only activates), and a reveal asked by the active app brings Finder's window to the front (the helper then
+/// hides, System Settings being covered). The panel activates too (T3PermissionPanel), so a click reaches here with
+/// T3 Code active, and T3 Code yields activation to Finder, asks for the reveal and asks Finder to activate. A request
+/// to activate itself from an inactive app is refused under real input (realinput-1010c RC-1: two clicks left Finder
+/// behind System Settings with T3 Code inactive), so it is only a fallback for a press that is no click (VoiceOver's
+/// press). Nothing waits for Finder's window: the reveal reaches Finder as a request, and the activation request
+/// follows it at once.
 struct T3FinderReveal {
     static let finder = "com.apple.finder"
     // Seams for the AppKit test; the defaults are the real system.
@@ -180,11 +181,12 @@ final class T3PermissionHelper {
 
 /// Reference helper window (an ordinary focusable BrowserWindow): frameless, transparent,
 /// shadowless, always on top, out of the window cycle. Showing it never activates T3 Code
-/// (orderFrontRegardless, the reference's showInactive); a click in it does, the window
-/// server activating the app as for any window that does not prevent activation, so a
-/// click on the row reveals the app from the active app (T3FinderReveal) and a press that
-/// starts a drag makes the panel key, which keeps it shown while System Settings is not
-/// frontmost (sync, the reference's `!frontmost && !isFocused`).
+/// (orderFrontRegardless, the reference's showInactive); a click in it does, as in any
+/// window without .nonactivatingPanel. The row takes that activating click (acceptsFirstMouse,
+/// a declared difference: the reference's first click only activates), so a click on the
+/// row reveals the app from the active app (T3FinderReveal) and a press that starts a drag
+/// makes the panel key, which keeps it shown while System Settings is not frontmost (sync,
+/// the reference's `!frontmost && !isFocused`).
 final class T3PermissionPanel: NSPanel {
     let content: T3PermissionHelperView
     var onEscape: () -> Void = {}
@@ -313,6 +315,9 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         icon.draw(in: NSRect(x: 12, y: (bounds.height - 32) / 2, width: 32, height: 32), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
+    // Declared difference (realinput-1010c RC-1): the reference's window keeps Electron's macOS default
+    // acceptFirstMouse false, so its first click from System Settings only activates T3 Code; here the activating
+    // click also reaches the row (a click reveals, a press drags), as RC-1 asks. The close button does the same.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
