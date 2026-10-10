@@ -5,7 +5,7 @@
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/20261010-x71-pointermove-without-press-capture.md; issues/20261009-macos-popover-pointer-passthrough.md (#281)
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x71-pointermove-without-press-capture.md; issues/20261009-macos-popover-pointer-passthrough.md (#281)
 
 ## Summary
 

@@ -5,7 +5,7 @@
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/20261009-x69-paint-role-node-query.md; issues/20261009-elements-from-point-read.md (#321)
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261009-x69-paint-role-node-query.md; issues/20261009-elements-from-point-read.md (#321)
 
 ## Summary
 
