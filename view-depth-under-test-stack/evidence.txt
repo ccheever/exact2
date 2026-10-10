@@ -1,0 +1,39 @@
+view-depth-under-test-stack — text evidence (2026-10-10)
+Base: feat(example)/t3-code 1b848a8be. After: f69ab9414 (the flatten commit). main: 67a1892b6.
+
+1. Debug compiler of the branch (cargo build -p contract --bin contract), contract build examples/t3-code/app.contract
+   base   ulimit -s 2048: exit 134 ("thread 'main' has overflowed its stack"); 3072: exit 0
+   after  ulimit -s 2048: exit 0 (215 s); 1792: exit 0; 1664: exit 0
+   after summary: 6341 slots, 13 derives, 48 resources, 7737 actions, 109849 nodes, 43947 regions, 27043895 bytes
+   base  plan: 109849 nodes, 41379 regions, 27407807 bytes (the same plan nodes: no element added or removed)
+
+2. Where the stack goes (lldb at the base overflow, 2 MiB thread, unoptimized):
+   Lowerer::nodes 18,816 B + Lowerer::node 512 B per nested site; expr::compile 12,720 B per nested expression level.
+   The overflowing frame: 68 nested sites + 56 nested expression levels (an icon's 43-link name ternary over a
+   substituted chipIcon(chipFamily(kind)) argument).
+   Peak lowering stack, measured with a scratch instrumented copy of contract-lower (not committed):
+     base 2,303 KiB at site depth 80 (icons.contract Icon path under the PR code-review markdown)
+     after 1,535 KiB at site depth 67 (75% of 2 MiB); deepest plan site 80 -> 67
+
+3. main 67a1892b6, scratch worktree under target/ (git worktree add --detach), examples/t3-code copied in:
+   cargo test -p contract --test it button_migration
+     as copied: exit 101, no abort: "source sweep: 89 roots, 192 imported source files, 2 failures", both main's
+       language moves, not depth: r6-device.contract:323 [type-now-renamed] now() (round 7's performanceNow() rename)
+       and .exact/.../evidence/20261007-interface-font-size/rem-probe.contract:24 [lower-attr-value] calc() height
+     with the scratch copy's now() -> performanceNow() and without .exact/: exit 0,
+       "source sweep: 90 roots, 192 imported source files, 0 failures", test result: ok (252.83 s)
+   main's debug CLI on the same copy: after ulimit -s 2048 exit 0, 1664 exit 0; base (same rename) 2048 exit 134
+   The scratch worktree was removed after.
+
+4. Regrouped lookup chains: 24 chains (>= 8 links), every literal plus "zz-unknown" and "" (and both diff schemes):
+   1404 values, 0 mismatches between the original and the includes()-grouped expression (bun, JS translation).
+
+5. No visible or behavioral change: one agent drive per build, 1280x840, six surfaces
+   (shell, thread "Timeline verification", composer with a typed draft, right panel launcher, Add project dialog, Settings):
+   same lane (view-depth-under-test-stack-before) for both builds:
+     agent tree diff testId/role/label: 0 lines on every surface (175/172/171/161/152/531 entries)
+     full node diff (type, depth, handlers, every prop): 0 lines on every surface
+     screenshots: pixel-identical on all six (PIL ImageChops difference bbox None)
+   first after-drive on the fresh lane view-depth-under-test-stack: thread, composer, right panel and dialog identical;
+     shell and Settings differ only in lane data (the lane's project id and path; Claude's effort label "Medium · 1M"
+     with a context-window choice, provider state of the real claude CLI in that lane), so the same-lane drive is the proof.
