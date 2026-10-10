@@ -180,6 +180,8 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        // The window it joined takes the accent; one it left has its own back
+        session.presenter.accent.apply()
         if window != nil { reportScheme() }
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()

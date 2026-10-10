@@ -296,6 +296,7 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   const keys = iosAssets(app, ios, false, { catalog: true, kept: cache, expected: inventory });
   assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
   assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.equal(keys.NSAccentColorName, undefined, 'no AccentColor set, no accent named');
   const inspect = path => {
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(path, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
@@ -315,6 +316,16 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   iosAssets(app, second, false, { catalog: true, kept: cache });
   assert.notEqual(readdirSync(cache.dir).find(name => name.startsWith('assets-ios-')), held);
   assert.notDeepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  // An `AccentColor` set is named the app's accent, as Xcode's default
+  json(`${source}/AccentColor.colorset/Contents.json`, colour('0.5'));
+  const accented = resolve(dir, 'Accented.app'); mkdirSync(accented);
+  assert.equal(iosAssets(app, accented, false, { catalog: true }).NSAccentColorName, 'AccentColor');
+  const cached = resolve(dir, 'Cached.app'); mkdirSync(cached);
+  assert.equal(iosAssets(app, cached, false, { catalog: true, kept: cache }).NSAccentColorName, 'AccentColor', 'the cached path names it too');
+  assert.ok(inspect(accented).some(asset => asset.Name === 'AccentColor'));
+  const accentedMac = resolve(dir, 'AccentedMac.bundle/Contents/Resources'); mkdirSync(accentedMac, { recursive: true });
+  assert.equal(appleAssets(app, accentedMac, { platform: 'macos' }).NSAccentColorName, 'AccentColor', 'macOS names it too');
+  rmSync(resolve(dir, source, 'AccentColor.colorset'), { recursive: true, force: true });
   const mac = resolve(dir, 'Catalog.bundle/Contents/Resources'); mkdirSync(mac, { recursive: true });
   put('Catalog.bundle/Contents/Info.plist', '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.exact.catalog.test</string></dict></plist>');
   appleAssets(app, mac, { platform: 'macos', kept: cache });
