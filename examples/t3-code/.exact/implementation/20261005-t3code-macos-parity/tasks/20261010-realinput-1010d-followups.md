@@ -37,7 +37,7 @@ and leave the framework alone; the main issue is filed separately.
 
 Excluded:
 - #383 step 4's second Escape leaving Filters open: the same cause as RC-3, fixed in
-  [realinput-1010c-fixes](20261010-realinput-1010c-fixes.md).
+  [realinput-1010c-fixes](closed/20261010-realinput-1010c-fixes.md).
 - #308's gutter drag: not run, because the GitHub lane's Code tab answered HTTP 503. It is a re-check for the next
   real-input session (STATUS), not a fix.
 - #296 U6's race (pairing before the server registers itself as This machine): real input cannot time it; its unit
