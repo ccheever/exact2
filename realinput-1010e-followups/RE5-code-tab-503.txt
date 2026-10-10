@@ -1,0 +1,54 @@
+realinput-1010e-followups RE-5: PR #168's Code tab answered "The server returned HTTP 503." (2026-10-10)
+
+Which request: in realinput-1010d (lane ri1010d-5; 1010e's lane is gone, same setup) the lane copy ran its embedded server
+(This machine, focused; no GitHub project) and was paired with the GitHub lane's primary server, where #168 is listed. The
+pull request's detail and activity went to the lane server, but the Code tab's diff and its Viewed read went to the embedded
+server, which refused them (PullRequestService requireProject: provider-unsupported, PullRequestUnavailableError, HTTP 503):
+  == the lane copy's embedded server (This machine, focused): <ri1010d-5>/t3-home/userdata/logs/server.trace.ndjson
+    1791611878.6 ws.rpc.pullRequests.filesViewed pullRequests.filesViewed  Failure PullRequestUnavailableError: Change requests cannot be browsed for this project's host yet.
+    1791611878.7 http.server POST  503 Success 
+  == the GitHub lane's primary server (where #168 is listed): <ri1010d-5>/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson
+    1791611860.8 ws.rpc.pullRequests.detail pullRequests.detail  Success 
+    1791611861.7 ws.rpc.pullRequests.activity pullRequests.activity  Success 
+    1791611938.5 ws.rpc.pullRequests.detail pullRequests.detail  Success 
+    1791612005.2 ws.rpc.pullRequests.detail pullRequests.detail  Success 
+
+Not a lane setup problem: the lane server answers the diff (asked directly with the pairing exchange's bearer, the request the
+clone sends): {projectId, host: github.com, repository, number: 168} -> 200, 100 files and a next cursor.
+
+The reference: pullRequests.ts (client-runtime state) reads the diff as the pull request environment's own HTTP read
+(createEnvironmentQueryAtomFamily: that environment's prepared connection) and routes filesViewed, setFilesViewed and
+diffFileContents (routedRequest); the clone sent those four to the focused connection (pages-pr-code.ts client.call).
+Paired the same way over CDP (its own local backend focused, the lane server added in Settings > Connections), the
+reference shows #168's files; its diff went to the lane server (below, the first block of the lane server's spans).
+
+Same steps in both clone drives (agent mode, the embedded server focused, the lane paired in Settings > Connections):
+== before (feature tip 4c13b440f): the clone's embedded server
+  1791627651.4 ws.rpc.pullRequests.filesViewed  Failure PullRequestUnavailableError: Change requests cannot be browsed for this project's host yet.
+  1791627651.4 http.server POST 503 Success 
+== after (this branch): the clone's embedded server
+== the GitHub lane's server 127.0.0.1:16643: the reference (1791626703-708), then the before and after drives
+  1791626703.6 ws.rpc.pullRequests.detail  Success 
+  1791626703.6 ws.rpc.pullRequests.activity  Success 
+  1791626708.7 http.server POST 200 Success 
+  1791626708.7 ws.rpc.pullRequests.filesViewed  Success 
+  1791627645.3 ws.rpc.pullRequests.detail  Success 
+  1791627645.4 ws.rpc.pullRequests.activity  Success 
+  1791627756.4 ws.rpc.pullRequests.detail  Success 
+  1791627756.5 ws.rpc.pullRequests.activity  Success 
+  1791627762.5 ws.rpc.pullRequests.filesViewed  Success 
+  1791627764.7 http.server POST 200 Success 
+  1791628637.0 ws.rpc.pullRequests.detail  Success 
+  1791628637.1 ws.rpc.pullRequests.activity  Success 
+  1791628643.1 ws.rpc.pullRequests.filesViewed  Success 
+  1791628645.3 http.server POST 200 Success 
+
+After: CodeContext carries the environment the pull request was listed on (the panel's selection); prDiff goes to that
+server's transport (environmentCall), filesViewed and diffFileContents through the pull request router from it (shared
+reads, as before), setFilesViewed detached on it. The 503's text: T3RemoteAuth.failureMessage now reads a pull request
+error's tag as the RPC path does: PullRequestUnavailableError -> 'Change requests cannot be browsed for this project's host
+yet.' (or the CLI's requirement), PullRequestOperationError -> 'Pull request operation <op> failed: <detail>'.
+
+Tests: realinput-1010e-followups.test.ts 'RE-5' (a focused server that refuses, a paired one that holds the project): before
+the tab ends in phase 'error'; after 'files', the diff and the Viewed read on the paired server, nothing on the focused one.
+AppKit transport (remote-scopes.swift): the 503 and 502 bodies give the reference's sentences (62 tests, 0 failures).
