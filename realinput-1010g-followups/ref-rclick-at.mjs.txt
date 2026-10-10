@@ -1,0 +1,12 @@
+// realinput-1010g-followups RG-2: a real right-click (Chromium's contextmenu) at a point inside an element, then the
+// field's value and selection. Usage: node ref-rclick-at.mjs <cdpPort> <css> <dx> <dy>
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, css, dx, dy] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+await page.locator(css).first().click({ button: 'right', position: { x: Number(dx), y: Number(dy) } });
+await page.waitForTimeout(800);
+console.log(JSON.stringify(await page.locator(css).first().evaluate((e) => ({ value: e.value, start: e.selectionStart, end: e.selectionEnd, selected: e.value.slice(e.selectionStart, e.selectionEnd), focused: document.activeElement === e }))));
+process.exit(0);
