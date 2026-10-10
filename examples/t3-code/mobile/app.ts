@@ -1,5 +1,6 @@
 import { mobileComposerRootSnapshot, mobileComposerRootAction } from './composer-root';
 import { mobileThreadSendRootSnapshot, mobileThreadSendRootAction } from './thread-send-root';
+import { mobileThreadForkObserveRoute, mobileThreadForkAction } from './thread-fork';
 import { mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { letGoAware } from './shared/let-go';
 import { mobileKeyboardSnapshot, mobileKeyboardCopy, mobileKeyboardDismiss } from './mobile-keyboard';
@@ -639,6 +640,11 @@ const sources: Sources = {
     const native = sourceNative('threadView', args, nativeInput);
     return threadView(args, native);
   },
+  threadFork: (args, _store, storage, nativeInput) => {
+    const handle = nativeInput?.available ? letGoAware(mobileNative(sourceNative('threadFork', args, nativeInput)!)) : nativeInput;
+    const handles = mobileDraftRecoveryHandles(mobileClient, handle, handle?.available ? nativeFiles(handle) : storage!);
+    return mobileThreadForkAction(mobileClient, str(args[0]), str(args[1]), str(args[2]), handles.native, handles.storage);
+  },
   answerFilesPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('answerFilesPrepare', args, nativeInput);
     return mobileThreadAnswerFilesPrepare(str(args[0]), str(args[1]), Number(args[2]), native);
@@ -760,7 +766,9 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
 }
 
 async function threadView(args: unknown[], native?: Native | null) {
-  const [_revision, time, scheme, environmentId, threadId, active] = args;
+  const [_revision, time, scheme, environmentId, threadId, active, visit, routeName] = args;
+  mobileThreadForkObserveRoute(mobileClient, str(visit), active === true && routeName === 'thread'
+    && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId);
   const queued = mobileOutboxThread(active === true ? str(environmentId) : '', active === true ? str(threadId) : '', Number(time), scheme === 'dark');
   const matched = active === true && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId;
   if (queued && !matched) return queued;

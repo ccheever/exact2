@@ -73,6 +73,9 @@ shape ThreadRow
   media: list<ThreadMedia>
   first: bool
   last: bool
+  canFork: bool
+  forkKey: string
+  forkBusy: bool
 shape ThreadApprovalOption
   id: string
   label: string

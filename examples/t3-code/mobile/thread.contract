@@ -90,6 +90,13 @@ component ThreadMessage
             ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
           when row.showMeta
             row margin-top=3.5 align-items="center" gap=3.5
+              when row.canFork
+                button press=action("fork-response", row.id, row.forkKey) width=24.5 height=24.5 padding=0 disabled=row.forkBusy opacity=(row.forkBusy ? 0.4 : 1) aria-label="Fork from this response" testId=`thread-fork-${row.id}`
+                  column width=24.5 height=24.5 align-items="center" justify-content="center"
+                    when row.forkBusy
+                      t3-archive-spinner spinner-tint=colors.iconSubtle width=20 height=20
+                    else
+                      t3-symbol symbol-name="arrow.triangle.branch" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
               ThreadCopy(row=row, action=action, colors=colors)
               text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
       else

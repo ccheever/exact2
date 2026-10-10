@@ -1,4 +1,5 @@
 import { mobileQueuedEditPresentation } from './queued-edit';
+import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from './thread-fork';
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
 // @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1109.003-pairing-and-transport.decision.md#mobile-adaptations
@@ -31,7 +32,7 @@ export interface ThreadMedia { id: string; name: string; kind: string; url: stri
 export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadBlock[]; user: boolean;
   timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; intent: string; copied: boolean;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
-  media: ThreadMedia[]; first: boolean; last: boolean; }
+  media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
 export interface ThreadApproval { id: string; title: string; detail: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
 export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
@@ -60,6 +61,7 @@ export function mobileThreadBlocks(body: string, dark: boolean): ThreadBlock[] {
 }
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
 export function mobileThreadRows(client: T3Client, now: number, dark = false): ThreadRow[] {
+  mobileThreadForkObserveProjection(client);
   const source = transcriptRows(client), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
   const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
   const view = timelineView(client), rows: ThreadRow[] = [];
@@ -82,7 +84,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
       streaming: message.streaming === true, attribution: message.attribution === 'automation' ? 'Sent by automation' : message.attribution === 'agent' ? 'Sent by agent' : '',
       intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
-      live: message.live === true, media, first: false, last: false,
+      live: message.live === true, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
       activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
         const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp));
         // Parse only visible reasoning; tools keep literal command/result output.
@@ -95,7 +97,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
       blocks:mobileThreadBlocks(record.text,dark),user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
       showMeta:true,streaming:false,attribution:'',intent:threadOutboxStatus(pending.status),copied:false,expanded:false,
       toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
-      media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
+      canFork:false,forkKey:'',forkBusy:false,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
         url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
   }
   rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; }); return rows;
