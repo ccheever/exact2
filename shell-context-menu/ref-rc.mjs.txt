@@ -1,0 +1,49 @@
+// The reference's shell context menu per case (shell-context-menu lane; not committed).
+// Usage: node ref-rc.mjs <cdpPort> <inspectPort> "<op>" ...
+// Ops: size w h | shot file | rc x y (right-click, then the menu the shell built) | rcsel <css> (right-click an element's centre)
+//      click x y | dbl x y | drag x1 y1 x2 y2 | type text | press key | eval js | wait ms | find <text> (its box) | frames
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, inspect, ...ops] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const pages = browser.contexts().flatMap((c) => c.pages());
+const page = pages.find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:')) ?? pages[0];
+const out = (o) => console.log(JSON.stringify(o));
+const list = await (await fetch(`http://127.0.0.1:${inspect}/json/list`)).json();
+const ws = new WebSocket(list[0].webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener('open', r, { once: true }));
+let id = 0; const pending = new Map();
+ws.addEventListener('message', (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+const main = async (expression) => { const i = ++id; const r = await new Promise((res) => { pending.set(i, res); ws.send(JSON.stringify({ id: i, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); }); return r.result?.result?.value; };
+const shown = async () => {
+  const log = JSON.parse((await main('JSON.stringify(globalThis.__ctx ?? [])')) ?? '[]');
+  await main('globalThis.__ctx = []');
+  const sel = await page.evaluate(() => ({ selection: String(getSelection()), active: document.activeElement?.tagName + (document.activeElement?.getAttribute('aria-label') ? `[${document.activeElement.getAttribute('aria-label')}]` : '') }));
+  return { ...sel, log };
+};
+const split = (s) => { const i = s.indexOf(' '); return i < 0 ? [s, ''] : [s.slice(0, i), s.slice(i + 1)]; };
+await main('globalThis.__ctx = []');
+for (const raw of ops) {
+  const [op, rest] = split(raw);
+  try {
+    switch (op) {
+      case 'size': { const [w, h] = rest.split(' ').map(Number); await page.setViewportSize({ width: w, height: h }); break; }
+      case 'shot': await page.screenshot({ path: rest }); out({ op, file: rest }); break;
+      case 'rc': { const [x, y] = rest.split(' ').map(Number); await page.mouse.click(x, y, { button: 'right' }); await page.waitForTimeout(400); out({ op, x, y, ...(await shown()) }); break; }
+      case 'rcsel': { await page.locator(rest).first().click({ button: 'right', timeout: 5000 }); await page.waitForTimeout(400); out({ op, sel: rest, ...(await shown()) }); break; }
+      case 'click': { const [x, y] = rest.split(' ').map(Number); await page.mouse.click(x, y); break; }
+      case 'dbl': { const [x, y] = rest.split(' ').map(Number); await page.mouse.dblclick(x, y); break; }
+      case 'drag': { const [a, b, c, d] = rest.split(' ').map(Number); await page.mouse.move(a, b); await page.mouse.down(); await page.mouse.move(c, d, { steps: 8 }); await page.mouse.up(); break; }
+      case 'type': await page.keyboard.type(rest, { delay: 15 }); break;
+      case 'press': await page.keyboard.press(rest); break;
+      case 'eval': out({ op, value: await page.evaluate(rest) }); break;
+      case 'main': out({ op, value: await main(rest) }); break;
+      case 'wait': await page.waitForTimeout(Number(rest)); break;
+      case 'find': { const box = await page.getByText(rest, { exact: false }).first().boundingBox(); out({ op, text: rest, box }); break; }
+      case 'goto': { const u = new URL(page.url()); await page.goto(rest.startsWith('#') ? u.origin + u.pathname + rest : u.origin + rest); break; }
+      default: out({ op, error: 'unknown op' });
+    }
+  } catch (e) { out({ op, error: String(e.message ?? e).split('\n')[0] }); }
+}
+ws.close(); process.exit(0);
