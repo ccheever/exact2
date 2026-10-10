@@ -796,7 +796,7 @@ component App
             terminalSelection = terminalCaptureStart(result.text, result.key)
             nav = push(nav, path("threadTerminalCapture", data.environmentId, data.threadId))
           else if result.message != ""
-            send notice = alert("info", "Terminal", result.message)
+            send notice = alert("info", (result.type == "capture-empty" ? "No terminal output" : "Terminal"), result.message)
           else if result.type == "menu"
             if result.action == "font-decrease" or result.action == "font-increase"
               changePreference("terminalFontSize", `${min(14, max(6, appearance.terminalFontSize + (result.action == "font-decrease" ? -0.5 : 0.5)))}`)
