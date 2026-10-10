@@ -1066,7 +1066,8 @@ final class TextMetricsTests: XCTestCase {
         defer { window.close(); session.destroy() }
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         for id in 2...4 {
-            ops.append(["op": "create", "id": id, "kind": "text",
+            // 16 pt pinned: the geometry below predates the platform body size (LLP 1115 D3).
+            ops.append(["op": "create", "id": id, "kind": "text", "style": ["font_size": 16.0],
                         "props": ["text": String(repeating: "independent paragraph \(id) ", count: 32)]])
         }
         ops += [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]],
