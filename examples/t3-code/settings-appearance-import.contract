@@ -52,7 +52,7 @@ component AddThemeDialog
                 text "Find open-source themes from Open VSX." font-size="0.75rem" line-height="1rem" color=pal.muted
               row width="100%" height="2.25rem" align-items="center" gap="0.5rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field
                 CoreIcon(name="search", size=16, color=pal.muted)
-                input value=(queryEdited ? query : data.query) input=editQuery submit=commit("theme-add", "search", queryEdited ? query : data.query) placeholder="Search themes..." aria-label="Search Open VSX themes" spellcheck="false" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" border-width=0 background-color="#00000000" font-size="0.875rem" color=pal.text testId="add-theme-query"
+                input value=(queryEdited ? query : data.query) input=editQuery submit=commit("theme-add", "search", queryEdited ? query : data.query) placeholder="Search themes..." aria-label="Search Open VSX themes" spellcheck="false" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" border-width=0 background-color="#00000000" font-size="0.875rem" color=pal.text testId="add-theme-query" autocorrect="off"
               row width="100%" align-items="center" justify-content="space-between" gap="0.5rem" flex-wrap="wrap"
                 row align-items="center" gap="0.375rem" flex-wrap="wrap" min-width=0
                   text "Popular" font-size="0.75rem" line-height="1rem" color=pal.muted

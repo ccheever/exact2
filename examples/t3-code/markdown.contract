@@ -19,6 +19,9 @@ shape ChatRun
   href: string
   kind: string
   icon: string
+  // Every run of a link: the whole link's text (markdown.rs link_labels), the link node's name on its first word, the
+  // mark that hides its other words; "" elsewhere and on a link that starts with a code span (it draws no link node).
+  label: string
 shape ChatCell
   id: string
   runs: list<ChatRun>
@@ -462,8 +465,10 @@ component FlowRuns
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
       each run in runs key=run.id
+        // A web link's code span after its first word reads as part of the link node (RG-4 below), so it is hidden too;
+        // not when the link starts with code (no link node: `label` is "") or is a pull request link (each word its own).
         when run.mono
-          box height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
+          box aria-hidden=(run.kind == "link" and run.label != "" and webLink(run.href) and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0) height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
             text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         when not run.mono and (run.kind == "file" or chipAccent(run.kind) != "")
           when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
@@ -482,13 +487,17 @@ component FlowRuns
         // Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost: `if (!href || !faviconHost)
         // return;`); a mailto, irc, xmpp or fragment link is plain link text below, its click left to the shell's menu.
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start" and webLink(run.href)
-          row contextmenu=linkMenu(run.href) flex-shrink=0 align-items="flex-start"
+          // The link (ChatMarkdown's `<a>`, its favicon inside it): one link node per link, named with the whole link
+          // (`run.label`), on its first word; the link's other words follow as nodes hidden from assistive tech (their
+          // `label` is the same), so a reader meets one link with its URL, not words (realinput-1010g RG-4). A link
+          // that starts with a code span has no link node; its words keep "" and stay readable. A press anywhere opens it.
+          link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
               TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
-            text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+            text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and not (run.kind == "link-start" and webLink(run.href))
           when run.kind == "link" and webLink(run.href)
-            text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+            text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-hidden=(run.label != "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
           when not (run.kind == "link" and webLink(run.href))
             text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" or run.kind == "link-start" ? "light-dark(#1447e6, #50a2ff)" : color)
 

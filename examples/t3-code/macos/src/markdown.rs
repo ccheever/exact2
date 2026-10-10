@@ -486,7 +486,7 @@ fn chat_runs(value: &Value) -> Value {
         }
         result.push(chat_run(run.clone(), start));
     }
-    Value::list(result)
+    Value::list(link_labels(result))
 }
 
 // SkillInlineText's text-only traversal after Markdown parsing: code and links

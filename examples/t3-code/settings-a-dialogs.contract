@@ -138,7 +138,7 @@ component SaNumberField
         CoreIcon(name="minus", size=16, color=pal.text)
       // AppKit fields ignore text-align, so the field is sized to its digits and centred.
       row flex=1 min-width=0 height="1.625rem" align-items="center" justify-content="center"
-        input value=(editing ? draft : `${value}`) input=edit change=commit blur=leave disabled=disabled inputmode="numeric" spellcheck="false" aria-label=`${label} in seconds` width=(min(56, max(1, length(editing ? draft : `${value}`)) * 8.6 + 4) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color=pal.text font-variant-numeric="tabular-nums" testId=`${fieldId}-input`
+        input value=(editing ? draft : `${value}`) input=edit change=commit blur=leave disabled=disabled inputmode="numeric" spellcheck="false" aria-label=`${label} in seconds` width=(min(56, max(1, length(editing ? draft : `${value}`)) * 8.6 + 4) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color=pal.text font-variant-numeric="tabular-nums" testId=`${fieldId}-input` autocorrect="off"
       button press=commit(`${value + step}`) disabled=disabled aria-label=`Increase ${label}` class=SettingsGhost width="2.125rem" height="1.625rem" testId=`${fieldId}-increase` title=""
         CoreIcon(name="plus", size=16, color=pal.text)
 

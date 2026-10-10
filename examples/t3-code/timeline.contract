@@ -414,8 +414,10 @@ component WorkGroupHeader
     button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       each keyed in message.activities key=keyed.id
         WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
-      // TimelineRowTimestamp: the full date in a tooltip once the time shows.
-      box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) flex-shrink=0 margin-right="0.25rem"
+      // TimelineRowTimestamp: the full date in a tooltip once the time shows. Hidden, it takes no pointer
+      // (`pointer-events-none … group-hover:pointer-events-auto`): its absolute box sits over the row's first icon, and
+      // took the right-click meant for the tool icon's Copy Image (realinput-1010g RG-1).
+      box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) pointer-events=(hovering ? "auto" : "none") flex-shrink=0 margin-right="0.25rem"
         RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(over == "time"), hover=hover("time"))
           text message.timestamp font-size="0.75rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
