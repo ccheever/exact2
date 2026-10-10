@@ -406,7 +406,8 @@ final class T3MobileModule: ExactModule {
         case "timelineSleep":
             guard let milliseconds = request["ms"] as? Double,
                   scratchClock.sleep(milliseconds: milliseconds, reply: { finished in
-                      if finished { answer() } else { reply.fail("The mobile session was closed.") }
+                      if finished { answer(["monotonicMs": ProcessInfo.processInfo.systemUptime * 1000]) }
+                      else { reply.fail("The mobile session was closed.") }
                   }) else { reply.fail("The scratch wait is invalid."); return }
         case "r10Wake":
             guard request["topic"] as? String == "t3.notify" else { reply.fail("The scratch wake topic is invalid."); return }

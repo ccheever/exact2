@@ -609,7 +609,7 @@ component App
     if not pending(changed) and not pending(threadSubmissionChanged)
       send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
-  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread")) as shape ThreadSnapshot
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
   mutation queuePrepared as shape Change refreshes queueData
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
@@ -656,7 +656,11 @@ component App
       if not pending(outboxChanged)
         send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + now())
     else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      if op == "queue-open"
+      if op == "fork-response"
+        if not pending(selected) and not pending(routeSelected)
+          haptic("selection")
+          send selected = threadFork(id, value, `${top(nav).id}`)
+      else if op == "queue-open"
         blur()
         composerFocusIdentity = ""
         nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
