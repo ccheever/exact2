@@ -60,7 +60,7 @@ export function mobileThreadBlocks(body: string, dark: boolean): ThreadBlock[] {
   prose(body.slice(position)); return blocks;
 }
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
-export function mobileThreadRows(client: T3Client, now: number, dark = false): ThreadRow[] {
+export function mobileThreadRows(client: T3Client, now: number, dark = false, routeKey = ''): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
   const source = transcriptRows(client), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
   const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
@@ -85,7 +85,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
       intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
-      activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
+      activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
         const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp));
         // Parse only visible reasoning; tools keep literal command/result output.
         return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
@@ -129,8 +129,8 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
 }
 
 /** Read after mobileSnapshot refresh; supplied time owns all duration labels. */
-export function mobileThread(now: number, dark = false, client: T3Client = mobileClient): ThreadSnapshot {
-  const rows = mobileThreadRows(client, now, dark), loaded = !!client.thread;
+export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = ''): ThreadSnapshot {
+  const rows = mobileThreadRows(client, now, dark, routeKey), loaded = !!client.thread;
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
   const requests = requestPresentation(client), view = timelineView(client);
   const answerFiles = mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now);

@@ -211,3 +211,33 @@ test('fork detail retains actual values with source schema field order after nat
   expect(text).toContain('"source": {\n      "type": "run",\n      "threadId": "source",\n      "runId": "source-run"\n    }');
   expect(text).not.toContain('"nodeId"'); expect(text).not.toContain('"providerThreadId"');
 });
+test('fork long-press copies the source summary, target and exact full detail while disclosure stays local', async () => {
+  const row = forkRow(), client = clientFor([row]), key = '["source","fork-item"]';
+  client.local.drafts[client.draftKey] = '  ';
+  const shown = () => mobileThreadRows(client, now, false, 'visit-one')[0]!.activities[0]!;
+  const collapsed = shown(), configuration = JSON.parse(collapsed.nativeWorkRow);
+  expect(collapsed.body).toBe(''); expect(configuration).toMatchObject({ id: key, routeKey: 'visit-one', label: 'thread', expanded: false, copiedColor: '#009966' });
+  expect(configuration.copyText.split('\n').slice(0, 2)).toEqual(['Forked from conversation', 'thread']);
+  expect(JSON.parse(configuration.copyText.slice('Forked from conversation\nthread\n'.length))).toEqual(row);
+  await chatLocal(client, native, 'item-detail', key, 'open');
+  const expanded = shown(), openedConfiguration = JSON.parse(expanded.nativeWorkRow);
+  expect(openedConfiguration.expanded).toBe(true); expect(openedConfiguration.owner).toBe(configuration.owner);
+  expect(openedConfiguration.copyText).toBe(`Forked from conversation\nthread\n${expanded.body}`);
+  expect(client.threadId).toBe('thread'); expect(client.draft).toBe('  '); expect(client.pending).toBeUndefined();
+});
+test('fork copy uses the pinned title capitalization and untitled fallback', () => {
+  const row = forkRow(), client = clientFor([row]);
+  const copied = () => JSON.parse(mobileThreadRows(client, now, false, 'visit')[0]!.activities[0]!.nativeWorkRow).copyText as string;
+  obj(row.item).title = '  forked from conversation  '; expect(copied().startsWith('Forked from conversation\nthread\n')).toBe(true);
+  obj(row.item).title = ' '; expect(copied().startsWith('Thread forked\nthread\n')).toBe(true);
+});
+test('native copy ownership changes with a route visit or live server scope, while disclosure and theme preserve it', () => {
+  const client = clientFor([forkRow()]);
+  const configuration = (route = 'visit-one', dark = false) => JSON.parse(mobileThreadRows(client, now, dark, route)[0]!.activities[0]!.nativeWorkRow);
+  const initial = configuration(); expect(configuration('visit-two').owner).not.toBe(initial.owner);
+  const dark = configuration('visit-one', true); expect(dark.owner).toBe(initial.owner); expect(dark.copiedColor).toBe('#00d492');
+  client.generation++; expect(configuration().owner).not.toBe(initial.owner);
+  const reconnected = configuration(); client.threadEpoch++; expect(configuration().owner).not.toBe(reconnected.owner);
+  const current = configuration(); client.environmentId = 'other-env'; expect(configuration().owner).not.toBe(current.owner);
+  expect(mobileThreadActivity(activity, projected({}), client, now, false, '').nativeWorkRow).toBe('');
+});

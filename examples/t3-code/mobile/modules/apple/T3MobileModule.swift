@@ -34,6 +34,12 @@ final class T3MobileModule: ExactModule {
         "t3-thread-header": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.threadHeader.makeView(props: props, events: events)
         },
+        "t3-work-row": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.workLog.makeRow(props: props, events: events)
+        },
+        "t3-work-detail": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.workLog.makeDetail(props: props, events: events)
+        },
         "t3-home-swipe-events": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.homeSwipes.makeView(props: props, events: events)
         },
@@ -83,6 +89,7 @@ final class T3MobileModule: ExactModule {
     private let keyboard = T3MobileKeyboard()
     private let archiveChrome = T3ArchiveChrome()
     private let threadHeader = T3MobileThreadHeader()
+    private let workLog = T3MobileWorkLog()
     private let sheets = T3MobileSheets()
     private let reviewViewport = T3MobileReviewViewport()
     private let inspectorChrome = T3MobileInspector()
@@ -157,6 +164,7 @@ final class T3MobileModule: ExactModule {
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
         sheets.configure(route)
         threadHeader.configure(route)
+        workLog.configure(route)
         terminal.menus.configure(route)
         inspectorChrome.configure(route)
         keyboard.configure(route)
@@ -182,7 +190,7 @@ final class T3MobileModule: ExactModule {
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { keyboard.end(route); archiveChrome.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { keyboard.end(route); archiveChrome.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); workLog.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
     override func window(_ window: ExactWindow) { keyboard.configureWindow(window) }
     override func windowEnded(_ window: ExactWindow) { keyboard.endWindow(window) }
 
@@ -578,6 +586,7 @@ final class T3MobileModule: ExactModule {
         sheets.destroy()
         scratchClock.destroy()
         threadHeader.destroy()
+        workLog.destroy()
         reviewViewport.destroy()
         workspace.destroy(); inspectorChrome.destroy()
         scheduledControls.destroy()
@@ -620,6 +629,8 @@ final class T3MobileModule: ExactModule {
          "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-thread-header": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-work-row": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-work-detail": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-home-swipe-events": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-review-viewport": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-inspector-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

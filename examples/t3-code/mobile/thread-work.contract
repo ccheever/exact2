@@ -33,22 +33,26 @@ component ThreadToolRow
                 t3-symbol symbol-name="arrow.clockwise" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
                 text "Retry" font-family="DM Sans" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
       else
-        button press=toggleDetail
-          disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7
-          aria-expanded=activity.expanded aria-label=(activity.answerPreview != "" ? `${activity.label}: ${activity.answerPreview}` : activity.label)
-          row align-items="center" gap=5.25 min-height=28
-            column width=21 height=21 flex-shrink=0 align-items="center" justify-content="center"
-              when length(activity.iconURL) > 0
-                image activity.iconURL width=14 height=14 object-fit="contain"
-              else
-                t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
-            text flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-              text activity.label
-              when activity.answerPreview != ""
-                text `  ${activity.answerPreview}` color=(not activity.expanded and activity.hasAnswer ? colors.foreground : colors.iconSubtle)
-            column width=14 height=14 align-items="center" justify-content="center"
-              when activity.expandable
-                t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") point-size=11 symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
+        when activity.nativeWorkRow != ""
+          t3-work-row configuration=activity.nativeWorkRow row-muted=colors.muted row-icon=colors.iconSubtle row-subtle=colors.subtle press=toggleDetail
+            height=28 min-width=0 aria-label=activity.label aria-expanded=activity.expanded testId=`thread-work-${activity.id}`
+        else
+          button press=toggleDetail
+            disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7
+            aria-expanded=activity.expanded aria-label=(activity.answerPreview != "" ? `${activity.label}: ${activity.answerPreview}` : activity.label)
+            row align-items="center" gap=5.25 min-height=28
+              column width=21 height=21 flex-shrink=0 align-items="center" justify-content="center"
+                when length(activity.iconURL) > 0
+                  image activity.iconURL width=14 height=14 object-fit="contain"
+                else
+                  t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
+              text flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                text activity.label
+                when activity.answerPreview != ""
+                  text `  ${activity.answerPreview}` color=(not activity.expanded and activity.hasAnswer ? colors.foreground : colors.iconSubtle)
+              column width=14 height=14 align-items="center" justify-content="center"
+                when activity.expandable
+                  t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") point-size=11 symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
         when activity.expanded
           column padding-top=(activity.reasoning ? 3.5 : 1.75) padding-bottom=3.5 margin-left=(activity.reasoning ? 24.5 : 0)
             when length(activity.answerHistory) > 0
@@ -65,13 +69,16 @@ component ThreadToolRow
                           when file.image and file.url != ""
                             image file.url width=160 height=96 object-fit="contain" aria-label=file.name
                           text file.name font-family="DM Sans" font-size=14 line-height="19px" color=colors.foreground text-decoration-line="underline"
-            scroll max-height=210 overflow-y="auto"
-              column padding-right=8
-                when activity.reasoning
-                  ThreadMarkdown(blocks=activity.reasoningBlocks, user=false, action=action, colors=colors)
-                else when length(activity.body) > 0
-                  text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=(activity.call ? colors.foreground : colors.muted)
-                when not activity.reasoning and length(activity.output) > 0
-                  text activity.output margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.muted
-                when length(activity.result) > 0
-                  text activity.result margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" color=(activity.failed ? colors.dangerForeground : colors.muted)
+            when activity.nativeWorkRow != ""
+              t3-work-detail configuration=activity.nativeWorkRow detail-text=activity.body detail-muted=colors.muted height=210 min-width=0 testId=`thread-work-detail-${activity.id}`
+            else
+              scroll max-height=210 overflow-y="auto"
+                column padding-right=8
+                  when activity.reasoning
+                    ThreadMarkdown(blocks=activity.reasoningBlocks, user=false, action=action, colors=colors)
+                  else when length(activity.body) > 0
+                    text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=(activity.call ? colors.foreground : colors.muted)
+                  when not activity.reasoning and length(activity.output) > 0
+                    text activity.output margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.muted
+                  when length(activity.result) > 0
+                    text activity.result margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" color=(activity.failed ? colors.dangerForeground : colors.muted)

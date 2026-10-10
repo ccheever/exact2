@@ -83,6 +83,8 @@
     "t3-inspector-chrome",
     "t3-review-viewport",
     "t3-thread-header",
+    "t3-work-row",
+    "t3-work-detail",
     "t3-home-swipe-events"
   ],
   "data": [
