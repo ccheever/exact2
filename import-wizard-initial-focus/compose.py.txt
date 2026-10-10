@@ -1,0 +1,66 @@
+# import-wizard-initial-focus: before | after | reference per scenario, each panel cropped around the dialog and Add profile,
+# the focused element outlined (clone: the agent's focus.logical and its layout frame; reference: document.activeElement's
+# rect over CDP). The agent's window is never key, so AppKit draws no ring of its own in these screenshots.
+import json, os
+from PIL import Image, ImageDraw, ImageFont
+L = os.path.dirname(os.path.abspath(__file__)); S = f'{L}/shots'; D = f'{L}/drive'; OUT = f'{L}/composed'
+before = json.load(open(f'{D}/focus-before.json')); after = json.load(open(f'{D}/focus-after.json'))
+ref = {r['label']: r for r in json.load(open(f'{L}/ref-focus.json')) + json.load(open(f'{L}/ref-remove.json'))}
+CROP = (360, 250, 1200, 640)  # points: the dialog and the Add profile / options buttons
+font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 22); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 18)
+RED = (255, 45, 85)
+
+def panel(png, scale, rect, note):
+    img = Image.open(png).convert('RGB')
+    x0, y0, x1, y1 = CROP
+    img = img.crop((int(x0 * scale), int(y0 * scale), int(x1 * scale), int(y1 * scale))).resize((x1 - x0, y1 - y0), Image.LANCZOS)
+    d = ImageDraw.Draw(img)
+    if rect:
+        rx, ry = rect['x'] - x0, rect['y'] - y0
+        d.rectangle((rx - 3, ry - 3, rx + rect['w'] + 3, ry + rect['h'] + 3), outline=RED, width=4)
+    d.rectangle((0, 0, x1 - x0, 30), fill=(255, 255, 255))
+    d.text((8, 5), note, fill=RED, font=small)
+    return img
+
+def text_panel(lines):
+    x0, y0, x1, y1 = CROP
+    img = Image.new('RGB', (x1 - x0, y1 - y0), (245, 245, 247)); d = ImageDraw.Draw(img)
+    for i, line in enumerate(lines): d.text((20, 40 + i * 30), line, fill=(40, 40, 46), font=small)
+    return img
+
+def clone(which, rows, i, shot):
+    r = rows[i]
+    frame = r.get('frame') if r.get('id') is not None else None
+    who = r['testId'] if r.get('testId') else 'none (the window)'
+    if frame and frame.get('w', 0) >= 500: who += ' (the popup itself)'
+    return panel(f'{S}/{which}-{shot}.png', 2, frame, f'focus: {who}')
+
+def refp(label, shot):
+    r = ref[label]
+    return panel(f'{S}/ref-{shot}.png', 1, r.get('rect'), f'focus: {r["active"]}'[:90])
+
+def compose(name, title, rows):
+    W, H = CROP[2] - CROP[0], CROP[3] - CROP[1]; pad = 16; head = 70; lab = 34
+    out = Image.new('RGB', (3 * W + 4 * pad, head + len(rows) * (H + lab + pad) + pad), (255, 255, 255)); d = ImageDraw.Draw(out)
+    d.text((pad, 18), title, fill=(20, 20, 24), font=font)
+    for j, (caption, panels) in enumerate(rows):
+        y = head + j * (H + lab + pad)
+        for k, (label, img) in enumerate(zip(['Before (c03d7e908)', 'After (this branch)', 'Reference (T3 Code 1e2ecbd975, CDP)'], panels)):
+            x = pad + k * (W + pad)
+            d.text((x, y + 4), f'{label} - {caption}', fill=(60, 60, 66), font=small)
+            out.paste(img, (x, y + lab)); d.rectangle((x - 1, y + lab - 1, x + W, y + lab + H), outline=(200, 200, 205))
+    out.save(f'{OUT}/{name}.png', optimize=True); print(name, out.size)
+
+compose('open-configure', 'The wizard opens on Configure (Chrome, from Add profile): the first "From" tile takes the focus', [
+  ('Configure', [clone('before', before, 0, 'chrome-configure-open'), clone('after', after, 0, 'chrome-configure-open'), refp('Chrome: wizard open on Configure (pointer)', 'chrome-configure-open')])])
+compose('open-quit', 'The wizard opens on the quit step (Brave running): Cancel takes the focus', [
+  ('Quit Brave', [clone('before', before, 2, 'brave-quit-open'), clone('after', after, 2, 'brave-quit-open'), refp('Brave: wizard open on Quit', 'brave-quit-open')])])
+compose('open-fda', 'The wizard opens on Full Disk Access (Safari, the fixture\'s TCC stand-in): Allow takes the focus', [
+  ('Full Disk Access', [clone('before', before, 5, 'safari-fda-open'), clone('after', after, 5, 'safari-fda-open'),
+   text_panel(['Not reproducible on the reference lane:', 'its Full Disk Access step needs TCC\'s EPERM', '(SafariCookies.ts isPermissionDenied), which a', 'lane home cannot give without real data.', '', 'From source: PermissionChecklist\'s Allow is the', 'first tabbable element of the popup, and Base UI', 'Dialog\'s initialFocus focuses it (the same rule', 'the CDP runs show on Configure and Quit).'])])])
+compose('step-change', 'After a step change the popup itself holds the focus (Base UI restoreFocus "popup"); Tab goes on to its first stop, Shift+Tab to its last', [
+  ('I\'ve quit it, Brave still running', [clone('before', before, 3, 'brave-quit-again'), clone('after', after, 3, 'brave-quit-again'), refp('Brave: after the recheck (still running: Quit again)', 'brave-quit-again')]),
+  ('Import of a broken profile: blocked', [clone('before', before, 7, 'firefox-blocked'), clone('after', after, 7, 'firefox-blocked'), refp('Firefox: after the import (blocked)', 'firefox-blocked')]),
+  ('Import done', [clone('before', before, 10, 'firefox-done'), clone('after', after, 10, 'firefox-done'), refp('Firefox 2: done', 'firefox-done')])])
+compose('remove-confirm', 'Remove “Firefox”? (AlertDialog): Cancel takes the focus as it opens', [
+  ('Remove confirm', [clone('before', before, 11, 'remove-open'), clone('after', after, 11, 'remove-open'), refp('Remove confirm open (pointer)', 'remove-open')])])
