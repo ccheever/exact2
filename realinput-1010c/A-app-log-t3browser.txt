@@ -1,0 +1,39 @@
+12:t3.browser: open ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+14:t3.browser: navigate http://127.0.0.1:16961/
+15:t3.browser: annotate start
+16:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+17:t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+18:t3.browser: annotate applied 1 chip+image
+19:t3.browser: annotate start
+20:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+21:t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+22:t3.browser: annotate applied 2 chip+image send
+23:t3.browser: annotate start
+24:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+25:t3.browser: annotate picked attach: elements 0, regions 1, strokes 0, screenshot ok
+26:t3.browser: annotate applied 3 chip+image
+27:t3.browser: annotate start
+28:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+29:t3.browser: annotate picked attach: elements 0, regions 0, strokes 1, screenshot ok
+30:t3.browser: annotate applied 4 chip+image
+31:t3.browser: annotate start
+32:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+33:t3.browser: annotate cancel
+34:t3.browser: annotate applied 5 cancelled
+35:t3.browser: annotate start
+36:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+37:t3.browser: annotate cancel
+38:t3.browser: annotate applied 6 cancelled
+39:t3.browser: annotate start
+40:t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+41:t3.browser: annotate cancel
+42:t3.browser: annotate applied 7 cancelled
+43:t3.browser: pip open ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+44:t3.browser: pip close ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+45:t3.browser: screenshot browser-screenshot-127-0-0-1-mv1tqulq.png
+46:t3.browser: screenshot browser-screenshot-127-0-0-1-mv1trcg3.png
+47:t3.browser: artifact copy-path browser-screenshot-127-0-0-1-mv1trcg3.png
+48:t3.browser: artifact copy-image browser-screenshot-127-0-0-1-mv1trcg3.png
+49:t3.browser: artifact reveal browser-screenshot-127-0-0-1-mv1trcg3.png
+50:t3.browser: unpark ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
+51:t3.browser: close ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","15845f29-8701-4250-8c7e-9872c1bf9e8b","1948c271-dc05-496f-9dc0-b8b99f50c677","tab_1"]
