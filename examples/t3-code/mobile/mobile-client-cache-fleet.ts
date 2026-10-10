@@ -5,7 +5,7 @@ import type { Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { decodeMobileCatalogPayload, encodeMobileCatalogPayload, mobileCacheCatalogIdentity, mobileCacheCatalogCurrent, mobileCacheCatalogLive, mobileCacheCatalogPrepare } from './mobile-client-cache-catalog';
 import { type EnvironmentFleet, type FleetEntry, type FocusedHost, trimOrigin } from './shared/settings-b-fleet';
-import { mobileCacheReadDecoded, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite, type MobileCacheKey } from './mobile-client-cache';
+import { mobileCachePersistSnapshot, mobileCacheReadDecoded, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite, type MobileCacheKey } from './mobile-client-cache';
 import { decodeMobileConfigCache, decodeMobileShellCache, encodeMobileConfigCache, encodeMobileShellCache } from './mobile-client-cache-codec';
 
 /** Display facts only. Never install these objects into a FleetEntry: its
@@ -96,8 +96,11 @@ export async function mobileCacheFleetSync(fleet: EnvironmentFleet, native: Nati
           if (!current() || entry.busy || !liveSnapshot(kind === 'shell' ? entry.shell : entry.config)) return;
           const ticket = await mobileCacheTicket(native, key(kind));
           if (!current() || entry.busy || !liveSnapshot(kind === 'shell' ? entry.shell : entry.config)) return;
-          const payload = encodeMobileCatalogPayload(savedIdentity, encode());
-          await mobileCacheWrite(native, key(kind), ticket, payload);
+          const snapshot = kind === 'shell' ? entry.shell : entry.config;
+          await mobileCachePersistSnapshot(entry, key(kind), snapshot, ticket, savedIdentity, entry.generation, () => {
+            const payload = encodeMobileCatalogPayload(savedIdentity, encode());
+            return mobileCacheWrite(native, key(kind), ticket, payload);
+          }, () => current() && !entry.busy && liveSnapshot(snapshot));
         };
         await persist('shell', () => encodeMobileShellCache(environmentId, entry.shell));
         await persist('server-config', () => encodeMobileConfigCache(environmentId, entry.config));

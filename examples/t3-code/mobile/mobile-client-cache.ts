@@ -23,6 +23,31 @@ const displayEnvironmentClears = new Map<string, number>();
 // invalidate it. Explicit kinds retain isolation from unrelated kind clears.
 export const mobileCacheReadRevision = (environmentId: string, cacheKind?: MobileCacheKind) =>
   `${clearRevision}:${environmentClears.get(environmentId) ?? 0}:${cacheKind ? kindClears.get(cacheKind) ?? 0 : kindClearRevision}`;
+interface SnapshotWrite {
+  pending: number;
+  receipt?: { identity: string; snapshot: WeakSet<object> };
+}
+const snapshotWrites = new WeakMap<object, Map<MobileCacheKind, SnapshotWrite>>();
+/** Keep only the latest confirmed snapshot per producer/kind, without retaining
+ * its data. Callers acquire a fresh native ticket first: store replacement and
+ * native clears must invalidate a receipt even when JS objects are unchanged.
+ * Overlapping writes leave the kind dirty until a later owned write settles. */
+export async function mobileCachePersistSnapshot(owner: object, key: MobileCacheKey, snapshot: object,
+  ticket: string, catalogIdentity: string, generation: number, write: () => Promise<boolean>, current: () => boolean): Promise<void> {
+  let kinds = snapshotWrites.get(owner);
+  if (!kinds) { kinds = new Map(); snapshotWrites.set(owner, kinds); }
+  let state = kinds.get(key.kind);
+  if (!state) { state = { pending: 0 }; kinds.set(key.kind, state); }
+  const identity = JSON.stringify([key.environmentId, key.key, catalogIdentity, generation, mobileCacheReadRevision(key.environmentId, key.kind), ticket]);
+  if (!state.pending && state.receipt?.identity === identity && state.receipt.snapshot.has(snapshot)) return;
+  state.pending++; state.receipt = undefined;
+  let written = false;
+  try { written = await write(); }
+  finally {
+    state.pending--;
+    if (written && !state.pending && current()) state.receipt = { identity, snapshot: new WeakSet([snapshot]) };
+  }
+}
 /** Explicit clears evict rendered offline data. A settled VCS invalidation can
  * instead retain already-rendered read-only rows while its next live read runs.
  * It still invalidates every pending disk read, write and native ticket. */

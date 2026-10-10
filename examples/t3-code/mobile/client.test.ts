@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
-import { ClientError, type Files, type Native } from './shared/protocol';
+import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { T3Client } from './shared/client';
 import { requestPresentation } from './shared/requests';
 import { letGoAware } from './shared/let-go';
@@ -193,7 +193,7 @@ describe('pinned shared sources', () => {
       const pin = name === 'shell-vcs.ts' ? '81c704c7d12afef7233b12b1f2e7118fd6e84677' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts'].includes(name);
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
       return { name, local, pin };
     });
@@ -217,6 +217,12 @@ describe('pinned shared sources', () => {
     expect(offset).toBe(bytes.length);
     for (const [index, { name, local }] of copies.entries()) {
       let expected = bodies[index]!;
+      if (name === 'protocol.ts') expected = '// Mobile: release the fully assembled native value and fragment references before JSON decoding.\n'
+        + '// @ref llp/1109.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10\n' + expected
+          .replace('  const fragments: string[] = [];', "  const fragments: string[] = [];\n  let text = '';")
+          .replace("    return { ...response, value: JSON.parse(fragments.join('')) as unknown };", "    text = fragments.join('');")
+          .replace("  } finally {\n    await native.later({ op: 'releaseChunk', id, generation }).catch(() => {});\n  }",
+            "  } finally {\n    fragments.length = 0;\n    await native.later({ op: 'releaseChunk', id, generation }).catch(() => {});\n  }\n  return { ...response, value: JSON.parse(text) as unknown };");
       if (name === 'timeline-presentation.ts') expected = "// Mobile365aa87982: pass the first-assistant fold policy through the existing pure row derivation.\n" + expected
         .replace('export function transcriptRows(client: T3Client): Message[] {', 'export function transcriptRows(client: T3Client, keepFirstAssistant = false): Message[] {')
         .replace('root, rollback: provider?.supportsConversationRollback !== false });', 'root, rollback: provider?.supportsConversationRollback !== false, keepFirstAssistant });');
@@ -443,5 +449,118 @@ describe('mobile environment retry ownership', () => {
       expect((await mobileCommand(['environment-reconnect', key], native, unusedStorage)).message).toContain('Switch on');
     }
     expect(calls).toEqual([{ op: 'environments' }, { op: 'environments' }]);
+  });
+});
+
+// The native store keeps chunks replayable until an explicit release. This
+// fixture models that existing contract, including connection-generation guards.
+class TransferWire implements Native {
+  available = true; generation = 1; calls: Obj[] = [];
+  retained = new Map<string, string[]>();
+  beforeRead?: (request: Obj) => Promise<void> | void;
+  beforeRelease?: (request: Obj) => Promise<void> | void;
+  watch() {}
+  add(id: string, text: string, width = 9) {
+    this.retained.set(id, Array.from({ length: Math.ceil(text.length / width) }, (_, index) => text.slice(index * width, (index + 1) * width)));
+  }
+  good(value: unknown) { return { ok: true, generation: this.generation, value }; }
+  async later(input: unknown): Promise<unknown> {
+    const request = obj(input); this.calls.push(request);
+    if (request.generation !== undefined && request.generation !== this.generation)
+      return { ok: false, generation: this.generation, error: { kind: 'stale', message: 'The connection changed.' } };
+    const id = str(request.id);
+    if (request.op === 'readChunk') {
+      await this.beforeRead?.(request);
+      const text = this.retained.get(id)?.[Number(request.index)];
+      return text === undefined ? { ok: false, generation: this.generation, error: { kind: 'stale', message: 'The response was released.' } }
+        : this.good({ text });
+    }
+    if (request.op === 'releaseChunk') { await this.beforeRelease?.(request); this.retained.delete(id); return this.good({}); }
+    return this.good({ _nativeTransfer: { id, parts: this.retained.get(id)?.length } });
+  }
+}
+function transferWait() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe('mobile complete transfer decoding', () => {
+  test('releases the complete native value before parsing a lossless 12 MiB reply', async () => {
+    const wire = new TransferWire(), value = { text: 'x'.repeat(12 * 1024 * 1024) + '💻café漢字\t\nend', empty: [], nested: { enabled: true } };
+    wire.add('large', JSON.stringify(value), 48 * 1024);
+    const parse = JSON.parse; let retainedAtParse = -1;
+    try {
+      JSON.parse = text => { retainedAtParse = wire.retained.size; return parse(text); };
+      expect(await bridgeReply(wire, { op: 'http', id: 'large' })).toEqual({ ok: true, generation: 1, value });
+    } finally { JSON.parse = parse; }
+    expect(retainedAtParse).toBe(0);
+    expect(wire.calls.filter(call => call.op === 'releaseChunk')).toEqual([{ op: 'releaseChunk', id: 'large', generation: 1 }]);
+    expect(wire.calls.filter(call => call.op === 'readChunk').length).toBeGreaterThan(256);
+  });
+  test('a chunk can be replayed while another read is paused, and only its own release removes it', async () => {
+    const wire = new TransferWire(), reached = transferWait(), resume = transferWait();
+    const value = { text: 'complete overlapping response' };
+    wire.add('first', JSON.stringify(value)); wire.add('second', JSON.stringify({ text: 'second' }));
+    wire.beforeRead = async request => { if (request.id === 'first' && request.index === 1) { reached.resolve(); await resume.promise; } };
+    const first = bridgeReply(wire, { op: 'http', id: 'first' });
+    await reached.promise;
+    const read = { op: 'readChunk', id: 'first', index: 0, generation: 1 };
+    expect(await wire.later(read)).toEqual(await wire.later(read));
+    expect(wire.retained.has('first')).toBe(true);
+    expect((await bridgeReply(wire, { op: 'http', id: 'second' })).value).toEqual({ text: 'second' });
+    expect(wire.retained.has('first')).toBe(true); expect(wire.retained.has('second')).toBe(false);
+    resume.resolve();
+    expect((await first).value).toEqual(value);
+    expect(wire.retained.size).toBe(0);
+  });
+  test('an ordinary interrupted chunk read releases its own transfer and never parses a prefix', async () => {
+    const wire = new TransferWire(), failure = new Error('read failed');
+    wire.add('interrupted', JSON.stringify({ text: 'not a truncated result' }));
+    wire.add('unrelated', JSON.stringify({ text: 'still owned' }));
+    wire.beforeRead = request => { if (request.index === 1) throw failure; };
+    const parse = JSON.parse; let parses = 0;
+    try {
+      JSON.parse = text => { parses++; return parse(text); };
+      await expect(bridgeReply(wire, { op: 'http', id: 'interrupted' })).rejects.toBe(failure);
+    } finally { JSON.parse = parse; }
+    expect(parses).toBe(0);
+    expect(wire.retained.has('interrupted')).toBe(false); expect(wire.retained.has('unrelated')).toBe(true);
+  });
+  test('generation change refuses the old reply without releasing a new-generation value', async () => {
+    const wire = new TransferWire(); wire.add('old', JSON.stringify({ text: 'old' }));
+    wire.beforeRead = () => { wire.generation++; wire.retained.clear(); wire.add('new', JSON.stringify({ text: 'new' })); };
+    await expect(bridgeReply(wire, { op: 'http', id: 'old' })).rejects.toMatchObject({ kind: 'transport' });
+    expect(wire.retained.has('new')).toBe(true);
+    expect(wire.calls.at(-1)).toEqual({ op: 'releaseChunk', id: 'old', generation: 1 });
+    wire.beforeRead = undefined;
+    expect((await bridgeReply(wire, { op: 'http', id: 'new' })).value).toEqual({ text: 'new' });
+    expect(wire.retained.size).toBe(0);
+  });
+  test('malformed complete JSON releases before its parse failure', async () => {
+    const wire = new TransferWire(); wire.add('malformed', '{"text":');
+    const parse = JSON.parse; let retainedAtParse = -1;
+    try {
+      JSON.parse = text => { retainedAtParse = wire.retained.size; return parse(text); };
+      await expect(bridgeReply(wire, { op: 'http', id: 'malformed' })).rejects.toBeInstanceOf(SyntaxError);
+    } finally { JSON.parse = parse; }
+    expect(retainedAtParse).toBe(0);
+  });
+  test('best-effort release failure still preserves a complete response', async () => {
+    const wire = new TransferWire(), value = { text: 'complete' }; wire.add('kept', JSON.stringify(value));
+    wire.beforeRelease = () => { throw new Error('release failed'); };
+    expect((await bridgeReply(wire, { op: 'http', id: 'kept' })).value).toEqual(value);
+    expect(wire.retained.has('kept')).toBe(true);
+  });
+  test('Exact cancellation still refuses cleanup calls, so prompt abandonment remains unresolved', async () => {
+    const wire = new TransferWire(); wire.add('abandoned', JSON.stringify({ text: 'native expiry still owns this value' }));
+    wire.beforeRead = request => { if (request.index === 1) throw { name: 'FetchError', kind: 'Aborted' }; };
+    const native = letGoAware(wire);
+    await expect(bridgeReply(native, { op: 'http', id: 'abandoned' })).rejects.toMatchObject({ kind: 'superseded' });
+    expect(wire.calls.filter(call => call.op === 'releaseChunk')).toEqual([]);
+    expect(wire.retained.has('abandoned')).toBe(true);
+    const count = wire.calls.length;
+    await expect(native.later({ op: 'releaseChunk', id: 'abandoned', generation: 1 })).rejects.toMatchObject({ kind: 'superseded' });
+    expect(wire.calls.length).toBe(count);
   });
 });

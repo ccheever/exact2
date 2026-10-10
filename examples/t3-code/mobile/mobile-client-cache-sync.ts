@@ -6,7 +6,7 @@ import { applyStaged } from './shared/composer-controls';
 import { decodeMobileCatalogPayload, encodeMobileCatalogPayload, mobileCacheCatalogCurrent, mobileCacheCatalogIdentity as savedIdentity, mobileCacheCatalogLive, mobileCacheCatalogPrepare } from './mobile-client-cache-catalog';
 import { letGo } from './shared/let-go';
 import { mobileCacheFlushDeletes, mobileCacheObserveThread, mobileCacheThreadDeleted } from './mobile-client-cache-lifecycle';
-import { mobileCacheReadDecoded, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite, type MobileCacheKey } from './mobile-client-cache';
+import { mobileCachePersistSnapshot, mobileCacheReadDecoded, mobileCacheReadRevision, mobileCacheTicket, mobileCacheWrite, type MobileCacheKey } from './mobile-client-cache';
 import { encodeMobileShellCache, decodeMobileShellCache, encodeMobileThreadCache, decodeMobileThreadCache,
   encodeMobileConfigCache, decodeMobileConfigCache } from './mobile-client-cache-codec';
 
@@ -74,20 +74,23 @@ export async function mobileCacheSync(client: T3Client, native: Native | null | 
     && savedIdentity(saved(), environmentId) === catalogIdentity
     && mobileCacheCatalogCurrent(client, saved(), environmentId);
   const key = (kind: MobileCacheKey['kind'], cacheKey: string): MobileCacheKey => ({ environmentId, kind, key: cacheKey });
-  const persist = async (cacheKey: MobileCacheKey, live: () => boolean, encode: () => string) => {
+  const persist = async (cacheKey: MobileCacheKey, live: () => boolean, snapshot: () => object, encode: () => string) => {
     if (!current() || !live()) return;
     const ticket = await mobileCacheTicket(native, cacheKey);
     if (!current() || !live()) return;
-    const payload = encodeMobileCatalogPayload(catalogIdentity, encode()); // immutable before any later await
-    await mobileCacheWrite(native, cacheKey, ticket, payload);
+    const captured = snapshot();
+    await mobileCachePersistSnapshot(client, cacheKey, captured, ticket, catalogIdentity, generation, () => {
+      const payload = encodeMobileCatalogPayload(catalogIdentity, encode()); // immutable before any later await
+      return mobileCacheWrite(native, cacheKey, ticket, payload);
+    }, () => current() && live() && snapshot() === captured);
   };
   try {
     if (client.connection === 'connected') {
-      await persist(key('shell', 'snapshot'), () => client.shellLive && client.shellLoaded && liveSnapshot(client.shell), () => encodeMobileShellCache(environmentId, client.shell));
-      await persist(key('server-config', 'config'), () => client.configLive && liveSnapshot(client.config), () => encodeMobileConfigCache(environmentId, client.config));
+      await persist(key('shell', 'snapshot'), () => client.shellLive && client.shellLoaded && liveSnapshot(client.shell), () => client.shell, () => encodeMobileShellCache(environmentId, client.shell));
+      await persist(key('server-config', 'config'), () => client.configLive && liveSnapshot(client.config), () => client.config, () => encodeMobileConfigCache(environmentId, client.config));
       if (threadId) await persist(key('thread', threadId), () => client.threadLive && !!client.thread && liveSnapshot(client.thread) && obj(client.thread.projection.thread).id === threadId
         && !str(obj(client.thread.projection.thread).deletedAt) && !mobileCacheThreadDeleted(client, environmentId, threadId),
-        () => encodeMobileThreadCache(environmentId, threadId, client.thread!));
+        () => client.thread!, () => encodeMobileThreadCache(environmentId, threadId, client.thread!));
       return;
     }
     // Connected permission/stream failures do not become cached RPC success.

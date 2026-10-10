@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { initialShell, obj, type Obj } from './shared/domain';
-import type { Native } from './shared/protocol';
+import { applyShell, applyThread, initialShell, mergeHistory, obj, threadSnapshot, type Obj } from './shared/domain';
+import { applyConfig, type Native } from './shared/protocol';
 import { mobileCacheAdoptThreadPresentation, mobileCacheBeforeStatus, mobileCacheSync } from './mobile-client-cache-sync';
 import { mobileCacheClear } from './mobile-client-cache';
 import { mobileThreadComposer } from './thread';
@@ -315,4 +315,122 @@ test.each(['other identity', 'unwrapped'])('cold focused restore refuses %s disk
   expect(f.client.shellLoaded).toBe(false); expect(f.client.thread).toBeNull(); expect(f.client.config).toEqual({});
   expect(f.payloads.shell).toBeUndefined(); expect(f.payloads['server-config']).toBeUndefined();
   expect(f.calls.filter(call => call.action === 'remove').map(call => call.kind)).toEqual(['shell', 'server-config']);
+});
+
+
+function liveFixture() {
+  const f = fixture();
+  f.client.connection = 'connected'; f.client.shell = f.shell; f.client.shellLoaded = true; f.client.shellLive = true;
+  f.client.config = f.config; f.client.configLive = true; f.client.thread = f.thread; f.client.threadLive = true;
+  return f;
+}
+const persistedKinds = (calls: Obj[]) => calls.filter(call => call.action === 'write').map(call => call.kind);
+
+test('unchanged focused snapshots reread native tickets without serializing or rewriting payloads', async () => {
+  const f = liveFixture(); let reads = 0;
+  Object.defineProperty(f.shell.projects[0], 'title', { enumerable: true, get() { reads++; return 'Cached project'; } });
+  await f.sync(); const serializedReads = reads; expect(serializedReads).toBeGreaterThan(0);
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
+  const before = f.calls.length; f.client.revision++; await f.sync();
+  expect(f.calls.slice(before).map(call => [call.action, call.kind])).toEqual([
+    ['ticket', 'shell'], ['ticket', 'server-config'], ['ticket', 'thread'],
+  ]);
+  expect(reads).toBe(serializedReads);
+  f.client.shell = applyShell(f.shell, { kind: 'project.updated', sequence: 11, project: { ...f.shell.projects[0], title: 'Updated project' } });
+  expect(f.client.shell).not.toBe(f.shell); expect(f.shell.projects[0]!.title).toBe('Cached project'); await f.sync();
+  f.client.config = applyConfig(f.config, { type: 'settingsUpdated', payload: { settings: { defaultRuntimeMode: 'full-access' } } });
+  expect(f.client.config).not.toBe(f.config); expect(f.config.settings).toBeUndefined(); await f.sync();
+  f.client.thread = applyThread(f.thread, { kind: 'event', sequence: 21, event: { type: 'thread.metadata-updated', threadId: 'thread',
+    occurredAt: '2026-10-10T12:00:00.000Z', payload: { ...obj(f.thread.projection.thread), title: 'Updated thread' } } });
+  expect(f.client.thread).not.toBe(f.thread); expect(obj(f.thread.projection.thread).title).toBe('Cached thread'); await f.sync();
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread', 'shell', 'server-config', 'thread']);
+  const beforeHistory = f.client.thread;
+  f.client.thread = mergeHistory(beforeHistory, { snapshotSequence: 21, nextCursor: null, hasMoreHistory: false, items: [] });
+  expect(f.client.thread).not.toBe(beforeHistory); expect(f.client.thread.sequence).toBe(beforeHistory.sequence);
+  await f.sync(); expect(persistedKinds(f.calls).at(-1)).toBe('thread');
+  const lastThreadWrite = f.calls.filter(call => call.action === 'write' && call.kind === 'thread').at(-1)!;
+  expect(JSON.parse(JSON.parse(String(lastThreadWrite.payload)).payload).snapshot.historyCursor).toBeNull();
+  f.client.thread = f.thread; await f.sync();
+  expect(persistedKinds(f.calls).at(-1)).toBe('thread');
+  expect(persistedKinds(f.calls)).toHaveLength(8);
+});
+
+test.each(['rejected', 'stale', 'lost answer'])('a %s focused write is retried and only confirmed snapshots become unchanged', async failure => {
+  const f = liveFixture(), original = f.native.later; let refuse = true;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.action === 'write' && request.kind === 'thread' && refuse) {
+      f.calls.push(request);
+      if (failure === 'rejected') throw new Error('Disk unavailable');
+      if (failure === 'lost answer') throw { name: 'FetchError', kind: 'Aborted' };
+      return { ok: true, generation: 1, value: { written: false, stale: true } };
+    }
+    return original(input);
+  };
+  if (failure === 'lost answer') await expect(f.sync()).rejects.toMatchObject({ kind: 'superseded' });
+  else await f.sync();
+  refuse = false; await f.sync(); await f.sync();
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread', 'thread']);
+});
+
+test.each(['native profile', 'generation', 'clear'])('focused %s changes persist the same live objects again without dropping data', async change => {
+  const f = liveFixture(), original = f.native.later; let profile = 'first';
+  f.native.later = async input => obj(input).action === 'ticket'
+    ? (f.calls.push(obj(input)), { ok: true, generation: 1, value: { ticket: profile } }) : original(input);
+  await f.sync();
+  if (change === 'native profile') profile = 'second';
+  if (change === 'generation') f.client.generation++;
+  if (change === 'clear') await mobileCacheClear(f.native, { environmentId: f.environmentId });
+  await f.sync();
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread', 'shell', 'server-config', 'thread']);
+  expect(f.client.shell).toBe(f.shell); expect(f.client.config).toBe(f.config); expect(f.client.thread).toBe(f.thread);
+  expect(f.calls.filter(call => call.action === 'clear')).toHaveLength(change === 'clear' ? 1 : 0);
+});
+
+test('a late superseded focused write leaves the latest snapshot retryable until disk is repaired', async () => {
+  const f = liveFixture(), original = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.action === 'write') f.payloads[String(request.kind)] = String(request.payload);
+    return original(input);
+  };
+  const held = delay(f, 'write', 'shell'), old = f.sync(); await held.entered;
+  f.client.shell = { ...f.shell, sequence: 22 }; f.client.revision++;
+  await f.sync(); held.resolve(); await old;
+  const before = f.calls.filter(call => call.action === 'write').length; await f.sync();
+  expect(persistedKinds(f.calls).slice(before)).toEqual(['shell']);
+  expect(JSON.parse(JSON.parse(f.payloads.shell!).payload).snapshot.snapshotSequence).toBe(22);
+  const repaired = f.calls.length; await f.sync();
+  expect(f.calls.slice(repaired).every(call => call.action === 'ticket')).toBe(true);
+});
+
+test('large adopted history persists losslessly once and restores offline after unchanged refreshes', async () => {
+  const f = liveFixture(), output = '漢字 command output\n'.repeat(10_000);
+  const items = Array.from({ length: 4296 }, (_, ordinal) => ({ id: `tool-${ordinal}`, threadId: 'thread',
+    runId: null, nodeId: null, ordinal, status: 'completed', type: 'command_execution',
+    input: `echo ${ordinal}`, output: ordinal === 4295 ? output : `result-${ordinal}` }));
+  let outputReads = 0;
+  Object.defineProperty(items.at(-1)!, 'output', { enumerable: true, get() { outputReads++; return output; } });
+  const thread = threadSnapshot({ projection: { ...f.thread.projection, turnItems: items,
+    visibleTurnItems: items.map((item, position) => ({ position, visibility: 'local', sourceThreadId: 'thread', sourceItemId: item.id, item })) },
+  snapshotSequence: 99, historyCursor: 'opaque-before-4296', hasMoreHistory: true, latestLocalTurnOrdinal: 4296 });
+  f.client.thread = thread;
+  const original = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.action === 'write') f.payloads[String(request.kind)] = String(request.payload);
+    return original(input);
+  };
+  await f.sync(); const serializedReads = outputReads; expect(serializedReads).toBeGreaterThan(0);
+  for (let pass = 0; pass < 20; pass++) { f.client.revision++; await f.sync(); }
+  expect(outputReads).toBe(serializedReads);
+  expect(persistedKinds(f.calls)).toEqual(['shell', 'server-config', 'thread']);
+  f.client.connection = 'disconnected'; f.client.shell = initialShell(); f.client.shellLoaded = false; f.client.shellLive = false;
+  f.client.config = {}; f.client.configLive = false; f.client.thread = null; f.client.threadLive = false;
+  await f.sync();
+  expect(f.client.thread).toEqual(thread);
+  expect(f.client.thread!.projection.turnItems).toHaveLength(4296);
+  expect(f.client.thread!.projection.visibleTurnItems).toHaveLength(4296);
+  expect(obj((f.client.thread!.projection.turnItems as Obj[]).at(-1)).output).toBe(output);
+  expect(f.client.scopes).toEqual([]); expect(f.client.writable).toBe(false);
 });
