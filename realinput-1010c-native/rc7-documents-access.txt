@@ -1,0 +1,75 @@
+RC-7 (realinput-1010c-native): who reads ~/Documents when a lane copy launches, and does the reference do it too
+
+1. The prompts of the attended session (TCC log, 2026-10-10 11:30-14:10): every kTCCServiceSystemPolicyDocumentsFolder
+   request whose responsible app is a lane copy (com.exact.t3code.macos.ri1010c-N), with the binary that made the access.
+   authValue 0 = denied/pending prompt, 2 = allowed. The lane app's own binary never appears as the accessor.
+
+   2026-10-10 12:00:40.373 responsible=com.exact.t3code.macos.ri1010c-1 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:05:40.415 responsible=com.exact.t3code.macos.ri1010c-1 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:05:40.420 responsible=com.exact.t3code.macos.ri1010c-1 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:33:48.855 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:33:54.221 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:33:54.226 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/Applications/Xcode.app/Contents/Developer/usr/bin/git authValue=2
+   2026-10-10 12:33:54.241 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/Applications/Xcode.app/Contents/Developer/usr/bin/git authValue=2
+   2026-10-10 12:38:43.659 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:38:43.669 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:38:44.694 responsible=com.exact.t3code.macos.ri1010c-2 accessing=/Applications/Xcode.app/Contents/Developer/usr/bin/git authValue=2
+   2026-10-10 12:42:44.802 responsible=com.exact.t3code.macos.ri1010c-3 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 12:43:29.245 responsible=com.exact.t3code.macos.ri1010c-3 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=2
+   2026-10-10 12:43:29.319 responsible=com.exact.t3code.macos.ri1010c-3 accessing=/Applications/Xcode.app/Contents/Developer/usr/bin/git authValue=2
+   2026-10-10 12:47:29.153 responsible=com.exact.t3code.macos.ri1010c-4 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=2
+   2026-10-10 12:48:02.239 responsible=com.exact.t3code.macos.ri1010c-4 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=2
+   2026-10-10 12:48:50.103 responsible=com.exact.t3code.macos.ri1010c-4 accessing=/Applications/Xcode.app/Contents/Developer/usr/bin/git authValue=2
+   2026-10-10 12:51:12.468 responsible=com.exact.t3code.macos.ri1010c-5 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 12:53:17.907 responsible=com.exact.t3code.macos.ri1010c-6 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 12:55:01.674 responsible=com.exact.t3code.macos.ri1010c-7 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 12:57:27.089 responsible=com.exact.t3code.macos.ri1010c-8 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:01:10.953 responsible=com.exact.t3code.macos.ri1010c-9 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:02:33.520 responsible=com.exact.t3code.macos.ri1010c-9 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:02:33.525 responsible=com.exact.t3code.macos.ri1010c-9 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:06:25.717 responsible=com.exact.t3code.macos.ri1010c-10 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 13:06:32.141 responsible=com.exact.t3code.macos.ri1010c-10 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=2
+   2026-10-10 13:08:57.820 responsible=com.exact.t3code.macos.ri1010c-11 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:11:30.314 responsible=com.exact.t3code.macos.ri1010c-11 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:11:30.321 responsible=com.exact.t3code.macos.ri1010c-11 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:35:17.915 responsible=com.exact.t3code.macos.ri1010c-12 accessing=/Users/daehyeonmun/Library/Application Support/orca/codex-accounts/<account>/home/packages/standalone/releases/0.160.1-aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:35:36.021 responsible=com.exact.t3code.macos.ri1010c-12 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=0
+   2026-10-10 13:40:13.338 responsible=com.exact.t3code.macos.ri1010c-12 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=0
+   2026-10-10 13:43:07.109 responsible=com.exact.t3code.macos.ri1010c-12 accessing=/Users/daehyeonmun/.local/share/claude/versions/2.1.295 authValue=0
+   2026-10-10 13:47:39.150 responsible=com.exact.t3code.macos.ri1010c-13 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:51:23.370 responsible=com.exact.t3code.macos.ri1010c-13 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:51:23.379 responsible=com.exact.t3code.macos.ri1010c-13 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 13:58:48.097 responsible=com.exact.t3code.macos.ri1010c-14 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 14:03:48.103 responsible=com.exact.t3code.macos.ri1010c-14 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+   2026-10-10 14:03:48.108 responsible=com.exact.t3code.macos.ri1010c-14 accessing=/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex authValue=0
+
+   Accessors: codex (homebrew 0.151.0, and once the standalone 0.160.1 under ~/Library/Application Support), claude
+   (~/.local/share/claude), git (Xcode). All are children of the embedded T3 server (provider probes, VCS status).
+
+2. What codex reads. The pinned T3 server (t3 0.0.46-nightly.20261005.2667, the release both apps run) started like
+   the clone starts it in a lane (envelope on fd 0; cwd = home; HOME = CFFIXED_USER_HOME = lane home; SHELL=/bin/zsh;
+   lanec.sh's PATH), with Settings > Providers > Codex binary = a wrapper that runs the real codex under sandbox-exec
+   denying ~/Documents, ~/Desktop, ~/Downloads; denials read live with 'log stream'. Run from a shell, so no prompt.
+
+   a) clone layout: lane home inside a git worktree (…/t3-code-realinput-1010c-native/target/rc7-lane/home):
+      2026-10-10 14:20:43.334 E  kernel[0:97260a9] (Sandbox) 3 duplicate reports for Sandbox: codex(46622) deny(1) file-read-metadata /Users/daehyeonmun/Documents/work/0.projects/exact2/.git/worktrees/t3-code-realinput-1010c-nativ
+      2026-10-10 14:20:43.368 E  kernel[0:972b39b] (Sandbox) Sandbox: codex(46622) deny(1) file-read-metadata /Users/daehyeonmun/Documents/work/0.projects/exact2/.git/worktrees/t3-code-realinput-1010c-native
+      2026-10-10 14:20:43.369 E  kernel[0:9724f48] (Sandbox) 1 duplicate report for Sandbox: codex(46622) deny(1) file-read-metadata /Users/daehyeonmun/Documents/work/0.projects/exact2/.git/worktrees/t3-code-realinput-1010c-native
+   b) reference lane (target/t3-audit/ref-app.sh, Electron 1e2ecbd975; its backend cwd is the source root inside the
+      t3-code worktree), same codex wrapper:
+      2026-10-10 14:24:02.333 E  kernel[0:972f59d] (Sandbox) 5 duplicate reports for Sandbox: codex(54805) deny(1) file-read-metadata /Users/daehyeonmun/Documents/work/0.projects/exact2/.git/worktrees/t3-code
+   c) control: lane home outside any git repository (scratch dir): codex Documents denials = 0
+
+   The worktrees' .git files point into ~/Documents:
+      gitdir: /Users/daehyeonmun/Documents/work/0.projects/exact2/.git/worktrees/t3-code
+   codex app-server (the T3 server's provider probe: checkCodexProviderStatus, cwd: process.cwd()) walks from its cwd
+   up to the repository and reads the worktree's gitdir there. Lanes live in t3-code/target/t3-ui-parity/lanes/, inside
+   that worktree, so every lane copy that finds a provider CLI triggers the Documents prompt for its new bundle id.
+
+3. Reference comparison (source, 1e2ecbd975): apps/desktop/src/app/DesktopEnvironment.ts:220 backendCwd =
+   isPackaged ? homeDirectory (NodeOS.homedir(), i.e. HOME) : appRoot; apps/server/src/provider/Layers/CodexProvider.ts:615
+   cwd: process.cwd(). The clone: T3LocalBackend.swift cwd: NSHomeDirectory() (CFFIXED_USER_HOME when set; lanec.sh sets
+   it to HOME). Same cwd, same server, same codex: the reference makes the same access (2b). Nothing to remove in the app.
+
+4. For the next attended session (lane tooling, not the app): keep lane homes outside any checkout (or set each provider
+   CLI's binary path to an absent file in the lane's settings.json, as PIN_CLAUDE does for codex). Then no lane prompts.
