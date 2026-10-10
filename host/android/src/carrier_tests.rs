@@ -1,4 +1,4 @@
-use crate::{bridge::Bridge, core_eligible, CoreOnly, Hooks};
+use crate::{bridge::Bridge, core_eligible, Hooks};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::{BindingKind, Plan, Value};
 use exact_runner::{DataError, DataSource};
@@ -16,14 +16,14 @@ fn fixture_plan() -> &'static [u8] {
 }
 
 #[test]
-fn retained_carrier_matches_existing_core_publications_and_state() {
+fn static_plan_matches_owned_boot_publications_and_state() {
     let plan = Plan::decode(fixture_plan()).unwrap();
     assert!(core_eligible(&plan, &()));
-    let mut selected = Bridge::<android_core_data::Core, CoreOnly<android_core_data::Core>>::new();
+    let mut selected = Bridge::<android_core_data::Core>::new();
     let mut previous = Bridge::<android_core_data::Core>::new();
-    let a = selected.boot(
+    let a = selected.boot_selected(
         fixture_plan(),
-        android_core_data::Core,
+        || android_core_data::Core,
         Hooks::none(),
         390.,
         844.,
@@ -76,8 +76,8 @@ fn general_plan_keeps_the_exact_existing_general_owner() {
 }
 
 #[test]
-fn selected_core_rejects_later_general_plan_before_replacing_live_state() {
-    let mut bridge = Bridge::<android_core_data::Core, CoreOnly<android_core_data::Core>>::new();
+fn automatic_owner_accepts_a_later_general_plan() {
+    let mut bridge = Bridge::<android_core_data::Core>::new();
     bridge.boot(
         fixture_plan(),
         android_core_data::Core,
@@ -94,8 +94,10 @@ fn selected_core_rejects_later_general_plan_before_replacing_live_state() {
         390.,
         844.,
     );
-    let refusal = String::from_utf8_lossy(bridge.output_bytes(n as usize));
-    assert!(refusal.contains("baked core carrier refuses"));
+    assert!(n > 32);
+    assert!(!bridge.binary_output());
+    let batch: serde_json::Value = serde_json::from_slice(bridge.output_bytes(n as usize)).unwrap();
+    assert!(batch["error"].is_null(), "{batch}");
     let n = bridge.input_write(br#"{"op":"state"}"#);
     let n = bridge.agent(n);
     assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("\"count\":0"));
@@ -196,55 +198,6 @@ fn literal_and_dynamic_binding_code_cannot_bypass_motion_row_selection() {
 }
 
 #[test]
-fn selector_requires_explicit_core_plan_contract_and_admits_general_by_default() {
-    use crate::{baked_core_eligible, DataContract};
-    let plan = Plan::decode(fixture_plan()).unwrap();
-    assert!(!baked_core_eligible(
-        &plan,
-        &android_core_data::Core,
-        DataContract::default()
-    ));
-    assert!(baked_core_eligible(
-        &plan,
-        &android_core_data::Core,
-        DataContract::CorePlan
-    ));
-    assert!(!baked_core_eligible(
-        &plan,
-        &Deferred,
-        DataContract::CorePlan
-    ));
-    let mut general = Plan::decode(fixture_plan()).unwrap();
-    general.nodes[0].node_type = NodeType::Canvas as u8;
-    assert!(!baked_core_eligible(
-        &general,
-        &android_core_data::Core,
-        DataContract::CorePlan
-    ));
-    struct Stateful(std::cell::Cell<usize>);
-    impl DataSource for Stateful {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-        fn bind(&mut self, _: &Plan) {
-            self.0.set(self.0.get() + 1);
-        }
-    }
-    let source = Stateful(std::cell::Cell::new(0));
-    assert!(!baked_core_eligible(&plan, &source, DataContract::Runtime));
-    struct Named;
-    impl DataSource for Named {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-        fn app_id(&self) -> &str {
-            "com.example.named"
-        }
-    }
-    assert!(!baked_core_eligible(&plan, &Named, DataContract::CorePlan));
-}
-
-#[test]
 fn retained_core_provider_preserves_default_and_bind_side_effects() {
     thread_local! { static EVENTS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
     struct Source {
@@ -265,7 +218,7 @@ fn retained_core_provider_preserves_default_and_bind_side_effects() {
         }
     }
     EVENTS.with(|v| v.set(0));
-    let mut bridge = Bridge::<Source, CoreOnly<Source>>::new();
+    let mut bridge = Bridge::<Source>::new();
     let n = bridge.boot(fixture_plan(), Source::default(), Hooks::none(), 390., 844.);
     assert!(n > 32);
     assert_eq!(EVENTS.with(std::cell::Cell::get), 11);
@@ -284,20 +237,10 @@ fn retained_provider_identity_gate_is_preserved_at_runtime() {
     }
     let mut plan = Plan::decode(fixture_plan()).unwrap();
     plan.app_id = "com.example.named".into();
-    assert!(crate::baked_core_eligible(
-        &plan,
-        &Named,
-        crate::DataContract::CorePlan
-    ));
-    let mut bridge = Bridge::<Named, CoreOnly<Named>>::new();
+    let mut bridge = Bridge::<Named>::new();
     let n = bridge.boot(&plan.encode(), Named, Hooks::none(), 390., 844.);
     assert!(n > 32);
     plan.app_id = "com.example.other".into();
-    assert!(!crate::baked_core_eligible(
-        &plan,
-        &Named,
-        crate::DataContract::CorePlan
-    ));
     let n = bridge.boot(&plan.encode(), Named, Hooks::none(), 390., 844.);
     assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize)).contains("AppMismatch"));
 }

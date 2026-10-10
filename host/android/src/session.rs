@@ -1,22 +1,22 @@
 //! One owner-thread Android runtime over the existing native runner and kernel.
 
-use crate::bridge::{Bridge, General, GeneralRuntime};
+use crate::bridge::Bridge;
 use crate::wire::Encoder;
 use exact_apple::abi::Hooks;
 use exact_runner::DataSource;
 
 /// A runtime and the reusable bytes its JNI presenter borrows for one turn.
 /// `Bridge` makes the session thread confined; the registry refuses reentry.
-pub struct Session<D: DataSource, G: GeneralRuntime<D> = General<D>> {
+pub struct Session<D: DataSource> {
     /// Hooks installed before boot, owned by the platform adapter.
     pub hooks: Hooks,
     /// The shared native host, including its input and request executor.
-    pub bridge: Bridge<D, G>,
+    pub bridge: Bridge<D>,
     encoder: Encoder,
     output: Vec<u8>,
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Default for Session<D, G> {
+impl<D: DataSource> Default for Session<D> {
     fn default() -> Self {
         Self {
             hooks: Hooks::none(),
@@ -27,7 +27,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Default for Session<D, G> {
     }
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Session<D, G> {
+impl<D: DataSource> Session<D> {
     /// Encode the latest shared-host batch. The returned byte count and
     /// [`Self::output`] form a lease ending at the next operation or destroy.
     pub fn publish(&mut self, length: u32) -> u32 {
@@ -66,8 +66,8 @@ impl<D: DataSource, G: GeneralRuntime<D>> Session<D, G> {
 
 /// Owner-thread handles, never pointers and never reused within the process.
 /// A destroyed handle and an exhausted identifier are refused explicitly.
-pub struct Registry<D: DataSource, G: GeneralRuntime<D> = General<D>> {
-    entries: std::collections::BTreeMap<u32, std::rc::Rc<std::cell::RefCell<Session<D, G>>>>,
+pub struct Registry<D: DataSource> {
+    entries: std::collections::BTreeMap<u32, std::rc::Rc<std::cell::RefCell<Session<D>>>>,
 }
 
 static NEXT_HANDLE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
@@ -81,7 +81,7 @@ fn next_handle(counter: &std::sync::atomic::AtomicU32) -> u32 {
         .unwrap_or(0)
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Default for Registry<D, G> {
+impl<D: DataSource> Default for Registry<D> {
     fn default() -> Self {
         Self {
             entries: Default::default(),
@@ -89,7 +89,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Default for Registry<D, G> {
     }
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Registry<D, G> {
+impl<D: DataSource> Registry<D> {
     /// Create a session. Zero denotes exhausted handle space.
     pub fn create(&mut self) -> u32 {
         let id = next_handle(&NEXT_HANDLE);
@@ -110,7 +110,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Registry<D, G> {
     }
 
     /// Borrow one registry entry without retaining a borrow of the registry.
-    pub fn get(&self, id: u32) -> Option<std::rc::Rc<std::cell::RefCell<Session<D, G>>>> {
+    pub fn get(&self, id: u32) -> Option<std::rc::Rc<std::cell::RefCell<Session<D>>>> {
         self.entries.get(&id).cloned()
     }
 }
@@ -144,10 +144,10 @@ pub fn refusal_ptr() -> *const u8 {
 }
 
 /// Run one non-reentrant transaction on a live owner-thread session.
-pub fn with_session<D: DataSource + 'static, G: GeneralRuntime<D> + 'static, T>(
-    registry: &'static std::thread::LocalKey<std::cell::RefCell<Registry<D, G>>>,
+pub fn with_session<D: DataSource + 'static, T>(
+    registry: &'static std::thread::LocalKey<std::cell::RefCell<Registry<D>>>,
     id: u32,
-    call: impl FnOnce(&mut Session<D, G>) -> T,
+    call: impl FnOnce(&mut Session<D>) -> T,
     refused: impl FnOnce() -> T,
 ) -> T {
     let entry = registry.with(|r| r.borrow().get(id));
@@ -161,11 +161,11 @@ pub fn with_session<D: DataSource + 'static, G: GeneralRuntime<D> + 'static, T>(
 }
 
 /// Perform one bridge call and publish its buffer as a single transaction.
-pub fn transaction<D: DataSource + 'static, G: GeneralRuntime<D> + 'static>(
-    registry: &'static std::thread::LocalKey<std::cell::RefCell<Registry<D, G>>>,
+pub fn transaction<D: DataSource + 'static>(
+    registry: &'static std::thread::LocalKey<std::cell::RefCell<Registry<D>>>,
     id: u32,
     agent: bool,
-    call: impl FnOnce(&mut Bridge<D, G>, Hooks) -> u32,
+    call: impl FnOnce(&mut Bridge<D>, Hooks) -> u32,
 ) -> u32 {
     with_session(
         registry,

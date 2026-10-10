@@ -56,7 +56,6 @@ dependencies = [
  "contract",
  "exact-android",
  "exact-bake",
- "exact-plan",
 ]
 
 [[package]]

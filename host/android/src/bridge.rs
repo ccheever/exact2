@@ -12,217 +12,19 @@ use exact_plan::Plan;
 use exact_runner::{DataSource, Event};
 use std::ffi::c_void;
 
-/// Existing portable general owner, retained by noncore baked carriers.
-pub type General<D> = exact_apple::abi::Bridge<D>;
-/// Uninhabited fallback selected only after an explicit whole-plan contract.
-/// The existing runtime data type, construction and binding remain intact.
-/// Runtime eligibility is checked again before any owner initialization.
-/// ```compile_fail
-/// let _ = exact_android::CoreOnly::<()>(std::convert::Infallible::default(), std::marker::PhantomData);
-/// ```
-pub struct CoreOnly<D: DataSource>(std::convert::Infallible, std::marker::PhantomData<D>);
-mod backend_sealed {
-    pub trait Backend<D: exact_runner::DataSource> {}
-    impl<D: exact_runner::DataSource> Backend<D> for super::General<D> {}
-    impl<D: exact_runner::DataSource> Backend<D> for super::CoreOnly<D> {}
-}
+type General<D> = exact_apple::abi::Bridge<D>;
 
-/// The fallback operation seam; carrier selection is a Rust type, not a feature.
-#[allow(unused_variables)]
-pub trait GeneralRuntime<D: DataSource>: backend_sealed::Backend<D> + Sized {
-    /// Whether this carrier includes a general executor.
-    const AVAILABLE: bool;
-    /// Existing owner operation `new`.
-    fn new() -> Self {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `set_compat`.
-    fn set_compat(&mut self, compat: &'static str) {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Presenter-owned opt-in to renewing retained row carriers.
-    fn set_row_reuse(&mut self, on: bool) {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `set_fonts`.
-    fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `input`.
-    fn input(&mut self, len: usize) -> *mut u8 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `input_write`.
-    fn input_write(&mut self, bytes: &[u8]) -> usize {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `output_bytes`.
-    fn output_bytes(&self, length: usize) -> &[u8] {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Boot an already validated plan, preserving its static or owned pool.
-    fn boot_decoded(&mut self, plan: Plan, data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `dispatch`.
-    fn dispatch(&mut self, view: u32, kind: u32, len: usize, now: f64) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `resize`.
-    fn resize(&mut self, w: f32, h: f32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `frame`.
-    fn frame(&mut self, now: f64) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `advance`.
-    fn advance(&mut self, now: f64, until: bool) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `tick`.
-    fn tick(&mut self, now: f64) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `pump`.
-    fn pump(&mut self, now: f64) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `data_ready`.
-    fn data_ready(&mut self) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `set_preferences`.
-    fn set_preferences(&mut self, bits: u32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `insets`.
-    fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `intrinsic`.
-    fn intrinsic(&mut self, view: u32, w: f32, h: f32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `intrinsics`.
-    fn intrinsics(&mut self, len: usize) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Read a native control's shared viewless contents (0 face, 1 options, 2 radio).
-    fn control_query(&mut self, view: u32, kind: u32) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Record a native scroll offset without publishing or laying out.
-    fn scrolled(&mut self, view: u32, left: f64, top: f64) {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Deliver the shared viewport collection feedback protocol.
-    fn collection_feedback(&mut self, len: usize, now: f64) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-    /// Existing owner operation `agent`.
-    fn agent(&mut self, len: usize) -> u32 {
-        unreachable!("uninhabited core fallback")
-    }
-}
-impl<D: DataSource> GeneralRuntime<D> for CoreOnly<D> {
-    const AVAILABLE: bool = false;
-}
-impl<D: DataSource> GeneralRuntime<D> for General<D> {
-    const AVAILABLE: bool = true;
-    fn new() -> Self {
-        exact_apple::abi::Bridge::new()
-    }
-    fn set_compat(&mut self, compat: &'static str) {
-        exact_apple::abi::Bridge::set_compat(self, compat)
-    }
-    fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
-        exact_apple::abi::Bridge::set_fonts(self, fonts, ctx)
-    }
-    fn set_row_reuse(&mut self, on: bool) {
-        exact_apple::abi::Bridge::set_row_reuse(self, on)
-    }
-    fn input(&mut self, len: usize) -> *mut u8 {
-        exact_apple::abi::Bridge::input(self, len)
-    }
-    fn input_write(&mut self, bytes: &[u8]) -> usize {
-        exact_apple::abi::Bridge::input_write(self, bytes)
-    }
-    fn output_bytes(&self, length: usize) -> &[u8] {
-        exact_apple::abi::Bridge::output_bytes(self, length)
-    }
-    fn boot_decoded(&mut self, plan: Plan, data: D, hooks: Hooks, w: f32, h: f32) -> u32 {
-        exact_apple::abi::Bridge::boot_decoded(self, plan, data, hooks, w, h)
-    }
-    fn dispatch(&mut self, view: u32, kind: u32, len: usize, now: f64) -> u32 {
-        exact_apple::abi::Bridge::dispatch(self, view, kind, len, now)
-    }
-    fn resize(&mut self, w: f32, h: f32) -> u32 {
-        exact_apple::abi::Bridge::resize(self, w, h)
-    }
-    fn frame(&mut self, now: f64) -> u32 {
-        exact_apple::abi::Bridge::frame(self, now)
-    }
-    fn advance(&mut self, now: f64, until: bool) -> u32 {
-        exact_apple::abi::Bridge::advance(self, now, u32::from(until))
-    }
-    fn tick(&mut self, now: f64) -> u32 {
-        exact_apple::abi::Bridge::tick(self, now)
-    }
-    fn pump(&mut self, now: f64) -> u32 {
-        exact_apple::abi::Bridge::pump(self, now)
-    }
-    fn data_ready(&mut self) -> u32 {
-        exact_apple::abi::Bridge::data_ready(self)
-    }
-    fn set_preferences(&mut self, bits: u32) -> u32 {
-        exact_apple::abi::Bridge::set_preferences(self, bits)
-    }
-    fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
-        exact_apple::abi::Bridge::insets(self, top, right, bottom, left)
-    }
-    fn intrinsic(&mut self, view: u32, w: f32, h: f32) -> u32 {
-        exact_apple::abi::Bridge::intrinsic(self, view, w, h)
-    }
-    fn intrinsics(&mut self, len: usize) -> u32 {
-        exact_apple::abi::Bridge::intrinsics(self, len)
-    }
-    fn control_query(&mut self, view: u32, kind: u32) -> u32 {
-        match kind {
-            0 => exact_apple::abi::Bridge::press_face(self, view),
-            1 => exact_apple::abi::Bridge::select_options(self, view),
-            2 => exact_apple::abi::Bridge::radio_group(self, view),
-            _ => {
-                let len = exact_apple::abi::Bridge::input_write(
-                    self,
-                    br#"{"op":"invalid Android control query"}"#,
-                );
-                exact_apple::abi::Bridge::agent(self, len)
-            }
-        }
-    }
-    fn scrolled(&mut self, view: u32, left: f64, top: f64) {
-        exact_apple::abi::Bridge::scrolled(self, false, view, left, top)
-    }
-    fn collection_feedback(&mut self, len: usize, now: f64) -> u32 {
-        exact_apple::abi::Bridge::collection_feedback(self, len, now)
-    }
-    fn agent(&mut self, len: usize) -> u32 {
-        exact_apple::abi::Bridge::agent(self, len)
-    }
-}
-
-enum Owner<D: DataSource, G: GeneralRuntime<D>> {
+enum Owner<D: DataSource> {
     Empty,
     Core(Box<core::Core<D>>),
-    General(Box<G>),
+    General(Box<General<D>>),
 }
 
 /// Android chooses its receipt-driven core adapter once at boot. The general
 /// owner remains available for plans needing the existing executor; a session
 /// never keeps two runner/kernel trees.
-pub struct Bridge<D: DataSource, G: GeneralRuntime<D> = General<D>> {
-    owner: Owner<D, G>,
+pub struct Bridge<D: DataSource> {
+    owner: Owner<D>,
     fonts: Option<(FontsFn, *mut c_void)>,
     compat: Option<&'static str>,
     input: Vec<u8>,
@@ -232,7 +34,7 @@ pub struct Bridge<D: DataSource, G: GeneralRuntime<D> = General<D>> {
     row_reuse_admitted: bool,
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
+impl<D: DataSource> Bridge<D> {
     /// Empty owner, before its static baked plan chooses a runtime.
     pub const fn new() -> Self {
         Self {
@@ -362,11 +164,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             if initial_press.is_some() {
                 return self.refuse("initial press requires an effect-free Android core plan");
             }
-            if !G::AVAILABLE {
-                return self
-                    .refuse("baked core carrier refuses a plan requiring the general owner");
-            }
-            let mut b = G::new();
+            let mut b = General::new();
             if let Some(compat) = self.compat {
                 b.set_compat(compat);
             }
@@ -484,7 +282,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
         match &mut self.owner {
             Owner::General(b) => {
                 self.binary = false;
-                b.advance(now, until)
+                b.advance(now, u32::from(until))
             }
             Owner::Core(c) => {
                 let out = c.advance(now, false);
@@ -603,7 +401,15 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
     pub fn control_query(&mut self, view: u32, kind: u32) -> u32 {
         self.binary = false;
         if let Owner::General(b) = &mut self.owner {
-            return b.control_query(view, kind);
+            return match kind {
+                0 => b.press_face(view),
+                1 => b.select_options(view),
+                2 => b.radio_group(view),
+                _ => {
+                    let len = b.input_write(br#"{"op":"invalid Android control query"}"#);
+                    b.agent(len)
+                }
+            };
         }
         self.output.clear();
         self.output.extend_from_slice(
@@ -617,7 +423,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             return false;
         }
         match &mut self.owner {
-            Owner::General(b) => b.scrolled(view, left, top),
+            Owner::General(b) => b.scrolled(false, view, left, top),
             Owner::Core(c) => c.scrolled(view, left, top),
             Owner::Empty => return false,
         }
@@ -647,7 +453,7 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
     }
 }
 
-impl<D: DataSource, G: GeneralRuntime<D>> Default for Bridge<D, G> {
+impl<D: DataSource> Default for Bridge<D> {
     fn default() -> Self {
         Self::new()
     }

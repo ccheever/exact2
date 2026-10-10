@@ -7,7 +7,7 @@ pub const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 /// The binary-only Android receipt, including the actual EXA1 ABI version.
 pub const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
 
-include!(concat!(env!("OUT_DIR"), "/carrier.rs"));
+exact_android::host!(android_core_data::Core, PLAN, COMPAT);
 
 #[cfg(test)]
 mod tests {
@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(&bytes(rt)[..4], b"EXA1");
         assert!(
             EXACT_ANDROID.with(|r| r.borrow().get(rt).unwrap().borrow().bridge.binary_output()),
-            "the default core app must use its receipt-driven Android owner"
+            "the default app automatically selects the eligible Android owner"
         );
         let increment = view(rt, "increment");
         exact_android_dispatch(rt, increment, 0, 0, 1.);

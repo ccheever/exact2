@@ -8,7 +8,6 @@
 #![deny(missing_docs)]
 
 mod bridge;
-mod carrier;
 mod core;
 mod exports;
 pub mod session;
@@ -21,15 +20,10 @@ pub use exact_apple::executor;
 /// The existing native host's platform text callback structures.
 pub use exact_apple::measure;
 
-/// Build-selected general owner and the sealed uninhabited typed fallback.
-pub use bridge::{CoreOnly, General, GeneralRuntime};
-/// Conservative whole-plan predicate shared by bake selection and runtime.
+/// Conservative whole-plan predicate used by the automatic runtime selection.
 pub use core::eligible as core_eligible;
 #[cfg(test)]
 mod carrier_tests;
-
-/// Explicit source contract and conservative bake-time selection.
-pub use carrier::{baked_core_eligible, DataContract};
 
 #[cfg(test)]
 mod controls_tests;

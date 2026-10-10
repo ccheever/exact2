@@ -3,15 +3,12 @@
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr) => {
-        $crate::host!($data, $plan, $compat, $crate::General<$data>);
-    };
-    ($data:ty, $plan:expr, $compat:expr, $general:ty) => {
         #[cfg(target_os = "android")]
         #[global_allocator]
         static EXACT_ANDROID_ALLOCATOR: $crate::MiMalloc = $crate::MiMalloc;
 
         thread_local! {
-            static EXACT_ANDROID: ::std::cell::RefCell<$crate::session::Registry<$data, $general>> =
+            static EXACT_ANDROID: ::std::cell::RefCell<$crate::session::Registry<$data>> =
                 ::std::cell::RefCell::new($crate::session::Registry::default());
         }
 

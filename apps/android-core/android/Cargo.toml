@@ -16,8 +16,6 @@ exact-android = { path = "../../../host/android" }
 android-core-data = { path = "../data" }
 
 [build-dependencies]
-exact-android = { path = "../../../host/android" }
-exact-plan = { path = "../../../plan" }
 android-core-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
 exact-bake = { path = "../../../bake" }
