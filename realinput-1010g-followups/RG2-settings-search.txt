@@ -1,0 +1,43 @@
+realinput-1010g-followups RG-2: Settings' search field, "theme" typed, right-clicked on the word, then Cut
+
+== Reference (T3 Code 1e2ecbd975, Electron, CDP; Playwright's right button raises Chromium's contextmenu at (12, 8) in the field)
+{"op":"clickrole","role":"button","name":"Settings"}
+{"op":"eval","value":{"value":"theme","start":5,"end":5,"autocorrect":null,"autocapitalize":null,"spellcheck":true}}
+{"op":"rclick","sel":"input[aria-label='Search settings']"}
+{"op":"eval","value":{"value":"theme","start":5,"end":5,"selected":"","focused":true}}
+{"value":"","start":0,"end":0,"selected":"","focused":true}
+{"op":"eval","error":"page.evaluate: TypeError: Cannot read properties of null (reading 'value')"}
+{"op":"eval","value":{"value":"theme","autocorrect":null,"autocapitalize":null,"spellcheck":true,"type":"search"}}
+{"value":"theme","start":0,"end":5,"selected":"theme","focused":true}
+{"op":"eval","value":{"after2s":true,"value":"theme","selected":"theme"}}
+The input has no autocorrect or autocapitalize attribute; Chromium never corrects or capitalizes an <input>, and its
+right-click selects the word under the pointer ("theme", 0-5), which stays "theme". #407 read the shell's menu there:
+Cut and Copy enabled; Cut cuts the selection.
+
+== Cause in the clone
+The real-input session (6bac646cc): the right-click turned "theme" into "Theme" with the insertion point at 5,0 and a
+highlight over the word (AppKit's correction indicator), and Cut left the field and clipboard unchanged. The shell's
+input menu selects the word under the pointer (setSelectedRange) as Chromium does. Read from the session's observations:
+on a field editor with automatic spelling correction on, AppKit accepted its pending correction for the word just typed
+as the selection moved (this Mac has 'Capitalize words automatically' on), so the word became "Theme" and the selection
+collapsed to 5,0: Cut had nothing to cut. AppKit has no capitalization switch on NSTextView: capitalization comes back from the spell checker as a
+correction, which a text view asks for only with automatic spelling correction on:
+   NSSpellChecker.isAutomaticCapitalizationEnabled (this Mac's setting): true
+   NSTextView responds to a capitalization switch of its own: false
+   field editor, AppKit's defaults: 8961 = orthography + replacement + correction + text completion
+   field editor, autocorrect="off" (ExactKit applyTextChecking + keepsTypedText): 8193 = orthography + text completion
+   NSSpellChecker on "i am here ": ["512 = correction {0, 1} -> I"]
+The Settings field (and 51 other text inputs) had no autocorrect="off": ExactKit then leaves AppKit's correction,
+text replacement and (in a textarea) smart quotes on. Every text input now has autocorrect="off" (ExactKit #111: no
+correction, smart quotes, dashes or text replacement), as every textarea already had; a browser input never rewrites
+what is typed. The capitalization itself was not reproduced here: in a window that is not key (the headless AppKit
+tests, the agent's window on a locked screen) AppKit made no automatic correction at all in these probes, even after a
+typed space ("theme " stayed lowercase with correction on). It stays real-input step RG-2.
+
+== Bun test (text-entry.test.ts, every text input has autocorrect="off")
+-- before (feature tip contracts): 52 inputs listed, 1 fail
+-- after: pass
+
+== Clone, final agent drive (after): tap settings-search, type theme, tap settings-search contextmenu at 14 10
+t3.textmenu: Cut | Copy | Paste (disabled) | Select All
+tree settings-search: {"placeholder": "", "testId": "settings-search", "accessibilityRole": "combobox", "accessibilityLabel": "Search settings", "accessibilityExpanded": true, "id": "settings-search", "value": "theme", "autocorrect": "off"}
