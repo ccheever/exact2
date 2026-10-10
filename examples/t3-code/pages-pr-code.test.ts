@@ -280,6 +280,59 @@ describe('line comments into the review (PullRequestCodeTab beginComment, Add to
   });
 });
 
+describe('the gutter\'s drags (realinput-1010f RF-3: onLineSelectionEnd and onGutterUtilityClick are both beginComment)', () => {
+  const row = (op: string, line: number, value: string) => `diffreview|${op}|${line}|${value}`;
+  const marks = (view: Awaited<ReturnType<ReturnType<typeof fixture>['settle']>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind === 'line').map(item => `${item.side}:${item.line}${item.selected ? '*' : ''}`);
+  test('a drag on the numbers paints its lines as it goes and opens the draft on its last line at the release', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('row', row('drag:additions', 1, 'src/catalog.js'));
+    await f.press('row', row('to', 0, 'dl:deletions:2:src/catalog.js'));
+    await f.press('row', row('to', 0, 'pull-request-code-file-src/strings.js')); // not a line: nothing
+    await f.press('row', row('to', 0, 'dl:additions:3:src/catalog.js'));
+    let view = await f.settle();
+    expect(marks(view)).toEqual(['additions:1*', 'deletions:2*', 'additions:2*', 'additions:3*', 'additions:4']);
+    expect(view.codeTab.draftOpen).toBe(false);
+    await f.press('row', row('end', 1, 'src/catalog.js'));
+    view = await f.settle();
+    expect([view.codeTab.draftOpen, view.codeTab.items.find(item => item.kind === 'pr-draft')?.label]).toEqual([true, 'src/catalog.js:3']);
+    expect(marks(view)).toEqual(['additions:1*', 'deletions:2*', 'additions:2*', 'additions:3*', 'additions:4']);
+    // An open draft holds the gutter (enableLineSelection: false): another drag changes nothing.
+    await f.press('row', row('drag:additions', 4, 'src/catalog.js')); await f.press('row', row('end', 4, 'src/catalog.js'));
+    view = await f.settle();
+    expect(view.codeTab.items.find(item => item.kind === 'pr-draft')?.label).toBe('src/catalog.js:3');
+  });
+  test('a click on a number opens the draft on that line, as the reference does', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('row', row('drag:deletions', 2, 'src/catalog.js'));
+    await f.press('row', row('end', 2, 'src/catalog.js'));
+    const view = await f.settle();
+    expect([view.codeTab.draftOpen, view.codeTab.items.find(item => item.kind === 'pr-draft')?.label, marks(view)]).toEqual([
+      true, 'src/catalog.js:2', ['additions:1', 'deletions:2*', 'additions:2', 'additions:3', 'additions:4']]);
+    await f.press('add', 'Was zero on purpose?');
+    expect(pullRequestReviewStore(f.client).pending(pullRequestReviewKey(reference)).map(entry => entry.position)).toEqual([{ kind: 'deleted', oldLine: 2 }]);
+  });
+  test('a drag from the "+" comments on the range it ends on; under a commit scope the gutter is off', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('row', row('gutter:additions', 2, 'src/catalog.js'));
+    await f.press('row', row('to', 0, 'dl:additions:4:src/catalog.js'));
+    await f.press('row', row('end', 2, 'src/catalog.js'));
+    let view = await f.settle();
+    expect([view.codeTab.items.find(item => item.kind === 'pr-draft')?.label, marks(view)]).toEqual(['src/catalog.js:4', ['additions:1', 'deletions:2', 'additions:2*', 'additions:3*', 'additions:4*']]);
+    await f.press('cancel');
+    await f.press('scope', commits[0]!.oid);
+    await f.settle();
+    await f.press('row', row('drag:additions', 1, 'src/catalog.js')); await f.press('row', row('end', 1, 'src/catalog.js'));
+    view = await f.settle();
+    expect(view.codeTab.draftOpen).toBe(false);
+  });
+});
+
 describe('conversations (ReviewThreadCard, the list off the diff)', () => {
   test('a thread sits under its line inside a hunk; one outside every hunk is listed, grouped by file', async () => {
     const f = fixture();

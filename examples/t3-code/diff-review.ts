@@ -10,7 +10,8 @@ import { ClientError, type Native } from './protocol';
 import type { Obj } from './domain';
 import { ancestorDirectories } from './diff-tree';
 import { createGitDiffFileContentsLoader, changeType, expandRange, loadFileContents, loadFilePatches, loadNextFiles, requestFiles, retryFile, settledFileCount } from './diff-lazy';
-import { buildDiffReviewComment, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { buildDiffReviewComment, findDiffReviewLineIndex, reviewCommentContextRecord, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { dragTo, parseLineCellId, pressGutter, pressLine, releaseDrag, type RowIndex } from './diff-line-drag';
 import { contentsKey, currentSelection, diffFiles, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
 import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from './composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
@@ -26,8 +27,8 @@ export async function loadDiffFiles(client: T3Client, native: Native): Promise<v
 
 /**
  * `diffreview` ops; answers the toast text ('' for none). Line ops name the side and modifier in
- * the op (`line:additions:shift`, `comment:deletions`), the file in `value` and the line in `n`;
- * `expand` takes the hidden range's index in `n`.
+ * the op (`drag:additions:shift`, `gutter:deletions`, `comment:deletions`), the file in `value` and the line in `n`;
+ * a drag's `to` takes the cell id under the pointer in `value`, its `end` nothing; `expand` takes the hidden range's index in `n`.
  */
 export async function diffReview(client: T3Client, native: Native, op: string, value: string, n: number): Promise<string> {
   const state = client.diffState, scope = state.scopeKey;
@@ -76,11 +77,18 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     state.expansions[gapKey] = expandRange(state.expansions[gapKey], hidden);
     return '';
   }
-  if (state.draft && ['line', 'comment'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
-  if (action === 'line') {
-    // Pierre's line selection: a press selects the line, a Shift-press extends the selection in the same file.
-    const anchor = state.selection?.scope === scope && state.selection.path === at.path ? state.selection.range : null;
-    state.selection = { scope, path: at.path, range: modifier === 'shift' && anchor ? { ...anchor, end: at.line, endSide: at.side } : { start: at.line, side: at.side, end: at.line, endSide: at.side } };
+  if (action === 'to' || action === 'end') return lineDrag(client, state, scope, action, value);
+  if (state.draft && ['comment', 'drag', 'gutter'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
+  if (action === 'drag' || action === 'gutter') {
+    // A press on a line number or the "+" starts the gutter's drag (realinput-1010f RF-3, diff-line-drag.ts).
+    const target = file(at.path);
+    if (!target || !(at.line > 0)) return '';
+    const lines = reviewLinesOf(state, target);
+    const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+    const selection = state.selection?.scope === scope ? { path: state.selection.path, range: state.selection.range } : null;
+    const step = action === 'gutter' ? pressGutter(selection, at.path, { line: at.line, side: at.side }, index) : pressLine(selection, at.path, { line: at.line, side: at.side }, modifier === 'shift', index);
+    state.drag = step.drag;
+    state.selection = step.selection ? { scope, ...step.selection } : null;
     return '';
   }
   if (action === 'comment') {
@@ -95,13 +103,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
       return !!comment && !!probe && probe.startIndex >= comment.startIndex && probe.startIndex <= comment.endIndex;
     })();
     const range: SelectedLineRange = inside && selected ? selected : { start: at.line, side: at.side, end: at.line, endSide: at.side };
-    const id = `file-comment-${localId()}`; // nextFileCommentId's grammar; a data source has no wall clock it may trust
-    const comment = buildDiffReviewComment({ id, sectionId: '', sectionTitle: '', filePath: at.path, lines, range, text: '' });
-    if (!comment) return '';
-    state.selection = { scope, path: at.path, range };
-    state.draft = { scope, path: at.path, id, range, rangeLabel: comment.rangeLabel };
-    noteDraftFocus(client, true); // the draft's textarea mounts with the focus (autofocus)
-    return '';
+    return openDraft(client, state, scope, at.path, range);
   }
   if (action === 'cite') return citeSelection(client, native, op.slice('cite:'.length), value);
   if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself
@@ -124,6 +126,40 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   throw new ClientError('Unsupported diff review action.');
+}
+
+/** beginComment: the draft on a range, its textarea mounting with the focus (autofocus). */
+function openDraft(client: T3Client, state: T3Client['diffState'], scope: string, path: string, range: SelectedLineRange): string {
+  const target = diffFiles(client).find(entry => entry.path === path);
+  if (!target || state.draft) return '';
+  const id = `file-comment-${localId()}`; // nextFileCommentId's grammar; a data source has no wall clock it may trust
+  const comment = buildDiffReviewComment({ id, sectionId: '', sectionTitle: '', filePath: path, lines: reviewLinesOf(state, target), range, text: '' });
+  if (!comment) return '';
+  state.selection = { scope, path, range };
+  state.draft = { scope, path, id, range, rangeLabel: comment.rangeLabel };
+  noteDraftFocus(client, true);
+  return '';
+}
+/**
+ * The gutter's drag after its press (diff-line-drag.ts): `to` names the cell under the pointer, `end` is the release. The
+ * Diff panel's viewer has no onLineSelectionEnd (AnnotatableCodeView), so only the "+"'s range opens a draft; a drag on
+ * the numbers leaves its lines selected.
+ */
+function lineDrag(client: T3Client, state: T3Client['diffState'], scope: string, action: string, value: string): string {
+  const selection = state.selection?.scope === scope ? { path: state.selection.path, range: state.selection.range } : null;
+  if (action === 'to') {
+    const hit = parseLineCellId(value);
+    if (!hit || !state.drag) return '';
+    const step = dragTo(state.drag, selection, hit.path, hit.at);
+    state.drag = step.drag;
+    state.selection = step.selection ? { scope, ...step.selection } : null;
+    return '';
+  }
+  const path = state.drag?.path ?? '';
+  const { selection: kept, gutter } = releaseDrag(state.drag, selection);
+  state.drag = null;
+  state.selection = kept ? { scope, ...kept } : null;
+  return gutter ? openDraft(client, state, scope, path, gutter) : '';
 }
 
 /**

@@ -93,10 +93,13 @@ describe('diff review engine', () => {
   test('a line comment becomes a review-comment chip with the reference record; deleting it removes the chip', async () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
-    await command('diffreview', 'line:additions', 'a.ts', 3);
-    await command('diffreview', 'line:additions:shift', 'a.ts', 5);
+    // A click on number 3, then a Shift-click on 5 (the gutter's drags, realinput-1010f RF-3): the Diff panel's viewer has no
+    // onLineSelectionEnd (AnnotatableCodeView), so the lines stay selected and no draft opens.
+    await command('diffreview', 'drag:additions', 'a.ts', 3); await command('diffreview', 'end', 'a.ts', 3);
+    await command('diffreview', 'drag:additions:shift', 'a.ts', 5); await command('diffreview', 'end', 'a.ts', 5);
     let view = snapshot(client);
     expect(view.diffItems.filter(item => item.kind === 'line').map(item => item.selected)).toEqual([true, true, true, false, false]);
+    expect(view.diffCommentOpen).toBe(false);
     await command('diffreview', 'comment:additions', 'a.ts', 4);
     view = snapshot(client);
     expect(view.diffCommentOpen).toBe(true);
@@ -116,6 +119,29 @@ describe('diff review engine', () => {
     await command('diffreview', 'delete', id);
     expect(calls.filter(call => call.op === 'editorEdit').at(-1)).toMatchObject({ all: true, text: 'Please look ' });
     expect(snapshot(client).diffItems.some(item => item.kind === 'note')).toBe(false);
+  });
+});
+
+describe('the gutter\'s drags in the Diff panel (realinput-1010f RF-3)', () => {
+  test('a drag on the numbers selects the lines it crosses; a drag from the "+" opens the draft on its range', async () => {
+    const { client, command } = harness(false);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    await command('diffreview', 'drag:additions', 'a.ts', 3);
+    await command('diffreview', 'to', 'dl:additions:4:a.ts', 0);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    await command('diffreview', 'end', 'a.ts', 3);
+    let view = snapshot(client);
+    expect([view.diffItems.filter(item => item.kind === 'line').map(item => item.selected), view.diffCommentOpen]).toEqual([[true, true, true, false, false], false]);
+    // A press on the one selected line that never moves clears it.
+    await command('diffreview', 'drag:additions', 'a.ts', 9); await command('diffreview', 'end', 'a.ts', 9);
+    await command('diffreview', 'drag:additions', 'a.ts', 9); await command('diffreview', 'end', 'a.ts', 9);
+    expect(snapshot(client).diffItems.filter(item => item.kind === 'line').some(item => item.selected)).toBe(false);
+    await command('diffreview', 'gutter:additions', 'a.ts', 3);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    await command('diffreview', 'end', 'a.ts', 3);
+    view = snapshot(client);
+    const draft = view.diffItems.findIndex(item => item.kind === 'draft');
+    expect([view.diffCommentOpen, view.diffItems[draft]?.label]).toEqual([true, '3 to 5']);
   });
 });
 

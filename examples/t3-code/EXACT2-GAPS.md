@@ -785,3 +785,45 @@ would be let go, and the write sent again, by any press in the panel. So a refus
 alternate server's guard that saw another account after its probe said the same one, fails the batch (the ticks go back,
 "Could not update viewed files") where the reference passes the write to the next server. The invalidations run in the
 panel's next answer (`afterWrite`) instead of before the command returns.
+
+## Hover and the window's mouse moves; the diff gutter's drag (realinput-1010f)
+
+Task `20261010-realinput-1010f-followups`.
+
+- **RF-5, the Usage page's unpriced popover (clone cause, fixed; a host note).** The clone's activity reporter
+  (`T3ActivityReporter.swift`) turned on `acceptsMouseMovedEvents` for each main window, to hear the pointer as the
+  reference's window `pointermove` listener does. AppKit then sends every mouse move in the window to its first responder,
+  and ExactKit makes a pressed focusable node the first responder (Chrome's focus on press). `NodeView.mouseMoved`
+  (`NodeViewMac.swift` 330–337) takes any move it receives as the pointer over it (`presenter.hover(self, true)`), so the
+  pressed Cost segment (view 13954) took the hover on every move wherever the pointer was, trading it with the (i)'s own
+  tracking area (view 14006) and keeping it at rest (the realinput-1010f traces). It is not X62/#322's overlap: the
+  segment's tracking area never contained the (i)'s point. The reporter now hears the pointer through a tracking area of
+  its own over the window's content (`T3ActivityPointer`; AppKit sends a tracking area's moves to its owner alone) and
+  leaves `acceptsMouseMovedEvents` off. Host part, not filed by this task: a node could take only the moves of its own
+  tracking area (`event.trackingArea === tracking`). One-file repro (an app from `bun scripts/exact.mjs new <dir>`, its
+  `app.contract`, with one line in any of its native modules: `NSApp.windows.forEach { $0.acceptsMouseMovedEvents = true }`
+  after launch): press A (it takes the focus), then move a real pointer over B and rest; `log` alternates `A+`/`B+` on
+  each move and ends on `A+`. Without the line it ends on `B+`.
+
+  ```text
+  component Repro
+    state log = ""
+    action over(name: string, inside: bool)
+      log = inside ? `${log} ${name}+` : log
+    action pressed
+      log = `${log} pressed`
+    view
+      column gap=40 padding=40
+        button press=pressed hover=over("A") testId="a"
+          text "A"
+        button hover=over("B") testId="b"
+          text "B"
+        text log testId="log"
+  ```
+
+- **RF-3, the diff gutter's drag (clone, built).** A press on a line number or on the "+" now starts a drag
+  (`diff-line-drag.ts`, `DiffCell` in `diff-rows.contract`): the pressed node holds the pointer and names the line under it
+  with `elementFromPoint` over the cells' ids. A node that hears `pointerdown` keeps the press from its ancestors (X71,
+  main `issues/20261010-pointer-events-reach-ancestors.md`), so a press on the diff gutter no longer counts as an outside
+  press for the window root's light dismiss (`outsidePressDown`, which closes a skill chip's details); the reference's
+  outside press would. The gutter's own popovers are unaffected.

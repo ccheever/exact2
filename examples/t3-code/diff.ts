@@ -18,6 +18,7 @@ import type { T3Client } from './client';
 import { messageTime } from './timeline-presentation';
 import { lineTokens, overlay } from './timeline-diff-syntax';
 import type { Token } from './timeline-highlight';
+import type { LineDrag } from './diff-line-drag';
 
 /** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). */
 export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null };
@@ -44,6 +45,8 @@ export class DiffState {
   expansions: Record<string, Expansion> = {};
   /** Line comments (diff-review.ts): the selected lines, the open draft, and the saved comments behind composer chips. */
   selection: { scope: string; path: string; range: SelectedLineRange } | null = null;
+  /** The gutter's drag in progress (diff-line-drag.ts), in the selection's scope. */
+  drag: LineDrag | null = null;
   draft: { scope: string; path: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
   /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it

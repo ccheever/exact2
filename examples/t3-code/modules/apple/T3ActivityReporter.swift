@@ -49,7 +49,8 @@ final class T3ActivityReporter: @unchecked Sendable {
     // AppKit objects are used only on the main queue.
     private var observers: [NSObjectProtocol] = []
     private var eventMonitor: Any?
-    private let mouseWindows = NSMapTable<NSWindow, NSNumber>.weakToStrongObjects()
+    private let pointerAreas = NSMapTable<NSWindow, NSTrackingArea>.weakToStrongObjects()
+    private lazy var pointer = T3ActivityPointer { [weak self] in self?.interaction() }
     private var observing = false
     private var stoppedObserving = false
     private let observeWindows: Bool
@@ -166,22 +167,26 @@ final class T3ActivityReporter: @unchecked Sendable {
             }
         }
     }
-    /// The reference's pointermove, keydown and wheel listeners: AppKit delivers mouse
-    /// moves only to a window that asks for them, so each main-capable window does while observed.
+    /// The reference's pointermove, keydown and wheel listeners. AppKit delivers mouse moves only
+    /// where something asks for them: each main-capable window's content gets a tracking area that
+    /// hears every move while observed (T3ActivityPointer), not `acceptsMouseMovedEvents`, which
+    /// sends the window's moves to its first responder (realinput-1010f RF-5).
     private func observe() {
         guard observeWindows, !observing, !stoppedObserving else { return }; observing = true
         for name in [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.trackPointer() })
         }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .keyDown, .scrollWheel]) { [weak self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
             self?.interaction(); return event
         }
         trackPointer()
     }
     private func trackPointer() {
-        for window in NSApp.windows where window.canBecomeMain && window.isVisible && mouseWindows.object(forKey: window) == nil {
-            mouseWindows.setObject(NSNumber(value: window.acceptsMouseMovedEvents), forKey: window)
-            window.acceptsMouseMovedEvents = true
+        for window in NSApp.windows where window.canBecomeMain && window.isVisible && pointerAreas.object(forKey: window) == nil {
+            guard let content = window.contentView else { continue }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeAlways, .inVisibleRect], owner: pointer, userInfo: nil)
+            content.addTrackingArea(area)
+            pointerAreas.setObject(area, forKey: window)
         }
     }
     private func interaction() {
@@ -199,12 +204,25 @@ final class T3ActivityReporter: @unchecked Sendable {
         }
         DispatchQueue.main.async { [self] in
             stoppedObserving = true
-            for window in mouseWindows.keyEnumerator().allObjects.compactMap({ $0 as? NSWindow }) {
-                window.acceptsMouseMovedEvents = mouseWindows.object(forKey: window)?.boolValue ?? false
+            for window in pointerAreas.keyEnumerator().allObjects.compactMap({ $0 as? NSWindow }) {
+                if let area = pointerAreas.object(forKey: window) { window.contentView?.removeTrackingArea(area) }
             }
-            mouseWindows.removeAllObjects()
+            pointerAreas.removeAllObjects()
             for observer in observers { NotificationCenter.default.removeObserver(observer) }; observers.removeAll()
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }; eventMonitor = nil
         }
     }
+}
+
+/// The owner of the reporter's window-wide tracking areas: each move over a window's content is an
+/// interaction. AppKit sends a tracking area's moves to its owner alone. A window that accepts mouse
+/// moved events sends each one to its first responder instead, and a focused ExactKit node with a
+/// `hover` takes it as the pointer over it wherever the pointer is: the Usage page's pressed Cost
+/// segment held the hover of the unpriced (i) beside the pointer, its popover closing on each 1 pt
+/// move and then not opening at all (realinput-1010f RF-5).
+final class T3ActivityPointer: NSResponder {
+    private let moved: () -> Void
+    init(_ moved: @escaping () -> Void) { self.moved = moved; super.init() }
+    required init?(coder: NSCoder) { nil }
+    override func mouseMoved(with event: NSEvent) { moved() }
 }
