@@ -1328,10 +1328,11 @@ component App
   action didChange
     match changed
       case some(result)
+        let pairingSucceeded = pairingUi.submitted and result.message == "" and top(nav).name == "connect"
         pairingUi = PairingUi(pairingUi, formError=result.message, expanded=(lastOperation == "save" and result.message == "" ? "" : pairingUi.expanded), host=(pairingUi.submitted and result.message == "" ? "" : pairingUi.host), code=(pairingUi.submitted and result.message == "" ? "" : pairingUi.code), submitted=false)
         if result.message != "" and (lastOperation == "thread-action" or lastOperation == "attachments")
           send notice = alert("info", "Could not complete action", result.message)
-        if pairingUi.submitted and result.message == ""
+        if pairingSucceeded
           nav = back(nav)
       case none
         pairingUi = PairingUi(pairingUi, submitted=false)
