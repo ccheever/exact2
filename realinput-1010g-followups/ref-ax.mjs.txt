@@ -1,0 +1,28 @@
+// realinput-1010g-followups RG-4: the reference's accessibility tree around a reply's links (CDP Accessibility.getFullAXTree).
+// Usage: node ref-ax.mjs <cdpPort> <part of the link's URL> [out.json]: the link's paragraph, and every link
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, needle, outFile] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const pages = browser.contexts().flatMap((c) => c.pages());
+const page = pages.find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:')) ?? pages[0];
+const cdp = await page.context().newCDPSession(page);
+const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+const value = (v) => v?.value?.value ?? v?.value;
+const prop = (n, name) => value(n.properties?.find((p) => p.name === name));
+const line = (n) => `${n.role?.value ?? '?'} "${n.name?.value ?? ''}"${prop(n, 'url') ? ` url=${prop(n, 'url')}` : ''}${n.ignored ? ' (ignored)' : ''}`;
+// The paragraph: the deepest node whose name or text under it holds the needle.
+const text = (n) => (n.name?.value ?? '') + (n.childIds ?? []).map((c) => byId.get(c)).filter(Boolean).map(text).join('');
+const link = nodes.find((n) => n.role?.value === 'link' && !n.ignored && String(prop(n, 'url') ?? '').includes(needle));
+const paragraph = link && byId.get(link.parentId);
+const out = [];
+const dump = (n, depth) => { if (!n) return; if (!n.ignored || n.role?.value !== 'none') out.push('  '.repeat(depth) + line(n)); for (const c of n.childIds ?? []) dump(byId.get(c), depth + 1); };
+dump(paragraph, 0);
+const links = nodes.filter((n) => n.role?.value === 'link' && !n.ignored).map(line);
+const result = { needle, paragraph: out, links };
+if (outFile) fs.writeFileSync(outFile, JSON.stringify(result, null, 2));
+console.log(JSON.stringify(result, null, 2));
+process.exit(0);
