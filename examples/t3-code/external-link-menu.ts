@@ -80,21 +80,22 @@ export async function showExternalLinkContextMenu(options: ShowExternalLinkConte
   }
 }
 
-/** `chatlocal:link-menu` (value = the link's href): ChatMarkdown's anchor `onContextMenu` over the open thread. */
-export async function chatExternalLinkMenu(client: T3Client, native: Native, storage: Files | undefined, href: string): Promise<string> {
+/** `chatlocal:link-menu` (value = the link's href; id "page" from a page over the thread): ChatMarkdown's anchor
+ *  `onContextMenu` over the open thread, or with no thread on the pull request page (its detail's threadRef is null). */
+export async function chatExternalLinkMenu(client: T3Client, native: Native, storage: Files | undefined, href: string, onPage = false): Promise<string> {
   if (!href || !resolveExternalWebLinkHost(href)) return '';
   // A new thread's draft has its thread ref from the start in the reference (a file preview's links offer the Browser
   // there); here its id is allocated when the Browser opens, as the Browser surface does (addBrowserSurface).
-  const draft = !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
-  const threadLinkAction = storage ? chatLinkThreadAction(client, href) : undefined;
+  const draft = !onPage && !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
+  const threadLinkAction = storage && !onPage ? chatLinkThreadAction(client, href) : undefined;
   await showExternalLinkContextMenu({
     href,
-    canOpenInPreview: canOpenLinksInApp(!!activeRef(client) || draft, native),
+    canOpenInPreview: !onPage && canOpenLinksInApp(!!activeRef(client) || draft, native),
     ...(threadLinkAction ? { threadLinkAction } : {}),
     showContextMenu: async items => (await showContextMenu(client, native, items) || null) as ExternalLinkContextMenuAction | null,
     openInPreview: async target => {
       if (draft && !activeRef(client)) await ensureDraftThreadId(client, native);
-      const ref = activeRef(client);
+      const ref = onPage ? null : activeRef(client);
       if (!ref) throw new Error('Thread context is unavailable.');
       try { await openUrlInPreview(client, native, ref, target); }
       catch (error) {

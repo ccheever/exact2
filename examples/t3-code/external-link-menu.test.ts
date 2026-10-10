@@ -127,9 +127,10 @@ describe('the reply link menu hookup', () => {
       return chain;
     };
     const handlers = lines.flatMap((line, at) => line.includes('contextmenu=linkMenu(run.href)') ? [at] : []);
-    expect(handlers.length).toBe(4);
+    expect(handlers.length).toBe(5);
     for (const at of handlers) {
       const chain = branches(at);
+      if (chain.includes('component PrLinkRun')) continue;
       expect(chain.some(branch => /^when (.* and )?webLink\(run\.href\)$/.test(branch))).toBe(true);
       expect(chain.some(branch => branch.startsWith('not when webLink') || branch.startsWith('else'))).toBe(false);
     }
@@ -138,11 +139,13 @@ describe('the reply link menu hookup', () => {
     expect(plain).toBeGreaterThan(0);
     expect(lines[plain]).not.toContain('contextmenu=');
     expect(branches(plain).some(branch => branch.endsWith('and not (run.kind == "link-start" and webLink(run.href))'))).toBe(true);
-    expect(markdown).toContain('contextmenu=local("link-menu", "", run.href) hover=hover role="link"');
+    expect(markdown).toContain('contextmenu=linkMenu(run.href) hover=hover role="link"'); // PrLinkRun: a pull request link, a web link by construction
+    expect(markdown).toMatch(/component PrLinkRun\n {2}inject\n {4}rem: number\n {4}hoverTipAt: action\n {4}linkMenu: action\n/);
     expect(markdown.match(/ {2}inject\n {4}linkOpen: action\n {4}linkMenu: action\n/g)?.length).toBe(2);
     const window = await source('app-window.contract');
     expect(window).toMatch(/provide[\s\S]*?\n {4}linkOpen\n {4}linkMenu\n/);
-    expect(window).toMatch(/action linkMenu\(href: string\)\n {4}chatLocal\("link-menu", "", href\)/);
+    // A page over the thread (the pull request page) names itself: its ChatMarkdown has no thread.
+    expect(window).toMatch(/action linkMenu\(href: string\)\n {4}chatLocal\("link-menu", pageCover \? "page" : "", href\)/);
   });
 
   test('chatlocal:link-menu opens the reference items over the open thread, and Copy Link copies the href', async () => {
@@ -164,6 +167,9 @@ describe('the reply link menu hookup', () => {
     calls.length = 0;
     await owner.command('chatlocal:link-menu', '', 'mailto:a@b.c', 0, native, files);
     expect(menus()).toEqual([]);
+    pick = null;
+    await owner.command('chatlocal:link-menu', 'page', 'https://example.test', 0, native, files);
+    expect(menus()).toEqual([['Open in system browser', 'Copy Link']]);
   });
 });
 
@@ -244,6 +250,15 @@ describe("a reply's pull request link over the open thread", () => {
     const none = linking({ threadId: '', projectId: '' });
     await chatExternalLinkMenu(none.client, none.native, files, 'https://example.com/docs');
     expect(none.menus).toEqual([['Open in system browser', 'Copy Link']]);
+  });
+
+  test('on the pull request page there is no thread: no thread action and no integrated browser', async () => {
+    const page = linking({ threadId: 't2' });
+    await chatExternalLinkMenu(page.client, page.native, files, PR7, true);
+    const draft = linking({ threadId: '' });
+    await chatExternalLinkMenu(draft.client, draft.native, files, PR7, true);
+    expect([...page.menus, ...draft.menus]).toEqual([['Open in system browser', 'Copy Link'], ['Open in system browser', 'Copy Link']]);
+    expect(activeRef(draft.client)).toBeNull();
   });
 
   test("an unlink the thread does not hold does nothing; a refusal is the chat's toast", async () => {
