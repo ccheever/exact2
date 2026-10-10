@@ -325,6 +325,7 @@ component T3Window
     hoverTip
     hoverShown
     linkOpen
+    linkMenu
     scheme // browser-surface part 3: the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
     pickModel
     taskModelPick
@@ -332,6 +333,10 @@ component T3Window
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)
     chatLocal("link-open", kind, href)
+  // shell-context-menu: a Markdown web link's own menu (ChatMarkdown's anchor onContextMenu, external-link-menu.ts). A page
+  // over the thread (the pull request page's detail) has no thread: its ChatMarkdown gets threadRef null ("page").
+  action linkMenu(href: string)
+    chatLocal("link-menu", pageCover ? "page" : "", href)
   // fix-hover-cards: the hover layer's tooltip or card (hover-layer.contract). It shows once its trigger has had the
   // pointer for its open delay (Base UI's delay, hoverOpenDelay; nothing is drawn before it, so a card still waiting
   // takes no press) while the trigger or the card has it (hoverOn), then a card for its closeDelay (hoverDelay), so the

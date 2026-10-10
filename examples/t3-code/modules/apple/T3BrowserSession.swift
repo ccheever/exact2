@@ -398,7 +398,7 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
 }
 
 /// The tab's web view: the first click into an inactive window reaches the page, as Chromium's view takes it.
-final class T3BrowserWebView: WKWebView {
+final class T3BrowserWebView: T3ShellWebView { // the shell's context menu (T3ShellWebView.swift)
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 

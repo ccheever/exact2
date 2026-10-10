@@ -1154,6 +1154,73 @@ mod tests {
         assert_eq!(pierre_icon_token("Cargo.toml"), "default");
     }
 
+    /// shell-context-menu: a web link's own menu is dispatched per node (FlowRuns), not per inline run (ChatRuns), so
+    /// every prose block holding a link, with no code or chip beside it, is laid out word by word.
+    #[test]
+    fn a_prose_block_with_only_a_web_link_flows_so_its_link_is_a_node() {
+        for text in [
+            "See [the docs](https://example.com/docs) today.",
+            "- an item with [the docs](https://example.com/docs)",
+            "> a quote with [the docs](https://example.com/docs)",
+            "## A heading with [the docs](https://example.com/docs)",
+            "Mail [me](mailto:a@example.com) or read [the docs](https://example.com/docs).",
+        ] {
+            let Value::Record(doc) = document(Value::str("a"), text) else {
+                panic!("document")
+            };
+            let Value::List(blocks) = &doc[1] else {
+                panic!("blocks")
+            };
+            let Value::Record(block) = &blocks[0] else {
+                panic!("block")
+            };
+            assert_eq!(block[10], Value::Bool(true), "{text}");
+            let Value::List(runs) = &block[7] else {
+                panic!("runs")
+            };
+            let links: Vec<(String, String)> = runs
+                .iter()
+                .filter_map(|run| {
+                    let Value::Record(fields) = run else {
+                        return None;
+                    };
+                    let href = fields[5].as_str().unwrap_or("");
+                    (href == "https://example.com/docs").then(|| {
+                        (
+                            fields[1].as_str().unwrap_or("").to_string(),
+                            fields[6].as_str().unwrap_or("").to_string(),
+                        )
+                    })
+                })
+                .collect();
+            assert_eq!(
+                links,
+                vec![
+                    ("the ".to_string(), "link-start".to_string()),
+                    ("docs".to_string(), "link".to_string())
+                ],
+                "{text}"
+            );
+        }
+        // A bare URL (GFM's autolink) is one link-start run in a flow block too.
+        let Value::Record(doc) = document(Value::str("a"), "Read https://example.com/docs today.")
+        else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let Value::Record(block) = &blocks[0] else {
+            panic!("block")
+        };
+        assert_eq!(block[10], Value::Bool(true));
+        let Value::List(runs) = &block[7] else {
+            panic!("runs")
+        };
+        assert!(runs.iter().any(|run| matches!(run, Value::Record(fields)
+            if fields[5].as_str() == Some("https://example.com/docs") && fields[6].as_str() == Some("link-start"))));
+    }
+
     #[test]
     fn user_text_keeps_line_breaks_and_draws_context_references_as_chips() {
         let Value::Record(doc) = document(
