@@ -1,0 +1,26 @@
+settings-headings: before (evidence base c03d7e908) vs after (this PR) window screenshots, 2560x1680, same drive steps.
+Masked: the toast corner (x 1700-2560, y 130-560), where the two drives show different toasts (the Updates and Nightly mobile-beta notices arrive in a different order).
+page | differing pixels (masked) | bbox | max channel diff
+general | 3431 | (731, 421, 1345, 445) | 10
+appearance | 53 | (843, 450, 963, 483) | 1
+projects | 16172 | (84, 365, 2290, 1035) | 166
+scheduled-tasks | 0 | None | 0
+connections | 0 | None | 0
+keybindings | 0 | None | 0
+snap-shot | 0 | None | 0
+providers | 0 | None | 0
+integrations | 0 | None | 0
+source-control | 0 | None | 0
+storage | 0 | None | 0
+archived | 0 | None | 0
+diagnostics | 8436 | (617, 593, 2238, 1164) | 216
+open-source-licenses | 0 | None | 0
+
+Residuals, none on a line this PR changed:
+- general: one description line ("Default model for new threads...", `text row.description`, untouched), max 10/255;
+  the 49 headings above and below it are pixel-identical.
+- appearance: 53 pixels in the System tile's wireframe, max 1/255.
+- projects: the Model row's effort label reads "Medium" in the base build and "Medium · 1M" in this one (a newer build's
+  label, max 166/255); the settings nav differs by at most 3/255. The Name card, which the hidden "Project" heading
+  precedes, does not move.
+- diagnostics: live process and resource data (max 216/255), a page this PR does not change.
