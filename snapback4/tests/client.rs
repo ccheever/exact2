@@ -43,6 +43,42 @@ table taken:
 mutation claim(key: text <=20):
   require taken[key = key] = null else TAKEN
   insert taken { key }
+
+-- What the device can refuse itself: another's ticket (a row rule), and an
+-- approval by a member it knows is not a lead (a require).
+table tickets:
+  title: text <=50
+  owner: principal
+  public 'tickets are shared'
+  insert <- .owner = viewer
+  update (old, next) <- old.owner = viewer and next.owner = viewer
+  delete <- deny
+  sync public last 100 by .id
+
+mutation file(title: text <=50):
+  return insert tickets { title, owner: viewer }
+
+mutation retitle(t: tickets, title: text <=50):
+  row = tickets[t] ! else NOT_FOUND
+  update tickets[row.id] { title }
+  return null
+
+table members:
+  person: principal
+  role: enum('member', 'lead')
+  unique person
+  public 'the directory is public'
+  insert <- .person = viewer
+  update <- deny
+  delete <- deny
+  sync public last 100 by .id
+
+mutation join(role: enum('member', 'lead')):
+  return insert members { person: viewer, role }
+
+mutation approve(body: text <=50):
+  require exists members[person = viewer, role = 'lead'] else NOT_LEAD
+  insert messages { author: viewer, body, at: now }
 "#;
 
 fn scratch(name: &str) -> PathBuf {
@@ -602,6 +638,52 @@ fn a_kept_receipt_settles_its_write_without_resending() {
     assert_eq!(bodies(&hana.inbox()), [("sent once".into(), false)]);
 }
 
+/// A receipt keeps the store its write was sent to, and settling passes it
+/// on (Snapback4 0.4.16: a late success belongs to the dispatching store);
+/// the outcome an app reads never carries it.
+#[test]
+fn a_receipt_keeps_its_dispatching_store_and_answers_without_it() {
+    let server = Server::start();
+    let mut hana = Device::new("hana");
+    hana.open(server.port);
+    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    let store = hana.call(json!({"op": "sync_state", "capture": false}))["store_id"].clone();
+    assert!(store.is_string(), "{store}");
+    let written = hana.write("bound", now());
+    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    let history = hana.call(json!({"op": "meta", "key": "write-history"}));
+    let kept: Vec<Value> = serde_json::from_str(history.as_str().unwrap()).unwrap();
+    let kept = kept.iter().find(|w| w["id"] == written["id"]).unwrap();
+    assert_eq!(kept["store_id"], store, "{kept}");
+
+    // A receipt bound to another store settles without resending, and the
+    // outcome read back from history drops the binding.
+    let other = hana.write("elsewhere", now());
+    let entry = hana.call(json!({"op": "queued"}))[0].clone();
+    let sent = server.fetch("hana", &json!({"method": "POST", "path": "/m/send",
+        "body": {"id": entry["id"], "args": entry["args"], "newIds": entry["new_ids"], "store_id": store}}));
+    assert_eq!(sent["body"]["state"], "sent", "{sent}");
+    let receipt = json!({"state": "sent", "id": entry["id"], "seq": sent["body"]["seq"],
+        "replayed": true, "store_id": "a-store-adopted-since"});
+    hana.call(json!({"op": "keep_write", "value": receipt.to_string()}));
+    hana.reopen();
+    assert!(hana.open(server.port));
+    let mut sends = 0;
+    let done = hana.sync_with(&server, |fetch, real| {
+        sends += usize::from(is_send(fetch));
+        real()
+    });
+    assert_eq!(done, json!({"ok": true}));
+    assert_eq!(sends, 0);
+    assert!(hana.queued().is_empty());
+    let outcome = hana.call(json!({"op": "outcome", "id": other["id"]}));
+    assert_eq!(outcome["state"], "sent", "{outcome}");
+    assert!(outcome.get("store_id").is_none(), "{outcome}");
+    let mut rows = bodies(&hana.inbox());
+    rows.sort();
+    assert_eq!(rows, [("bound".into(), false), ("elsewhere".into(), false)]);
+}
+
 /// Clocks may carry fractions; a write needs one. Every outbox entry names
 /// the opened viewer, and the device's identity cannot be replaced.
 #[test]
@@ -700,6 +782,94 @@ fn a_refused_write_is_journaled_with_its_input_until_dismissed() {
     assert_eq!(lena.call(json!({"op": "refusals"})), json!([]));
 }
 
+/// A write the device refuses (a row rule, a `require` over synced rows) is
+/// failed at once, as Snapback's own client fails it: never sent, answered
+/// by `outcome` and listed by `refusals` like a server's refusal, after a
+/// reopen too, and its id is never given to another write. A keyed write is
+/// not refused by a prediction: the server decides it.
+#[test]
+fn a_write_the_device_refuses_is_failed_and_journaled_never_sent() {
+    let server = Server::start();
+    let mut ned = Device::new("ned");
+    ned.open(server.port);
+    assert_eq!(ned.sync(&server, false), json!({"ok": true}));
+    let filed = ned
+        .call(json!({"op": "write", "name": "file", "args": {"title": "disk full"}, "now": now()}));
+    assert_eq!(ned.sync(&server, false), json!({"ok": true}));
+    let ticket = ned.call(json!({"op": "outcome", "id": filed["id"]}))["result"]["id"].clone();
+    assert!(ticket.is_string());
+
+    let mut pia = Device::new("pia");
+    pia.open(server.port);
+    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    pia.call(json!({"op": "write", "name": "join", "args": {"role": "member"}, "now": now()}));
+    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    let retitled = pia.call(json!({"op": "write", "name": "retitle",
+        "args": {"t": ticket, "title": "mine now"}, "now": now()}));
+    assert_eq!(retitled["state"], "failed", "{retitled}");
+    assert_eq!(retitled["why"]["code"], "E_RULE");
+    let approved =
+        pia.call(json!({"op": "write", "name": "approve", "args": {"body": "ok"}, "now": now()}));
+    assert_eq!(approved["state"], "failed", "{approved}");
+    assert_eq!(approved["why"]["code"], "NOT_LEAD");
+    let next = pia.write("after two refusals", now());
+    assert_eq!(next["state"], "pending");
+    let ids = [&retitled["id"], &approved["id"], &next["id"]];
+    assert!(
+        ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2],
+        "{ids:?}"
+    );
+    for (write, code) in [(&retitled, "E_RULE"), (&approved, "NOT_LEAD")] {
+        let outcome = pia.call(json!({"op": "outcome", "id": write["id"]}));
+        assert_eq!(outcome["state"], "failed", "{outcome}");
+        assert_eq!(outcome["why"]["code"], code);
+    }
+    let mut sent = Vec::new();
+    let done = pia.sync_with(&server, |fetch, real| {
+        sent.push(fetch["path"].as_str().unwrap_or_default().to_owned());
+        real()
+    });
+    assert_eq!(done, json!({"ok": true}));
+    let sends: Vec<_> = sent.iter().filter(|path| path.starts_with("/m/")).collect();
+    assert_eq!(sends, ["/m/send"], "the refused writes are never sent");
+
+    pia.reopen();
+    assert!(pia.open(server.port));
+    let journal = pia.call(json!({"op": "refusals"}));
+    let listed: Vec<_> = journal
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["op"].clone(), r["why"]["code"].clone()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (json!("retitle"), json!("E_RULE")),
+            (json!("approve"), json!("NOT_LEAD"))
+        ],
+        "{journal}"
+    );
+    assert_eq!(journal[0]["args"]["title"], "mine now");
+    pia.call(json!({"op": "dismiss"}));
+    assert_eq!(pia.call(json!({"op": "refusals"})), json!([]));
+    let outcome = pia.call(json!({"op": "outcome", "id": approved["id"]}));
+    assert_eq!(
+        outcome["state"], "failed",
+        "dismissed, still failed: {outcome}"
+    );
+
+    let keyed = pia.call(
+        json!({"op": "write", "name": "approve", "args": {"body": "ok"},
+        "now": now(), "key": "approve:1"}),
+    );
+    assert_eq!(keyed["state"], "pending", "{keyed}");
+    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    let outcome = pia.call(json!({"op": "outcome", "id": keyed["id"]}));
+    assert_eq!(outcome["state"], "failed", "{outcome}");
+    assert_eq!(outcome["why"]["code"], "NOT_LEAD");
+}
+
 /// An idempotency key names one intent: writing it again admits nothing and
 /// answers what became of the first, before and after it is sent.
 #[test]
@@ -724,6 +894,12 @@ fn a_keyed_write_is_admitted_once_whatever_is_asked_again() {
     assert_eq!(other["state"], "failed");
     assert_eq!(other["why"]["code"], "E_WRITE_ID_REUSE");
     assert_eq!(mona.queued().len(), 1);
+    // That refusal is the call's answer: the id still names the first write.
+    assert_eq!(
+        mona.call(json!({"op": "outcome", "id": first["id"]}))["state"],
+        "pending"
+    );
+    assert_eq!(mona.call(json!({"op": "refusals"})), json!([]));
     assert_eq!(mona.sync(&server, false), json!({"ok": true}));
     let after = write(&mut mona);
     assert_eq!(after["state"], "sent", "{after}");

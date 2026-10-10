@@ -233,7 +233,7 @@ extension NodeView {
     func styleTextArea() {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
-        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
         let native = isNativeTextControl
@@ -358,6 +358,11 @@ final class SecureField: NSSecureTextField {
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
+}
+/// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
+final class SearchField: NSSearchField {
+    override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }
 private func bareFieldMask(_ field: NSTextField) -> NSRect? {
     guard let owner = field.delegate as? NodeView, !owner.isNativeTextControl else { return nil }

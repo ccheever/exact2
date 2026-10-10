@@ -71,8 +71,17 @@ extension ControlHost {
     }
     #endif
 
-    /// The menu, with the option at `showing` the one shown.
+    /// The menu, with the option at `showing` the one shown. A select with
+    /// no options shows no title and opens nothing, as the web's. It holds
+    /// no menu: under `changesSelectionAsPrimaryAction`, `setMenu:` with an
+    /// empty one raises "Menu does not have a valid element for default
+    /// selection" (NSInternalInconsistencyException; app farm 008).
     private func install(_ button: UIButton, _ menu: SelectMenu, id: UInt32, showing: Int?) {
+        guard !menu.options.isEmpty else {
+            button.menu = nil
+            button.configuration?.title = nil
+            return
+        }
         button.menu = UIMenu(children: menu.options.enumerated().map { i, option in
             UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == showing ? .on : .off) { [weak self] _ in
                 self?.chose(id, option.value)
@@ -191,7 +200,9 @@ extension ControlHost {
         #endif
         guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }
         let menu = menus[UInt32(button.tag)]
-        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": button.currentTitle as Any,
+        // `currentTitle` keeps the last selection's title after its menu goes.
+        let title = menu?.options.isEmpty == false ? button.currentTitle : nil
+        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": title as Any,
                 "options": menu?.options.map(\.label) ?? []]
     }
 }

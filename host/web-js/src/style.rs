@@ -452,6 +452,26 @@ fn platform_css(text: &str) -> String {
     out
 }
 
+/// A bound `font-size` naming a platform text style (LLP 1115 D3) as css.rs
+/// writes a literal one: the ramp's size at CSS's `medium`, in `rem`. Any
+/// other value is written as it is (a number takes the row's `px`).
+pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    use exact_kernel::style::relative::{Unit, MEDIUM};
+    let mut pairs = Vec::new();
+    for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
+        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM) / MEDIUM;
+        let css = format!("{rem}rem");
+        pairs.push(format!("{:?}:{css:?}", format!("-exact-{}", s.name)));
+        if !s.alias.is_empty() {
+            pairs.push(format!("{:?}:{css:?}", s.alias));
+        }
+    }
+    format!(
+        r#"(M=>v=>typeof v==="string"?M[v.trim().toLowerCase()]??v:v)({{{}}})"#,
+        pairs.join(",")
+    )
+});
+
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
@@ -486,6 +506,11 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        StyleId::FontSize => vec![Write {
+            name: "font-size".into(),
+            unit: "px".into(),
+            map: Some(TEXT_STYLE_MAP.as_str()),
+        }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large'})[v]??null")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
@@ -788,6 +813,25 @@ pub(crate) mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    /// LLP 1115 D3: a bound text style is written as css.rs writes a
+    /// literal one; a number is left for the row's `px`.
+    #[test]
+    fn a_bound_text_style_is_its_rem() {
+        let out = run(
+            TEXT_STYLE_MAP.as_str(),
+            &[
+                "-exact-title1",
+                " -Apple-System-Headline ",
+                "1.5rem",
+                "-exact-nope",
+            ],
+        );
+        assert_eq!(
+            out,
+            serde_json::json!(["1.6875rem", "1rem", "1.5rem", "-exact-nope"])
+        );
     }
 
     #[test]

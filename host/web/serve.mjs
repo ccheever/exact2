@@ -577,6 +577,34 @@ export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
   const bytes = readFileSync(resolve(dist, name));
   return { name, sha256: sha256(bytes), bytes: bytes.length };
 });
+/** Put the complete build in `stage` (a sibling of `dist`, or on its volume) in place of `dist`; a server reads
+ * `dist.previous` meanwhile. Builds that run at once (`test web` beside `agent web`, the dev loop's watcher) each
+ * build in a stage of their own and swap here in turn, under `dist.lock`, so none deletes or overwrites the files
+ * another is writing (app farm round 1: two of three concurrent builds failed and the third lost `app.css`). */
+export function replaceBuild(stage, dist) {
+  const lock = `${dist}.lock`, started = Date.now(), nap = new Int32Array(new SharedArrayBuffer(4));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  for (;;) {
+    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      let owner = 0, age = 0;
+      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
+      // A swap takes milliseconds: a lock whose owner is gone, or that names none after a second, is left over.
+      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
+      if (Date.now() - started > 30000) throw new Error(`${lock}: process ${owner} has held it for 30 s; remove it if that process is not a build`);
+      Atomics.wait(nap, 0, 0, 10);
+    }
+  }
+  try {
+    rmSync(`${dist}.previous`, { recursive: true, force: true });
+    if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
+    try { renameSync(stage, dist); }
+    catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
+    rmSync(`${dist}.previous`, { recursive: true, force: true });
+  } finally { rmSync(lock, { force: true }); }
+}
+
 /** Whether the build at `dist` is the JS target's. */
 export function jsTargetBuild(dist) {
   try { return JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).target === 'js'; }

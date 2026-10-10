@@ -140,6 +140,10 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); });
     };
   }
+  // The prelude hands `compressImage` its options as two numbers (LLP
+  // 1069.002 A1); app files only, so never the documents' backend.
+  files.compressImage = (from, to, maxDimension, maxBytes) =>
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes}); });
   return {
     reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {

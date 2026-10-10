@@ -55,8 +55,23 @@ fn css_text_in(
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
             return false;
         };
-        num_into(out, n);
-        out.push_str(if unit == Unit::Rem { "rem" } else { "em" });
+        match unit {
+            Unit::Rem => {
+                num_into(out, n);
+                out.push_str("rem");
+            }
+            Unit::Em => {
+                num_into(out, n);
+                out.push_str("em");
+            }
+            // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
+            // `medium`, in `rem`, so it follows the browser's root size.
+            Unit::TextStyle(_) => {
+                let medium = exact_kernel::style::relative::MEDIUM;
+                num_into(out, n * unit.basis(medium, medium) / medium);
+                out.push_str("rem");
+            }
+        }
         true
     };
     let mut out = String::new();

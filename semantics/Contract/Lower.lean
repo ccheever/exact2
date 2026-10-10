@@ -123,7 +123,7 @@ def globalScope (p : Program) (L : Layout) : Scope :=
 
 /-- The roster as the compiler knows it: each entry's name. -/
 def roster : List String :=
-  ["now", "formatTime", "length", "isEmpty", "toString", "floor", "max", "min", "open", "push",
+  ["performanceNow", "formatTime", "length", "isEmpty", "toString", "floor", "max", "min", "open", "push",
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
@@ -133,7 +133,7 @@ def roster : List String :=
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
-  if f = "now" ∨ f = "length" ∨ f = "floor" ∨ f = "ceil" ∨ f = "round" ∨ f = "max" ∨ f = "min"
+  if f = "performanceNow" ∨ f = "length" ∨ f = "floor" ∨ f = "ceil" ∨ f = "round" ∨ f = "max" ∨ f = "min"
     ∨ f = "indexOf" then .number
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join"
@@ -282,9 +282,13 @@ def compile : Nat → Program → Nat → Scope → Nat → Expr → Except Stri
         match scopeLookup x sc with
         | .some (.resource i, _) => .ok ([.failedResource i], .bool)
         | _ => .error s!"`{x}` is not a resource"
+      | "failure", [.var x] =>
+        match scopeLookup x sc with
+        | .some (.resource i, _) => .ok ([.failureResource i], .option (.record "Failure"))
+        | _ => .error s!"`{x}` is not a resource"
       | _, _ =>
-        if name = "map" ∨ name = "filter" ∨ name = "pending" ∨ name = "failed" ∨ name = "t"
-          ∨ name = "path" then .error s!"`{name}` as written"
+        if name = "map" ∨ name = "filter" ∨ name = "pending" ∨ name = "failed" ∨ name = "failure"
+          ∨ name = "t" ∨ name = "path" then .error s!"`{name}` as written"
         else if !roster.contains name then .error s!"`{name}` is not in the roster"
         else do
           let (c, ts) ← compileArgs fuel p depth sc n args

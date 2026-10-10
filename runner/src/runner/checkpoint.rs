@@ -157,6 +157,8 @@ impl<D: DataSource> Runner<D> {
                 store_revision: self.store.revision(),
                 placeholder: false,
                 kept_seed: false,
+                answered_for: None,
+                origin: 0,
             });
             *seed = true;
         }

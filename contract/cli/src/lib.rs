@@ -246,6 +246,19 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
     compile_file(file, None)
 }
 
+/// [`compile`] for a terminal entry (LLP 1101): the terminal admission
+/// profile first, then the plan with the terminal's field sheet — what
+/// [`compile_path_terminal`] does for a file, for a test's source text.
+pub fn compile_terminal(src: &str) -> Result<Plan, CompileError> {
+    let mut file = contract_syntax::parse(src)?;
+    contract_syntax::resolve_clock_timelines(&mut file)?;
+    terminal::check(&file).map_err(first)?;
+    picker::check(&file, None).map_err(first)?;
+    compile_file_output(&file, None, None, false, contract_lower::Profile::Terminal)
+        .map(|(plan, _)| plan)
+        .map_err(first)
+}
+
 /// Compile a file by path, resolving every `use … from "./other.contract"`
 /// (LLP 1017 P8): the used file is loaded the same way, transitively, and
 /// all of its declarations — shapes, styles, components — are merged into
@@ -1251,7 +1264,10 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                     });
                 }
             }
-            NodeType::Pressable => {
+            NodeType::Pressable | NodeType::Control
+                if node.node_type == NodeType::Pressable
+                    || node.props.str(exact_kernel::PropId::Type) == Some("button") =>
+            {
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }

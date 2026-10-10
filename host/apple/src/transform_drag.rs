@@ -101,7 +101,7 @@ impl<D: DataSource> Host<D> {
     /// input's time `now_ms`, as [`Host::dispatch_at`] moves it, firing the
     /// timers due by then at their own times. Idle, with no frame or timer to
     /// move it, the runner's clock can be seconds old, and the event's action
-    /// would read that `now()` and arm its `after`s from it. Their commits,
+    /// would read that `performanceNow()` and arm its `after`s from it. Their commits,
     /// in order, and a refusal, which stops the clock at the refusing timer
     /// (the runner's rule): the event then runs there, as through
     /// `dispatch_at`.

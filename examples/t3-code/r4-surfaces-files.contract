@@ -81,7 +81,7 @@ component R4FilesSurface
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
             R4Explorer(files=files, local=local)
       when files.crumbMenu.open
-        button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop"
+        button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop" title=""
         column position="absolute" left=files.crumbMenu.x top=(sheet ? "2rem" : "1.625rem") z-index=10 min-width="10rem" max-width="20rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
           KeyMenu(menuId="crumb-menu-keys", items=concat((files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []), map(files.crumbMenu.entries, (entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
             when files.crumbMenu.back != ""
@@ -92,7 +92,7 @@ component R4FilesSurface
             each entry in files.crumbMenu.entries key=entry.id
               R4CrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=local(entry.directory ? "surface-files-crumb-dir" : "surface-file", entry.path, ""))
       when files.editorsOpen and files.editorShow
-        button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop"
+        button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop" title=""
         column position="absolute" right="6.5rem" top=(sheet ? "2.25rem" : "1.875rem") z-index=10 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
           KeyMenu(menuId="file-editors-keys", items=(files.editorUnavailable != "" ? [] : map(files.editors, (editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
             when files.editorUnavailable != "" or length(files.editors) == 0
@@ -134,11 +134,11 @@ component R4FileHeader
       when files.absolutePath != "" and files.editorShow
         row flex-shrink=0 height="1.5rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" role="group" aria-label="Open in editor"
           box position="relative"
-            button disabled=(files.editorUnavailable != "" or files.editorId == "") press=local("surface-files-open-editor", files.absolutePath, files.editorId) hover=hover("editor") aria-label="Open file in preferred editor" testId="file-open-editor" width="1.5rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(hovered == "editor" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button disabled=(files.editorUnavailable != "" or files.editorId == "") press=local("surface-files-open-editor", files.absolutePath, files.editorId) hover=hover("editor") aria-label="Open file in preferred editor" testId="file-open-editor" width="1.5rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(hovered == "editor" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               ShellEditorIcon(editor=files.editorId, size=14)
             TipBubble(label=(files.editorUnavailable != "" ? files.editorUnavailable : files.editorLabel), side="bottom", align="center", offset=28, inset=0, shown=(hovered == "editor"))
           box width=1 height="1.375rem" background-color="light-dark(#d4d4d8, #ffffff14)"
-          button press=openEditors key=editorsKey focus=menuEnd("") hover=hover("editors") aria-label="Choose editor" aria-expanded=files.editorsOpen id="file-choose-editor" testId="file-choose-editor" width="1.4375rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(files.editorsOpen or hovered == "editors" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=openEditors key=editorsKey focus=menuEnd("") hover=hover("editors") aria-label="Choose editor" aria-expanded=files.editorsOpen id="file-choose-editor" testId="file-choose-editor" width="1.4375rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(files.editorsOpen or hovered == "editors" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             ShellIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
       when files.canRender
         R4Toggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
@@ -199,7 +199,7 @@ component R4Toggle
     press: action
   view
     box position="relative" flex-shrink=0
-      button press=press hover=hover(id) aria-label=label testId=`file-toggle-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
+      button press=press hover=hover(id) aria-label=label testId=`file-toggle-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
         R4Icon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
       TipBubble(label=label, side="bottom", align="end", offset=32, inset=0, shown=(hovered == id))
 
@@ -331,7 +331,7 @@ component R4CodeRow
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
       when not open
-        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=2 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=2 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           DiffGlyph(name="plus", size=12, color="#ffffff")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
@@ -348,14 +348,14 @@ component R4Explorer
     column flex=1 min-height=0 width="100%"
       row height="2.25rem" flex-shrink=0 margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center"
         box position="relative" flex-shrink=0
-          button press=local("surface-files-refresh", "", "") hover=hover("refresh") aria-label="Refresh workspace files" testId="files-refresh" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "refresh" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=local("surface-files-refresh", "", "") hover=hover("refresh") aria-label="Refresh workspace files" testId="files-refresh" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "refresh" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             R4Icon(name="refresh-cw", size=14, color="light-dark(#71717b, #a1a1aa)")
           TipBubble(label=(files.loading ? "Refreshing…" : "Refresh files"), side="bottom", align="start", offset=28, inset=0, shown=(hovered == "refresh"))
         row flex=1 min-width=0 height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center"
           input value=files.query input=local("surface-files-search", "") key=local("surface-files-search-key", "") placeholder="Search files" aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         when files.hasDirectories
           box position="relative" flex-shrink=0
-            button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+            button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
               R4Icon(name=(files.allExpanded ? "chevrons-down-up" : "chevrons-up-down"), size=14, color="light-dark(#71717b, #a1a1aa)")
             TipBubble(label=(files.allExpanded ? "Collapse all folders" : "Expand all folders"), side="bottom", align="end", offset=28, inset=0, shown=(hovered == "expand"))
       when files.error != ""

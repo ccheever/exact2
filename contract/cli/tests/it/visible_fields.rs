@@ -341,11 +341,11 @@ fn fields_and_buttons_share_the_literal_appearance_error() {
 }
 
 #[test]
-fn buttons_still_default_to_the_bare_pressable() {
+fn buttons_default_to_the_platform_control() {
     let r = boot("", "button testId=\"button\"\n  text \"Go\"");
     let button = r.kernel().node(id(&r, "button")).unwrap();
-    assert_eq!(button.node_type, NodeType::Pressable);
-    assert_eq!(button.style.appearance, Appearance::None);
+    assert_eq!(button.node_type, NodeType::Control);
+    assert_eq!(button.style.appearance, Appearance::Auto);
 }
 
 #[test]

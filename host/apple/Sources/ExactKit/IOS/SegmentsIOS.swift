@@ -40,7 +40,9 @@ private struct TabBarFace: Equatable {
     let title: String
     /// Its accessible name: the tab's explicit label, else its title.
     let label: String
-    let tint: UIColor
+    /// The selected item's colour when the author gave one; nil leaves the
+    /// bar UIKit's tint (LLP 1115 D4).
+    let tint: UIColor?
 
     init?(_ tab: NodeView) {
         // A native tab's face, from the kernel; its tint its accent
@@ -50,7 +52,7 @@ private struct TabBarFace: Equatable {
             self.symbol = symbol
             self.title = title
             label = tab.props["accessibilityLabel"] ?? title
-            tint = tab.channels("accent_color").map { TextEngine.color($0) } ?? .label
+            tint = tab.channels("accent_color").map { TextEngine.color($0) }
             return
         }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
@@ -62,7 +64,7 @@ private struct TabBarFace: Equatable {
         self.symbol = image.props["symbolName"] ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
-        tint = image.color("tint_color", .label)
+        tint = image.ownUIColor("tint_color")
     }
 }
 
@@ -263,7 +265,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     /// Symbol-over-label tabs as a tab bar in the tablist's box. The tints
     /// are the authored ones — a selected symbol's and an unselected one's —
-    /// so an app's accent is the tab bar's, never the platform's blue.
+    /// so an app's accent is the tab bar's; unsaid, the platform's tint.
     private func project(_ owner: NodeView, _ tabs: [NodeView], _ faces: [TabBarFace]) {
         controls.removeValue(forKey: owner.id)?.removeFromSuperview()
         adopt(owner, tabs)
@@ -297,8 +299,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" }
         let item = selected.flatMap { bar.items?[$0] }
         if bar.selectedItem !== item { bar.selectedItem = item }
-        // The selected item takes the authored accent; the rest keep the
-        // bar's own face. (Title attributes through a UITabBarAppearance
+        // The selected item takes the authored accent, else UIKit's tint;
+        // the rest keep the bar's own face. (Title attributes through a UITabBarAppearance
         // replace the bar's own rendering of every title; not used.)
         if let selected, bar.tintColor != faces[selected].tint { bar.tintColor = faces[selected].tint }
         owner.bringSubviewToFront(bar)

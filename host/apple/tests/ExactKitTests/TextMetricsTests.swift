@@ -53,7 +53,8 @@ final class TextMetricsTests: XCTestCase {
                 .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
                 .foregroundColor: TextEngine.color(run.color ?? spec.color)]
             if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
-            if run.decoration.isEmpty { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            // A link run is underlined where the platform underlines links (AppKit; not UIKit: LLP 1115 §3).
+            if run.decoration.isEmpty { if Run.linksUnderlined { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue } }
             else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             appended.append(NSAttributedString(string: run.text, attributes: attrs))
         }
@@ -136,7 +137,7 @@ final class TextMetricsTests: XCTestCase {
         // Each wait is for its event, however long a loaded machine's workers
         // take; `hang` only stops one that can never come.
         let hang = Date(timeIntervalSinceNow: 300)
-        while reader.raster == nil && Date() < hang { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
+        while reader.raster == nil && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
         let first = try XCTUnwrap(reader.raster)
         let ink = try XCTUnwrap(node.layer?.sublayers?.first { $0.contents is IOSurface })
         let firstImage = ink.contents as AnyObject?
@@ -1065,7 +1066,8 @@ final class TextMetricsTests: XCTestCase {
         defer { window.close(); session.destroy() }
         var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
         for id in 2...4 {
-            ops.append(["op": "create", "id": id, "kind": "text",
+            // 16 pt pinned: the geometry below predates the platform body size (LLP 1115 D3).
+            ops.append(["op": "create", "id": id, "kind": "text", "style": ["font_size": 16.0],
                         "props": ["text": String(repeating: "independent paragraph \(id) ", count: 32)]])
         }
         ops += [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]],

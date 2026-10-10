@@ -59,8 +59,10 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
         Some([255, 0, 0, 128])
     );
     assert_eq!(pixel(&mut p, 50, 30), [255, 127, 127, 255]);
+    // LLP 1104: the outer two pixels are the focused button's ring;
+    // sample the inner half of this four-pixel border for its transition.
     assert_eq!(
-        pixel(&mut p, 1, 20),
+        pixel(&mut p, 3, 20),
         [128, 128, 0, 255],
         "the border, halfway"
     );
@@ -75,7 +77,7 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
         "arrived: the rows paint again"
     );
     assert!(p.host().presented(label).colors.is_empty());
-    assert_eq!(pixel(&mut p, 1, 20), [0, 255, 0, 255]);
+    assert_eq!(pixel(&mut p, 3, 20), [0, 255, 0, 255]);
 }
 
 #[test]

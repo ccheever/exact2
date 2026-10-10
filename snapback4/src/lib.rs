@@ -20,7 +20,7 @@ use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
 use exact_snapback4_client::partition;
 use ibex2::{
-    boundary::admit,
+    boundary::{admit, HostError},
     grant::{GrantSet, Operation},
     stdlib::app_fs::{resolve_sqlite, AppDirectories},
 };
@@ -138,8 +138,14 @@ impl Host {
             return Err("Snapback4 needs app:/data/<safe filename>.sqlite".into());
         }
         // Admit before creating even the host-selected roots.
-        admit(&self.grants, &Operation::SqliteOpen { path: path.into() })
-            .map_err(|e| e.to_string())?;
+        admit(&self.grants, &Operation::SqliteOpen { path: path.into() }).map_err(|e| match e {
+            // Name the file and the lines that would admit it, as the web's storage does.
+            HostError::Denied { .. } => {
+                let dir = path.rsplit_once('/').map_or(path, |(dir, _)| dir);
+                format!("{e} {path}: no grant covers it; grant `sqlite.open {path}`, or `sqlite.open {dir}` for every file there (a grant covers its path and what is below it, by whole names)")
+            }
+            e => e.to_string(),
+        })?;
         let origin = text(request, "origin")?;
         let viewer = text(request, "viewer")?;
         if origin.is_empty() || viewer.is_empty() {

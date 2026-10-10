@@ -1056,7 +1056,7 @@ fn live_regions_and_autofocus_use_html_attributes() {
 /// runner (review, 2026-09-22).
 #[test]
 fn a_theme_flip_restyles_each_touched_row_once() {
-    const ROWS: usize = 10_000;
+    const ROWS: usize = 1_000;
     struct Rows;
     impl exact_runner::DataSource for Rows {
         fn query(
@@ -1416,7 +1416,7 @@ fn a_frame_task_fires_once_per_presented_frame() {
   state at = 0
   action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view

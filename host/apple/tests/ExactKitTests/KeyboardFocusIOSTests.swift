@@ -161,6 +161,61 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertTrue(last.isFirstResponder, "Shift-Tab walks back")
     }
 
+    /// The driver's `type <field> key "Tab"` does what a hardware Tab does
+    /// (bench t9-profile, 2026-10-08: it used to leave the focus in the field,
+    /// so no blur or change ran): the next stop takes the focus, the field's
+    /// editing ends, Shift goes back, and a handler-free Tab never types.
+    func testAgentTabMovesTheFocusAsAKeyboardTabDoes() throws {
+        let session = ExactApp.shared.makeSession(label: "agent-tab")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        let name = NodeView(id: 7001, kind: "input", presenter: p)
+        let email = NodeView(id: 7002, kind: "input", presenter: p)
+        let save = NodeView(id: 7003, kind: "button", presenter: p)
+        name.handlers = ["change", "blur"]; email.handlers = ["change", "keyup"]; save.handlers = ["press", "keyup"]
+        for (i, node) in [name, email, save].enumerated() {
+            node.frame = CGRect(x: 0, y: CGFloat(i) * 50, width: 200, height: 40)
+            p.root.addSubview(node); p.views[node.id] = node
+        }
+        window.makeKeyAndVisible()
+        defer { window.endEditing(true) }
+        let nameField = try XCTUnwrap(name.field), emailField = try XCTUnwrap(email.field)
+        var blurred: [UInt32] = [], changed: [(UInt32, String)] = []
+        p.onBlur = { blurred.append($0) }
+        p.onChange = { changed.append(($0, $1)) }
+        var reply = session.agentInstance.type(["id": 7001, "text": "Ada"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(nameField.isFirstResponder)
+        // An unhosted window's field sends no `.editingChanged` for an inserted
+        // text; a hosted one does, and that is what records the edit `change`
+        // commits on end-editing. Send it, as the keyboard would.
+        name.fieldChanged()
+        reply = session.agentInstance.type(["id": 7001, "key": "Tab"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertFalse(nameField.isFirstResponder, "Tab ends the field's editing")
+        XCTAssertTrue(emailField.isFirstResponder, "and the next field takes the focus")
+        XCTAssertEqual(nameField.text, "Ada", "Tab types nothing")
+        XCTAssertTrue(blurred.contains(7001), "the field it left hears blur")
+        XCTAssertTrue(changed.contains { $0.0 == 7001 && $0.1 == "Ada" }, "and change, with what was typed")
+        // A held Tab, its down then its up: the release keeps the new focus.
+        reply = session.agentInstance.type(["id": 7002, "key": "Tab", "phase": "down", "releaseKey": "t1"])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertTrue(save.isFirstResponder, "the down moves the focus")
+        _ = session.agentInstance.type(["id": 7002, "key": "Tab", "phase": "up"])
+        XCTAssertTrue(save.isFirstResponder, "and the up does not take it back")
+        var keyups: [(UInt32, String)] = []
+        p.onKey = { id, press in if press.up { keyups.append((id, press.chord)) } }
+        _ = session.agentInstance.type(["id": 7003, "key": "Shift+Tab"])
+        XCTAssertTrue(emailField.isFirstResponder, "Shift-Tab goes back")
+        // Its release, Tab's and Shift's, reaches where it left the focus.
+        XCTAssertEqual(keyups.map(\.0), [7002, 7002], "both keyups at the field it moved to: \(keyups)")
+        XCTAssertEqual(keyups.map(\.1).last, "Shift", "Shift comes up last, without its own bit")
+        XCTAssertEqual(emailField.text, "", "nor does Shift-Tab type")
+    }
+
     func testFirstTabTakesTheFirstControlAndShowsItsRing() {
         let (p, first, _, _, last) = fixture()
         p.moveFocus(backward: false)

@@ -18,7 +18,7 @@ component DiagramPreviewDialog
   derive scale = diagramScale(diagram.width, diagram.height, windowWidth * 0.92 - 96, min(windowHeight * 0.86, windowHeight - 160))
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="diagram-preview"
-      button press=local("diagram-close", "", "") aria-label="Close image preview" aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="diagram-preview-backdrop"
+      button press=local("diagram-close", "", "") aria-label="Close image preview" aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="diagram-preview-backdrop" title=""
       column min-width=0 align-items="center"
         box position="relative" width=(diagram.width * scale) height=(diagram.height * scale)
           // ZoomableImage: the page's background (bg-background), rounded-lg, ring-1 ring-border/70 and shadow-2xl.
@@ -31,6 +31,6 @@ component DiagramPreviewDialog
               MermaidSvg(diagram=diagram, width=(diagram.width * scale))
             else
               MermaidSvg(diagram=diagram, width=(diagram.width * scale))
-          button press=local("diagram-close", "", "") aria-label="Close image preview" testId="diagram-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=local("diagram-close", "", "") aria-label="Close image preview" testId="diagram-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             Icon(name="x", size=14, color="#ffffff")
         text "Mermaid diagram" margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"

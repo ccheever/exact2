@@ -91,7 +91,7 @@ component ProviderPill
           SidebarIcon(name=(tone == "loading" ? "loader" : tone == "success" ? "circle-check" : tone == "error" ? "triangle-alert" : "download"), size=14, color=ink)
           text title flex=1 min-width=0 font-size="0.6875rem" line-height="1rem" font-weight=500 text-align="left" color=ink
         when dismissible
-          button press=dismiss hover=setClose aria-label="Dismiss provider update notice" testId="sidebar-provider-pill-dismiss" width="1.25rem" height="1.25rem" margin-right="0.25rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color="#00000000" opacity=(overClose ? 1 : 0.7) display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=dismiss hover=setClose aria-label="Dismiss provider update notice" testId="sidebar-provider-pill-dismiss" width="1.25rem" height="1.25rem" margin-right="0.25rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color="#00000000" opacity=(overClose ? 1 : 0.7) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             SidebarIcon(name="x", size=14, color=(tone == "warning" ? "#fe9a00" : "light-dark(#e7000b, #fb2c36)"))
       when description != ""
         row position="absolute" bottom="100%" left="-12.5rem" right=(dismissible ? "-11rem" : "-12.5rem") padding-bottom="0.25rem" justify-content="center" pointer-events="none" z-index=140

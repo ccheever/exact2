@@ -95,7 +95,7 @@ component SnapSwitch
     switchId: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled id=switchId testId=switchId display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 3px #0000000d"
 
 // settingsLayout.tsx SettingsRow: title, description and status beside a
@@ -177,7 +177,7 @@ component SnapshotPanel
           SnapRow(title="Include app text", description="Include text and controls when the app makes them available.", status="", first=false, rowId="snap-shot-accessibility")
             SnapSwitch(checked=data.includeAccessibility, label="Include app text in snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-include-text", toggle=change("snapShotIncludeAccessibility", data.includeAccessibility ? "false" : "true"))
           SnapRow(title="Capture shortcut", description="Capture the window you're using without switching apps.", status=data.shortcutStatus, first=false, rowId="snap-shot-shortcut")
-            button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff14)") opacity=(busy ? 0.64 : 1)
+            button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff14)") opacity=(busy ? 0.64 : 1) title=""
               when data.recording
                 text "Press shortcut…" class=SnapLabelXs
               else
@@ -204,12 +204,12 @@ component SnapshotPanel
                     button id="snapshot-sound-whoosh" hover=soundHover("snapshot-sound-whoosh") focus=soundFocus("snapshot-sound-whoosh", true) blur=soundFocus("snapshot-sound-whoosh", false) press=change("snapShotSound", "soft-pop") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "soft-pop") class=SnapMenuItem flex=1 min-width=0 gap="0.25rem" background-color=(soundLit == "snapshot-sound-whoosh" ? "light-dark(#27272a14, #f5f5f50f)" : (data.soundSelection == "soft-pop" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")) testId="snapshot-sound-whoosh"
                       text "Whoosh" class=SnapInk white-space="nowrap"
                       text "(Default)" color="light-dark(#71717b, #818181)" white-space="nowrap"
-                    button id="snapshot-play-whoosh" hover=soundHover("snapshot-play-whoosh") focus=soundFocus("snapshot-play-whoosh", true) blur=soundFocus("snapshot-play-whoosh", false) press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color=(soundLit == "snapshot-play-whoosh" ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") testId="snapshot-play-whoosh"
+                    button id="snapshot-play-whoosh" hover=soundHover("snapshot-play-whoosh") focus=soundFocus("snapshot-play-whoosh", true) blur=soundFocus("snapshot-play-whoosh", false) press=preview("soft-pop") role="menuitem" aria-label="Play Whoosh" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color=(soundLit == "snapshot-play-whoosh" ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") testId="snapshot-play-whoosh" title=""
                       SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
                   row width="100%" align-items="center"
                     button id="snapshot-sound-click" hover=soundHover("snapshot-sound-click") focus=soundFocus("snapshot-sound-click", true) blur=soundFocus("snapshot-sound-click", false) press=change("snapShotSound", "camera-shutter") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "camera-shutter") class=SnapMenuItem flex=1 min-width=0 background-color=(soundLit == "snapshot-sound-click" ? "light-dark(#27272a14, #f5f5f50f)" : (data.soundSelection == "camera-shutter" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")) testId="snapshot-sound-click"
                       text "Click" class=SnapInk
-                    button id="snapshot-play-click" hover=soundHover("snapshot-play-click") focus=soundFocus("snapshot-play-click", true) blur=soundFocus("snapshot-play-click", false) press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color=(soundLit == "snapshot-play-click" ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") testId="snapshot-play-click"
+                    button id="snapshot-play-click" hover=soundHover("snapshot-play-click") focus=soundFocus("snapshot-play-click", true) blur=soundFocus("snapshot-play-click", false) press=preview("camera-shutter") role="menuitem" aria-label="Play Click" class=SnapMenuItem width="1.75rem" padding-left=0 padding-right=0 justify-content="center" background-color=(soundLit == "snapshot-play-click" ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") testId="snapshot-play-click" title=""
                       SnapIcon(name="play", size=16, color="light-dark(#27272a, #f5f5f5)")
           SnapRow(title="Capture flash", description="Show a gentle cue on the captured window.", status="", first=false, rowId="snap-shot-flash")
             SnapSwitch(checked=data.flash, label="Flash captured window", disabled=(busy or not data.captureAvailable), switchId="snapshot-flash", toggle=change("snapShotFlash", data.flash ? "false" : "true"))
@@ -238,7 +238,7 @@ component SnapshotTile
           row min-width=0 min-height="1.25rem" gap="0.375rem" align-items="center"
             text image.app font-size="0.6875rem" font-weight=500 line-height="0.875rem" color="#ffffff" line-clamp=1 min-width=0
             box position="relative" flex-shrink=0
-              button popovertarget=`snapshot-contents-${image.id}` aria-label=(image.included ? "View accessibility data" : "No accessibility data") testId=`snapshot-contents-${image.id}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" align-items="center" justify-content="center" background-color="#000000b3" flex-shrink=0
+              button popovertarget=`snapshot-contents-${image.id}` aria-label=(image.included ? "View accessibility data" : "No accessibility data") testId=`snapshot-contents-${image.id}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" align-items="center" justify-content="center" background-color="#000000b3" flex-shrink=0 title=""
                 SnapIcon(name=(image.included ? "text" : "image"), size=12, color="#ffffffa6")
               // SnapShotContentsButton: PopoverPopup side="top" align="center", placed by position-area (exact2 2c6b551ba).
               column id=`snapshot-contents-${image.id}` popover="auto" role="dialog" aria-label="Accessibility data" position="absolute" position-area="top" margin-bottom="0.5rem" width="18rem" max-height="28rem" padding="0.75rem" gap="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #1a1a1a)" box-shadow="0 10px 15px -3px #0000001a" testId=`snapshot-contents-popup-${image.id}`
@@ -248,10 +248,10 @@ component SnapshotTile
           text image.title font-size="0.625rem" line-height="0.875rem" color="#ffffffb3" line-clamp=1
       row position="absolute" top="0.25rem" right="0.25rem" opacity=(hovering ? 1 : 0)
         when image.referenced
-          button press=ask("ui:confirm", image.id, "remove-snapshot", `Remove ${image.name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=ask("ui:confirm", image.id, "remove-snapshot", `Remove ${image.name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             SnapIcon(name="x", size=14, color="#ffffff")
         else
-          button press=remove(image.id) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=remove(image.id) focus=setHover(true) blur=setHover(false) disabled=disabled aria-label=`Remove ${image.name}` testId=`remove-snapshot-${image.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             SnapIcon(name="x", size=14, color="#ffffff")
 
 component SnapshotDrafts
@@ -349,7 +349,7 @@ component SnapshotSetup
               text "Use both Shift keys, or record a different shortcut." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             column gap="0.75rem" align-items="flex-start"
               row gap="0.5rem" align-items="center"
-                button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-setup-record" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)")
+                button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-setup-record" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") title=""
                   when data.recording
                     text "Press shortcut…" class=SnapLabelXs
                   else
@@ -381,10 +381,10 @@ component SnapshotSetup
             box width=0 height=0
           else
             when wasEnabled or not data.enabled
-              button press=close aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+              button press=close aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
                 SnapIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
             else
-              button press=toggle aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+              button press=toggle aria-label="Close" testId="snapshot-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
                 SnapIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
           when data.setupReady and not back
             button press=goBack(true) disabled=busy class=SnapGhost testId="snapshot-setup-back"

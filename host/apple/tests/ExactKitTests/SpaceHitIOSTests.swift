@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// A box turned in space (LLP 1077 D8) takes touches where it is drawn, as
 /// CSS hit-tests through the 3D projection, and a hidden back face takes
@@ -9,6 +10,7 @@ import XCTest
 /// the host refuses the hidden back face. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class SpaceHitIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     /// A 200×200 parent with `perspective: 200px` holding a 100×100 button

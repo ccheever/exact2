@@ -505,7 +505,7 @@ fn clip(s: &str) -> &str {
     &s[..s.len().min(2000)]
 }
 
-/// What the apps may not exercise: row-owned state, `now()` read by a
+/// What the apps may not exercise: row-owned state, `performanceNow()` read by a
 /// binding under a timer, nested lists reading the outer item,
 /// `when`/`match` inside rows, both windowed lists (one scrolled by a
 /// binding), and a list reordered by its rows' grips.
@@ -549,7 +549,7 @@ component Deck
     column
       input value=query change=typeQuery testId="q"
       text title
-      text `${now()}`
+      text `${performanceNow()}`
       button press=revise
         text "revise"
       button press=toggle
@@ -578,7 +578,7 @@ component Deck
               Card(item=it, picked=picked)
               text join(filter(map(it.tags, t => t.name), n => n != picked), " ")
               button press=pick(it.id)
-                text `${now()} ${it.n}`
+                text `${performanceNow()} ${it.n}`
 component Card
   props
     item: Item

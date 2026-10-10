@@ -13,7 +13,7 @@ replacement mentions its name, so an argument a parent passes in is never
 captured by a child's binder, and a renamed binder never captures a name
 of the body: that is what the proof of `agree_enter` checks.
 
-The fragment (`Plain`): no `pending`/`failed` (they read their argument's
+The fragment (`Plain`): no `pending`/`failed`/`failure` (they read their argument's
 *name*, which substitution changes), callbacks of at most two parameters
 (the ones `map` and `filter` bind), and no call head the substitution
 replaces (a call names a `fn` or a roster entry, never a prop).
@@ -109,6 +109,8 @@ theorem xferE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v}
   | .pendingOther hfd hr => .pendingOther (hs.fns ▸ hfd) (hs.resources ▸ hr)
   | .failedSettled hfd hr hv => .failedSettled (hs.fns ▸ hfd) (hs.resources ▸ hr) (hs.resVals ▸ hv)
   | .failedOther hfd hr => .failedOther (hs.fns ▸ hfd) (hs.resources ▸ hr)
+  | .failureSettled hfd hr hv => .failureSettled (hs.fns ▸ hfd) (hs.resources ▸ hr) (hs.resVals ▸ hv)
+  | .failureOther hfd hr => .failureOther (hs.fns ▸ hfd) (hs.resources ▸ hr)
   | .stdlib hfd ha hv => .stdlib (hs.fns ▸ hfd) (xferL hs ha hf) (hs.stdlib_eq _ _ ▸ hv)
   | .record hd h => .record (hs.shape _ ▸ hd) (xferR hs h hf)
   | .recordBase hb hd h => .recordBase (xferE hs hb hf) (hs.shape _ ▸ hd) (xferR hs h hf)
@@ -343,6 +345,8 @@ theorem wkE {env : Env} {inFn L L' e v} (h : EvalR env inFn L e v) (hs : Small e
   | .pendingOther hfd hr => .pendingOther hfd hr
   | .failedSettled hfd hr hv => .failedSettled hfd hr hv
   | .failedOther hfd hr => .failedOther hfd hr
+  | .failureSettled hfd hr hv => .failureSettled hfd hr hv
+  | .failureOther hfd hr => .failureOther hfd hr
   | .stdlib hfd hargs hv => by
     simp only [Small] at hs
     exact .stdlib hfd (wkL hargs hs (ha.sub fun y hy => by simp [freeNames]; exact .inr hy)) hv
@@ -659,11 +663,11 @@ def callHeadsFields : List (String × Expr) → List String
 end
 
 mutual
-/-- The fragment substitution is proved for: no `pending`/`failed`, every
+/-- The fragment substitution is proved for: no `pending`/`failed`/`failure`, every
 callback of at most two parameters, and no binder named like a call its
 scope makes. -/
 def Plain : Expr → Bool
-  | .call n args => n != "pending" && n != "failed" && PlainList args
+  | .call n args => n != "pending" && n != "failed" && n != "failure" && PlainList args
   | .arrow ps b =>
     decide (ps.length ≤ 2) && ps.all (fun p => !(callHeads b).contains p) && Plain b
   | .matchOpt s x a b => Plain s && !(callHeads a).contains x && Plain a && Plain b
@@ -982,7 +986,8 @@ theorem sfE {e₁ e₂ : Env} (hs : Same e₁ e₂) {inFn ls e v} (h : EvalR e�
         (fun x i => agree_params hm hlen
           (fun y hy => hA y (by simp [fv, fvList] at hy ⊢; grind)) x i)
         hpb hhb)
-  | .pendingSettled .. | .pendingOther .. | .failedSettled .. | .failedOther .. => by
+  | .pendingSettled .. | .pendingOther .. | .failedSettled .. | .failedOther ..
+  | .failureSettled .. | .failureOther .. => by
     simp [Plain] at hp
   | .stdlib hfd ha hv => by
     rename_i name _ _

@@ -110,8 +110,8 @@ fn a_giant_paragraph_gives_back_the_engines_scratch() {
 }
 
 /// A width only measured keeps its scalars, not its lines (the storage
-/// spike's arrangement (c)); its first paint breaks the shared shape again
-/// and keeps the lines (b), the same ones the measure laid out.
+/// spike's arrangement (c)), past the frame it was measured in; its first
+/// paint keeps the lines (b), the same ones the measure laid out.
 #[test]
 fn a_measured_width_keeps_no_lines_until_it_is_painted() {
     let mut engine = engine();
@@ -120,8 +120,10 @@ fn a_measured_width_keeps_no_lines_until_it_is_painted() {
         &"office words 123 ".repeat(200),
     );
     let metrics = engine.measure(&spec, AxisOffer::Definite(300.));
+    engine.finish_text_frame();
     let p = engine.paragraph(&spec, Some(300.));
     assert_eq!(p.lines_capacity_bytes(), 0, "measured only: no lines kept");
+    assert!(p.measured.borrow().is_none(), "the frame let its lines go");
     let before = engine.residency().owned_capacity_bytes;
     let painted = p.lines().glyphs.len();
     assert!(painted > 1000);
@@ -140,6 +142,66 @@ fn a_measured_width_keeps_no_lines_until_it_is_painted() {
             .collect()
     };
     assert_eq!(glyphs(&p), glyphs(&eager));
+}
+
+/// A width measured and painted in one frame is broken and copied out
+/// once: the paint takes the lines the measure made. Painted in a later
+/// frame, its lines are copied out again from the layout still broken at
+/// that width; another width broken in between breaks it again. Each is
+/// the lines a fresh layout makes.
+#[test]
+fn a_width_measured_and_painted_is_broken_once() {
+    let mut engine = engine();
+    let text = "office words 123 ".repeat(200);
+    let spec = crate::paint::text_spec(&exact_kernel::StyleProps::default(), &text);
+    let glyphs = |p: &Paragraph| -> Vec<_> {
+        p.lines()
+            .glyphs
+            .iter()
+            .map(|g| (g.glyph_id, g.x.to_bits(), g.start))
+            .collect()
+    };
+    let eager = |width: f32| glyphs(&engine_fresh().layout(&spec, Some(width)));
+    let (at300, at250, at200, at310) = (eager(300.), eager(250.), eager(200.), eager(310.));
+
+    let start = shaping::break_calls();
+    engine.measure(&spec, AxisOffer::Definite(300.));
+    let p = engine.paragraph(&spec, Some(300.));
+    assert_eq!(glyphs(&p), at300);
+    let after = shaping::break_calls();
+    assert_eq!(
+        (after.0 - start.0, after.1 - start.1),
+        (1, 1),
+        "one break, one copy"
+    );
+    engine.finish_text_frame();
+
+    // Measured in one frame, painted in the next: copied out again, not
+    // broken again.
+    engine.measure(&spec, AxisOffer::Definite(250.));
+    engine.finish_text_frame();
+    let start = shaping::break_calls();
+    let q = engine.paragraph(&spec, Some(250.));
+    assert!(q.measured.borrow().is_none());
+    let _ = q.lines();
+    let after = shaping::break_calls();
+    assert_eq!((after.0 - start.0, after.1 - start.1), (1, 0));
+    assert_eq!(glyphs(&q), at250);
+
+    // Two widths measured in one frame: the later holds its lines; the
+    // earlier, broken over since, is broken again when painted.
+    engine.measure(&spec, AxisOffer::Definite(200.));
+    let r = engine.paragraph(&spec, Some(200.));
+    assert!(r.measured.borrow().is_some());
+    engine.measure(&spec, AxisOffer::Definite(310.));
+    let start = shaping::break_calls();
+    assert!(r.measured.borrow().is_none(), "a later width let it go");
+    assert_eq!(glyphs(&r), at200);
+    let s = engine.paragraph(&spec, Some(310.));
+    assert_eq!(glyphs(&s), at310);
+    let after = shaping::break_calls();
+    assert_eq!((after.0 - start.0, after.1 - start.1), (1, 1));
+    engine.finish_text_frame();
 }
 
 fn engine_fresh() -> TextEngine {

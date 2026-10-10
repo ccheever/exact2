@@ -47,3 +47,17 @@ describe("root font size in the JS layout", () => {
     expect(atRootFontSize(row, 20)).toEqual({ effortMenuWidth: 250, runtimeMenuHeight: 127.5, sendTipWidth: 100, other: 7 });
   });
 });
+
+// adopt-main-fixes-r7: main's Mac host lays out at a root font size of 13 until the app sets one (LLP 1115, 4dbfec2fe).
+// The reference's root is 16 until the stored Interface size applies, so the rootFont task sets 16 before the data's
+// first answer (`fontSize` 0) and the stored size on every change after; no rem lays out at 13.
+describe("the root font size app.contract sets", () => {
+  it("is 16 before the data answers and the stored size after", async () => {
+    const app = await Bun.file(new URL("./app.contract", import.meta.url)).text();
+    expect(app).toMatch(/\n  task rootFont key=data\.look\.fontSize [^\n]*\n    after\(1, rootFontApply\)\n  action rootFontApply[^\n]*\n    setRootFontSize\(data\.look\.fontSize > 0 \? data\.look\.fontSize : 16\)\n/);
+    // The task is the one writer: no other source sets the root font size.
+    const writers = await Promise.all([...new Bun.Glob("*.contract").scanSync(import.meta.dir)].map(async file =>
+      ((await Bun.file(`${import.meta.dir}/${file}`).text()).match(/setRootFontSize\(/g) ?? []).map(() => file)));
+    expect(writers.flat()).toEqual(["app.contract"]);
+  });
+});

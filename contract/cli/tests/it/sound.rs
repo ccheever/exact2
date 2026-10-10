@@ -78,7 +78,7 @@ impl Drop for App {
     }
 }
 
-const PLAY: &str = "component A\n  state hat = \"assets/b.wav\"\n  action go\n    playSound(\"assets/a.wav\", at=now() + 100, gain=0.8, group=\"kick\")\n    playSound(hat)\n    stopSounds(group=\"hat\")\n    stopSounds()\n  view\n    button \"go\" press=go\n";
+const PLAY: &str = "component A\n  state hat = \"assets/b.wav\"\n  action go\n    playSound(\"assets/a.wav\", at=performanceNow() + 100, gain=0.8, group=\"kick\")\n    playSound(hat)\n    stopSounds(group=\"hat\")\n    stopSounds()\n  view\n    button \"go\" press=go\n";
 
 #[test]
 fn integer_float_and_extensible_wavs_are_read_to_the_plan() {
@@ -189,7 +189,7 @@ fn the_checker_reads_literal_sources_and_named_arguments() {
         dir
     };
     for ok in [
-        "playSound(\"assets/kit/hat.wav\", at=now() + 100, gain=0.8, group=\"hat\")",
+        "playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100, gain=0.8, group=\"hat\")",
         "playSound(src)",
         "stopSounds(group=\"hat\")",
         "stopSounds()",

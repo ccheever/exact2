@@ -354,7 +354,9 @@ impl<D: DataSource> Host<D> {
             self.fit_routes[i].1 = Some(sig);
             let c = (sig[0], (height - cover).max(0.0));
             let m = self.mirror.entry(id).or_default();
-            if self.layout_withheld || m.content != Some(c) {
+            // The detent reads the height alone: a route that does not
+            // scroll has no use for a new width.
+            if self.layout_withheld || m.content.map(|c| c.1) != Some(c.1) {
                 m.content = Some(c);
                 batch.content(id, c.0, c.1);
             }

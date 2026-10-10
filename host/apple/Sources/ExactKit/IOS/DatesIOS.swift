@@ -25,6 +25,7 @@ extension ControlHost {
         assign(picker, \.minimumDate, owner.props["min"].flatMap { DateValue.parse(kind, $0) })
         assign(picker, \.maximumDate, owner.props["max"].flatMap { DateValue.parse(kind, $0) })
         let bound = owner.props["value"] ?? ""
+        (picker as? BoundDatePicker)?.kind = kind
         if let picker = picker as? BoundDatePicker {
             guard picker.applied != bound else { return }
             picker.applied = bound
@@ -71,11 +72,60 @@ extension ControlHost {
 }
 
 /// A picker that knows the bound value last written into it (`configureDate`).
+/// HTML's empty date, time or datetime shows the format as a placeholder
+/// (Chrome's `mm/dd/yyyy`, `--:-- --`; the Mac's `DateField`), where a
+/// `UIDatePicker`, which always holds a date, showed today (bench t7-wizard,
+/// 2026-10-08): its own content fades to nearly clear, still taking the tap
+/// that opens the calendar, under a pill in the same system fill that holds
+/// the placeholder. The pill is layers, not a view, so it takes no touch and
+/// no part in Auto Layout or the picker's measured size. Opening it starts at
+/// today, and only a choice commits it.
 final class BoundDatePicker: UIDatePicker {
     var applied: String?
+    var kind = "date"
     /// No date: an empty bound value or a cleared one, which the picker's
     /// own `date` cannot say.
-    var empty = false
+    var empty = false { didSet { if empty != oldValue { setNeedsLayout() } } }
+    private let pill = CALayer(), words = CATextLayer()
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIKit rebuilds its content as the mode or date changes, so the fade
+        // is renewed here, and the alpha stays above UIKit's hit-test floor.
+        for view in subviews { view.alpha = empty ? 0.02 : 1 }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard empty else { pill.removeFromSuperlayer(); return }
+        if pill.superlayer !== layer {
+            pill.zPosition = 1
+            pill.addSublayer(words)
+            words.alignmentMode = .center
+            words.truncationMode = .end
+            layer.addSublayer(pill)
+        }
+        let frame = subviews.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        pill.frame = frame.isNull ? bounds : frame
+        pill.cornerRadius = min(pill.frame.height / 2, 8)
+        pill.backgroundColor = UIColor.tertiarySystemFill.resolvedColor(with: traitCollection).cgColor
+        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        words.string = DateValue.placeholder(kind, locale ?? .current)
+        words.font = font
+        words.fontSize = font.pointSize
+        words.foregroundColor = UIColor.placeholderText.resolvedColor(with: traitCollection).cgColor
+        words.contentsScale = window?.screen.scale ?? traitCollection.displayScale
+        words.frame = CGRect(x: 0, y: (pill.bounds.height - font.lineHeight) / 2, width: pill.bounds.width, height: font.lineHeight)
+    }
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        if empty { setNeedsLayout() }
+    }
+    /// The placeholder as shown, for a test: its text and its frame.
+    var placeholderShown: (text: String, frame: CGRect)? {
+        pill.superlayer === layer ? ((words.string as? String) ?? "", pill.frame) : nil
+    }
+    override var accessibilityValue: String? {
+        get { empty ? "" : super.accessibilityValue }
+        set { super.accessibilityValue = newValue }
+    }
 }
 
 extension DateValue {

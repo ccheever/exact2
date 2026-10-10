@@ -474,7 +474,8 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
-                let mut engine = Engine::new();
+                // Settled values only when the plan animates nothing (LLP 1047.001).
+                let mut engine = Engine::linked(links.engine);
                 let _ = engine.set_start_on_frame(start_on_frame, 0.0);
                 engine.set_lowered_properties(&svg::lowered(cfg!(any(
                     target_os = "ios",
@@ -726,6 +727,16 @@ impl<D: DataSource> Host<D> {
         self.runner.data().grants().to_string()
     }
 
+    /// The app's `app:/data`, `app:/cache` and `app:/tmp`, as storage
+    /// configures them, for a request whose body is one of its files (LLP
+    /// 1108 D6 R2); `None` with no app id, or a drive with no scratch store.
+    pub fn app_roots(&mut self) -> Option<[std::path::PathBuf; 3]> {
+        crate::picker::app_dirs(self.runner.data().app_id())
+            .ok()
+            .flatten()
+            .map(|(roots, _)| roots)
+    }
+
     /// What the last commit kept or forgot, into the platform's store (LLP
     /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
     /// login; kept answers queued for their writer thread (`store.rs`). A
@@ -871,8 +882,24 @@ impl<D: DataSource> Host<D> {
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        if a.error.is_none() {
+            match self.runner.host_back(id) {
+                Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(e) => a.error = Some(e),
+            }
+        }
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 

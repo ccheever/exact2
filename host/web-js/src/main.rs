@@ -13,6 +13,8 @@
 mod budget_tests;
 mod code;
 mod emit;
+#[cfg(test)]
+mod emit_tests;
 mod events;
 mod faces;
 mod facts;

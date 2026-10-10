@@ -224,3 +224,62 @@ fn disabled_buttons_keep_authored_accent_fill() {
     assert_eq!(sample(&mut p, "authored"), [255, 0, 0, 255]);
     assert_ne!(sample(&mut p, "default"), [0, 117, 255, 255]);
 }
+
+#[test]
+fn native_and_bare_buttons_ring_on_focus_without_a_handler() {
+    let plan = contract::compile(r##"component App
+  action focusNative
+    focus("native")
+  action focusBare
+    focus("bare")
+  action focusOff
+    focus("off")
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      button "Native" id="native" appearance="auto" width=120 height=40 accent-color="#ff0000" testId="native"
+      button id="bare" appearance="none" width=120 height=40 accent-color="#ff0000" testId="bare"
+        box width="100%" height="100%" background-color="blue"
+          text "Bare"
+      button "Off" id="off" appearance="none" disabled=true width=120 height=40 testId="off"
+      button "Focus native" press=focusNative testId="focusNative"
+      button "Focus bare" press=focusBare testId="focusBare"
+      button "Focus disabled" press=focusOff testId="focusOff"
+"##).unwrap();
+    let (mut p, err) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (400., 300.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(err.is_none(), "{err:?}");
+    let sample = |p: &mut Presenter<NoData>, name: &str| {
+        let k = p.host().kernel();
+        let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
+        let shot = p.frame();
+        let c = shot.pixel(f.x as u32 + 60, f.y as u32).unwrap();
+        [c.red(), c.green(), c.blue(), c.alpha()]
+    };
+    let focus = |p: &mut Presenter<NoData>, action: &str| {
+        let k = p.host().kernel();
+        let id = k.node_by_key(k.find_by_test_id(action)[0]).unwrap().id;
+        p.tap(id).unwrap();
+        p.run_commands(NoData::default);
+    };
+    for dark in [false, true] {
+        p.set_system_scheme(dark);
+        focus(&mut p, "focusNative");
+        assert_eq!(sample(&mut p, "native"), [255, 0, 0, 255]);
+        focus(&mut p, "focusBare");
+        assert_eq!(sample(&mut p, "bare"), [255, 0, 0, 255]);
+        assert_ne!(
+            sample(&mut p, "native"),
+            [255, 0, 0, 255],
+            "old ring cleared"
+        );
+        focus(&mut p, "focusOff");
+        assert_eq!(sample(&mut p, "off"), [255; 4], "disabled never rings");
+    }
+}

@@ -457,12 +457,26 @@ package final class Runtime {
     func routeMatches(_ location: String) -> Bool {
         return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
     }
+    /// The location of the visit beneath the route keyed `key` on its stack,
+    /// `nil` for a stack's root or a key that names no visit (LLP 1115 D5).
+    func locationBeneath(_ key: String) -> String? {
+        guard let id = UInt64(key) else { return nil }
+        return on(busy: nil) {
+            let len = exact_location_beneath(rt, id)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
         return on {
             let n = write(location)
             return read(exact_dispatch(rt, view, 14, n, now))
         }
+    }
+    /// The platform's own Back from the visit keyed `key` (LLP 1115 D5).
+    func hostBack(_ key: String, now: Double) -> Batch? {
+        guard let id = UInt64(key) else { return nil }
+        return on { read(exact_host_back(rt, id, now)) }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
@@ -494,6 +508,8 @@ package final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
+    /// The window's size, which every viewport unit resolves against everywhere; zero clears it (LLP 1075.003 §9.11).
+    func screen(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_screen(rt, Float(width), Float(height))) } }
     /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
     func segments(_ fold: ViewportFold) -> Batch {
         on {

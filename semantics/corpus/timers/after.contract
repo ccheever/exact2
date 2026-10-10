@@ -4,7 +4,7 @@ component App
   state at = 0
   action ding
     fired = fired + 1
-    at = now()
+    at = performanceNow()
   task once mount
     after(500, ding)
   view

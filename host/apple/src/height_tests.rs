@@ -615,7 +615,7 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
         text "Show"
       button testId="remove" press=remove
         text "Remove"
-      button testId="grow-content" press=growContent
+      button appearance="none" testId="grow-content" press=growContent
         text `${counter}`
       column testId="sections" display=(hidden ? "none" : "flex")
         when mounted

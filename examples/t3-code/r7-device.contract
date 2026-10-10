@@ -117,7 +117,7 @@ component R7DevSwitchControl
     press: action
     testId: string
   view
-    button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : r7devInput())
+    button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : r7devInput()) title=""
       box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
 
 // ToggleGroup (segmented): two toggles in a tinted track.
@@ -205,7 +205,7 @@ component R7DevToolsDrawer
         when tools.pending
           R7DevSpinner(size=14)
         box flex=1
-        button press=local("surface-r6dev-tools-close", "", "") aria-label="Close tools" testId="device-tools-close" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+        button press=local("surface-r6dev-tools-close", "", "") aria-label="Close tools" testId="device-tools-close" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
           R7DevGlyph(name="x", size=14, color=r7devMuted())
       scroll flex=1 min-height=0
         column width="100%"

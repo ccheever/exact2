@@ -354,7 +354,7 @@ final class AccessibilityTests: XCTestCase {
     /// Runs the main run loop until `done` holds, for at most `timeout` seconds.
     private func spin(timeout: TimeInterval = 10, until done: () -> Bool) {
         let end = Date().addingTimeInterval(timeout)
-        while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        while !done(), Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         XCTAssertTrue(done(), "timed out")
     }
     private static let launchSource = "component App\n  view\n    column width=\"100%\" height=\"100%\"\n      input testId=\"edit\" value=\"draft\" autofocus=true\n"

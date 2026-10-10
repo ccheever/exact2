@@ -22,6 +22,14 @@ export function appleComposition(graph, production, ahead = []) {
   return { link, products };
 }
 
+/** Whether a build links by its plan (LLP 1047.001 D6): production always;
+ * a development build with `--link plan`, so a smoke runs what ships
+ * (development otherwise links everything, for the agent's whole vocabulary
+ * and plan restarts). */
+export function linksByPlan(production, args) {
+  return production || (args.includes('--link') && args[args.indexOf('--link') + 1] === 'plan');
+}
+
 /** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the
  * one asked for: AppKit draws its design by that number, so a link that
  * records another (as SwiftPM's did, LLP 1069.011 §7) changes every app's

@@ -844,6 +844,13 @@ impl Parser {
         let placeholder = if self.at_ident("else") {
             self.next();
             let at = self.peek().span;
+            if !matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                // `else []`, `else ""` (app farm round 1): a value, where a call goes.
+                return self.err(
+                    "syntax-placeholder-call",
+                    "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
+                );
+            }
             let source = self.source_ident(at)?;
             self.expect_punct("(")?;
             let args = self.call_args()?;

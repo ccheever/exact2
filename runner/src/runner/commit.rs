@@ -23,8 +23,11 @@ pub(super) struct Checkpoint {
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
     failed_args: Vec<Option<Vec<Value>>>,
+    failed_why: Vec<Option<crate::failure::Failure>>,
     refresh_next: Vec<usize>,
-    reread_next: Vec<usize>,
+    writes: super::writes::Writes,
+    unsent: Vec<(usize, String, Vec<Value>)>,
+    reconciling: Vec<usize>,
     pending: Vec<PendingReq>,
     queues: super::queue::Saved,
     timers: Vec<super::Timer>,
@@ -60,8 +63,11 @@ impl<D: DataSource> Runner<D> {
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
             failed_args: self.failed_args.clone(),
+            failed_why: self.failed_why.clone(),
             refresh_next: self.refresh_next.clone(),
-            reread_next: self.reread_next.clone(),
+            writes: self.writes.clone(),
+            unsent: self.unsent.clone(),
+            reconciling: self.reconciling.clone(),
             pending: self.pending.clone(),
             queues: self.queues.save(),
             timers: self.timers.clone(),
@@ -110,8 +116,22 @@ impl<D: DataSource> Runner<D> {
                 self.store_readers = c.store_readers;
                 self.watching = c.watching;
                 self.failed_args = c.failed_args;
+                self.failed_why = c.failed_why;
                 self.refresh_next = c.refresh_next;
-                self.reread_next = c.reread_next;
+                // Ids stay unique: a rolled-back send's id is never reused.
+                let seq = self.writes.seq;
+                self.writes = c.writes;
+                self.writes.seq = seq;
+                self.overlays.iter_mut().for_each(|o| *o = None);
+                self.unsent = c.unsent;
+                self.reconciling = c.reconciling;
+                // A send its source refused when it was sent stays ended.
+                for (m, id) in std::mem::take(&mut self.refused_unsent) {
+                    self.unsent.retain(|u| u.0 != m);
+                    self.writes.records.retain(|r| Some(r.id) != id);
+                    // And what it showed in is still read again.
+                    self.reconcile_after(m);
+                }
                 self.pending = c.pending;
                 self.queues.restore(c.queues);
                 self.timers = c.timers;
@@ -135,6 +155,7 @@ impl<D: DataSource> Runner<D> {
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
             }
         }
+        self.refused_unsent.clear();
         // After any restore: the source hears what is really in flight.
         if std::mem::take(&mut self.forgot) {
             let in_flight: Vec<InFlight<'_>> = self
@@ -185,7 +206,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// An input at the host's time `now_ms`: the clock moves there first,
-    /// firing every timer due by then, so the action's `now()` — and a sound
+    /// firing every timer due by then, so the action's `performanceNow()` — and a sound
     /// it schedules (LLP 1096 D3) — is the event's time, as on the JS
     /// target, not the last timer's. The commits in order, the event's last,
     /// at `now_ms`; a timer's refusal rides along and the event still runs.
@@ -644,6 +665,9 @@ impl<D: DataSource> Runner<D> {
         let mut answered: Vec<(u32, Value)> = Vec::new();
         let mut asked: Vec<usize> = Vec::new();
         let mut landed_now: Vec<usize> = Vec::new();
+        // Non-queue mutations whose send replaces one in flight without a
+        // request of its own: an answer at once, or one waiting for the source.
+        let mut replaced: Vec<usize> = Vec::new();
         // A send before the source can answer — a TypeScript module a native
         // host loads after first pixel (LLP 1027 D4) — waits for it, pending,
         // as a resource's ask does and as the web's send to a module still
@@ -654,11 +678,14 @@ impl<D: DataSource> Runner<D> {
         let mut unsent: Vec<(usize, String, Vec<Value>)> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
+            self.accept_write(m, source, sargs);
             let queue = self.plan.mutations[m].queue;
             let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
             if early && !queue {
                 unsent.retain(|u| u.0 != m);
                 unsent.push((m, source.clone(), sargs.clone()));
+                // It replaces a send still in flight (newest wins).
+                replaced.push(m);
                 continue;
             }
             if queue && (early || asked.contains(&m) || !self.asks_now(m)) {
@@ -674,6 +701,19 @@ impl<D: DataSource> Runner<D> {
                     answered.push((slot as u32, v));
                     self.landed.push(m);
                     landed_now.push(m);
+                    // It replaces an earlier send of this action still to go
+                    // out (newest wins): that request never goes.
+                    if !queue {
+                        let earlier: Vec<_> = later
+                            .iter()
+                            .filter(|l| l.0 == m)
+                            .map(|l| l.3.clone())
+                            .collect();
+                        for request in &earlier {
+                            self.discard_request(request);
+                        }
+                        later.retain(|l| l.0 != m);
+                    }
                 }
                 Ok(super::queue::Asked::Later(request)) => {
                     later.push((m, source.clone(), sargs.clone(), request))
@@ -743,15 +783,26 @@ impl<D: DataSource> Runner<D> {
             .collect();
         for m in &assigned {
             self.pending_mut[*m] = false;
+            self.end_pending(*m, None);
+        }
+        // A send answered at once replaces one in flight: not pending.
+        for m in &landed_now {
+            if !self.plan.mutations[*m].queue {
+                self.pending_mut[*m] = false;
+            }
         }
         for (m, _, _, _) in &later {
             if !assigned.contains(m) {
                 self.pending_mut[*m] = true;
             }
         }
+        // A send that goes now replaces one still waiting for the source
+        // (newest wins)
+        for m in asked.iter().filter(|m| !self.plan.mutations[**m].queue) {
+            self.unsent.retain(|u| u.0 != *m);
+        }
         // Waiting from here, so the settlement sees them pending; a refusal
-        // puts the waiting sends back as they were.
-        let unsent_before = (!unsent.is_empty()).then(|| self.unsent.clone());
+        // puts the waiting sends back as they were (the checkpoint).
         for (m, source, args) in &unsent {
             self.unsent.retain(|u| u.0 != *m);
             if !assigned.contains(m) {
@@ -760,12 +811,10 @@ impl<D: DataSource> Runner<D> {
             }
         }
         // What the action refreshes, added to what is already waiting
-        // (LLP 1054.000.000 D2); and what each mutation it sent to declares
-        // it changes, read again now that every send has asked its source.
-        // A mutation answered at once has landed: what it changes is forced,
-        // as a reply's landing forces it (`fulfill`). A re-read would drop a
-        // source that answers later, and no reply would come to ask again
-        // (an async read stayed at its old value, found by the data6 lane).
+        // (LLP 1054.000.000 D2). A mutation answered at once has landed:
+        // what it changes is asked, as a reply's landing asks it
+        // (`fulfill`). A send still in flight asks nothing: its write shows
+        // through the overlay.
         for r in outcome.refreshes.iter() {
             self.force_refresh(*r as usize);
         }
@@ -774,11 +823,6 @@ impl<D: DataSource> Runner<D> {
                 self.force_refresh(r);
             }
         }
-        self.reread_next = asked
-            .iter()
-            .filter(|m| !landed_now.contains(m))
-            .flat_map(|m| self.declared_refreshes(*m))
-            .collect();
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here. The gate
         // step joins this path (LLP 1092 D8): before `enqueue` and
@@ -797,9 +841,6 @@ impl<D: DataSource> Runner<D> {
             })
         {
             self.discard_later(&later);
-            if let Some(before) = unsent_before {
-                self.unsent = before;
-            }
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
                     Some(v) => rows.borrow_mut().insert(slot, v),
@@ -814,6 +855,14 @@ impl<D: DataSource> Runner<D> {
         for m in &assigned {
             self.forget(Target::Mutation(*m));
         }
+        // A send answered at once, or waiting for the source, replaces one
+        // still in flight (newest wins): the older reply is not wanted.
+        for m in landed_now.into_iter().chain(replaced) {
+            if !self.plan.mutations[m].queue {
+                self.forget_ticket(Target::Mutation(m));
+            }
+        }
+        self.sync_pending_flags();
         for (m, source, args, request) in later {
             self.enqueue(Target::Mutation(m), source, args, request, false);
             if assigned.contains(&m) {
@@ -951,15 +1000,21 @@ impl<D: DataSource> Runner<D> {
     /// Drop the request in flight for `target`, if any: its reply, when it
     /// comes, is dropped too (a `POST` already sent is not unsent — LLP 1016 D5).
     pub(super) fn forget(&mut self, target: Target) {
+        self.forget_ticket(target);
+        if let Target::Mutation(m) = target {
+            self.unsent.retain(|u| u.0 != m);
+        }
+        self.sync_pending_flags();
+    }
+
+    /// Let go of `target`'s request in flight, keeping a send that waits
+    /// for the source.
+    pub(super) fn forget_ticket(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
         }
-        if let Target::Mutation(m) = target {
-            self.unsent.retain(|u| u.0 != m);
-        }
-        self.sync_pending_flags();
     }
 
     /// The resources mutation `m` declares it refreshes.
@@ -1032,6 +1087,11 @@ impl<D: DataSource> Runner<D> {
             keepable: keepable.then(|| request.clone()),
             stream: request.stream.then(StreamCount::default),
             ask_again: false,
+            origin: self.writes.tick(),
+            write: match target {
+                Target::Mutation(m) => self.asked_write(m),
+                Target::Resource(_) => None,
+            },
         });
         self.requests.push(RequestOut {
             ticket,
@@ -1242,17 +1302,21 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
-        if refused && result.is_err() && self.holds(ticket) {
-            return self.release_refused(ticket, target);
-        }
-        if matches!(
-            result,
-            Err(RunnerError::Data { .. } | RunnerError::Shape { .. })
-        ) && self.holds(ticket)
-        {
-            // The failure is in the journal (above); what the host needs now
-            // is the commit that takes the target out of `pending`.
-            return self.release_failed(ticket, target);
+        if let Err(e) = &result {
+            // A mutation's reply is spent whatever refused its commit: left
+            // in flight, its write would show forever.
+            if (refused
+                || matches!(e, RunnerError::Data { .. } | RunnerError::Shape { .. })
+                || matches!(target, Target::Mutation(_)))
+                && self.holds(ticket)
+            {
+                // The failure is in the journal (above); what the host needs now
+                // is the commit that takes the target out of `pending`.
+                // A refused request has no later reply, even when its shaped
+                // failure traps during settlement. Admission refusal alone
+                // cannot restart a source whose earlier turns may have written.
+                return self.release_failed(ticket, target, crate::failure::Failure::of(e));
+            }
         }
         result.map(Some)
     }
@@ -1283,8 +1347,8 @@ impl<D: DataSource> Runner<D> {
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
-        if result.is_err() && self.holds(ticket) {
-            return self.release_failed(ticket, target);
+        if let (Err(e), true) = (&result, self.holds(ticket)) {
+            return self.release_failed(ticket, target, crate::failure::Failure::of(e));
         }
         result.map(Some)
     }
@@ -1344,8 +1408,10 @@ impl<D: DataSource> Runner<D> {
                 // carries the ask again to its last (LLP 1016.002 D4).
                 self.log(super::lines::one_more(&name));
                 self.enqueue(p.target, p.source, p.args, request, false);
-                if let Some(next) = self.pending.last_mut().filter(|_| p.ask_again) {
-                    next.ask_again = true;
+                if let Some(next) = self.pending.last_mut() {
+                    next.ask_again |= p.ask_again;
+                    next.origin = p.origin;
+                    next.write = p.write;
                 }
                 return self.update();
             }
@@ -1370,14 +1436,18 @@ impl<D: DataSource> Runner<D> {
                     store_revision: self.store.revision(),
                     placeholder: false,
                     kept_seed: false,
+                    answered_for: None,
+                    origin: p.origin,
                 });
             }
             Target::Mutation(m) => {
                 let slot = self.mutation_slot(m)?;
+                self.land_write(m, p.write, &value);
                 self.slots[slot] = Value::some(value);
                 self.landed.push(m);
                 // The reply landed: what the mutation changed is asked again
-                // in this commit (LLP 1054.000.000 D1).
+                // in this commit (LLP 1054.000.000 D1); its write shows until
+                // that answer lands.
                 for r in self.declared_refreshes(m) {
                     self.force_refresh(r);
                 }

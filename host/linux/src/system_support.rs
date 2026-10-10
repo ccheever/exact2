@@ -63,6 +63,10 @@ pub(super) fn persist_store_writes(
     app_id: &str,
     writes: &[exact_runner::StoreWrite],
 ) -> Vec<String> {
+    // Most commits write nothing: no directory is looked up for them.
+    if writes.is_empty() {
+        return Vec::new();
+    }
     let Some(root) = crate::picker::secret_root(app_id) else {
         return Vec::new();
     };

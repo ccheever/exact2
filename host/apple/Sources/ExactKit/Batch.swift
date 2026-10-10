@@ -10,6 +10,19 @@ package enum BatchValue: Equatable {
     case number(Double), string(String), profile(ProfileSpaces.Handle), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
 
     package var number: Double? { if case .number(let n) = self { return n }; return nil }
+    /// The value as text, for a cache key: different values never have the
+    /// same text.
+    var key: String {
+        switch self {
+        case .number(let n): return "\(n)"
+        case .string(let s): return s.debugDescription
+        case .profile(let p): return "@" + p.key.debugDescription
+        case .bool(let b): return b ? "true" : "false"
+        case .array(let a): return "[" + a.map(\.key).joined(separator: ",") + "]"
+        case .object(let o): return "{" + o.keys.sorted().map { $0.debugDescription + ":" + o[$0]!.key }.joined(separator: ",") + "}"
+        case .null: return "null"
+        }
+    }
     package var string: String? {
         if case .string(let s) = self { return s }
         if case .profile(let p) = self { return p.key }

@@ -91,6 +91,16 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
 /// element's classes and puts them under them (`split`), so a class, like an
 /// attribute, replaces the sheet. No authored name can carry it.
 const MARK: &str = "ua:";
+const BUTTON_CONTEXT: &str = "ua:button-context";
+
+/// Rows and their detail accessories belong to the grouped list's press
+/// face, unless the author explicitly requests a native button (LLP 1104 D2).
+pub(crate) fn button_context(attrs: &[Attr]) -> Option<&str> {
+    attrs.iter().find_map(|a| match (&*a.name, &a.value) {
+        (BUTTON_CONTEXT, Expr::Str(context, _)) => Some(context.as_str()),
+        _ => None,
+    })
+}
 
 fn attr(name: &str, value: Expr, span: Span) -> Attr {
     Attr {
@@ -175,6 +185,7 @@ pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
         .partition(|a| a.name.starts_with(MARK));
     let sheet = sheet
         .into_iter()
+        .filter(|a| a.name != BUTTON_CONTEXT)
         .map(|a| Attr {
             name: a.name[MARK.len()..].to_owned(),
             ..a
@@ -552,6 +563,7 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
 /// colour, an accessory's size and colour; red when `destructive`.
 fn row(node: &Node, separated: bool) -> Node {
     let Node::Element {
+        tag,
         attrs,
         children,
         span,
@@ -561,6 +573,11 @@ fn row(node: &Node, separated: bool) -> Node {
         return node.clone();
     };
     let span = *span;
+    let context = if tag == "button" {
+        vec![s("button-context", "grouped-list row", span)]
+    } else {
+        Vec::new()
+    };
     // A native button row (LLP 1069.011) is the platform's control: only
     // the rows a native button takes, and its face left alone.
     let native = attrs
@@ -571,7 +588,11 @@ fn row(node: &Node, separated: bool) -> Node {
     if native {
         return with(
             node,
-            vec![n("margin-left", 16.0, span), n("min-height", 52.0, span)],
+            [
+                context,
+                vec![n("margin-left", 16.0, span), n("min-height", 52.0, span)],
+            ]
+            .concat(),
         );
     }
     let tint = |plain: &str| -> Expr {
@@ -676,7 +697,8 @@ fn row(node: &Node, separated: bool) -> Node {
     else {
         unreachable!()
     };
-    let mut rows = sheet;
+    let mut rows = context;
+    rows.extend(sheet);
     rows.extend(attrs.iter().cloned());
     Node::Element {
         tag: tag.clone(),
@@ -849,6 +871,16 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             };
             *texts = next;
             with(child, sheet)
+        }
+        ("button", _)
+            if i == last
+                && matches!(child, Node::Element { children, .. }
+            if matches!(children.as_slice(), [only] if symbol(only).is_some_and(|s| s == "info.circle" || s == "info.circle.fill"))) =>
+        {
+            with(
+                child,
+                vec![s("button-context", "grouped-list detail accessory", at)],
+            )
         }
         ("column", _) if stack => subtitle(child),
         _ => child.clone(),

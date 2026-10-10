@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 13
+#define EXACT_ABI_VERSION 14
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,7 +63,7 @@ typedef struct ExactRasterStats {
 uint64_t exact_raster_session_create(uint64_t budget);
 /* Update capacity without releasing displayed or in-flight backings. */
 void exact_raster_session_budget(uint64_t session, uint64_t budget);
-/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
+/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim, 5 wake a worker (a source to read). */
 void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
@@ -356,6 +356,14 @@ uint32_t exact_location_of(ExactRuntime rt, size_t len);
  * link to it navigates in the app), else 0. */
 uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
+/* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
+ * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
+ * for a route with no authored Back control. Not a batch. */
+uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
+ * authored Back control under a root with no `navigate` handler: the
+ * router's `back` as a commit of its own. A batch. */
+uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -510,6 +518,11 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
+ * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
+ * everywhere, root and every sheet, never a sheet's viewport (exact_segments
+ * sends the window's segments too). A nonpositive size clears it. */
+uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
  * x y w h as four little-endian floats in the input buffer (count rects;

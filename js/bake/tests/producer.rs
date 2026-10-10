@@ -512,8 +512,9 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
     );
     live.data().load().unwrap();
     let error = live.data_ready().unwrap_err();
+    // A storage refusal fails with the `storage` failure code (LLP 1109 D3).
     assert!(
-        format!("{error:?}").contains("Unavailable"),
+        format!("{error:?}").contains("Failed(Storage"),
         "runtime storage refusal remains a failure: {error:?}"
     );
     f.write(
@@ -879,6 +880,248 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
     assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }
 
+/// The web build of the fixture app (the JS target), into `web-out` inside it.
+fn web_build(app: &Path) -> Result<(), String> {
+    let out = app.join("web-out");
+    let _ = std::fs::remove_dir_all(&out);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let built = std::process::Command::new("bun")
+        .arg(root.join("host/web-js/build.mjs"))
+        .args(["logic", "--render", "none", "--out"])
+        .arg(&out)
+        .env("EXACT_APP_DIR", app)
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    if built.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&built.stderr).into_owned())
+    }
+}
+
+/// A package's declarations reach the type check of every producer from the
+/// capture (LLP 1027 D5, "Type-only package imports"): a type-only import
+/// checks against them, a changed `.d.ts` checks again, and a value import,
+/// a library the configuration does not load, or a global types package no
+/// file names is refused alike.
+#[test]
+fn type_only_package_imports_check_alike_and_package_code_never_runs() {
+    let f = Fixture::new();
+    let put = |name: &str, bytes: &str| {
+        std::fs::create_dir_all(f.0.join(name).parent().unwrap()).unwrap();
+        f.write(name, bytes);
+    };
+    // A mounted directory names its own copy of a package of the same name,
+    // installed beside it, outside the app.
+    let shared = Fixture(f.0.with_extension("shared"));
+    std::fs::create_dir_all(shared.0.join("node_modules/rows")).unwrap();
+    shared.write(
+        "node_modules/rows/package.json",
+        r#"{"name":"rows","types":"index.d.ts"}"#,
+    );
+    shared.write(
+        "node_modules/rows/index.d.ts",
+        "export type Row = { id: 'shared' };\n",
+    );
+    shared.write(
+        "kind.ts",
+        "import type { Row } from 'rows';\nexport type Kind = Row['id'];\n",
+    );
+    put(
+        "app.json",
+        &format!(
+            r#"{{"name":"Logic","app":{{"id":"test.exact.logic","name":"Logic"}},"typescript":{{"sources":{{"shared":"../{}"}}}}}}"#,
+            shared.0.file_name().unwrap().to_str().unwrap()
+        ),
+    );
+    put(
+        "node_modules/rows/package.json",
+        r#"{"name":"rows","type":"module","exports":{".":{"types":"./dist/index.d.ts","import":"./dist/index.js"}}}"#,
+    );
+    let index = "import type { Inner } from './inner.js';\nimport type { Unit } from 'units';\nimport type { Plain } from 'plain';\nexport type Row = { id: string; count: Inner; unit: Unit; plain: Plain };\nexport declare const rows: Row[];\n";
+    put("node_modules/rows/dist/index.d.ts", index);
+    put(
+        "node_modules/rows/dist/inner.d.ts",
+        "export type Inner = number;\n",
+    );
+    put(
+        "node_modules/rows/dist/index.js",
+        "export const rows = [];\n",
+    );
+    // Its own nested dependency, and a package typed by its `@types` companion.
+    put(
+        "node_modules/rows/node_modules/units/package.json",
+        r#"{"name":"units","types":"index.d.ts"}"#,
+    );
+    put(
+        "node_modules/rows/node_modules/units/index.d.ts",
+        "export type Unit = 'kg';\n",
+    );
+    put("node_modules/plain/package.json", r#"{"name":"plain"}"#);
+    // Its code says so if it ever runs.
+    let ran = f.0.with_extension("ran");
+    put(
+        "node_modules/plain/index.js",
+        &format!(
+            "require('node:fs').writeFileSync({:?}, 'ran');\nmodule.exports = {{}};\n",
+            ran.to_str().unwrap()
+        ),
+    );
+    put(
+        "node_modules/@types/plain/package.json",
+        r#"{"name":"@types/plain"}"#,
+    );
+    put(
+        "node_modules/@types/plain/index.d.ts",
+        "export type Plain = true;\n",
+    );
+    // Installed, named by no file: its globals are not the app's.
+    put(
+        "node_modules/@types/ambient/package.json",
+        r#"{"name":"@types/ambient"}"#,
+    );
+    put(
+        "node_modules/@types/ambient/index.d.ts",
+        "declare var process: { env: Record<string, string> };\n",
+    );
+    // A generated module beside app.ts that names the package's types, as
+    // `snapback4 types` writes `snapback/generated/api.ts`.
+    put("generated.ts", "import type { Row } from /* its types */ 'rows';\nexport type Rows = { item: Row };\nexport const names = ['item'];\n");
+    let logic = |count: &str| {
+        format!("import type {{ Rows }} from './generated.ts';\nimport {{ names }} from './generated.ts';\nconst row: Rows['item'] = {{ id: 'a', count: {count}, unit: 'kg', plain: true }};\nexport const prefix = names[0] + row.count + ': ';\nimport type {{ Kind }} from './shared/kind.ts';\nexport const kind: Kind = 'shared';\n")
+    };
+    put("logic.ts", &logic("2"));
+    let engine = exact_js::ENGINE_LINKED;
+    let mut producer = engine.then(|| exact_js_bake::Producer::new(Tools::default()).unwrap());
+    // The web build's output sits inside the app here, where a native
+    // capture would take its stage's sources for the app's own.
+    let mut every = |f: &Fixture| {
+        let mut results = vec![web_build(&f.0)];
+        let _ = std::fs::remove_dir_all(f.0.join("web-out"));
+        if let Some(producer) = producer.as_mut() {
+            results.push(producer.bake(&f.0, None).map(|_| ()));
+            results.push(bake(&f.0, &Tools::default()).map(|_| ()));
+        }
+        results
+    };
+    web_build(&f.0).unwrap();
+    let stage = f.0.join("web-out/.gen/typescript");
+    assert!(stage
+        .join("node_modules/rows/node_modules/units/index.d.ts")
+        .exists());
+    assert!(stage.join("shared/node_modules/rows/index.d.ts").exists());
+    assert!(
+        !stage.join("node_modules/rows/dist/index.js").exists()
+            && !stage.join("node_modules/@types/ambient").exists(),
+        "only the declarations of named packages are captured"
+    );
+    for result in every(&f) {
+        result.unwrap();
+    }
+    if engine {
+        let live = paired(&f.bake());
+        let live = Runner::boot(
+            live.plan,
+            live.module,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(live.resource("message"), Some(&Value::str("item2: 0")));
+    }
+    let refused = |every: &mut dyn FnMut(&Fixture) -> Vec<Result<(), String>>, why: &str| {
+        let results = every(&f);
+        assert_eq!(results.len(), if engine { 3 } else { 1 });
+        for result in results {
+            let error = result.expect_err(why);
+            assert!(error.contains(why), "{why}: {error}");
+        }
+    };
+    put("logic.ts", &logic("'two'"));
+    refused(&mut every, "error TS2322");
+    put("logic.ts", &logic("2"));
+    // A changed declaration checks the app again (the resident checker's
+    // incremental state included).
+    put(
+        "node_modules/rows/dist/inner.d.ts",
+        "export type Inner = string;\n",
+    );
+    refused(&mut every, "error TS2322");
+    put(
+        "node_modules/rows/dist/inner.d.ts",
+        "export type Inner = number;\n",
+    );
+    for result in every(&f) {
+        result.unwrap();
+    }
+    // An uninstalled package is gone from the capture too (the resident
+    // stage keeps nothing a previous request staged).
+    std::fs::rename(
+        f.0.join("node_modules/@types/plain"),
+        f.0.join("plain-types"),
+    )
+    .unwrap();
+    refused(&mut every, "'plain'");
+    std::fs::rename(
+        f.0.join("plain-types"),
+        f.0.join("node_modules/@types/plain"),
+    )
+    .unwrap();
+    put(
+        "logic.ts",
+        "import { rows } from 'rows';\nexport const prefix = rows.length + ': ';\n",
+    );
+    let real = f.0.canonicalize().unwrap();
+    refused(
+        &mut every,
+        &format!(
+            "module outside captured app: {}",
+            real.join("node_modules/rows/dist/index.js").display()
+        ),
+    );
+    // A side-effect import is a value import: refused before any producer,
+    // the web build's own reading of app.ts included, runs the package.
+    put("logic.ts", &format!("import 'plain';\n{}", logic("2")));
+    refused(&mut every, "module outside captured app: ");
+    assert!(!ran.exists(), "a refused package's code never runs");
+    // A specifier that leaves its package names no file of it.
+    put("helper.ts", "export const helper = 'helped: ';\n");
+    put(
+        "logic.ts",
+        "import { helper } from 'plain/../../helper.ts';\nexport const prefix = helper;\n",
+    );
+    refused(
+        &mut every,
+        "module outside captured app: plain/../../helper.ts",
+    );
+    put(
+        "logic.ts",
+        "export const prefix = process.env.PREFIX + ': ';\n",
+    );
+    refused(&mut every, "Cannot find name 'process'");
+    put("logic.ts", &logic("2"));
+    // A declaration that reaches outside the capture, or loads a library the
+    // configuration does not, is refused by every producer's graph check.
+    let outside = Fixture(f.0.with_extension("outside"));
+    std::fs::create_dir(&outside.0).unwrap();
+    outside.write("outside.d.ts", "type Outside = string;\n");
+    put(
+        "node_modules/rows/dist/index.d.ts",
+        &format!(
+            "/// <reference path={:?} />\n{index}",
+            outside.0.join("outside.d.ts").to_str().unwrap()
+        ),
+    );
+    refused(&mut every, "module outside captured app: ");
+    put(
+        "node_modules/rows/dist/index.d.ts",
+        &format!("/// <reference lib=\"es2024.arraybuffer\" />\n{index}"),
+    );
+    refused(&mut every, "lib.es2024.arraybuffer.d.ts");
+}
+
 /// One TypeScript configuration (`js/bake/src/typescript.mjs`) in both
 /// producers and the web build: ES2023 runs on Hermes as in a browser, a
 /// `.ts` import path resolves, and what one refuses every one refuses with
@@ -893,24 +1136,7 @@ fn every_build_takes_one_typescript_configuration_and_refuses_alike() {
     );
     let accepted = "export const prefix = [['b', 2], ['a', 1]].toSorted().map(([k]) => k).join('').replaceAll('a', 'A') + [1, 2].at(-1) + [1, 2].findLast(n => n < 2) + Object.keys(Object.groupBy([1], n => 'g' + n)) + ': ';";
     f.write("logic.ts", accepted);
-    let web = || {
-        let out = f.0.join("web-out");
-        let _ = std::fs::remove_dir_all(&out);
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let built = std::process::Command::new("bun")
-            .arg(root.join("host/web-js/build.mjs"))
-            .args(["logic", "--render", "none", "--out"])
-            .arg(&out)
-            .env("EXACT_APP_DIR", &f.0)
-            .current_dir(&root)
-            .output()
-            .unwrap();
-        if built.status.success() {
-            Ok(())
-        } else {
-            Err(String::from_utf8_lossy(&built.stderr).into_owned())
-        }
-    };
+    let web = || web_build(&f.0);
     web().unwrap();
     // The output sits inside the app here; the capture leaves it out
     // rather than copying its own stage into itself (review r4a 2).

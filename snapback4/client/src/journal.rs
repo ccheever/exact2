@@ -80,6 +80,38 @@ pub(crate) fn stored(mut refused: Json) -> Json {
     refused
 }
 
+/// A refused write as the journal keeps it: its id, operation, the input it
+/// carried and that input's digest, why it was refused, and when written.
+pub(crate) fn entry(write: &Json, why: &Json) -> Json {
+    let op = write["op"].as_str().unwrap_or_default();
+    stored(json!({"id": write["id"], "op": op, "args": write["args"],
+        "input": crate::client::input_key(op, &write["args"]), "why": why, "at": write["now"]}))
+}
+
+/// What adding `refused` to `journal` writes, as `(key, value)` metadata in
+/// order: the segment it joins, then the index if that segment is new.
+/// Nothing when the journal already holds its id.
+pub(crate) fn append(journal: &Segments, refused: Json) -> Vec<(String, String)> {
+    if journal
+        .iter()
+        .any(|(_, list)| list.iter().any(|known| known["id"] == refused["id"]))
+    {
+        return Vec::new();
+    }
+    let mut segments: Vec<u64> = journal.iter().map(|(n, _)| *n).collect();
+    let (n, mut last) = match journal.last() {
+        Some((n, list)) if fits(list, &refused) => (*n, list.clone()),
+        _ => (segments.iter().max().map_or(0, |n| n + 1), Vec::new()),
+    };
+    last.push(refused);
+    let mut writes = vec![(segment_key(n), Json::Array(last).to_string())];
+    if !segments.contains(&n) {
+        segments.push(n);
+        writes.push((INDEX.into(), index_text(&segments)));
+    }
+    writes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

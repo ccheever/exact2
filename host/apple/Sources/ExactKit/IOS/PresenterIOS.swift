@@ -199,7 +199,7 @@ package final class Presenter {
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
-        viewport.backgroundColor = .white
+        viewport.backgroundColor = .platformBackground
     }
 
     func observeKeyboard() {
@@ -257,6 +257,15 @@ package final class Presenter {
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
+    /// Apply a waiting no-duration keyboard change now: a stack change that
+    /// waited for the viewport a leaving keyboard frees must not start
+    /// before it (NavigationHost.sync).
+    func flushKeyboardResize() {
+        guard let work = keyboardDebounce else { return }
+        keyboardDebounce = nil
+        work.perform()
+        work.cancel() // its queued run, not this one
+    }
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
             guard let sv = node.scroll else { return false }
@@ -449,13 +458,16 @@ package final class Presenter {
     /// with focus, blur or key handlers, never plain text; tree order, with a
     /// positive `tabIndex` first; nothing hidden, inert, disabled or unmounted.
     /// UIKit hosts routes in its own controllers, so the order is the window's
-    /// view order. From no focused node, Tab takes the first.
-    func moveFocus(backward: Bool) {
-        guard let window = root.window else { return }
+    /// view order. From no focused node, Tab takes the first. `fields`: the
+    /// next text field only, never wrapping (the keyboard's Next); false
+    /// when there is none.
+    @discardableResult func moveFocus(backward: Bool, fields: Bool = false) -> Bool {
+        guard let window = root.window else { return false }
         var listed: [NodeView] = []
         func walk(_ view: UIView) {
             if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
-            if let node = view as? NodeView, views[node.id] === node, Self.tabbable(node) { listed.append(node) }
+            if let node = view as? NodeView, views[node.id] === node, Self.tabbable(node),
+               !fields || node.field != nil || node.textArea != nil { listed.append(node) }
             view.subviews.forEach(walk)
         }
         walk(window)
@@ -464,12 +476,16 @@ package final class Presenter {
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             return pa != pb ? pa < pb : a.offset < b.offset
         }.map(\.element)
-        guard !order.isEmpty else { return }
+        guard !order.isEmpty else { return false }
         let focused = order.firstIndex { $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+        if fields, focused.map({ backward ? $0 == 0 : $0 == order.count - 1 }) ?? true { return false }
         let next = focused.map { (backward ? $0 - 1 + order.count : $0 + 1) % order.count } ?? (backward ? order.count - 1 : 0)
         let target = order[next]
         let responder: UIView = target.textArea ?? target.field ?? target
-        if responder.becomeFirstResponder(), responder === target { target.showFocusRing(true) }
+        target.focusedByTouch = false
+        let became = responder.becomeFirstResponder()
+        if became, responder === target { target.showFocusRing(true) }
+        return became
     }
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
     /// by kind; an explicit negative never, though a tap still focuses it.
@@ -478,6 +494,12 @@ package final class Presenter {
         if let index = v.explicitTabIndex, index < 0 { return false }
         // A radio group is one stop (x2apps survey #2).
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
+    }
+
+    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
+    /// confirmation by its id, the platform's alert or sheet (MenusIOS).
+    func dialogCommand(_ name: String, _ id: String) {
+        if name == "showModal" { menus.showModal(id) } else { menus.closeModal(id) }
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
@@ -531,6 +553,7 @@ package final class Presenter {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
         }
+        target.focusedByTouch = false
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
         if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
@@ -991,6 +1014,9 @@ package final class Presenter {
         groupedLists?.sync(changed: changed)
         positionContexts()
         syncAccessibility(changed: changed)
+        #if os(iOS)
+        syncScrollsToTop()
+        #endif
     }
 
     /// Everything kept for `id` goes, the view out of the map (not out of
@@ -1311,7 +1337,8 @@ package final class Presenter {
         let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first?.channels("background_color"))
         guard key != canvasKey else { return }
         canvasKey = key
-        let color = first?.color("background_color", .white) ?? .white
+        // A root without a background shows the platform's (LLP 1115 D2).
+        let color = first?.color("background_color", .platformBackground) ?? .platformBackground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
 

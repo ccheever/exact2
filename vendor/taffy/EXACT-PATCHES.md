@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27 and 28 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28 and 29 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -906,3 +906,55 @@ with the monospace measurer, failing before). On iOS and macOS a 200-wide
 `column align-items=flex-start > row > text` of three lines was 20 tall, its
 text clipped; it is 60, as in Chrome.
 
+## Patch 29: a marked subtree's layout, replayed from one like it — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-08, `android/row`.
+
+A list row rebound to another item (LLP 1078), or built like its neighbours,
+is laid out by the same algorithms over the same styles as rows before it;
+only its leaves can answer differently, and in most feeds they rarely do. On
+the Android Canvas host the easy list's row cost 77 flex-container computes a
+rebind (ten nested containers, each asked seven or so questions).
+
+`tree/memo.rs`. `set_memo_root` marks a box; a marked flex or grid container
+whose cache has no answer is laid out through `memo_layout`. Computing it
+records a trace: each container an algorithm computes (`Visit`: its style and
+every child's style and child count, which is all a parent reads of a child
+before asking it), each answer from outside the computation (`Query`: a
+leaf's measure, a cache hit, a hidden or replaced box, asked for real), and
+each write (`Store` at the cache seam, `Layout`, `Static`). The algorithms
+read the tree only through `TaffyView`, so a later root makes the same first
+call and, given the same answer, the same next: a replay walks a trace,
+proving each visit by comparing styles and each query by asking the box at
+that place, and makes the writes between. Where it stops, the root is
+computed and recorded as before. Traces share their starts in a trie, so a
+lookup is one walk; nothing in it names a node.
+
+What is not compared, and why it need not be: of a `ComputeSize` answer,
+anything but the size and collapsing margins (the cache keeps no more of
+one, so no algorithm reads more); of a final layout's answer, a scrollable
+overflow inside the box's own border box (every algorithm copies a child's
+overflow into the child's layout and otherwise gives it to
+`compute_scrollable_overflow_contribution`, which answers the border box for
+any such overflow: the replay writes the child's layout with the overflow the
+child gave this time, and a recorded layout that did otherwise is not kept).
+A recording that reads a box the trace does not hold (a hoisted absolute, a
+style or child list outside the visited boxes and their children) is
+dropped. A block container the recorded layouts found in its cache and this
+tree must compute stops the replay (it would take its parent's block
+context). A replay that stops clears the caches of the containers it had
+finished, so the layout that follows is recorded as if none had run.
+
+After 24 misses in a row the memo attempts one root in 16 (rows whose every
+text is new: heavy's feed); it holds at most 24,000 steps and then starts
+over. While it has given up it holds the last attempted root's trace alone,
+and frees the rest (they matched nothing; crypto's feed held 4.2 MB of
+them). `enable_memo(false)` turns it off.
+
+The kernel marks the children of a `List` (`LayoutMirror::sync_children`).
+**Held by** `kernel::layout::memo_tests`: rows of two kinds rebound to seen
+and unseen texts, a chip added and removed, a hidden badge and a changed
+margin, every batch compared bit for bit (frames and scroll extents) with a
+rehydrated kernel; a feed of one kind lays out no row once its texts were
+seen; the same with the memo off. Every other layout test runs with it on
+for the lists it builds (`containment_tests`).

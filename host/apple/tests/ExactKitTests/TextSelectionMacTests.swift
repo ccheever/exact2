@@ -117,5 +117,63 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertEqual(heard.last, "0-0:")
         }
     }
+
+    /// LLP 1115 D8: on the Mac `user-select: auto` is AppKit's. A control's
+    /// or the chrome's label is not selectable, so ⌘A and a drag skip it;
+    /// an `article`'s text (its own header too) and plain content are, and
+    /// an authored `user-select` decides over both.
+    func testAutoLeavesControlAndChromeLabelsUnselectable() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        func text(_ id: Int, _ value: String) -> [String: Any] { ["op": "create", "id": id, "kind": "text", "props": ["text": value]] }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "header"]], text(3, "Window title"),
+            ["op": "create", "id": 4, "kind": "view", "props": ["semanticTag": "article"]],
+            ["op": "create", "id": 5, "kind": "view", "props": ["semanticTag": "header"]], text(6, "Article title"), text(7, "Body"),
+            ["op": "create", "id": 8, "kind": "button", "handlers": ["press"]], text(9, "Cite"),
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]], text(11, "Tab label"),
+            ["op": "create", "id": 12, "kind": "view", "handlers": ["press"]], text(13, "Pressable row"),
+            text(14, "Plain content"),
+            ["op": "create", "id": 15, "kind": "view", "style": ["user_select": "none"]], text(16, "Opted out"),
+            ["op": "create", "id": 17, "kind": "view", "props": ["semanticTag": "nav"]],
+            ["op": "create", "id": 18, "kind": "view", "style": ["user_select": "text"]], text(19, "Opted in"),
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "link"]], text(21, "Link"),
+            ["op": "children", "id": 1, "ids": [2, 4, 8, 10, 12, 14, 15, 17, 20]],
+            ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 4, "ids": [5, 7]], ["op": "children", "id": 5, "ids": [6]],
+            ["op": "children", "id": 8, "ids": [9]], ["op": "children", "id": 10, "ids": [11]], ["op": "children", "id": 12, "ids": [13]],
+            ["op": "children", "id": 15, "ids": [16]], ["op": "children", "id": 17, "ids": [18]], ["op": "children", "id": 18, "ids": [19]],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        XCTAssertEqual(p.selection.paragraphs.map(\.id), [6, 7, 14, 19])
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Article title\n\nBody\n\nPlain content\n\nOpted in")
+        XCTAssertNil(p.selection.range(p.views[3]!), "the header's title is chrome")
+        XCTAssertNil(p.selection.range(p.views[9]!), "a button's label is the control's")
+    }
+
+    /// A secondary click on selected text, with no authored `contextmenu`,
+    /// is a read-only text view's menu (LLP 1115 D8); elsewhere, none.
+    func testASecondaryClickOnSelectedTextIsTheTextMenu() throws {
+        let p = fixture()
+        let text = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[5])
+        let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
+        let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        XCTAssertNil(text.menu(for: right), "no selection, no menu")
+        try select(p)
+        let menu = try XCTUnwrap(text.menu(for: right))
+        XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["Look Up “Alpha beta gamma”", "Copy", "Speech"])
+        XCTAssertNil(other.menu(for: right), "a paragraph outside the selection has none")
+        XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
+        let board = NSPasteboard(name: .init("exact.test.services"))
+        XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
+        XCTAssertEqual(board.string(forType: .string), "Alpha beta gamma")
+        let copy = try XCTUnwrap(menu.items.first { $0.title == "Copy" })
+        NSPasteboard.general.clearContents()
+        _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+    }
 }
 #endif

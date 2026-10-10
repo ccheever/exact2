@@ -255,3 +255,19 @@ app.mode = "off"; precondition(candidate.apply(to: app) && app.generations.last!
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_build_is_stamped_with_its_time_commits_and_kind() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new("bun")
+        .current_dir(root)
+        .args(["test", "./host/apple/buildinfo.test.mjs"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

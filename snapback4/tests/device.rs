@@ -249,6 +249,19 @@ fn construction_configuration_and_validation_do_no_io_and_grants_refuse_before_c
     fixture.configure(&mut denied);
     assert!(denied.call(&open(Some(&backend))).is_err());
     assert!(!fixture.0.exists());
+    // A grant for another file names the one it wanted, and what admits it.
+    let mut other = Module::new(APP, "sqlite.open app:/data/inbox").unwrap();
+    fixture.configure(&mut other);
+    let refused = other.call(&open(Some(&backend))).unwrap_err();
+    assert!(
+        refused.starts_with(&format!("denied: sqlite.open {PATH}: ")),
+        "{refused}"
+    );
+    assert!(
+        refused.contains(&format!("`sqlite.open {PATH}`, or `sqlite.open app:/data`")),
+        "{refused}"
+    );
+    assert!(!fixture.0.exists());
 }
 
 #[test]

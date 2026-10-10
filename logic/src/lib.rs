@@ -278,6 +278,27 @@ impl<D: DataSource> DataSource for Swappable<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.embedded.as_ref().and_then(DataSource::native)
     }
+    /// The embedded source's overlay, or the loaded module's through the
+    /// ABI's overlay operation, called synchronously as an answer is.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if let Some(embedded) = &mut self.embedded {
+            return embedded.overlay(source, args, answer, writes);
+        }
+        // Before activation the module can't overlay: the answer shows.
+        let Some(engine) = self.executor.as_mut() else {
+            return Ok(None);
+        };
+        let request =
+            abi::overlay_request(source, args, answer, writes).map_err(DataError::Interface)?;
+        let bytes = engine.call(&request).map_err(DataError::Interface)?;
+        abi::overlay_reply(&bytes)
+    }
     /// A replaced Rust module parks nothing.
     fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[exact_runner::InFlight<'_>]) {
         if let Some(embedded) = &mut self.embedded {

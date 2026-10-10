@@ -19,6 +19,7 @@
 //! - [`term`] — raw mode, vte, the loop, restoration.
 //! - [`vt`] — the headless screen: a terminal emulator the agent reads.
 //! - [`pointer`] — clicks and the wheel against what was presented.
+//! - `requests` — the data module's continuations, run on threads.
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
@@ -31,5 +32,6 @@ mod keys;
 pub mod measure;
 pub mod paint;
 pub mod pointer;
+mod requests;
 pub mod term;
 pub mod vt;

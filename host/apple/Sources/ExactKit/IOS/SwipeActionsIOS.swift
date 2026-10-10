@@ -396,12 +396,13 @@ final class SwipeActionsHost {
                 }
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
-                    // A native action (LLP 1069.011.000 D6): its accent, or the
-                    // platform's colour; a destructive one sets none, whatever
-                    // its accent (UIKit's red); its symbol, recorded for
-                    // discovery as a snapshot is.
-                    if !destructive {
-                        action.backgroundColor = target.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
+                    // A native action (LLP 1069.011.000 D6): its accent, or
+                    // UIKit's colour for its style (grey; LLP 1115 D4); a
+                    // destructive one sets none, whatever its accent (UIKit's
+                    // red); its symbol, recorded for discovery as a snapshot is.
+                    if !destructive, target.style["accent_color"]?.isSystemColor == false,
+                       let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
+                        action.backgroundColor = accent
                     }
                     if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
                         image.accessibilityLabel = host.label(target)
@@ -410,7 +411,8 @@ final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
-                action.backgroundColor = target.color("background_color", .systemBlue)
+                // Its authored background, else UIKit's for its style.
+                if let fill = target.cgColor("background_color") { action.backgroundColor = UIColor(cgColor: fill) }
                 // A custom action's symbol is a system image, as a native one's
                 // is (LLP 1069.011.000 D1); anything else is its snapshot.
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {

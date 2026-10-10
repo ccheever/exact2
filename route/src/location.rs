@@ -119,17 +119,25 @@ pub fn encode_uri_component(value: &str) -> String {
     })
 }
 
+/// Every caller escapes every non-ASCII byte, so a run of kept bytes is ASCII
+/// and is copied whole.
 fn encode(input: &str, escape: impl Fn(u8) -> bool) -> String {
     const HEX: &[u8] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(input.len());
-    for b in input.bytes() {
+    let mut kept = 0;
+    for (i, b) in input.bytes().enumerate() {
         if escape(b) {
+            if kept < i {
+                out.push_str(&input[kept..i]);
+            }
             out.push('%');
             out.push(HEX[(b >> 4) as usize] as char);
             out.push(HEX[(b & 15) as usize] as char);
-        } else {
-            out.push(b as char);
+            kept = i + 1;
         }
+    }
+    if kept < input.len() {
+        out.push_str(&input[kept..]);
     }
     out
 }

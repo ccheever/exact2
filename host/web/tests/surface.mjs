@@ -44,7 +44,7 @@ export async function fixture(options = {}) {
   const applyOperations = new Function('exact', 'views', 'globalThis', `
     let timelinesMoved = false;
     const retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
-    const listSelection = null, syncLists = () => {}, collections = {commit() {}}, motion = {style(id, text) { const el = views.get(id); if (el) el.style.cssText = text; }, destroy() {}}, arrange={destroy() {}}, presence = {live: null};
+    const listSelection = null, syncLists = () => {}, collections = {commit() {}, restyled() {}}, motion = {style(id, text) { const el = views.get(id); if (el) el.style.cssText = text; }, destroy() {}}, arrange={destroy() {}}, presence = {live: null};
     const root = {}, log = () => {}, navigation = {project() {}}, inputReady = false;
     const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {}, focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {};
     const viewFor = (_, id) => views.get(id);

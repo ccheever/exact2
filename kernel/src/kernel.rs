@@ -26,6 +26,7 @@ mod document;
 mod environment;
 mod geometry;
 mod intrinsic;
+mod row_memo;
 mod sticky;
 mod trim;
 

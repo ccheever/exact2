@@ -371,6 +371,22 @@ fn explicit_independent_http_survives_the_module_codec() {
     end(&reader).unwrap();
 }
 
+/// A file body (LLP 1108 D6 R2) has no encoding at the seam: refused,
+/// never sent as an empty body.
+#[test]
+fn a_body_from_a_file_is_refused_at_the_module_seam() {
+    let mut upload = Request::get("https://example.test/").body_from("app:/tmp/a.jpg");
+    upload.method = "POST".into();
+    let mut encoded = Writer::default();
+    encode_result(&mut encoded, Ok(Answer::Later(upload)));
+    let bytes = encoded.into_vec();
+    let mut reader = Reader::new(&bytes);
+    assert!(matches!(
+        read_result(&mut reader).unwrap(),
+        Err(DataError::Unavailable(s)) if s == "exactBodyFrom cannot cross the Rust module seam"
+    ));
+}
+
 /// A source that draws one surface, `dot`, translating once per draw: the
 /// transform persists within a generation, as a canvas's state does.
 struct Painter;

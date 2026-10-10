@@ -112,7 +112,7 @@ const keyName = (code) => {
   if (/^F([1-9]|1[0-2])$/.test(code)) return code;
   // Playwright's keyboard names F1–F12 only; Chrome's CDP and the native hosts press F13–F24.
   if (/^F(1[3-9]|2[0-4])$/.test(code)) throw new Error(`key: ${code} is not on Playwright's keyboard (F1–F12); Chrome, macOS, iOS and Linux press it`);
-  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
+  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ContextMenu: 'ContextMenu', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
   if (!key) throw new Error(`key: unsupported key ${code}`);
   return key;
 };

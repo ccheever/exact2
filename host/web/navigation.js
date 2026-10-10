@@ -8,7 +8,7 @@ let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null
 let echo = null, pop = null, draining = false;
 const queue = [];
 const waiters = new Set();
-let root, navigate, log;
+let root, navigate, log, hostBack;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
 // tablist's tabs name with aria-controls, in tab order (a tablist inside a
@@ -110,7 +110,8 @@ function popped({ j, state, url }) {
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control. A route with
   // none (a screen with no Back button) still goes back, as the web's Back
-  // does: the root's `navigate` with the entry's URL, as any other traversal.
+  // does: the root's `navigate` with the entry's URL, as any other traversal,
+  // or with no `navigate` handler the runner's own `back` (LLP 1115 D5).
   const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   const back = beneath && !!backControl(nav);
@@ -118,7 +119,7 @@ function popped({ j, state, url }) {
   pop = {};
   try {
     if (back) why = pressBack(nav);
-    else navigate(target);
+    else if (navigate(target) === false && beneath) hostBack?.(Number(nav.getAttribute("navigationKey")));
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
       cursor = j ?? cursor;
@@ -158,8 +159,9 @@ function settled() {
 }
 
 export const navigation = {
-  connect(hostRoot, dispatch, journal) {
-    root = hostRoot; navigate = dispatch; log = journal;
+  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
+  connect(hostRoot, dispatch, journal, back = null) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();

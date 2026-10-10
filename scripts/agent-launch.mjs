@@ -17,6 +17,21 @@ export function retainCleanupError(error, failure) {
   error.cleanupError = failure;
 }
 
+/** Browser-process diagnostics that do not describe the page or Exact. Page
+ * exceptions and console errors arrive over CDP separately and remain logs. */
+export function browserDiagnosticNoise(line) {
+  return /crashpad|updater|gcm|VERBOSE|DevTools listening/i.test(line)
+    // Linux without a session bus or GSettings schemas: Chrome's dbus client and GLib report it on every launch.
+    || /:ERROR:dbus\/(bus|object_proxy)\.cc:\d+\] (Failed to connect to the bus|Failed to call method: org\.freedesktop\.DBus)/.test(line) || /GLib-GIO-CRITICAL \*\*: [\d:.]+: g_settings_schema_source_lookup: assertion 'source != NULL' failed$/.test(line)
+    || /CVDisplayLinkCreateWithCGDisplay failed|CVReturn:\s*-6670/i.test(line)
+    // macOS Chrome's allocator shim, at every launch with no page loaded (Chrome 154; app farm round 1: eight builds
+    // read it as an Exact or wasm fault), and its on-device model service starting. Neither is the page's.
+    || /^Trying to load the allocator multiple times\. This is \*not\* supported\.$|^Created TensorFlow Lite XNNPACK delegate for CPU\.$/.test(line)
+    // The browser process checking the renderer's paint-timing report
+    // against itself (two paints in one frame, image before first): its
+    // bookkeeping, not the page's. The page's own errors come over CDP.
+    || /\bpage_load_metrics_update_dispatcher\.cc:\d+\] Invalid first_\w+ [\d.]+ s for \w+ [\d.]+ s$/.test(line);
+}
 /** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
  * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
  * attempts so browser shutdown can finish; a persistent lock still fails. */
@@ -154,7 +169,9 @@ export function parseFlags(argv) {
   return { flags, rest };
 }
 
-/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
+/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one.
+ * `now` names the machine's clock, read once at launch: a drive against a live backend
+ * (Snapback 4's dev server runs on real time) dates what it shows and writes as the server does. */
 export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
 /** A page script that holds what a comparison of two pages must hold equal, on every carrier:
@@ -191,7 +208,18 @@ export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
     Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
     addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
     addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
-  const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
+  // The cross-browser parity sheet (`lineHeight` set) also pins a default native button's UA metrics to
+  // Chrome's: each engine's UA sheet sizes a bare `<button>` its own way (plain HTML, 16px page: padding
+  // 1px 6px in Chrome, 1px 4px in Firefox, 0 6px 1px and an 11px font in WebKit, so "Case 1" is 58.3, 52.9
+  // and 50.6 px wide), and with these rows all three agree within 0.3 px. Only the styles that keep the UA
+  // box (`bordered`, the default, and `gray`); the others set their own padding (host/web/index.html).
+  // A native field (`data-native`) the same way: its UA padding, border and `normal` line height differ
+  // (plain HTML, 16px system-ui: an input is 24, 26 and 30 px tall, a two-row textarea 42, 48 and 46).
+  // Over index.html's `[data-native] { all: revert }`, under a field's authored (inline) rows.
+  const controls = "#exact-root button:is([data-button-style=bordered],[data-button-style=gray]){padding:1px 6px;border-width:2px}"
+    + ` #exact-root input[data-native]{padding:1px 2px;border-width:2px;line-height:${lineHeight}}`
+    + ` #exact-root textarea[data-native]{padding:2px;border-width:1px;line-height:${lineHeight}}`;
+  const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}} ${controls}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
 
@@ -220,10 +248,10 @@ export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times 
 
 export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
-  // An ISO date or Unix milliseconds; hosts are told milliseconds.
+  // An ISO date, Unix milliseconds or `now` (the machine's clock, read here, once); hosts are told milliseconds.
   epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
-  epoch = /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
-  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date or Unix milliseconds at or after 1970');
+  epoch = epoch === 'now' ? Date.now() : /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
+  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
   if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');

@@ -15,6 +15,10 @@ pub(super) struct Background {
     ticket: Option<u64>,
     /// Rounds delivered since the work began: `background: done (N operations)`.
     rounds: u64,
+    /// The host refused the round at admission: its ticket, the reason and
+    /// whether it was ordered. Settled through the round's own completion
+    /// (`background_landed`), like any refusal, in its turn.
+    pub(super) refusal: Option<(u64, &'static str, bool)>,
 }
 
 /// What the journal and `state.pending` call the background ticket.
@@ -56,6 +60,13 @@ impl<D: DataSource> Runner<D> {
         });
     }
 
+    /// The host's admission refusal of the round out, if any, that
+    /// `allow_ordered` lets settle now.
+    pub(super) fn background_refusal(&self, allow_ordered: bool) -> Option<(u64, &'static str)> {
+        let (ticket, reason, ordered) = self.background.refusal?;
+        (self.is_background(ticket) && (!ordered || allow_ordered)).then_some((ticket, reason))
+    }
+
     /// Whether `ticket` is the background round's.
     pub(super) fn is_background(&self, ticket: u64) -> bool {
         self.background.ticket == Some(ticket)
@@ -89,7 +100,8 @@ impl<D: DataSource> Runner<D> {
                 | super::DataError::BadArguments(m)
                 | super::DataError::Unavailable(m)
                 | super::DataError::Interface(m)
-                | super::DataError::DeferredAtBake(m),
+                | super::DataError::DeferredAtBake(m)
+                | super::DataError::Failed(_, m),
             ) => {
                 // The executor's own failure, not a failed operation (those
                 // are the module's `storage failed:` lines, D8).

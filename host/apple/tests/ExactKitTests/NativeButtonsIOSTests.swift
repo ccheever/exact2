@@ -13,10 +13,11 @@ import XCTest
 final class NativeButtonsIOSTests: XCTestCase {
     private var window: UIWindow!
 
-    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
+    private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:],
+                           options: SelectMenu = SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0)) -> Presenter {
         let p = Presenter()
         p.buttonFace = { faces[$0] ?? ButtonFace() }
-        p.selectOptions = { _ in SelectMenu(options: [.init(value: "a", label: "A", disabled: false)], chosen: 0) }
+        p.selectOptions = { _ in options }
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
@@ -24,6 +25,21 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
+    func testReferencedAccessibleNameWinsAndFollowsItsText() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityLabelledBy": "name", "accessibilityLabel": "Fallback"])
+                          + box(3, ["id": "name", "text": "Delete permanent copy"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
+        XCTAssertEqual(button.accessibilityLabel, "Delete permanent copy", "aria-labelledby precedes aria-label and the face")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": "Delete archived copy"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Delete archived copy", "a referenced text-only batch refreshes the control")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["text": ""]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Fallback", "an empty referenced name falls back to aria-label")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertEqual(button.accessibilityLabel, "Go", "without an authored name the face names the control")
+    }
+
     private func face(_ title: String?, symbol: String? = nil, style: String = "bordered", ios: String = "bordered") -> ButtonFace {
         var f = ButtonFace()
         f.title = title; f.symbol = symbol; f.style = style; f.ios = ios; f.iosBefore26 = "bordered"
@@ -75,8 +91,15 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(seen["style"] as? String, "filled")
         XCTAssertEqual(send.accessibilityLabel, "Send", "the title names it")
         XCTAssertEqual(send.accessibilityIdentifier, "send")
+        XCTAssertTrue(send.isAccessibilityElement, "the native button exposes its explicit name even before UIKit loads its accessibility runtime")
+        XCTAssertTrue(send.accessibilityTraits.contains(.button))
         XCTAssertEqual(p.views[2]?.accessibleName, "Send", "the agent's name for it is its title")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).isAccessibilityElement, "the control is the element, not the node")
+        let ax = p.axElements(roots: [p.viewport])
+        let named = (ax["elements"] as? [[String: Any]])?.filter { $0["testId"] as? String == "send" } ?? []
+        XCTAssertEqual(named.count, 1, "the platform tree exposes the native button once")
+        XCTAssertEqual(named.first?["name"] as? String, "Send")
+        XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
@@ -197,11 +220,13 @@ final class NativeButtonsIOSTests: XCTestCase {
                              .init(value: "off", label: "Unavailable", disabled: true)], chosen: 0)
     }
 
+    private let selectOps: [[String: Any]] = [["op": "create", "id": 3, "kind": "control", "props": ["type": "select"],
+                                               "handlers": ["input", "change"], "style": [:]],
+                                              ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0],
+                                              ["op": "roots", "ids": [3]]]
+
     private func selectPresenter(_ menu: SelectMenu) -> Presenter {
-        let p = presenter([["op": "create", "id": 3, "kind": "control", "props": ["type": "select"],
-                            "handlers": ["input", "change"], "style": [:]],
-                           ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0],
-                           ["op": "roots", "ids": [3]]])
+        let p = presenter(selectOps)
         p.selectOptions = { _ in menu }
         var batch = wireBatch([])
         batch.controls = true
@@ -334,6 +359,42 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertNotNil(p.controls.type(node, "off")?["error"], "disabled menu options stay unavailable")
         XCTAssertEqual(heard, ["input:wide", "change:wide"], "a refused choice emits nothing")
         XCTAssertEqual(select.currentTitle, "Chocolate Strawberry")
+    }
+
+    /// App farm 008: a select with no options was given an empty UIMenu,
+    /// which UIKit refuses under `changesSelectionAsPrimaryAction` ("Menu
+    /// does not have a valid element for default selection"), aborting the
+    /// app. It holds no menu and shows no title until options come.
+    func testASelectWithNoOptionsHoldsNoMenuUntilItHasSome() throws {
+        var menu = SelectMenu()
+        let p = presenter(selectOps, options: menu)
+        p.selectOptions = { _ in menu }
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        var batch = wireBatch([])
+        batch.controls = true
+        func expectEmpty(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertNil(select.menu, "\(when): no options, no menu")
+            XCTAssertNil(select.configuration?.title, "\(when): no title drawn")
+            XCTAssertNil(p.controls.valueObservation(select)?["title"] as? String, "\(when): no title observed")
+            XCTAssertNotNil(p.controls.type(node, "plain")?["error"], "\(when): nothing to choose")
+        }
+        func expectOptions(_ when: String) {
+            select.layoutIfNeeded()
+            XCTAssertEqual(select.menu?.children.count, 3, when)
+            XCTAssertEqual(select.currentTitle, "Plain", when)
+            XCTAssertEqual(p.controls.valueObservation(select)?["title"] as? String, "Plain", when)
+        }
+        expectEmpty("at creation")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when options come")
+        menu = SelectMenu()
+        p.apply(batch)
+        expectEmpty("when they go")
+        menu = selectMenu()
+        p.apply(batch)
+        expectOptions("when they come back")
     }
 
     func testAGlassButtonIsIsolatedInItsGroupAndGivenBack() throws {

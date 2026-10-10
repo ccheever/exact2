@@ -41,6 +41,9 @@ fn settle_runner<D: DataSource>(runner: &mut Runner<D>) {
                         parked: &mut BTreeMap<u64, RequestOut>| {
             match dispatch {
                 Dispatch::Run(w) => work.push((r.ticket, w)),
+                Dispatch::Again => {
+                    work.push((r.ticket, Work::Now(Box::new(Dispatch::again_outcome))))
+                }
                 Dispatch::Held => {
                     parked.insert(r.request.continuation.unwrap(), r);
                 }
@@ -189,6 +192,7 @@ impl<D: DataSource> Notebook<D> {
                     // on this thread, with the store as committed.
                     let outcome = match self.module.dispatch(token, &self.store) {
                         Dispatch::Run(work) => run_work(work),
+                        Dispatch::Again => Dispatch::again_outcome(),
                         Dispatch::Held => panic!("nothing else holds a turn here"),
                         Dispatch::Host(_) | Dispatch::Missing => panic!("no native work"),
                     };

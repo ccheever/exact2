@@ -24,6 +24,15 @@ pub(super) fn shape_line_calls() -> usize {
 }
 
 #[cfg(test)]
+thread_local! { static BREAKS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) }; }
+/// Widths whose lines were copied out on this thread, and hard lines
+/// Parley broke for them (test probe).
+#[cfg(test)]
+pub(super) fn break_calls() -> (usize, usize) {
+    BREAKS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
 thread_local! { static WIDTH_FONT_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 /// Faces whose metrics were read from font data on this thread (test probe).
 #[cfg(test)]
@@ -92,7 +101,7 @@ pub(super) fn push_style(
 /// A hard line: its text and its one shaped layout.
 pub(super) struct HardLine {
     pub(super) text: String,
-    layout: Mutex<parley::Layout<u32>>,
+    layout: Mutex<Broken>,
     /// The resolved base direction (CSS `direction`, or the first strong
     /// character under `ltr`).
     pub(super) rtl: bool,
@@ -101,6 +110,15 @@ pub(super) struct HardLine {
     inset: (f32, f32),
     /// The first visual line's indent as Parley applies it.
     indent: f32,
+}
+
+/// A hard line's layout and the width and alignment it was last broken
+/// and aligned at (`None` until a width breaks it): breaking it again at
+/// the same ones leaves the same lines, so a width painted after it was
+/// measured is not broken twice.
+struct Broken {
+    layout: parley::Layout<u32>,
+    at: Option<(Option<u32>, Alignment)>,
 }
 
 pub(super) struct ShapedSource {
@@ -271,7 +289,7 @@ impl ShapedSource {
             lines.push(HardLine {
                 text,
                 rtl: layout.is_rtl(),
-                layout: Mutex::new(layout),
+                layout: Mutex::new(Broken { layout, at: None }),
                 inset,
                 indent,
             });
@@ -313,16 +331,22 @@ impl ShapedSource {
         }
         let mut bytes = vec(&self.data.lines) + vec(&self.data.run_metrics);
         for line in &self.data.lines {
-            bytes += line.text.capacity() + line.layout.lock().map_or(0, |l| l.capacity_bytes());
+            bytes +=
+                line.text.capacity() + line.layout.lock().map_or(0, |l| l.layout.capacity_bytes());
         }
         bytes
     }
     pub(super) fn layout(self: &Rc<Self>, width: Option<f32>) -> Paragraph {
-        self.layout_as(width, false)
+        self.layout_as(width, false, false)
+    }
+    /// [`Self::layout`], holding the lines it broke for this frame's paint
+    /// ([`Paragraph::measured`]) where it would keep only scalars.
+    pub(super) fn layout_held(self: &Rc<Self>, width: Option<f32>) -> Paragraph {
+        self.layout_as(width, false, true)
     }
     /// CSS `text-overflow: ellipsis`: each over-wide line ends in "…" (paint).
     pub(super) fn layout_ellipsized(self: &Rc<Self>, width: f32) -> Paragraph {
-        self.layout_as(Some(width), true)
+        self.layout_as(Some(width), true, false)
     }
     /// The paragraph's widest content, min- or max-content (LLP 1085.000
     /// §4, "Content widths"): min-content is Parley's patched content
@@ -338,8 +362,8 @@ impl ShapedSource {
             .lines
             .iter()
             .map(|line| {
-                let layout = line.layout.lock().expect("layout lock");
-                layout.calculate_content_widths().min + line.inset.1
+                let broken = line.layout.lock().expect("layout lock");
+                broken.layout.calculate_content_widths().min + line.inset.1
             })
             .fold(0.0, f32::max)
     }
@@ -347,9 +371,11 @@ impl ShapedSource {
         let (lines, _) = self.break_lines(width, false, None);
         lines.lines.iter().map(|l| l.w).fold(0.0, f32::max)
     }
-    /// A measured width's lines, made again for its first paint: the same
-    /// breaking as when it was measured (an unclamped paragraph's lines need
-    /// no catalog), so what was measured is what is painted.
+    /// A measured width's lines, made again for its first paint when the
+    /// measure's were not held: the same breaking as when it was measured
+    /// (an unclamped paragraph's lines need no catalog), so what was
+    /// measured is what is painted. A layout still broken at this width is
+    /// not broken again.
     pub(super) fn remake(&self, width: Option<f32>) -> Lines {
         self.break_lines(width, false, None).0
     }
@@ -370,11 +396,23 @@ impl ShapedSource {
         let mut left = (spec.line_clamp > 0).then_some(spec.line_clamp as usize);
         let mut cut = false;
         let count = self.data.lines.len();
+        #[cfg(test)]
+        BREAKS.with(|n| n.set((n.get().0 + 1, n.get().1)));
         'hard: for (h, hard) in self.data.lines.iter().enumerate() {
             let (_, rest) = hard.inset;
-            let mut layout = hard.layout.lock().expect("layout lock");
-            layout.break_all_lines(width.map(|w| (w - rest).max(0.0)));
-            layout.align(align, AlignmentOptions::default());
+            let mut broken = hard.layout.lock().expect("layout lock");
+            let at = Some((width.map(f32::to_bits), align));
+            if broken.at != at {
+                #[cfg(test)]
+                BREAKS.with(|n| n.set((n.get().0, n.get().1 + 1)));
+                broken.at = None;
+                broken
+                    .layout
+                    .break_all_lines(width.map(|w| (w - rest).max(0.0)));
+                broken.layout.align(align, AlignmentOptions::default());
+                broken.at = at;
+            }
+            let layout = &broken.layout;
             // From the start edge: `rtl` lays out from the right.
             let shift = if rtl { 0.0 } else { rest };
             let n = layout.len();
@@ -573,7 +611,7 @@ impl ShapedSource {
         last.w = w;
     }
 
-    fn layout_as(self: &Rc<Self>, width: Option<f32>, ellipsis: bool) -> Paragraph {
+    fn layout_as(self: &Rc<Self>, width: Option<f32>, ellipsis: bool, hold: bool) -> Paragraph {
         let spec = &self.spec;
         let mut catalog = self.catalog.borrow_mut();
         let (lines, _) = self.break_lines(width, ellipsis, Some(&mut catalog));
@@ -601,15 +639,18 @@ impl ShapedSource {
         }
         drop(catalog);
         // A clamped or ellipsized width keeps its lines (its ellipsis was
-        // shaped for it); any other keeps only its scalars until painted.
+        // shaped for it); any other keeps only its scalars until painted,
+        // and its lines only until this frame's paint when held.
         let keep = ellipsis || spec.line_clamp > 0;
+        let (record, measured) = match (keep, hold) {
+            (true, _) => (std::cell::OnceCell::from(Arc::new(lines)), None),
+            (false, true) => (std::cell::OnceCell::new(), Some(Arc::new(lines))),
+            (false, false) => (std::cell::OnceCell::new(), None),
+        };
         let mut paragraph = Paragraph {
             source: self.clone(),
-            record: if keep {
-                std::cell::OnceCell::from(Arc::new(lines))
-            } else {
-                std::cell::OnceCell::new()
-            },
+            record,
+            measured: RefCell::new(measured),
             remake: (!keep).then_some(width),
             flow: None,
             #[cfg(test)]

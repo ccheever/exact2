@@ -388,7 +388,7 @@ final class PopoverMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(2)
         let done = Date(timeIntervalSinceNow: 5)
-        while pressed.isEmpty && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while pressed.isEmpty && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(pressed, [11], "Share, once")

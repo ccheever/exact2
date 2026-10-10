@@ -743,7 +743,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: (path, grants) => (globalThis.exact.requestBody ? Promise.resolve(globalThis.exact.requestBody) : loadAfterPaint('./storage-request.js', 'requestBody')).then(read => read(globalThis.exact.compat.inputs.app, grants, path)), // `exactBodyFrom` (LLP 1108 D6 R2): the page's store
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
@@ -1495,5 +1495,5 @@ async function main() {
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
-function navigate(location) { return globalThis.exact.navigate(location); }
-navigation.connect(root, navigate, log);
+function navigate(location) { const batch = globalThis.exact.navigate(location); return /^NoHandler|no navigation root/.test(batch?.error ?? "") ? false : batch; } // false: unheard, so Back is the runner's own (LLP 1115 D5)
+navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); });

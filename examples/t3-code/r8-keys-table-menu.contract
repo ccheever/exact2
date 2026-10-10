@@ -29,7 +29,7 @@ component R8TableMenu
     local("table-menu-close", menu.id, "")
     focus(`table-copy-${menu.id}`)
   view
-    button press=closeMenu aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 border-radius=0 background-color="#00000000" z-index=130 testId="table-copy-menu-backdrop"
+    button press=closeMenu aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 border-radius=0 background-color="#00000000" z-index=130 testId="table-copy-menu-backdrop" title=""
     box position="absolute" left=menu.triggerX top=menu.triggerY width="1.5rem" height="1.5rem" border-radius="0.5rem" background-color="light-dark(#f4f4f5, #ffffff0a)" display="flex" flex-direction="row" align-items="center" justify-content="center" z-index=131 pointer-events="none" aria-hidden=true
       // light-dark() inside an SVG keeps the scheme it was drawn in: one icon per scheme.
       when dark

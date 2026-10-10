@@ -208,7 +208,7 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
 
 // @ref LLP 1029.000 — work in proportion to the input passes the flat base: 100
 // loop turns a byte over 60,000 bytes is past 20 million fuel, within the
-// per-byte allowance. The same loop with no input bound still stops.
+// per-byte allowance.
 #[test]
 fn wasm_fuel_grows_with_the_input_it_is_handed() {
     let turns = "local.get 2 i32.const 100 i32.mul global.set $len \
@@ -218,6 +218,15 @@ fn wasm_fuel_grows_with_the_input_it_is_handed() {
     let mut executor = crate::wasm::load(&wasm(turns)).unwrap();
     assert!(executor.call(&input).is_ok(), "{:?}", executor.call(&input));
     assert!(crate::wasm::budget(input.len()) > 20_000_000);
+}
+
+// @ref LLP 1029.000 — the same input's loop with no bound still stops, at the
+// fuel that input bought. A test of its own, so it runs beside the one above:
+// each spends tens of millions of fuel.
+#[test]
+fn wasm_fuel_stops_a_runaway_loop_at_the_inputs_budget() {
+    let mut input = vec![0; 60_000];
+    input[4] = 9;
     let mut runaway = crate::wasm::load(&wasm("(loop $forever br $forever)")).unwrap();
     let refused = runaway.call(&input).unwrap_err();
     assert!(

@@ -32,6 +32,15 @@ final class ProgressIOSTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0]]
     }
 
+    /// LLP 1115 D4: a `color` the indicator only inherits is not its own;
+    /// it keeps UIKit's.
+    func testAnInheritedColourLeavesUIKitsIndicatorColour() throws {
+        var ops = box(1) + progress(2)
+        ops[0]["style"] = ["text_color": [255, 0, 0, 255]]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        XCTAssertEqual(try XCTUnwrap(p.controls.spinners[2]).color, ControlHost.platformInk)
+    }
+
     func testItIsUIKitsActivityIndicatorSizedByItsBox() throws {
         let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"]) + progress(3, side: 40, y: 40)
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])

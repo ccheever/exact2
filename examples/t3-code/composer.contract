@@ -138,6 +138,6 @@ component QueuedEditChip
         svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717a, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
           path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4"
         text item.name font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
-      button press=remove disabled=disabled aria-label=`Remove ${item.name}` testId=`queued-edit-remove-${item.id}` position="absolute" right="0.25rem" top="0.25rem" width="1.25rem" height="1.25rem" padding=0 border-radius="0.625rem" border-width=0 background-color="light-dark(#ffffffe6, #18181be6)" display="flex" align-items="center" justify-content="center"
+      button press=remove disabled=disabled aria-label=`Remove ${item.name}` testId=`queued-edit-remove-${item.id}` position="absolute" right="0.25rem" top="0.25rem" width="1.25rem" height="1.25rem" padding=0 border-radius="0.625rem" border-width=0 background-color="light-dark(#ffffffe6, #18181be6)" display="flex" align-items="center" justify-content="center" title=""
         svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#27272a, #f5f5f5)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="M18 6 6 18M6 6l12 12"

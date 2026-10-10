@@ -44,6 +44,17 @@ final class ButtonMeasureCache: @unchecked Sendable {
         appearance.performAsCurrentDrawingAppearance {
             let button = NSButton(title: "", target: nil, action: nil)
             ButtonConfigurationMac.apply(face, to: button, appearance: appearance, accent: nil)
+            if widthKind == 1 {
+                var minimum = face
+                minimum.title = TextEngine.widestButtonRun(face.title, whiteSpace: face.rows.title["white_space"]?.string) { run in
+                    var candidate = face; candidate.title = run
+                    ButtonConfigurationMac.apply(candidate, to: button, appearance: appearance, accent: nil)
+                    return button.fittingSize.width
+                }
+                // AppKit's declared single-line stand-in truncates in this box;
+                // it must not give the flex item a max-content auto minimum.
+                ButtonConfigurationMac.apply(minimum, to: button, appearance: appearance, accent: nil)
+            }
             // Push buttons do not wrap at the offered width. A required width
             // constraint makes fittingSize answer the real constrained frame;
             // window/Auto Layout ground truth is covered by the macOS tests.

@@ -21,7 +21,9 @@ fn decl<'a>(js: &'a str, name: &str) -> &'a str {
         .match_indices(';')
         .find(|(i, _)| {
             let next = &rest[i + 1..];
-            next.starts_with("mount(") || next.starts_with("const ") && !next[6..].starts_with('$')
+            next.starts_with("mount(")
+                || next.starts_with("usePaint(")
+                || next.starts_with("const ") && !next[6..].starts_with('$')
         })
         .map_or(rest.len(), |(i, _)| i + 1);
     &rest[..end]

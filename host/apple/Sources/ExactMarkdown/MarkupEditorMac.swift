@@ -9,7 +9,7 @@ extension NodeView {
               !f.hasMarkedText(), let storage = f.textStorage else { return }
         let look = MarkupEditor.Look(
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
-            size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
+            size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .textColor))
         editor.restyle(storage, selection: f.selectedRange(), look: look)
         f.typingAttributes = editor.baseAttributes(look)

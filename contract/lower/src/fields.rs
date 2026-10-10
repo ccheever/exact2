@@ -42,7 +42,7 @@ fn field(tag: &str, attrs: &[Attr]) -> bool {
 }
 
 /// CSS UI 4 §7.2.1's appearance-disabling longhands that Contract has.
-fn disables(id: StyleId) -> bool {
+pub(crate) fn disables(id: StyleId) -> bool {
     use StyleId::*;
     matches!(
         id,

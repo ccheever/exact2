@@ -6,13 +6,13 @@ extension NodeView {
     package var usedLineHeight: CGFloat? {
         // JSON carries shortest f32 decimals; the measurement ABI carries f32
         // values. Resolve in the kernel's precision before widening for CoreText.
-        if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
+        if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", PageFacts.defaultRootFontSize))) }
         if let length = style["line_height"]?.string, length.hasSuffix("px"), let n = Float(length.dropLast(2)) { return CGFloat(n) }
         return nil
     }
 
     func textRun(_ value: String) -> Run {
-        Run(text: value, size: CGFloat(Float(number("font_size", 16))), weight: Int(number("font_weight", 400)),
+        Run(text: value, size: CGFloat(Float(number("font_size", PageFacts.defaultRootFontSize))), weight: Int(number("font_weight", 400)),
             family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
             lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))),
             numeric: Int(number("font_variant_numeric")))

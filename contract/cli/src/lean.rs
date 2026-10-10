@@ -360,6 +360,10 @@ impl Emitter<'_> {
         let mut seen = std::collections::BTreeSet::new();
         let mut todo: Vec<String> = quoted_after(body, ".record \"");
         for name in quoted_after(body, ".call \"") {
+            if name == "failure" {
+                // `failure(x)` answers the compiler's `Failure` (LLP 1109 D3).
+                todo.push("Failure".into());
+            }
             if let Some(f) = exact_plan::Stdlib::from_name(&name) {
                 for spec in f.params().iter().chain([&f.returns()]) {
                     record_names(&Ty::from_roster(spec), &mut todo);
@@ -635,7 +639,7 @@ impl Emitter<'_> {
             // `pending(x)`/`failed(x)` name a resource or a mutation: a
             // prop's ascription around the name is not an expression here.
             Expr::Call(name, args, _)
-                if matches!(name.as_str(), "pending" | "failed")
+                if matches!(name.as_str(), "pending" | "failed" | "failure")
                     && matches!(args.as_slice(), [Expr::Typed(x, _, _)] if matches!(**x, Expr::Ident(..))) =>
             {
                 let [Expr::Typed(x, _, _)] = args.as_slice() else {

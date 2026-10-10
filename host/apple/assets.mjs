@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve, isAbsolute } from 'node:path';
 import { chmodSync, closeSync, lstatSync, openSync, readlinkSync, readSync, realpathSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// The build's stamp, which build.mjs merges into Info.plist beside the icon keys.
+export { buildInfo } from './buildinfo.mjs';
 
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { ...opts, stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
@@ -46,45 +48,92 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
-/** All iOS asset sets share one actool pass: each pass replaces Assets.car.
- * `kept` names a directory of the app's and the toolchain's stamp: the icons
- * and the catalog are then made once for each icon file, colour, platform and
- * toolchain and copied into `dir`, since making them is over a second of
- * every simulator build. */
-export function iosAssets(app, dir, device, { catalog = false, kept = null } = {}) {
+/** Catalogs follow the app's native module directory selection. Their bytes
+ * are native binary inputs, not portable plan assets or live update payloads. */
+export function appleAssetCatalogInventory(app, platform) {
+  const own = resolve(app.dir, platform, 'modules');
+  const folder = existsSync(own) ? own : resolve(app.dir, 'modules/apple');
+  if (!existsSync(folder)) return [];
+  return readdirSync(folder).filter(name => name.endsWith('.xcassets')).sort().map(name => {
+    const path = resolve(folder, name);
+    return { path: relative(app.dir, path), files: catalogFiles(path) };
+  });
+}
+function catalogFiles(root) {
+  const files = [];
+  const walk = path => {
+    const info = lstatSync(path);
+    if (info.isSymbolicLink()) throw new Error(`Apple asset catalogs must not contain symlinks: ${path}`);
+    if (info.isDirectory()) for (const name of readdirSync(path).sort()) walk(resolve(path, name));
+    else if (info.isFile()) files.push({ name: relative(root, path), sha256: createHash('sha256').update(readFileSync(path)).digest('hex') });
+    else throw new Error(`Unsupported Apple asset catalog input: ${path}`);
+  };
+  if (!lstatSync(root).isDirectory()) throw new Error(`Apple asset catalog must be a directory: ${root}`);
+  walk(root);
+  return files;
+}
+
+/** One actool pass includes the app's catalogs, generated icon and launch
+ * colours: separate passes silently replace Assets.car. No unchanged build
+ * reruns actool; the cache key includes source bytes, target and toolchain. */
+export function iosAssets(app, dir, device, options = {}) {
+  return appleAssets(app, dir, { ...options, device, platform: options.tv ? 'tvos' : 'ios' });
+}
+export function appleAssets(app, dir, { platform = 'macos', device = false, catalog = false, kept = null, expected } = {}) {
+  const sourcePlatform = platform === 'tvos' ? 'ios' : platform;
+  const catalogs = appleAssetCatalogInventory(app, sourcePlatform);
+  if (expected !== undefined && JSON.stringify(catalogs) !== JSON.stringify(expected))
+    throw new Error('Apple asset catalogs changed after the bake; rebuild before packaging');
+  if (platform !== 'ios' && !catalogs.length) { rmSync(resolve(dir, 'Assets.car'), { force: true }); return {}; }
   if (kept) {
-    const icons = (app.manifest.icons ?? []).map((icon) => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
-    const key = createHash('sha256').update(JSON.stringify([icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
-      app.manifest.host?.ios?.minimumOS ?? null, device, catalog, kept.stamp])).digest('hex').slice(0, 16);
-    const made = resolve(kept.dir, `assets-${key}`);
+    const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
+    const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
+      app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp])).digest('hex').slice(0, 16);
+    const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
       rmSync(making, { recursive: true, force: true });
       mkdirSync(making, { recursive: true });
-      writeFileSync(resolve(making, 'keys.json'), JSON.stringify(iosAssets(app, making, device, { catalog })));
-      rmSync(made, { recursive: true, force: true });
-      renameSync(making, made);
-      for (const old of readdirSync(kept.dir)) if (/^assets-[0-9a-f]{16}$/.test(old) && resolve(kept.dir, old) !== made) rmSync(resolve(kept.dir, old), { recursive: true, force: true });
+      try {
+        writeFileSync(resolve(making, 'keys.json'), JSON.stringify(appleAssets(app, making, { platform, device, catalog, expected: catalogs })));
+        rmSync(made, { recursive: true, force: true });
+        renameSync(making, made);
+      } finally { rmSync(making, { recursive: true, force: true }); }
+      for (const old of readdirSync(kept.dir)) if (old.startsWith(`assets-${platform}-`) && resolve(kept.dir, old) !== made) rmSync(resolve(kept.dir, old), { recursive: true, force: true });
     }
+    rmSync(resolve(dir, 'Assets.car'), { force: true });
     for (const file of readdirSync(made)) if (file !== 'keys.json') cpSync(resolve(made, file), resolve(dir, file), { recursive: true });
     return JSON.parse(readFileSync(resolve(made, 'keys.json'), 'utf8'));
   }
-  const work = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
+  const work = mkdtempSync(resolve(tmpdir(), 'exact-apple-assets-'));
   try {
-    const assets = resolve(work, 'Assets.xcassets');
-    const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
+    const sources = catalogs.map(entry => {
+      const copied = resolve(work, 'app', entry.path);
+      cpSync(resolve(app.dir, entry.path), copied, { recursive: true });
+      if (JSON.stringify(catalogFiles(copied)) !== JSON.stringify(entry.files))
+        throw new Error('Apple asset catalogs changed while capturing them; rebuild before packaging');
+      return copied;
+    });
+    const assets = resolve(work, 'Generated.xcassets');
+    const keys = platform === 'ios' ? { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) } : {};
     const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
-    if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
+    if (catalog && platform === 'ios' && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+      sources.push(assets);
+    }
+    rmSync(resolve(dir, 'Assets.car'), { force: true });
+    if (sources.length) {
       const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', assets, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
-        '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
-        ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
+      const target = platform === 'macos' ? 'macosx' : platform === 'tvos' ? (device ? 'appletvos' : 'appletvsimulator') : device ? 'iphoneos' : 'iphonesimulator';
+      run('xcrun', ['actool', ...sources, '--compile', dir, '--platform', target,
+        '--minimum-deployment-target', app.manifest.host?.[sourcePlatform]?.minimumOS ?? (platform === 'macos' ? '14.0' : '17.0'),
+        ...(platform === 'macos' ? [] : ['--target-device', ...(platform === 'tvos' ? ['tv'] : ['iphone', '--target-device', 'ipad'])]),
+        ...(hasIcon ? ['--app-icon', 'AppIcon'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
     }
-    if (catalog) {
+    if (catalog && platform === 'ios') {
       const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
       if (!contents.some(asset => asset.Name === 'AppIcon')) throw new Error(`host/apple: ${dir}/Assets.car has no AppIcon`);
     }

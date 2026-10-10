@@ -828,6 +828,13 @@ impl Editor {
     }
 
     fn replace_visible(&mut self, from: u32, to: u32, text: &[u16]) -> Change {
+        // Select All owns the whole source, including headings, destinations
+        // and collapsed fences. Replacing only visible runs leaves these
+        // hidden constructs attached to a completely new document.
+        if from == 0 && to == self.len() {
+            let caret = text.len() as u32;
+            return self.commit(text.to_vec(), (caret, caret), false, Kind::Edit);
+        }
         let parts = self.proj.visible_parts(from, to);
         let Some(&(first, _)) = parts.first() else {
             let at = self.snap(from);

@@ -94,12 +94,12 @@ component Counter
   action reset
     count = 0
   view
-    column padding=24 gap=12
-      text `Count: ${count}` testId="count" font-size=24
+    column gap=12
+      text `Count: ${count}` role="heading" aria-level=1 testId="count"
       row gap=8
-        button press=increment testId="increment" padding=12
+        button press=increment testId="increment"
           text "Add one"
-        button press=reset testId="reset" padding=12
+        button press=reset testId="reset"
           text "Reset"
 ```
 
@@ -189,9 +189,9 @@ logical line. Element attributes may continue on deeper-indented lines:
 
 ```text
 text title
-  font-size=24
-  font-weight=700
-  color="#243044"
+  role="heading"
+  aria-level=2
+  color="-exact-secondary-label"
 ```
 
 An attribute continuation starts with `name=`. A child starts with a tag or a
@@ -345,7 +345,7 @@ component CountLabel
 ```
 
 Functions have no effects, cannot recursively call themselves or form cycles, and
-do not capture component state (they can read `now()`). Pass values as parameters. Standard-function names
+do not capture component state (they can read `performanceNow()`). Pass values as parameters. Standard-function names
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
@@ -477,7 +477,7 @@ and a descendant's typed `inject` section:
 ```contract
 component App
   provide
-    accent = "#3355aa"
+    accent = "-exact-system-indigo"
   view
     Label(title="Hello")
 
@@ -506,7 +506,7 @@ component App
 component Card
   slot
   view
-    column padding=16 border-radius=12 background-color="#eeeeee"
+    column padding=16 border-radius=12 background-color="-exact-secondary-background"
       children
 ```
 
@@ -566,9 +566,10 @@ component Items
       text notice testId="notice"
 ```
 
-The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
-the source gives at once shows immediately) and forces it again when the reply
-lands. `then afterSave` runs a parameterless action in its own commit at the
+The `refreshes items` clause asks `items` again when the reply lands. To show the
+save before then, the data module exports an `overlay` for `loadItems` (the [agent
+guide](contract-for-agents.md#optimistic-writes-the-overlay) has the pattern).
+`then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
 reads the latest answer (the agent driver lands it at the end of the input
 that settled the answer). It does not run for a failure that brought no answer,
@@ -580,6 +581,27 @@ answer. Both take the declared name, not an arbitrary value. `failed` does not
 accept a mutation: a mutation whose request fails without an answer stops being
 pending and keeps its previous value, and its `then` does not run. A domain error
 returned in a shaped answer is data to inspect, not a failed transport request.
+
+`failure(resource)` says why, so the view can tell a lost connection from a bug:
+`none` until the request fails, then `some` of a `Failure` record with a `code`
+from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
+`error`; the grammar says when each applies) and a `message` for a developer.
+The code is the same on every host; the message is not, so branch on the code:
+
+```contract
+shape Item
+  id: string
+
+component Items
+  resource items = loadItems() as shape list<Item> else empty()
+  derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
+  view
+    text banner testId="banner"
+```
+
+A data module reports `offline`, `timeout`, `refused` or `storage` only by letting
+the `fetch` or storage rejection reach the runner; an error it throws of its own,
+for an HTTP error status say, is `error`.
 
 Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
@@ -685,8 +707,8 @@ component ReadingList
         notice = ""
   view
     column padding=24 gap=12
-      text "Reading list" font-size=28 font-weight=700
-      text quote.text color="#6b7280" testId="quote"
+      text "Reading list" role="heading" aria-level=1
+      text quote.text color="-exact-secondary-label" testId="quote"
       row gap=8
         input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
         button press=add testId="add"
@@ -789,7 +811,7 @@ call outside them fails. The capabilities are:
   `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
   `performance.now()` and `Math.random()` are refused when first used, on every
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
-  and seeds are arguments: pass `now()` from the Contract (the
+  and seeds are arguments: pass `performanceNow()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
@@ -822,7 +844,12 @@ call outside them fails. The capabilities are:
 - *A domain failure is data.* `addBook` returns `ok: false` with a message
   rather than throwing, so the view can say what happened. A thrown error
   leaves a resource `failed(…)` and a mutation without an answer.
-- *`app.ts` imports only local files.* npm packages are not bundled yet.
+- *`app.ts` imports local files, and only types from packages.* An `import
+  type` (or a name used only as a type) may reach a package's declarations,
+  such as the rows `snapback4 types` writes to `snapback/generated/api.ts`,
+  and every build checks against them. Importing a package's code is refused
+  (`module outside captured app: …/node_modules/…`): npm packages are not
+  bundled yet.
 
 **Testing with storage.** Each authored test gets an empty store of its own,
 apart from the app's real data. An ad hoc `agent` drive has none unless it
@@ -882,7 +909,7 @@ A reusable `style` contains literal style values:
 ```contract
 style Panel
   padding=16 gap=8 border-radius=12
-  background-color="#f0f2f5"
+  background-color="-exact-secondary-background"
 
 component App
   view
@@ -938,7 +965,8 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes none of them.
-Font sizes, touch targets, focus behavior, and contrast remain author decisions.
+Leave font sizes, colours and control metrics unsaid and the platform supplies them;
+what you set on a node wins.
 
 Declare bundled fonts at file scope:
 
@@ -1027,8 +1055,12 @@ attribute and retain their normal focus order.
 
 ### Choosing a native button
 
-An ordinary `button` is an authored box with `appearance="none"`. Opt into the
-platform control with a literal `appearance="auto"`:
+A `button` is the platform's own control by default. Giving it a background,
+border or radius, rich children, or rows the native control cannot support
+makes it your bare box. A class counts too, even when a row or incompatible
+child appears on only one conditional arm. Write `appearance="none"` to ask
+for your box explicitly, or `appearance="auto"` to require a native button and
+get an error for unsupported rows or children. For example:
 
 ```contract
 component NativeButtonExample
@@ -1037,7 +1069,7 @@ component NativeButtonExample
     presses = presses + 1
   view
     column gap=12
-      button appearance="auto" buttonStyle="filled" press=send testId="send"
+      button buttonStyle="filled" press=send testId="send"
         text "Send"
       text `${presses}` testId="presses"
 ```
@@ -1065,7 +1097,8 @@ spacing. Title-to-subtitle spacing stays the platform's. `align-items` and
 `justify-content` accept only `center`. `-exact-control-size` takes `mini`,
 `small`, `medium`, `large`; `-exact-corner-style` takes `dynamic`, `small`,
 `medium`, `large`, `capsule`. These are styleable rows for native buttons only.
-`border-radius` sets a radius and wins over the named corner style. `padding`
+With explicit `appearance="auto"`, `border-radius` sets a radius and wins over
+the named corner style. Under the default, a radius makes the button bare. `padding`
 and its longhands set content insets; leave them absent for the style's own.
 
 `pointer-events="none"` passes touches through; `auto` restores them. Disabled
@@ -1078,10 +1111,11 @@ means no target). `href`, `action` and swipe attributes stay refused.
 
 The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
-their intrinsic-size report until they implement it. These rows are admitted
-by Contract; their host mappings are being built in separate lanes.
+their intrinsic-size report until they implement it.
 
-`buttonStyle` defaults to `bordered`. The accepted styles are `plain`, `gray`,
+`buttonStyle` needs a native button and defaults to `bordered`. If the default
+makes your button bare, `lower-button-style` names the first reason: remove it,
+or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
 `bordered-prominent`, `glass`, `prominent-glass`, `clear-glass`, and
 `prominent-clear-glass`. This is a declared host-policy property, not a CSS
@@ -1120,6 +1154,9 @@ list appearance="auto" listStyle="inset-grouped" flex=1
       text "Who can see you."
 ```
 
+Row buttons and their detail accessories stay bare by default, preserving the
+cell's title and action. Explicit `appearance="auto"` makes one a custom native control.
+
 `listStyle` is `inset-grouped` (the default), `grouped` or `plain`, a literal.
 iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
@@ -1150,14 +1187,16 @@ component App
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
-          text e.name testId=`route-${e.id}`
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
+          header
+            when e.name == "item"
+              button id="back" press=back testId=`back-${e.id}`
+                text "Back"
+            text e.name role="heading" aria-level=1 testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
-          button id="back" press=back testId=`back-${e.id}`
-            text "Back"
 ```
 
 A navigation stack is built this way: one row per entry of `stack(nav)`, keyed by
@@ -1182,8 +1221,11 @@ them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
 It measures the route laid out on its own with its height left to its
 content, as CSS's `fit-content` does, so nothing the sheet gives it counts:
 rows do not shrink into it, and a percentage `height` or `flex-grow` takes
-nothing from it; a height in `vh` (the sheet's height on iOS) counts as
-`auto`. A route that scrolls itself is measured by what it scrolls,
+nothing from it. On iOS every viewport unit (`vw`, `vh`, `vmin`, `vmax` and their
+`s`/`l`/`d` kin) is the window's in every sheet (`vmin` and `vmax` its
+smaller and larger side), as CSS's `vh` is the viewport's and never a
+dialog's, so `height: 50vh` is half the screen at any sheet height
+and `min-height: 100vh` opens the sheet at its tallest. A route that scrolls itself is measured by what it scrolls,
 laid out in the sheet, so give its rows `flex-shrink: 0`. macOS, the web and
 Linux show a modal route as authored and ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
@@ -1241,7 +1283,7 @@ component Undo
   state toastUntil = 0
   action deleted
     toast = "Deleted"
-    toastUntil = now() + 5000
+    toastUntil = performanceNow() + 5000
   action hideToast
     toast = ""
   task hide when toast != "" key=toastUntil
@@ -1254,13 +1296,14 @@ The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a ne
 `toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
-toast without testing the time again. Gates and keys read state, never `now()`
+toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`now()` reads milliseconds since boot on the runner's clock (the driver's clock
+`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
-source and add `time.epochAtZero + now()`. Advancing the clock alone does not
-necessarily trigger rendering: a derive using `now()` reevaluates when a later
+source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
+compiler refuses it and names both. Advancing the clock alone does not
+necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later
 commit evaluates it. Use a task when the display must tick.
 
 Use CSS `transition` for changes to supported properties and `keyframes` with

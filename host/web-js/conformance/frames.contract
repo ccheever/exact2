@@ -1,7 +1,7 @@
 // Synthetic conformance plan: a frame task (LLP 1073). On the agent's clock
 // the display is virtual — a frame every 1000/60 ms after the task last fired,
 // each at its own time, in time order with timers — so both hosts count the
-// same frames and read the same now() at each.
+// same frames and read the same performanceNow() at each.
 component Frames
   state frames = 0
   state at = 0
@@ -9,7 +9,7 @@ component Frames
   state running = true
   action step
     frames = running ? frames + 1 : frames
-    at = running ? now() : at
+    at = running ? performanceNow() : at
   action beat
     beats = beats + 1
   action toggle
@@ -21,6 +21,6 @@ component Frames
   view
     column testId="root" padding=10
       text `frames ${frames} at ${floor(at * 1000)}` testId="frames"
-      text `beats ${beats} now ${floor(now() * 1000)}` testId="beats"
+      text `beats ${beats} now ${floor(performanceNow() * 1000)}` testId="beats"
       button press=toggle testId="toggle"
         text running ? "stop" : "start"

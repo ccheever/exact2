@@ -7,7 +7,7 @@ use super::{err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span, UnOp};
 use std::collections::BTreeSet;
 
-const PLAY: &str = "`playSound(\"assets/kit/hat.wav\", at=now() + 100, gain=0.8, group=\"hat\")`: a declared sound, then `at=` (runner milliseconds, now if left out), `gain=` (0–1, 1 if left out) and `group=` by name";
+const PLAY: &str = "`playSound(\"assets/kit/hat.wav\", at=performanceNow() + 100, gain=0.8, group=\"hat\")`: a declared sound, then `at=` (runner milliseconds, now if left out), `gain=` (0–1, 1 if left out) and `group=` by name";
 const HITS: &str = "`playSounds(hits)` takes a list of a shape whose fields are, in order, `src: string`, `at: number`, `gain: number` and `group: string` (`shape Hit` with those four)";
 const STOP: &str = "`stopSounds()` ends every voice still sounding or waiting; `stopSounds(group=\"hat\")` ends that group's";
 

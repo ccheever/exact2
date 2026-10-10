@@ -311,7 +311,7 @@ component UsageSidebarToggle
     toggle: action
   view
     when not sidebarOpen
-      button press=toggle position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+      button press=toggle position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar" title=""
         Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
 
 // WorkspaceBreadcrumb: "Usage / All environments", the environment filter menu.
@@ -461,7 +461,7 @@ component UsageRefresh
   action hover(value: bool)
     over = value
   view
-    button press=reload hover=hover disabled=busy aria-busy=busy aria-label=(limits ? "Refresh limits" : "Refresh usage") testId="usage-refresh" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color=(over and not busy ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+    button press=reload hover=hover disabled=busy aria-busy=busy aria-label=(limits ? "Refresh limits" : "Refresh usage") testId="usage-refresh" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color=(over and not busy ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
       box display="flex" animation=(busy and not reduced ? "usageSpin 1s linear infinite" : "none")
         PgIcon(name="refresh-cw", size=14, color="light-dark(#71717b, #818181)")
 
@@ -652,7 +652,7 @@ component UnpricedInfo
     enter: action
     press: action
   view
-    button id="usage-seg-unpriced" press=press hover=enter aria-label="Unpriced usage details" aria-expanded=open aria-haspopup="dialog" testId="usage-unpriced" margin-left="0.25rem" width="0.75rem" height="0.75rem" padding=0 border-width=0 background-color="#00000000" display="flex"
+    button id="usage-seg-unpriced" press=press hover=enter aria-label="Unpriced usage details" aria-expanded=open aria-haspopup="dialog" testId="usage-unpriced" margin-left="0.25rem" width="0.75rem" height="0.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" title=""
       PgIcon(name="info", size=12, color="light-dark(#71717b, #818181)")
 
 // PopoverPopup side="top" (align center, sideOffset 4) with tooltipStyle: w-fit, rounded-md, text-xs, py-1 px-2 inside
@@ -742,7 +742,7 @@ component ModelTable
         when sm
           text model.share grid-row=model.row grid-column=4 align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
         text model.tokens grid-row=model.row grid-column=(sm ? 5 : 4) align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-        button press=op("usage-model-open", "", model.key) hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000"
+        button press=op("usage-model-open", "", model.key) hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
 
 component PeriodTable
   props

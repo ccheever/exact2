@@ -274,6 +274,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    /// The focus came from a touch's press (PointerIOS, NativeButtonsIOS),
+    /// focus WebKit never gives a button on a tap: a button holding it does
+    /// not keep a later autofocus off (Accessibility). Tab and `focus(id)`
+    /// clear it (PresenterIOS); UIKit handing the focus back when the view
+    /// moves (into a presented sheet) keeps it.
+    package var focusedByTouch = false
+    /// The focus a touch's press takes (PointerIOS, NativeButtonsIOS, the
+    /// agent's tap), marked before `becomeFirstResponder` runs: its `focus`
+    /// handler can mount an autofocus field, whose pass must see the mark.
+    @discardableResult
+    func takeTouchFocus() -> Bool {
+        focusedByTouch = true
+        if becomeFirstResponder() { return true }
+        focusedByTouch = false
+        return false
+    }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -416,6 +432,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
+        // The key does what its label says (LLP 1115 wave 1): Next moves to
+        // the next field (or, at the last, puts the keyboard away); Done,
+        // Go, Search and Send put the keyboard away.
+        switch props["enterKeyHint"] {
+        case "next": if presenter?.moveFocus(backward: false, fields: true) != true { textField.resignFirstResponder() }
+        case "done", "go", "search", "send": textField.resignFirstResponder()
+        default: break
+        }
         return false
     }
 
@@ -463,7 +487,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         isAccessibilityElement = false
-        let name = props["symbolName"] ?? "", points = number("font_size", 16)
+        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize)
         let weights: [UIImage.SymbolWeight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
         let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"
@@ -1227,7 +1251,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         styleTextArea()
         field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         if let f = field, let t = text {
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()

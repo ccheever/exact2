@@ -18,5 +18,5 @@ component ScopedSwitch
     switchId: string
     press: action
   view
-    button press=press role="switch" aria-checked=(checked and not mixed) aria-label=label id=switchId disabled=disabled display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(faded ? 0.64 : 1) background-color=(checked and not mixed ? on : off) testId=switchId
+    button press=press role="switch" aria-checked=(checked and not mixed) aria-label=label id=switchId disabled=disabled display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5625rem" flex-shrink=0 opacity=(faded ? 0.64 : 1) background-color=(checked and not mixed ? on : off) testId=switchId title=""
       box width="0.875rem" height="0.875rem" border-radius="0.4375rem" flex-shrink=0 background-color=thumb opacity=(mixed ? 0.7 : 1) box-shadow="0 1px 3px #0000000d" translate=`${mixed ? 6 : (checked ? 12 : 0)}px 0px` transition=(reduced ? "none" : "translate 150ms ease") testId=`${switchId}-thumb`

@@ -107,9 +107,21 @@ final class FieldChromeCache: @unchecked Sendable {
                 #endif
                 return
             }
+            #if os(tvOS)
             let field = UITextField(frame: .zero)
-            #if !os(tvOS)
-            field.borderStyle = .roundedRect
+            #else
+            // A search field is `UISearchTextField`'s shape (LLP 1115): its
+            // text clears the magnifier, and the clear button's room is kept
+            // whether or not it shows, so editing never moves the text.
+            let field: UITextField
+            if key.kind == 2 {
+                let search = UISearchTextField(frame: .zero)
+                search.clearButtonMode = .always
+                field = search
+            } else {
+                field = UITextField(frame: .zero)
+                field.borderStyle = .roundedRect
+            }
             #endif
             field.font = font
             field.isSecureTextEntry = key.kind == 1

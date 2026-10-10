@@ -126,15 +126,15 @@ component KeybindingsPanel
         row align-items="center" gap="0.375rem" min-height="1.75rem"
           when not searchOpen
             text data.count font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="keybindings-count"
-            button press=searchToggle(true) class=KbIcon aria-label="Search keybindings" testId="open-keybindings-search"
+            button press=searchToggle(true) class=KbIcon aria-label="Search keybindings" testId="open-keybindings-search" title=""
               LucideSearch(size=14, color="light-dark(#71717b, #818181)")
           when searchOpen
             row width="11rem" height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
               LucideSearch(size=12, color="light-dark(#71717b, #818181)")
               input value=query input=search key=searchKey focus=searchFocus blur=searchToggle(false) autofocus=true placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=add disabled=(busy or not data.writable) class=KbIcon aria-label="Add keybinding" id="add-keybinding" testId="add-keybinding" opacity=(busy or not data.writable ? 0.64 : 1)
+          button press=add disabled=(busy or not data.writable) class=KbIcon aria-label="Add keybinding" id="add-keybinding" testId="add-keybinding" opacity=(busy or not data.writable ? 0.64 : 1) title=""
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-          button press=openFile disabled=(busy or data.path == "") class=KbIcon aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1)
+          button press=openFile disabled=(busy or data.path == "") class=KbIcon aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1) title=""
             LucideFileBraces(size=14, color="light-dark(#71717b, #818181)")
       when error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="keybinding-error" padding-left="1rem"
@@ -155,7 +155,7 @@ component KeybindingsPanel
               CaptureField(label=data.draftCommandLabel, value=draftKey, original="", recording=(recording and draftRow == "new"), setKey=setKey, record=record("new", draftCommand, draftKey, draftWhen), capture=capture)
               button press=rest("keybinding", `action=save&command=${encodeURIComponent(draftCommand)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftCommand == "" or draftKey == "" or not data.draftValid) class=KbPrimary testId="save-new-keybinding" opacity=(busy or draftCommand == "" or draftKey == "" or not data.draftValid ? 0.64 : 1)
                 text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-              button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding"
+              button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding" title=""
                 LucideX(size=14, color="light-dark(#71717b, #818181)")
         each binding in data.rows key=binding.id
           KeybindingRow(row=binding, editing=(draftRow == binding.id), draftKey=draftKey, draftWhen=draftWhen, recording=(recording and draftRow == binding.id), conflict=(draftRow == binding.id ? data.draftConflict : binding.conflict), valid=data.draftValid, busy=busy, edit=edit, setKey=setKey, record=record, capture=capture, rest=rest)
@@ -207,7 +207,7 @@ component KeybindingRow
           Warning(label=conflict, detail=`${conflict} The most recent matching binding wins when both conditions can apply.`)
         when row.canReset or row.canRemove
           box position="relative" flex-shrink=0
-            button popovertarget=`keybinding-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0)
+            button popovertarget=`keybinding-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0) title=""
               LucideEllipsis(size=14, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`keybinding-menu-${row.id}`, armed=keyArmed, opened=keyOpened)
             SkPopup(menuId=`keybinding-menu-${row.id}`, label=`Actions for ${row.label}`, width=160, list=false, endAlign=28, items=filter([KmItem(id=(row.canReset and not busy ? `reset-keybinding-${row.id}` : ""), label="Reset to default"), KmItem(id=(row.canRemove and not busy ? `remove-keybinding-${row.id}` : ""), label="Remove")], (item) => item.id != ""), keyed=keyed)
@@ -219,7 +219,7 @@ component KeybindingRow
           button press=rest("keybinding", `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftKey == "" or not valid) class=KbPrimary testId=`save-keybinding-${row.id}` opacity=(busy or draftKey == "" or not valid ? 0.64 : 1)
             text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         when not dirty and not recording and row.key != ""
-          button press=record(row.id, row.command, row.key, row.condition) aria-label=`Edit shortcut for ${row.label}: ${row.aria}` testId=`edit-keybinding-${row.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.375rem" padding-right="0.375rem" margin-right="-0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(hovered ? "light-dark(#e4e4e7b3, #ffffff12)" : "#00000000") background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=record(row.id, row.command, row.key, row.condition) aria-label=`Edit shortcut for ${row.label}: ${row.aria}` testId=`edit-keybinding-${row.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.375rem" padding-right="0.375rem" margin-right="-0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(hovered ? "light-dark(#e4e4e7b3, #ffffff12)" : "#00000000") background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             each pill in row.pills key=pill.id
               text pill.text font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
         when dirty or recording or row.key == ""
@@ -328,5 +328,5 @@ component WhenEditor
           when line.kind == "condition"
             SettingsSelect(selectId=`when-variable-${line.id}`, label="Condition", valueLabel=line.label, value="", width=280, disabled=false, options=line.options, choose=setWhen)
           box flex=1
-          button press=setWhen(line.remove) aria-label=line.removeLabel class=KbIcon width="1.75rem" height="1.75rem" testId=`when-remove-${line.id}`
+          button press=setWhen(line.remove) aria-label=line.removeLabel class=KbIcon width="1.75rem" height="1.75rem" testId=`when-remove-${line.id}` title=""
             LucideMinus(size=14, color="light-dark(#27272a, #f5f5f5)")

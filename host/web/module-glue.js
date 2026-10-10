@@ -325,6 +325,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
       // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
+      // An overlay shows writes over an answer; it awaits nothing, so it runs in this turn.
+      overlay: request => JSON.parse(win.__exact_overlay(request.source, JSON.stringify(request.args), JSON.stringify({ answer: request.answer, writes: request.writes }))),
       retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
@@ -452,6 +454,7 @@ export function call(request) {
   if (request.op === 'background-round') return realm.backgroundRound ? realm.backgroundRound() : { error: 'no background work in a worker-placed module' };
   if (request.op === 'journal') return { lines: realm.journal ? realm.journal() : [] };
   if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
+  if (request.op === 'overlay') return realm.overlay ? realm.overlay(request) : { tag: 4, worker: true };
   if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   // A worker realm answers only through turns; a stream's mapper runs now.

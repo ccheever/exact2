@@ -31,7 +31,7 @@ component R9CheckoutDialog
   derive pending = checkout.preparing != ""
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-checkout-overlay"
-      button press=local("git-pr-close", "", "") aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="pr-checkout-backdrop"
+      button press=local("git-pr-close", "", "") aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="pr-checkout-backdrop" title=""
       column width=width max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=checkout.title testId="pr-checkout-dialog"
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           row align-items="center" padding-right="1.5rem"
@@ -69,7 +69,7 @@ component R9CheckoutDialog
           R9Button(label="Cancel", primary=false, disabled=pending, press=local("git-pr-close", "", ""), testId="pr-checkout-cancel")
           R9Button(label=(checkout.preparing == "local" ? "Preparing local..." : "Local"), primary=false, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "local", "", 0), testId="pr-checkout-local")
           R9Button(label=(checkout.preparing == "worktree" ? "Preparing worktree..." : "Worktree"), primary=true, disabled=(not checkout.canConfirm), press=command("shell:git-pr-checkout", "worktree", "", 0), testId="pr-checkout-worktree")
-        button press=local("git-pr-close", "", "") aria-label="Close" testId="pr-checkout-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=local("git-pr-close", "", "") aria-label="Close" testId="pr-checkout-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           // One subtree per scheme: light-dark() in an svg does not follow a flip.
           when dark
             ShellIcon(name="x", size=16, color="#818181")

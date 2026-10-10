@@ -85,7 +85,7 @@ declared fonts closed on 2026-09-29 (Charlie's ask, relayed; LLP 1071 §7), as d
 virtualized lists, `reachstart`/`reachend`, a dynamic `line-height`, and an app
 outside the repo (Bluesky builds on the JS target); so did dynamic composite rows
 (`clip-path`, SVG paint and dashes, `filter`, gradients, `animation`, the timeline
-rows, an eased `transition`) and full SVG (Sparkline and SVG Gallery build); `now()`
+rows, an eased `transition`) and full SVG (Sparkline and SVG Gallery build); `performanceNow()`
 readers, the reserved sources `exactPage`, `exactDelivery` and `exactSurface`,
 localized strings, `openAuthSession` and `scrollIntoView` (LLP 1071 §7, "The runtime
 gaps"); and `pan`, `panrelease`, `swiperight` and spring transitions over the motion
@@ -329,6 +329,18 @@ Ollama) and the todo fixture (`apps/todo`). A terminal entry is a separate
 application root on a separate medium, not a platform override (LLP 1101
 D9, §Authoring models). No take was named; the ruling stands as its own
 waiver until Charlie names one.
+
+**Expanded (Charlie, 2026-10-08: "rec good", to admitting it under the
+terminal surface with a waiver; LLP 1101.003):** a terminal entry runs once
+from a shell. With `--print`, or when stdout is a pipe, it settles (LLP 1101.003
+D2, the command-line column of LLP 1113 D5), writes its rows, and exits. The
+argument list is its URL, the active `head`'s `status` is its exit status,
+`--json` writes its settled `state`, and one termination record decides how it
+ends. Unblocks scripting the coding harness (`harness --print --prompt "…"`),
+with `apps/todo` as the fixture. Implementer: a Claude (Opus 5.5) lane. The take
+is waived. Still out: stdin and file operands, `exact install` for terminal
+commands, writes on the location (`todo add milk`), and printing a GUI app
+(LLP 1101.003 D9; a GUI app's static form is LLP 1112).
 
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
   doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
@@ -631,7 +643,7 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   no work at rest while nothing is showing. Take: none offered. Still out:
   a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
   component-scoped and action-started timers, computed intervals, a gate
-  that reads `now()`, and cancelling a queued send.
+  that reads `performanceNow()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none

@@ -13,11 +13,11 @@
 // place in ~20 ms, state carried).
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
-import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
@@ -57,10 +57,7 @@ function build(app, dist) {
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
-      rmSync(`${dist}.previous`, { recursive: true, force: true });
-      if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
-      renameSync(stage, dist);
-      rmSync(`${dist}.previous`, { recursive: true, force: true });
+      replaceBuild(stage, dist);
       done({ error: null, logic, packages });
     });
   });
@@ -151,8 +148,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
 const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
 const children=e=>[...(e?.children??[])].filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
-const reserved=new Set(['exactDelivery','exactViewport','exactTime','exactPage','exactSurface']);
-const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!reserved.has(r.source)&&!r.ticket&&!r.waiting&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
+const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!r.owned&&!r.failed&&!r.ticket&&!r.waiting&&!r.ov&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
 const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
 if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
 const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});

@@ -374,7 +374,7 @@ component ChatGptAccountPicker
             CodexPickerOption(label=profile.name, checked=(selected == profile.id), first=(profile.id == picker.first), target=`codex-picker-option-${profile.id}`, testId=`codex-picker-${profile.id}`, press=choose(profile.id))
           CodexPickerOption(label="Use a different account", checked=(selected == "chatgpt-change-account"), first=(picker.first == "chatgpt-change-account"), target="codex-picker-option-chatgpt-change-account", testId="codex-picker-different", press=choose("chatgpt-change-account"))
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-          button press=dismiss aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="codex-picker-close"
+          button press=dismiss aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 width=1 height=1 padding=0 border-width=0 opacity=0 overflow="hidden" testId="codex-picker-close" title=""
           box key=lastKeys tabindex=-1 display="flex"
             ChatGptButton(label="Continue with ChatGPT", disabled=busy, target="codex-picker-connect-button", testId="codex-picker-connect", press=connect)
 

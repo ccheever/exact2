@@ -1,8 +1,8 @@
-// The clock advances with no timer and no tap: is a derive over now()
+// The clock advances with no timer and no tap: is a derive over performanceNow()
 // re-settled by the advance alone? No: it holds
 // its value from the last commit.
 component App
-  derive t = now()
+  derive t = performanceNow()
   view
     text `${t}` testId="t"
 

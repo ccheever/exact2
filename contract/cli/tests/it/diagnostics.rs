@@ -339,7 +339,7 @@ fn unknown_types_list_named_choices_at_the_original_import() {
         .unwrap();
     let expected = contract::compile_path(&root).unwrap_err();
     assert_eq!(expected.id, "type-unknown");
-    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `ClipboardEvent`, `Contact`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`, `Wrapper`, `Zulu`");
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);
     assert_eq!(errors[0]["file"], model.to_str().unwrap());
@@ -365,11 +365,12 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
         // `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection` and
         // `WheelEvent` are the clipboard, `drop`, `key`, `select`, `press`,
         // file `change`, pointer, `reorderdrop`, scroll, `selectionchange` and wheel payloads
-        // every file can name, and `Geometry` what `frame` and `measure` answer.
+        // every file can name, `Geometry` what `frame` and `measure` answer, and
+        // `Failure` what `failure(x)` does.
         let extra = if prefix.contains("Later") {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `Later`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         } else {
-            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
+            ", `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Picked`, `PointerEvent`, `ReorderEvent`, `ScrollEvent`, `Selection`, `WheelEvent`"
         };
         assert_eq!(error.id, "type-unknown");
         assert_eq!(
@@ -380,7 +381,7 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `ClipboardEvent`, `DOMRectReadOnly`, `DragEvent`, `Entry`, `Failure`, `Geometry`, `InputEvent`, `KeyboardEvent`, `MarkdownSelection`, `MediaMetadata`, `MediaSessionActionDetails`, `MouseEvent`, `Params`, `Picked`, `PointerEvent`, `ReorderEvent`, `Router`, `ScrollEvent`, `Selection`, `Tab`, `WheelEvent`"));
     // Field resolution has already seen later declarations, even when it fails
     // while resolving the first shape's fields.
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");

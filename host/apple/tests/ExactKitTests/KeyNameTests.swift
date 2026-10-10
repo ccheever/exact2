@@ -65,6 +65,17 @@ final class KeyNameTests: XCTestCase {
         XCTAssertTrue(KeyCodes.named("F24"))
     }
 
+    func testContextMenuIsANamedKeyOnTheKeyboardAndDriver() {
+        XCTAssertEqual(KeyCodes.hid(101), "ContextMenu")
+        XCTAssertEqual(KeyCodes.device("ContextMenu")?.code, "ContextMenu")
+        XCTAssertEqual(KeyCodes.device("ContextMenu")?.key, "ContextMenu")
+        XCTAssertTrue(KeyCodes.named("ContextMenu"))
+        XCTAssertEqual(KeyCodes.eventText(code: "ContextMenu", raw: "ContextMenu", lone: false), "\u{F735}")
+        #if canImport(AppKit)
+        XCTAssertEqual(KeyCodes.mac[0x6E], "ContextMenu")
+        #endif
+    }
+
     #if canImport(AppKit)
     func testAnAppKitOptionKeyIsItsCharacter() throws {
         func key(_ chars: String, _ plain: String, _ flags: NSEvent.ModifierFlags) throws -> String {

@@ -580,6 +580,8 @@ runs the pinned TypeScript checker and Rolldown, compiles with `hermesc`, and
 bakes through that HBC with an empty store. Rolldown is already in this repo's
 toolchain; the Bun command below describes the original probe, not this producer.
 Imports outside the captured app refuse; npm dependency capture remains owed.
+A package's declarations are captured for the type check alone (below, "D5
+Type-only package imports").
 As of 2026-09-13, the snapshot also carries `.ttf`/`.otf` fonts and every
 regular file in the app’s `assets/`, `deck/`, and `gpu/shaders/` trees. This
 keeps custom fonts and authored SVG/raster assets available during one-shot
@@ -682,7 +684,8 @@ builder's private incremental cache across requests (`exact-js-bake <app> --serv
 Each request captures the current source graph and runs full strict diagnostics;
 bundling and HBC compilation overlap checking, but bytecode inspection and the bake
 wait for checking to succeed. Resolved type-only imports must also stay inside the
-capture or pinned standard libraries. An invalid, deleted or superseded input
+capture (which holds the declarations of the packages the app names: "D5 Type-only
+package imports") or the configured standard libraries. An invalid, deleted or superseded input
 cannot reuse a previous successful result. Both producer paths, and the web build
 (calc F2, calendar F9: one configuration, `js/bake/src/typescript.mjs`), check the
 full ES2023 and `WebWorker` standard libraries: data modules use web APIs, not DOM UI types
@@ -837,6 +840,74 @@ test remains Unix-only and is not claimed as Windows drain/recovery coverage.
 Run the affected tests and strict lint, scoped formatting, then the repository
 gates; retain the initial failure logs and the missing-Lean advice result.
 No browser, GPU or native game launch is needed for this compiler-path repair.
+
+#### D5 Type-only package imports (2026-10-08, implemented)
+
+**Implementer:** Claude, Exact2 lane B (app farm, round 2: 25 Snapback 4 builds
+retyped their rows because `snapback/generated/api.ts`, which `import type`s
+from `snapback4/contract`, was refused as `module outside captured app:
+…/node_modules/snapback4/dist/receipt-family.d.ts`).
+
+The rule above stands: what the check resolves stays inside the capture. The
+capture grows by one class, a package's **declarations**. The shared
+configuration (`typescript.mjs` `stagePackages`, run by `configure` in the
+one-shot, resident and web producers) scans the captured TypeScript for bare
+specifiers, finds each package as Node and TypeScript do from where the file
+was captured (its own nested `node_modules`, then upward; its `@types`
+companion too), and copies that package's `package.json` and `.d.ts`/`.d.mts`/
+`.d.cts` files into the stage's `node_modules` at the place the checker looks,
+then does the same for what those declarations name. No JavaScript is copied.
+The checker therefore reads a package's types from the capture, and
+`--listFiles` still refuses anything outside it.
+
+- **Nothing of a package runs.** The bundler's graph is the run-time graph:
+  `import type`, and a name used only as a type, are erased before Rolldown
+  resolves anything. A resolution that reaches a package (a value or
+  side-effect import) is refused in every producer with the words a refused
+  import already had, naming the file it would have run: `module outside
+  captured app: …/node_modules/snapback4/dist/contract.js`. Loading a staged
+  declaration is refused the same way, and so is a bare specifier with a `.`
+  or `..` segment (`plain/../../helper.ts` leaves its package for a place
+  that differs between the stage and the app). The web build's bundle check
+  now applies the same load guard as the native producers, and its own Bun
+  import of app.ts (for `appId` and `grants`) refuses to load anything from
+  the app's or a mount's `node_modules`, so a refused package's top-level
+  code does not run at build either.
+- **One check in every producer.** The one-shot producer now runs the shared
+  `check` (`--listFiles` inside the stage and the configured libraries), as
+  the resident and web producers did; before, it ran `tsc` without it.
+- **Freshness.** Staged bytes are what the check reads, so the resident
+  checker's incremental state sees a changed `.d.ts` by content, and a
+  package no longer installed leaves the stage (every staged `node_modules`
+  is pruned to the current capture each request). Every file read is
+  recorded where it is installed (a retargeted link is a change there) in the
+  stage's `__exact_declarations.json` (reserved like the other `__exact_*`
+  names); a Cargo bake prints `rerun-if-changed` for each, which also puts
+  them in a native build's input fingerprint, and the JS dev loop watches
+  each package's tree and the entry it is installed as (`.gen/dev-sources.json`). A deploy
+  installs exactly what the captured `bun.lock` pins (LLP 1091 D10), so its
+  bake reads the pinned declarations.
+- **The environment does not widen.** `types: []`: an installed `@types/node`
+  or `@types/bun` declares no globals unless a file names it. A library file
+  the configuration does not load (a package's `/// <reference lib="dom" />`)
+  is refused by the same `--listFiles` check. A package's own `declare global`
+  is its author's; this is a type boundary, not a sandbox (above).
+- **Not in this slice.** A package whose types are `.ts` sources rather than
+  declarations does not resolve from the capture; npm runtime capture remains
+  owed; the native wasm dev loop (`dev.mjs --wasm`) does not watch packages.
+  Packages are found by scanning the captured sources for specifiers, not
+  by a parser: a match that is no import stages declarations nobody reads.
+- **Review (GPT-6 Astra, 2026-10-08).** Folded: the one-shot check, the
+  traversal refusal, the web build's Bun import, installed-path freshness,
+  comments inside an import. Not folded: the web page bundle still reads the
+  app's own directory rather than the checked capture; a build is accepted
+  only when that check passes.
+
+Qualification: `type_only_package_imports_check_alike_and_package_code_never_runs`
+(producer tests) drives the web build, the resident producer and the one-shot
+bake over a fixture with a nested dependency and an `@types` companion; a
+scratch `exact new` app with `snapback4@0.4.13` and `snapback4 types` builds,
+type-checks and passes `bun exact.mjs test web`.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 

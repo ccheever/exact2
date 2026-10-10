@@ -1267,7 +1267,8 @@ minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
 limits user UTF-16 edits, leaving authored values intact. Native interactive
 CSS resize handles are not implemented; Contract admits none and diagnoses
 other CSS values. Portable user-select admits auto/none: macOS selection omits
-none subtrees; iOS/Linux have no ordinary selectable text executor, so
+none subtrees and resolves auto as AppKit does (LLP 1115 D8: a control's or the
+chrome's label is not selectable, `article` and other content text is); iOS/Linux have no ordinary selectable text executor, so
 text/all/contain are diagnosed at compile time. Border shorthands reset and
 lower to existing side rows. Native border painters support none/hidden/solid;
 other line styles are diagnosed. Text-decoration lowers solid currentcolor

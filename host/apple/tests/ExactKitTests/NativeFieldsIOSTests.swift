@@ -10,7 +10,7 @@ final class NativeFieldsIOSTests: XCTestCase {
     // component Fieldless / view / box testId="fieldless" width=100 height=100
     // Compiled fixture has no data/module dependencies: preparation must still
     // supply a valid control environment even when no control is in the plan.
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABI3Yh4x/SFSsiPtEk8CdAJGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABnZf+ljAD4K0lIRzmGoEYIGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -72,11 +72,19 @@ final class NativeFieldsIOSTests: XCTestCase {
                     let exact = cache.answer(request, font: font)
                     XCTAssertEqual(exact.provisional, 0)
                     if kind != 3 {
-                        let control = UITextField()
-                        control.borderStyle = .roundedRect
+                        // A search field is UIKit's search field, its clear
+                        // button's room kept (LLP 1115).
+                        let control: UITextField
+                        if kind == 2 {
+                            let search = UISearchTextField()
+                            search.clearButtonMode = .always
+                            control = search
+                        } else {
+                            control = UITextField()
+                            control.borderStyle = .roundedRect
+                        }
                         control.font = font
                         control.isSecureTextEntry = kind == 1
-                        if kind == 2 { control.keyboardType = .webSearch }
                         control.text = "Hg"
                         XCTAssertGreaterThanOrEqual(exact.minimum_height, Float(font.lineHeight))
                         // Probe constrained frames independently of the cache,
@@ -153,6 +161,46 @@ final class NativeFieldsIOSTests: XCTestCase {
         field.applyStyle(["appearance": .string("none"), "padding_left": .number(10)])
         XCTAssertEqual(native.borderStyle, .none)
         XCTAssertEqual(native.frame, field.contentBox())
+    }
+    /// LLP 1115 wave 2: an in-content search field is `UISearchTextField`'s
+    /// look — its fill and magnifier behind the editing field, the text
+    /// clear of the magnifier, the clear button while editing where UIKit's
+    /// sits — and stops being one when its type or appearance changes.
+    func testSearchFieldIsUIKitsSearchField() throws {
+        let session = ExactApp.shared.makeSession(label: "native-search-field")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.bounds = CGRect(x: 0, y: 0, width: 300, height: 36)
+        node.applyProps(set: ["type": "search", "placeholder": "Search"], clear: [])
+        node.applyStyle(["font_size": .number(17)])
+        let probe = UISearchTextField(frame: node.bounds)
+        probe.font = .preferredFont(forTextStyle: .body)
+        probe.clearButtonMode = .always
+        probe.text = "Hg"
+        let content = probe.textRect(forBounds: node.bounds)
+        XCTAssertGreaterThan(content.minX, 20, "UIKit's text clears its magnifier")
+        node.applyFieldContent(["rect": [content.minX, content.minY, content.width, content.height].map(Double.init)])
+        let field = try XCTUnwrap(node.field)
+        let chrome = try XCTUnwrap(node.searchChrome)
+        XCTAssertEqual(field.borderStyle, .none, "the search chrome draws the field, not a rounded rect")
+        XCTAssertEqual(field.clearButtonMode, .whileEditing)
+        XCTAssertEqual(chrome.frame, field.frame)
+        XCTAssertFalse(chrome.isUserInteractionEnabled)
+        XCTAssertTrue(chrome.accessibilityElementsHidden)
+        XCTAssertNotNil(chrome.leftView, "the magnifier")
+        XCTAssertEqual(node.subviews.firstIndex(of: chrome).map { $0 < node.subviews.firstIndex(of: field)! }, true, "behind the field")
+        XCTAssertGreaterThan(field.textRect(forBounds: field.bounds).minX, chrome.leftViewRect(forBounds: field.bounds).maxX - 1, "the text clears the magnifier")
+        XCTAssertEqual(field.clearButtonRect(forBounds: field.bounds), chrome.clearButtonRect(forBounds: field.bounds))
+        XCTAssertLessThanOrEqual(field.textRect(forBounds: field.bounds).maxX, field.clearButtonRect(forBounds: field.bounds).minX + 1, "the text never runs under the clear button")
+        node.applyProps(set: ["type": "text"], clear: [])
+        XCTAssertNil(node.searchChrome)
+        XCTAssertEqual(field.borderStyle, .roundedRect)
+        XCTAssertEqual(field.clearButtonMode, .never)
+        node.applyProps(set: ["type": "search"], clear: [])
+        XCTAssertNotNil(node.searchChrome)
+        node.applyStyle(["appearance": .string("none")])
+        XCTAssertNil(node.searchChrome, "appearance: none is the author's field")
+        XCTAssertEqual(field.clearButtonMode, .never)
     }
     func testNativeTextareaExtendsTheFieldLookAndHonoursContentRect() throws {
         let session = ExactApp.shared.makeSession(label: "native-textarea-mappings")

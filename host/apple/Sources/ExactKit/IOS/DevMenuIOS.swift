@@ -304,8 +304,7 @@ public enum DevMenu {
     }
 
     static func info() -> String {
-        let b = Bundle.main
-        var lines = ["\(b.bundleIdentifier ?? "?") \(b.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")"]
+        var lines = BuildInfo.lines(ExactEnv.appMetadata, device: BuildInfo.device())
         if let status = ExactApp.shared.connectionStatus { lines.append("url: \(status)") }
         if let path = ExactEnv.environment["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
@@ -322,7 +321,8 @@ public enum DevMenu {
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")
             lines.append("boot: \(String(format: "%.1f", session.bootMs)) ms")
         }
-        return lines.joined(separator: "\n")
+        // The release notes last, under the build: the sheet scrolls when they are long.
+        return BuildInfo.text(lines, notes: BuildInfo.notes(ExactEnv.appMetadata))
     }
     static let time: DateFormatter = {
         let f = DateFormatter()

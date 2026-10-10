@@ -298,7 +298,7 @@ structure VNode where
   /-- (event, action, curried arguments): the arguments are evaluated when
   the event arrives, in the element's scope (`locals`, `rows`) against the
   configuration then — the same state the element was rendered from, but
-  the clock may have moved since (`now()`). -/
+  the clock may have moved since (`performanceNow()`). -/
   handlers : List (String × String × List Expr)
   /-- The names bound where the element stands. -/
   locals : Locals

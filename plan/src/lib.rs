@@ -618,11 +618,17 @@ impl std::fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
+pub const RUNNER_OWNED_SOURCES: &[&str] = &[
+    "exactDelivery",
+    "exactViewport",
+    "exactPage",
+    "exactSurface",
+    "exactTime",
+];
+
+/// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(
-        name,
-        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
-    )
+    RUNNER_OWNED_SOURCES.contains(&name)
 }
 
 impl Plan {

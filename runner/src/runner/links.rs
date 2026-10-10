@@ -26,6 +26,9 @@ pub struct RunnerLinks {
     pub geometry: GeometryLink,
     /// The I/O grant grammar (LLP 1047.001): [`crate::grants::validate`].
     pub grants: crate::grants::GrantsLink,
+    /// CSS animations' `@keyframes`, resolved for a node's `animation` list
+    /// (LLP 1055 D5): [`crate::bridge::KeyframesTable::resolve`].
+    pub keyframes: crate::bridge::KeyframesLink,
 }
 
 /// How the VM reaches the `format` capability's entries, when linked: the
@@ -56,6 +59,7 @@ impl RunnerLinks {
         format: Some(crate::format::formatting),
         geometry: Some(&crate::geometry::KERNEL),
         grants: Some(crate::grants::validate),
+        keyframes: Some(crate::bridge::KeyframesTable::resolve),
     };
 
     /// The core alone.
@@ -67,5 +71,6 @@ impl RunnerLinks {
         format: None,
         geometry: None,
         grants: None,
+        keyframes: None,
     };
 }

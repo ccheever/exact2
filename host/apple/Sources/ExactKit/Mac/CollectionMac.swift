@@ -392,11 +392,7 @@ extension CollectionHost {
     }
     func focusedView() -> UInt32? {
         guard let presenter, let responder = presenter.viewport.window?.firstResponder else { return nil }
-        for node in presenter.views.values {
-            if responder === node || responder === node.textArea ||
-                (node.field.flatMap { $0.currentEditor() }.map { responder === $0 } ?? false) { return node.id }
-        }
-        return nil
+        return presenter.keyTarget(responder)?.id
     }
     private func nodeID(_ hit: NSView?) -> UInt32? {
         var view = hit

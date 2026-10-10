@@ -141,6 +141,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         now_ms: 0.0,
         pending_resources: &[],
         failed_resources: &[],
+        failed_why: &[],
         pending_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
@@ -1047,7 +1048,8 @@ fn key_reuse_harness(clock_key: bool) -> Harness {
             .simple(Opcode::Pop);
         a.load_item(0).field(0).load_slot(dep).simple(Opcode::Add);
         if clock_key {
-            a.call(exact_plan::Stdlib::Now).simple(Opcode::Add);
+            a.call(exact_plan::Stdlib::PerformanceNow)
+                .simple(Opcode::Add);
         }
     });
     let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);

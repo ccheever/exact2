@@ -220,7 +220,7 @@ and native must answer too:
 |---|---|---|---|
 | `Canvas` | `systemBackgroundColor` | `textBackgroundColor` | as is |
 | `CanvasText` | `labelColor` | `textColor` | as is |
-| `LinkText` | `linkColor` | `linkColor` | as is |
+| `LinkText` | the inherited `tintColor` (LLP 1115 §3: UIKit draws text links in the tint; was `linkColor`) | `linkColor` | as is |
 | `GrayText` | `tertiaryLabelColor` | `disabledControlTextColor` | as is |
 | `Highlight`, `HighlightText` | the tint at 0.2 alpha (stand-in), `labelColor` | `selectedTextBackgroundColor`, `selectedTextColor` | as is |
 | `AccentColor`, `AccentColorText` | the inherited `tintColor`, white | `controlAccentColor`, `alternateSelectedControlTextColor` | as is |

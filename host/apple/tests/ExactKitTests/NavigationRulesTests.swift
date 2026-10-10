@@ -190,6 +190,22 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
     }
 
+    /// LLP 1115 D5: the authored control when it resolves; refused while a
+    /// declared one does not; else, given a visit beneath, the root's
+    /// `navigate` with its location, or the runner's own back.
+    func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
+        typealias B = NavigationRules.Back
+        var asked = 0
+        let beneath = { () -> String? in asked += 1; return "/" }
+        XCTAssertEqual(NavigationRules.back(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
+        XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {
@@ -248,6 +264,34 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
+    }
+
+    /// D5: a stack change waits for the viewport only when its batch put the
+    /// keyboard away: shown, no editor left, a stack that changes, and not
+    /// under the agent (Ocho's Back over the composer, 2026-10-08).
+    func testAStackChangeWaitsForTheViewportOnlyWhenItsBatchDroppedTheKeyboard() {
+        XCTAssertTrue(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: false, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: false, editing: false, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: true, agentFreezes: false, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: true, stackChanges: true))
+        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: false))
+    }
+
+    /// A presentation's background goes home as autoresizing would have
+    /// carried it: the home that grew to a sheet and shrank for the keyboard
+    /// meanwhile must not take that shrink out of it twice (Ocho's model
+    /// sheet, 2026-10-08: a 546 pt route left 280 pt tall).
+    func testAPresentationsBackgroundGoesHomeAtTheHomesNewSize() {
+        let saved = CGRect(x: 0, y: 0, width: 402, height: 546)
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
+                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 402, height: 812))
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 812),
+                                                     flexibleWidth: true, flexibleHeight: false), saved)
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 874, height: 402),
+                                                     flexibleWidth: true, flexibleHeight: true), CGRect(x: 0, y: 0, width: 874, height: 402))
+        XCTAssertEqual(NavigationRules.restoredFrame(saved, homeThen: CGSize(width: 402, height: 546), homeNow: CGSize(width: 402, height: 0),
+                                                     flexibleWidth: false, flexibleHeight: true).height, 0)
     }
 
     /// D3: a focus that cannot be delivered has a named reason, in a fixed
@@ -615,7 +659,8 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("View").first?.title, "Zoom In")
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
@@ -629,7 +674,8 @@ final class MacShortcutTests: XCTestCase {
         presenter.shortcuts.sync()
         XCTAssertEqual(shown("Edit").first?.title, "Undo")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("Edit").first { $0.title == "Duplicate" }?.keyEquivalent, "d")
     }
 
@@ -652,7 +698,13 @@ final class MacShortcutTests: XCTestCase {
         let listed = { (title: String) in menu(title).items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
         for _ in 0..<3 { presenter.shortcuts.sync() }
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Find", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        // The app's ⌘F stands in for Find… in Edit ▸ Find (LLP 1115 D8).
+        let findMenu = menu("Edit").items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title),
+                       ["Find", "Find and Replace…", "Find Next", "Find Previous", "Use Selection for Find", "Jump to Selection"])
+        XCTAssertTrue(findMenu.items.first?.target is ShortcutHost)
+        XCTAssertEqual(findMenu.items.filter { $0.keyEquivalent == "f" && $0.keyEquivalentModifierMask == .command }.count, 1)
         XCTAssertFalse(listed("File").contains { $0.hasPrefix("Paste") })
         let asText = menu("Edit").items.first { $0.title == "Paste as Text" }!
         XCTAssertEqual(asText.keyEquivalent, "v")
@@ -667,7 +719,42 @@ final class MacShortcutTests: XCTestCase {
         presenter.views.removeValue(forKey: find.id)
         presenter.shortcuts.sync()
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste Rows", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title).first, "Find…")
+        XCTAssertEqual(findMenu.items.first { $0.title == "Find…" }?.keyEquivalent, "f")
+    }
+
+    /// LLP 1115 D8: the bar ends with Help, which AppKit is told is Help
+    /// (its search field), and Edit has the template's text submenus, each
+    /// a responder-chain action with nothing targeted.
+    func testHelpMenuIsLastAndEditHasTheTemplatesTextMenus() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let help = bar.items.last!.submenu!
+        XCTAssertEqual(help.title, "Help")
+        XCTAssertTrue(NSApp.helpMenu === help)
+        XCTAssertEqual(help.items.first?.action, #selector(NSApplication.showHelp(_:)))
+        XCTAssertEqual(help.items.first?.keyEquivalent, "?")
+        let edit = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!
+        let match = edit.items.first { $0.title == "Paste and Match Style" }!
+        XCTAssertEqual(match.action, #selector(NSTextView.pasteAsPlainText(_:)))
+        XCTAssertEqual(match.keyEquivalentModifierMask, [.command, .option, .shift])
+        let find = edit.items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(find.items.prefix(5).map(\.tag), [NSTextFinder.Action.showFindInterface, .showReplaceInterface, .nextMatch, .previousMatch, .setSearchString].map(\.rawValue))
+        XCTAssertTrue(find.items.prefix(5).allSatisfy { $0.action == #selector(NSResponder.performTextFinderAction(_:)) })
+        for title in ["Find", "Spelling and Grammar", "Substitutions", "Transformations"] {
+            let items = edit.items.first { $0.title == title }!.submenu!.items.filter { !$0.isSeparatorItem }
+            XCTAssertFalse(items.isEmpty, title)
+            XCTAssertTrue(items.allSatisfy { $0.target == nil && $0.action != nil }, title)
+        }
+        // A field editor answers them: Make Upper Case validates there.
+        let field = NSTextView()
+        XCTAssertTrue(field.responds(to: #selector(NSResponder.uppercaseWord(_:))))
+        XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

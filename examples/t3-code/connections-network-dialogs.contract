@@ -72,7 +72,7 @@ component NdClose
     press: action
     key: action
   view
-    button id=buttonId press=press key=key disabled=disabled aria-label="Close" testId=buttonId position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center"
+    button id=buttonId press=press key=key disabled=disabled aria-label="Close" testId=buttonId position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
       CnGlyph(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 component NetworkDialogs

@@ -296,6 +296,6 @@ fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
 /// word and a drag's offsets are signed numbers, not a subtraction.
 #[test]
 fn test_steps_keep_their_viewport_and_signed_offsets() {
-    let src = "epoch \"2026-09-21T12:00:00Z\"\nsize 1200x800\nbefore data\n\ntest \"a\"\n  time-zone \"America/New_York\"\n  size 420x900\n  tap \"c\" drag 10 -4\n  tap \"c\" drag -4 -10 over 5\n  resize 800x600\n";
+    let src = "epoch \"2026-09-21T12:00:00Z\"\nsize 1200x800\nbefore data\n\ntest \"a\"\n  epoch now\n  time-zone \"America/New_York\"\n  size 420x900\n  tap \"c\" drag 10 -4\n  tap \"c\" drag -4 -10 over 5\n  resize 800x600\n";
     assert_eq!(format(src).unwrap(), src);
 }

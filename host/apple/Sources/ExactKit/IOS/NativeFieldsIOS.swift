@@ -18,13 +18,26 @@ extension NodeView {
     func layoutField() {
         guard let field else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        #if !os(tvOS)
+        if let chrome = searchChrome {
+            chrome.frame = field.frame
+            if chrome.font != field.font { chrome.font = field.font }
+        }
+        #endif
         field.setNeedsLayout()
     }
     func styleNativeField() {
         guard let field else { return }
         #if !os(tvOS)
-        field.borderStyle = isNativeTextControl ? .roundedRect : .none
+        let search = isNativeTextControl && props["type"] == "search"
+        field.borderStyle = isNativeTextControl && !search ? .roundedRect : .none
         field.adjustsFontForContentSizeCategory = isNativeTextControl
+        field.clearButtonMode = search ? .whileEditing : .never
+        if search, searchChrome == nil {
+            insertSubview(SearchChrome(), belowSubview: field)
+        } else if !search, let chrome = searchChrome {
+            chrome.removeFromSuperview()
+        }
         #endif
         if isNativeTextControl {
             field.defaultTextAttributes[.kern] = number("letter_spacing")
@@ -40,6 +53,30 @@ extension NodeView {
         layoutField(); layoutTextArea()
     }
 }
+
+#if !os(tvOS)
+/// An in-content `input type="search"`'s chrome (LLP 1115 wave 2): UIKit's
+/// own `UISearchTextField`, empty and behind the editing field, so the fill,
+/// the shape and the magnifier are the platform's on every iOS version. The
+/// field above it edits, draws the text and placeholder where the kernel put
+/// them (measured from this same class, `FieldChromeCache`, kind 2), and
+/// shows the clear button while editing where this one would.
+final class SearchChrome: UISearchTextField {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        accessibilityElementsHidden = true
+        clearButtonMode = .always
+    }
+    required init?(coder: NSCoder) { nil }
+}
+
+extension NodeView {
+    /// The search chrome behind this node's field, when it is a native search field.
+    var searchChrome: SearchChrome? { subviews.lazy.compactMap { $0 as? SearchChrome }.first }
+}
+#endif
 
 extension TextArea {
     func configureNativeChrome(_ native: Bool) {

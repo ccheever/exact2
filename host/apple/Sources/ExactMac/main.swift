@@ -106,7 +106,15 @@ func windowDimension(_ name: String, fallback: Double) -> CGFloat {
     let value = override ?? declared ?? fallback
     return CGFloat(value.isFinite && value > 0 && value <= 16384 ? value : fallback)
 }
-let size = NSSize(width: windowDimension("width", fallback: 420), height: windowDimension("height", fallback: 860))
+/// Undeclared, a Mac document window's size (LLP 1115 wave 1), not a
+/// phone's; a script keeps the phone-sized window its coordinates assume.
+let scripted = agentMode || smoke
+let size = NSSize(width: windowDimension("width", fallback: scripted ? 420 : 900),
+                  height: windowDimension("height", fallback: scripted ? 860 : 640))
+/// The smallest the window goes, undeclared: room for a phone-width column
+/// and a few rows, as a hand-built window has a minimum (never AppKit's 1×1).
+let minimumSize = NSSize(width: min(windowDimension("minWidth", fallback: 320), size.width),
+                         height: min(windowDimension("minHeight", fallback: 240), size.height))
 
 /// The process's physical footprint, what Activity Monitor calls its
 /// memory: what a second session costs is read as the difference.
@@ -186,10 +194,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         // Until the app's `head` names it (LLP 1069.010 D6), the app's name.
         window.title = ExactEnv.appName
         window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName
-        if !agentMode && !smoke && !windowConfig.isEmpty {
-            let minimum = NSSize(width: windowDimension("minWidth", fallback: 1), height: windowDimension("minHeight", fallback: 1))
-            window.contentMinSize = minimum
-            window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+        if !scripted {
+            window.contentMinSize = minimumSize
+            window.setContentSize(NSSize(width: max(size.width, minimumSize.width), height: max(size.height, minimumSize.height)))
         }
         // Nothing is focused at launch — the web's rule (a page focuses no field on
         // load). AppKit would otherwise make the first key view the first responder
@@ -313,9 +320,9 @@ window.center()
 /// only before the window's chrome lost the titlebar's height at every launch
 /// (#113). It is restored before boot, so the plan boots near its size, and
 /// again once the window has its final style (`finishLaunching`), which is
-/// when the name goes on: setting it saves the current frame.
-let frameName = !agentMode && !smoke && !windowConfig.isEmpty
-    ? (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" } : nil
+/// when the name goes on: setting it saves the current frame. Every app's
+/// is kept, declared size or not, as AppKit apps keep theirs (LLP 1115 D8).
+let frameName = scripted ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" }
 if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
@@ -404,7 +411,18 @@ Agent.hostState = {
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// A one-window app quits with its window; one whose documents each
+    /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
+    /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        ExactDocuments.launchMode != "navigate-new"
+    }
+    /// The Dock icon clicked with no window showing: a new one.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, windows.isEmpty, ExactDocuments.launchMode == "navigate-new" else { return true }
+        openWindow()
+        return false
+    }
     /// ⌘Q asks each window's app first (`beforeunload`, studio diary R17):
     /// the first that keeps itself open comes forward with whatever it asks
     /// and the quit stops there; once answered, its `close()` closes it, and
@@ -413,6 +431,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// answer started is held until it lands, five seconds at most (LLP
     /// 1097 D10).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A repeated quit joins the existing hold: it neither asks the app
+        // again nor starts a fresh five-second deadline.
+        if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
             w.front()
             return .terminateCancel
@@ -425,7 +446,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
     }
     var quitting: StorageHold?
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
-    /// Event, the last window closing): every session still live goes now,
+    /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
     /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
     /// window's own teardown (`windowWillClose`) waits for the next turn of
@@ -452,7 +473,9 @@ final class Delegate: NSObject, NSApplicationDelegate {
         }
         // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
         if let url = urls.first(where: { !$0.isFileURL }) {
-            if session.openURL(url) { frontWindow()?.front() }
+            // The first window's session may have closed with its window.
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
             return
         }
         let documents = ExactDocuments.paths(of: urls)
@@ -471,6 +494,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
 
 let delegate = Delegate()
 app.delegate = delegate
+
+// A supervisor's SIGTERM follows the same cancellable quit as the menu
+// (#269). The signal handler does no AppKit work; the retained source runs
+// on the main queue. A caught signal, unlike SIG_IGN, resets to the default
+// when an executed helper starts, so the helper can still be terminated.
+signal(SIGTERM) { _ in }
+let quitSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+quitSignal.setEventHandler {
+    // terminateLater spins AppKit's modal loop. Leave the dispatch callback
+    // first, so the main queue can deliver storage completions in that loop.
+    RunLoop.main.perform(inModes: [.common]) {
+        // AppKit may force a repeated terminate without asking the delegate.
+        // The first request already owns the storage hold and its deadline.
+        if delegate.quitting?.holding == true { return }
+        app.terminate(nil)
+    }
+}
+quitSignal.resume()
 
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?

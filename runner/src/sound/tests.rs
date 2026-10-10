@@ -28,15 +28,15 @@ component Kit
   action list
     playSounds(hits)
   action past
-    playSound("assets/kick.wav", at=now() - 10)
+    playSound("assets/kick.wav", at=performanceNow() - 10)
   action computed(s: string, a: number, g: number)
     playSound(s, at=a == -1 ? 0 / 0 : a, gain=g == -2 ? 1 / 0 : g)
   action count(k: number)
     n = k
   action hat(ms: number)
-    playSound("assets/hat.wav", at=now() + ms, group="hat")
+    playSound("assets/hat.wav", at=performanceNow() + ms, group="hat")
   action open(ms: number)
-    playSound("assets/kick.wav", at=now() + ms, group="hat")
+    playSound("assets/kick.wav", at=performanceNow() + ms, group="hat")
   action stop
     stopSounds()
   action stopHats
@@ -48,7 +48,7 @@ component Kit
     reload()
   action window
     playSounds(hits)
-    ahead = now() + 100
+    ahead = performanceNow() + 100
   task clock mount
     every(25, window)
   view
@@ -331,16 +331,27 @@ fn reload_ends_every_live_voice() {
 
 #[test]
 fn one_long_seek_and_many_short_ones_give_one_table() {
-    let mut one = boot_with(SOURCE, 2.0);
-    let mut many = boot_with(SOURCE, 2.0);
-    one.advance(60_000.0).unwrap();
-    for k in 1..=60 {
-        many.advance(1_000.0 * k as f64).unwrap();
-    }
-    assert_eq!(voices(&one), voices(&many));
-    assert_eq!(one.sounds().evicted(), many.sounds().evicted());
+    // The two runners are independent: seek them on their own threads. A
+    // runner stays on its thread; what it heard and let go crosses back.
+    let ((one, one_evicted), (many, many_evicted)) = std::thread::scope(|scope| {
+        let one = scope.spawn(|| {
+            let mut one = boot_with(SOURCE, 2.0);
+            one.advance(60_000.0).unwrap();
+            (voices(&one), one.sounds().evicted())
+        });
+        let mut many = boot_with(SOURCE, 2.0);
+        for k in 1..=60 {
+            many.advance(1_000.0 * k as f64).unwrap();
+        }
+        (
+            one.join().unwrap(),
+            (voices(&many), many.sounds().evicted()),
+        )
+    });
+    assert_eq!(one, many);
+    assert_eq!(one_evicted, many_evicted);
     // Each window's hits land at the commit's time: a timer's due time.
-    assert_eq!(voices(&one).last().unwrap().at, 60_000.0);
+    assert_eq!(one.last().unwrap().at, 60_000.0);
 }
 
 #[test]

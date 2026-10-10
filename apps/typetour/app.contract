@@ -272,7 +272,7 @@ component TypeTour
         when thread == ""
           column testId="messages-list" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#ffffff, #000000)"
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
-              button press=go("home") testId="messages-edit" height=44 display="flex" flex-direction="row" align-items="center"
+              button appearance="none" press=go("home") testId="messages-edit" height=44 display="flex" flex-direction="row" align-items="center"
                 text "Edit" font-size=17 color="light-dark(#000000, #ffffff)"
               button press=go("home") testId="messages-compose" aria-label="New message" width=36 height=36 border-radius=18 background-color="light-dark(#f2f2f7, #1c1c1e)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 text "+" font-family="Exciting Lilt" font-weight=700 font-size=22 color="light-dark(#000000, #ffffff)"
