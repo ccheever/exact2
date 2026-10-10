@@ -363,6 +363,7 @@ internal class Presenter(
             decodedStyle = decodedStyle ?: decodeStyle(style); styleDirty = true; styleUnchecked = true
             updateFlat(); markParent(this)
         }
+        private var imageLease: NativeImages.Image? = null
         private var imageSource: String? = null
         private var imageRequest: NativeImages.Request? = null
         private var imageSize = 0L
@@ -371,6 +372,7 @@ internal class Presenter(
         fun releaseImage() {
             images.cancel(imageRequest); imageRequest = null
             (control as? ImageView)?.setImageDrawable(null)
+            imageLease?.release(); imageLease = null
         }
         var tx = 0f; var ty = 0f; var sx = 1f; var angle = 0f
         var lx = 0f; var ly = 0f; var lw = 1f; var lh = 1f
@@ -705,7 +707,7 @@ internal class Presenter(
             if (src != imageSource || size != imageSize || fit != imageFit) {
                 images.cancel(imageRequest)
                 imageRequest = null
-                if (src != imageSource) control.setImageDrawable(null)
+                if (src != imageSource) releaseImage()
                 intrinsicIdentity = PendingIntrinsics.sourceOwner(intrinsicIdentity, imageSource, src)
                 imageSource = src; imageSize = size; imageFit = fit
                 if (src.isEmpty()) {
@@ -715,7 +717,13 @@ internal class Presenter(
                     val owner = incarnation
                     imageRequest = images.request(src, width, height, fit) { image ->
                         if (current(owner) && imageSource == src && imageSize == size && imageFit == fit) {
-                            control.setImageBitmap(image.bitmap)
+                            if (imageLease !== image) {
+                                image.retain()
+                                val previous = imageLease
+                                imageLease = image
+                                control.setImageBitmap(image.bitmap)
+                                previous?.release()
+                            }
                             if (intrinsicSource != src) {
                                 intrinsicSource = src
                                 intrinsic(key, image.width.toFloat(), image.height.toFloat())
@@ -1453,7 +1461,9 @@ internal class Presenter(
         root.touchDispatch = null
         if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener)
         controls.close(); collections.close(); navigation.close(); images.close()
-        for (index in 0 until nodes.size()) nodes.valueAt(index).nativeComponent?.close()
+        for (index in 0 until nodes.size()) nodes.valueAt(index).let { node ->
+            node.releaseImage(); node.nativeComponent?.close()
+        }
         for (parent in flatParents.toList()) releaseGroup(parent)
         groupMembers.clear(); boxOwners.clear()
         flatParents.clear(); parentsDirty.clear(); semanticsGeometryDirty = false; discardStylePool()

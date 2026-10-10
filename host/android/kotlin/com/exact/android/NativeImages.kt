@@ -14,7 +14,19 @@ import java.util.concurrent.Executors
  * The byte-bounded cache keeps no invisible portion of a center-cover image.
  */
 internal class NativeImages(private val context: Context) : AutoCloseable {
-    data class Image(val bitmap: Bitmap, val width: Int, val height: Int)
+    class Image(val bitmap: Bitmap, val width: Int, val height: Int) {
+        // The decode result, cache, queued delivery and each ImageView hold a
+        // lease. Pixel retirement must not depend on Java text allocation/GC.
+        private var owners = 1
+        fun retain() {
+            check(Looper.myLooper() == Looper.getMainLooper() && owners > 0)
+            owners++
+        }
+        fun release() {
+            check(Looper.myLooper() == Looper.getMainLooper() && owners > 0)
+            if (--owners == 0) bitmap.recycle()
+        }
+    }
     internal class Request(val source: String, val width: Int, val height: Int, val fit: String,
         var deliver: ((Image) -> Unit)?) { var cancelled = false }
     private data class Key(val source: String, val width: Int, val height: Int, val fit: String)
@@ -23,6 +35,9 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
     private val requests = ImageRequests<Key, Request>(2)
     private val cache = object : LruCache<Key, Image>(32 * 1024 * 1024) {
         override fun sizeOf(key: Key, value: Image) = value.bitmap.allocationByteCount
+        override fun entryRemoved(evicted: Boolean, key: Key, oldValue: Image, newValue: Image?) {
+            oldValue.release()
+        }
     }
     private var closed = false
 
@@ -32,7 +47,10 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
         val request = Request(source, width.coerceAtLeast(1), height.coerceAtLeast(1), fit, deliver)
         val key = request.key()
         val cached = cache.get(key)
-        if (cached != null) handler.post { deliverImage(request, cached) }
+        if (cached != null) {
+            cached.retain()
+            handler.post { try { deliverImage(request, cached) } finally { cached.release() } }
+        }
         else { requests.add(key, request); pump() }
         return request
     }
@@ -58,17 +76,15 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
                 val result = runCatching { decode(work.key) }
                 handler.post {
                     val listeners = requests.complete(work)
+                    val image = result.getOrNull()
                     try {
-                        if (closed || listeners.isEmpty()) {
-                            // No display list or consumer has ever seen these
-                            // pixels. Recycling here cannot invalidate a draw.
-                            result.getOrNull()?.bitmap?.recycle()
-                        } else {
-                            val image = result.getOrThrow()
-                            cache.put(work.key, image)
-                            listeners.forEach { deliverImage(it, image) }
+                        if (!closed && listeners.isNotEmpty()) {
+                            val decoded = result.getOrThrow()
+                            decoded.retain()
+                            cache.put(work.key, decoded)
+                            listeners.forEach { deliverImage(it, decoded) }
                         }
-                    } finally { pump() }
+                    } finally { image?.release(); pump() }
                 }
             }
         }
