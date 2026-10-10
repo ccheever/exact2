@@ -753,7 +753,8 @@ module finds the clicks itself (`T3TextContextMenu.swift`, template `T3ShellMenu
   the window's content view pops the shell's menu. Copy follows ExactView's Edit ▸ Speech ▸ Start Speaking validation
   (enabled exactly while page text is selected), Copy Link an inline link run's accessibility URL, Copy Image the bitmap of
   the image node's layer. These lean on ExactKit's present structure (the `ExactView` class name, its validation, the image
-  layer); a host change there takes the item away, not the menu.
+  layer); a host change there takes the item away, not the menu, and another bitmap layer directly on a node (a
+  filtered box, a text shadow) would offer Copy Image too.
 - A Browser page and an HTML attachment's preview (`T3ShellWebView.swift`): WebKit's menu, rebuilt in `willOpenMenu`.
 
 Under the agent the module logs each menu (`t3.textmenu:`; the app's own, `t3.contextmenu:`) and tracks none. Framework gaps that remain (not filed; one-file

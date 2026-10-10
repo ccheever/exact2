@@ -146,6 +146,16 @@ reference's own link menu, and it stopped at a Settings step; the second, on the
   handler and the root names the op; `chatlocal:link-menu` reaches the native menu with the reference's items and Copy
   Link copies the href.
 
+## Checks (head `73f0e32a0` with the EXACT2-GAPS wording staged; `origin/feat(example)/t3-code` `8d69a4329` merged)
+
+`bun test examples/t3-code --timeout 60000` 0 (4384 pass, 1 skip, 0 fail); strict `tsc` 0; `contract build
+examples/t3-code/app.contract` 0 (5982 slots, 28,229,553 bytes); `cargo test -p t3-code-macos --lib` 0 (17 pass); AppKit
+`contextmenu` 48 run, 0 failed (24 new), `browser-capture` 34/0, `media-actions` 7/0, `r6-media` 10/0; `git add -A && bun
+scripts/caps.mjs` 0; `cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests --no-fail-fast` 0
+(3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings` 0; `cargo fmt --all --
+--check` 0; `bun scripts/boot.mjs` 0. The bundle was built before the live drives (exit 0, on the merged head
+`77cc60949`). `app.contract`: 1,344 lines. Later commits change only this record.
+
 ## Real-input batch steps
 
 On the T3 Code (Exact) app built from this branch, in a normal (non-agent) launch, the Verification fixture thread open,
