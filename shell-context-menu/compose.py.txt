@@ -1,0 +1,22 @@
+# Compose before | after | reference panels with labels (shell-context-menu evidence). Usage: compose.py out.png caption box(x0,y0,x1,y1 in pt) before after ref
+import sys
+from PIL import Image, ImageDraw, ImageFont
+out, caption, box, before, after, ref = sys.argv[1], sys.argv[2], [int(v) for v in sys.argv[3].split(',')], sys.argv[4], sys.argv[5], sys.argv[6]
+def crop(path, scale):
+    im = Image.open(path).convert('RGB')
+    s = im.width / 1280  # pixels per point
+    c = im.crop(tuple(int(v * s) for v in box))
+    return c.resize((int((box[2]-box[0]) * scale), int((box[3]-box[1]) * scale)), Image.LANCZOS)
+panels = [('Before (feature tip c03d7e908)', crop(before, 2)), ('After (this branch)', crop(after, 2)), ('Reference (T3 Code 1e2ecbd975, Electron)', crop(ref, 2))]
+try: font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 26); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 22)
+except Exception: font = small = ImageFont.load_default()
+w = sum(p.width for _, p in panels) + 20 * 4; h = max(p.height for _, p in panels) + 110
+canvas = Image.new('RGB', (w, h), 'white'); d = ImageDraw.Draw(canvas)
+x = 20
+for label, p in panels:
+    d.text((x, 14), label, fill='black', font=font)
+    canvas.paste(p, (x, 54)); d.rectangle([x - 1, 53, x + p.width, 54 + p.height], outline='#999999')
+    x += p.width + 20
+d.text((20, h - 42), caption, fill='#333333', font=small)
+canvas.save(out)
+print(out, canvas.size)
