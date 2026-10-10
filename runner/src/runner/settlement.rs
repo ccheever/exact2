@@ -415,11 +415,19 @@ impl<D: DataSource> Runner<D> {
                     // Consume the mark on mismatch or activation even when
                     // the old value stands during an asynchronous request.
                     // `states` is tentative, so a refused pass restores both.
-                    let kept_seed = states[i].as_ref().is_some_and(|s| {
-                        s.kept_seed
-                            && !self.data.ready()
-                            && s.args == args[..row.args.len as usize - usize::from(row.context)]
-                    });
+                    // A seed whose identity reads a resource still on its
+                    // fallback is not this launch's answer yet: it is
+                    // neither admitted nor reused (LLP 1027.005 D3, 2026-10-10).
+                    let unknown = states[i].as_ref().is_some_and(|s| s.kept_seed)
+                        && !self.data.ready()
+                        && self.identity_unknown(i, &states);
+                    let kept_seed = !unknown
+                        && states[i].as_ref().is_some_and(|s| {
+                            s.kept_seed
+                                && !self.data.ready()
+                                && s.args
+                                    == args[..row.args.len as usize - usize::from(row.context)]
+                        });
                     if let Some(state) = &mut states[i] {
                         state.kept_seed = kept_seed;
                     }
@@ -430,6 +438,7 @@ impl<D: DataSource> Runner<D> {
                     // or carried delivery answer (LLP 1030 D7).
                     let reuse = states[i]
                         .as_ref()
+                        .filter(|_| !unknown)
                         .filter(|s| {
                             kept_seed
                                 || failed

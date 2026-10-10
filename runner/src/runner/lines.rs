@@ -58,6 +58,17 @@ pub(super) fn revalidated(resource: &str, same: bool) -> String {
     text!("{} answered: {}", resource, what)
 }
 
+/// A kept answer the first frame shows, with its identifying arguments
+/// (at most 200 characters of them).
+pub(super) fn kept_shown(resource: &str, args: &str) -> String {
+    let args: String = args.chars().take(200).collect();
+    text!(
+        "{} shows its kept answer from the last session, kept for {}",
+        resource,
+        args
+    )
+}
+
 /// A kept answer the fresh one contradicts (LLP 1027 D4, LLP 1102 §3.17).
 pub(super) fn kept_contradicted(resource: &str) -> String {
     text!(

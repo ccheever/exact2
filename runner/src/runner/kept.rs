@@ -9,7 +9,7 @@
 //! bytes no longer decode, or whose value no longer fits the declared shape
 //! is simply not used, and the compiled empty-store placeholder stands.
 
-use super::{DataSource, Runner, RunnerError};
+use super::{DataSource, ResourceState, Runner, RunnerError};
 use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
@@ -122,6 +122,36 @@ pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
 }
 
 impl<D: DataSource> Runner<D> {
+    /// Whether resource `i`'s call arguments read, directly or through
+    /// derives, a resource still showing its fallback before its source is
+    /// ready: its identity is not yet known, so its kept answer must wait.
+    /// An account resource with no kept answer of its own shows its
+    /// placeholder (`did: ""`), and that empty id would match whatever
+    /// another account's launch kept (LLP 1027.005 D3, 2026-10-10).
+    pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
+        use crate::instance::Input;
+        let deps = self.sites.deps();
+        let mut derives = vec![false; self.plan.derives.len()];
+        let mut work = vec![&deps.resource_args[i]];
+        while let Some(reads) = work.pop() {
+            for input in deps.inputs(reads) {
+                match input {
+                    Input::Resource(r)
+                        if self.stale[r] && !states[r].as_ref().is_some_and(|s| s.kept_seed) =>
+                    {
+                        return true;
+                    }
+                    Input::Derive(d) if !derives[d] => {
+                        derives[d] = true;
+                        work.push(&deps.derives[d]);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
