@@ -85,6 +85,7 @@
     "t3-thread-header",
     "t3-work-row",
     "t3-work-detail",
+    "t3-work-failure",
     "t3-home-swipe-events"
   ],
   "data": [
