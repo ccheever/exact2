@@ -579,10 +579,15 @@ world.
   in the composer meanwhile does nothing (`browser-annotation.ts` `sendChordsWhileAnnotating`). For the same reason the
   right panel's toggle declares Escape only while the shown tab is not annotating, so a person's Escape reaches the page,
   whose overlay cancels the pick and keeps the panel, as PickPreload's does (realinput-1010c).
-- **Floating player's pill.** The handle's hover box grows to the pill's box while the pill shows, and the pill's buttons
-  hear no hover of their own: on macOS a hover node over another trades the hover with it on every move and a child
-  outside its parent's box hears none (X62, [#322](https://github.com/ccheever/exact2/issues/322)), so the pill hid as a
-  real pointer reached its buttons. The buttons' tooltips follow the pointer's place in that box (`pointermove`).
+- **Floating player's pill.** Whether the pointer is on the handle (the reference's 12 px `group`) or, while the pill shows,
+  on the pill's box is read from the player's own hover and `pointermove` (`bcPlayerZone`), not from a hover of the handle
+  or of the pill's buttons: on macOS a hover node over another trades the hover with it on every move and a child
+  outside its parent's box hears none (X62, [#322](https://github.com/ccheever/exact2/issues/322); main
+  `issues/20261009-macos-subtree-hover.md`), so the pill hid as a real pointer reached its buttons; and a real pointer
+  that came to rest on the 12 pt handle showed its grab cursor but no pill until it moved again (realinput-1010d RD-1, 3
+  of 3; the handle's own tracking area heard no enter, which an agent drive cannot reproduce: the agent's hover is a
+  hit-test, not the window server's tracking). The player's box has heard the pointer since it crossed the page, so the
+  arrival is a move there. The buttons' tooltips follow the pointer's place in the pill's box.
 - **Artifact actions.** Reveal in Finder, Copy image and Copy path act only on files inside the artifact directory
   (`resolveArtifactPath`); an agent run records Reveal instead of opening Finder and writes a private pasteboard, never
   the person's clipboard.
@@ -693,6 +698,20 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
   `title` in `PresenterMac`), as Electron shows the native one. An agent drive reads it in the node's props (`tree
   usage-metric-cost`: `"title": "Cost (C)"`; `tree usage-period-1`: `"title": "Past 24h (⇧⌘1)"`), not in `tree --ax`,
   whose description is `aria-description`'s. The tooltip itself shows only under a real pointer in an active app.
+
+## Text context menu: the desktop shell's, over selected text (workaround)
+
+Task `20261010-realinput-1010d-followups` (RD-4). The T3 desktop shell answers a right-click the page leaves alone with its
+own menu (`DesktopWindow.ts` `installContextMenu`: spelling suggestions, Copy Link, Copy Image, then Cut, Copy, Paste and
+Select All by the page's edit flags). ExactKit answers a right-click on selected text with no authored `contextmenu` with the
+menu an NSTextView shows for read-only text (Look Up, Copy, Speech, Services; LLP 1115 D8). Contract cannot replace that
+menu short of a `contextmenu` on every text node, and an action has no command that copies the window's text selection.
+So the clone's module (`T3TextContextMenu.swift`) takes the right-click in a local monitor wherever ExactKit would show its
+text menu (the menu that carries Look Up) and pops the shell's in its place, on the same text node: Cut and Paste disabled,
+Copy (the node's `copy:`, its `copy` event first) and Select All (the node's `selectAll:`). Under the agent it logs the
+items (`t3.textmenu:`) instead of tracking a menu. Outside this task's finding, and not built: the shell's menu where
+ExactKit shows none (a right-click on text without a selection or on an empty area, which the reference answers with Cut,
+Copy and Paste disabled and Select All) and Copy Link over a link; a `contextmenu` on the window's root could carry them.
 
 ## Not exact2 asks (stay in the app module)
 

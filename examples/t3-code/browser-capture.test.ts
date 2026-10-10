@@ -345,7 +345,9 @@ describe('the floating player and the separate window', () => {
     const indent = (line: string) => line.length - line.trimStart().length;
     const handle = lines.findIndex(line => line.includes('testId="browser-mini-handle"'));
     const pill = lines.findIndex(line => line.includes('testId="browser-mini-pill"'));
-    expect(lines[handle]).toContain('hover=');
+    // realinput-1010d RD-1: the hover is the player's (its box holds the handle and the pill), the group the handle's box.
+    expect(lines.find(line => line.includes('testId="browser-mini-player"'))).toContain('hover=overPlayer pointermove=movePlayer');
+    expect(lines[handle]).not.toContain('hover=');
     expect(pill).toBeGreaterThan(handle);
     expect(lines.slice(handle + 1, pill).every(line => !line.trim() || indent(line) > indent(lines[handle]!))).toBe(true);
     expect(indent(lines[pill]!)).toBeGreaterThan(indent(lines[handle]!));
@@ -489,10 +491,10 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
     expect(toggle).toContain('aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen or urlFocused or panel.browser.capture.pickActive) ? "" : "Escape")');
   });
 
-  it('the handle\'s hover box covers the pill while it shows, and the pill\'s buttons hear no hover of their own (X62)', () => {
+  it('the handle\'s box covers the pill while it shows, and the pill\'s buttons hear no hover of their own (X62)', () => {
     const contract = source('browser-capture.contract');
     const handle = line(contract, 'testId="browser-mini-handle"');
-    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) hover=overDot pointermove=movePill cursor=');
+    expect(handle).toContain('width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) cursor=');
     expect(line(contract, 'testId="browser-mini-pill"')).toContain('position="absolute" top=0 right=0 width=pillWidth height="2rem"');
     expect(line(contract, 'derive pillWidth')).toBe('  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)');
     const button = block(contract, 'component BcPillButton', '//');
@@ -502,6 +504,23 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
     expect(line(contract, 'derive tipAlign')).toBe('  derive tipAlign = frame.x + frame.width > canvasWidth - 7.5 * rem ? "end" : "center"');
     // The tooltip follows the pointer's button, and a press closes it until the pointer moves to another (Base UI).
     for (const id of ['restore', 'window', 'close']) expect(contract).toContain(`align=tipAlign, hot=(tipAt == "${id}"), tipShown=(pill and tipAt == "${id}" and tipShut != "${id}")`);
+  });
+
+  it('realinput-1010d RD-1: the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', () => {
+    // A real pointer that came to rest on the dot showed the grab hand but no pill until it moved again (3 of 3): the
+    // handle's small box heard no enter. The player's box hears the pointer from the moment it crosses the page, so each
+    // move places it on the handle ("dot"), the rest of the pill's box ("pill") or the page; the pill shows on the
+    // handle and stays on its box while it shows (group-hover), and leaving the player hides it.
+    const contract = source('browser-capture.contract');
+    expect(line(contract, 'fn bcPlayerZone')).toBe('fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= inset + 0.75 * rem) ? "dot" : "pill")');
+    const player = block(contract, 'component BrowserMiniPlayer', '//');
+    // The agent's hover moves first and enters second: entering reads the zone the move found.
+    expect(player).toContain('  action overPlayer(value: bool)\n    over = value\n    dotOver = value and (zone == "dot" or (zone == "pill" and (pillFocus != "" or dragging != "")))\n    zone = value ? zone : ""');
+    expect(player).toContain('    let at = bcPlayerZone(e.offsetX, e.offsetY, frame.width, frame.pillInset, pillWidth, rem)\n    let shown = over and (at == "dot" or (at == "pill" and pill))');
+    // The tooltips' slot is the pill's own coordinates: the pill's box sits `pillInset` from the player's top right.
+    expect(player).toContain('bcPillSlot(e.offsetX - (frame.width - frame.pillInset - pillWidth), e.offsetY - frame.pillInset, rem, mini.recording)');
+    expect(player).toContain('  derive pill = dotOver or pillFocus != "" or dragging != ""');
+    expect(player.match(/hover=/g)).toHaveLength(1);
   });
 
   it('one gesture keeps one serial: the canvas takes the frame at its first pan and moves it by the pan\'s total', () => {
