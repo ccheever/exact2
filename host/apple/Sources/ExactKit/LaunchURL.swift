@@ -17,6 +17,13 @@ extension ExactSession {
         apply(runtime.navigate(root.id, location, now: now()))
     }
 
+    /// The platform's Back from a route with no authored Back control under
+    /// a root with no `navigate` handler: the runner's own `back` (LLP 1115 D5).
+    func hostBack(_ key: String) {
+        guard state != .destroyed, booted, let batch = runtime.hostBack(key, now: now()) else { return }
+        apply(batch)
+    }
+
     /// After the first frame: a launch location that matched no route and
     /// has no navigation root to hear it is journaled, then forgotten.
     func refuseUnheardLaunch() {

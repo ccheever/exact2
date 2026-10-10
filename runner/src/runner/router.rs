@@ -9,7 +9,7 @@
 //! The compiler checks the route table; its types are checked once at boot.
 //! No host interprets slots.
 
-use super::{Carried, DataSource, Runner, RunnerError};
+use super::{Carried, CommitReceipt, DataSource, Runner, RunnerError};
 use exact_kernel::SortedSet;
 use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
 use exact_route::{Entry, Router, Tab, Table};
@@ -674,6 +674,47 @@ impl<D: DataSource> Runner<D> {
             let at = tab.stack.iter().position(|e| e.id == id)?;
             at.checked_sub(1).map(|below| tab.stack[below].url.clone())
         })
+    }
+
+    /// The platform's own Back from the selected visit `id`, for a route
+    /// with no authored Back control under a navigation root with no
+    /// `navigate` handler (LLP 1115 D5): the router's `back`, written by the
+    /// runner as one commit of its own, as the app's `nav = back(nav)`
+    /// would be — journaled as `host back`, refused like any commit. `None`
+    /// (nothing done) without a router, or when `id` is not the selected
+    /// top or is its stack's root: a Back the app already took, or one
+    /// with nowhere to go.
+    pub fn host_back(&mut self, id: u64) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let current = self.slots[slot].clone();
+        let Some(router) = context.read(&current) else {
+            return Ok(None);
+        };
+        if exact_route::top(&router).map(|e| e.id) != Some(id) || exact_route::depth(&router) < 2 {
+            return Ok(None);
+        }
+        let Some(next) = context.call(&self.plan, Stdlib::Back, &[current]) else {
+            return Ok(None);
+        };
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.slots[slot] = next;
+            self.router_change()
+                .and_then(|_| self.settle(false))
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
+        self.log_outcome("host back", &result, was_poisoned);
+        result.map(Some)
     }
 
     /// The evaluated arguments of a settled resource (the bake's cache key).

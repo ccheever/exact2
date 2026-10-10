@@ -191,8 +191,8 @@ final class NavigationRulesTests: XCTestCase {
     }
 
     /// LLP 1115 D5: the authored control when it resolves; refused while a
-    /// declared one does not; else the root's `navigate` with the location
-    /// beneath, given a handler and a visit beneath.
+    /// declared one does not; else, given a visit beneath, the root's
+    /// `navigate` with its location, or the runner's own back.
     func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
         typealias B = NavigationRules.Back
         var asked = 0
@@ -201,7 +201,8 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
         XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
         XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
-        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), "no navigate handler")
+        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
+        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
         XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 

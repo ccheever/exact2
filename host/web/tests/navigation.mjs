@@ -391,6 +391,16 @@ try {
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'the traversal is accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('refused')).length, 0);
   });
+  await run('Back from a route with no Back control and no navigate handler is the runner\'s own back', async () => {
+    const n = await fresh(); await tap('push-notifications');
+    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noNavigate)}))`);
+    await record('no-control, no-handler prelude', '/notifications', n + 1, 2, 0);
+    await historyTap(-1); await until(`location.pathname==='/'`);
+    const back = await record('Back without a control or a handler (LLP 1115 D5)', '/', n + 1, 1, 0, 'host back');
+    assert.equal(back.navigatePresses, 0);
+    assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'accepted where it landed: no restoring go');
+    assert.equal(back.logs.lines.filter(l => l.includes('history:')).length, 0, 'no Back refused');
+  }, 'an in-document plan swap (exact.reload) is the wasm runner\'s; the JS target compiles one plan');
   await run('navigate handler without a matching commit restores once', async () => {
     const n = await fresh(); await tap('push-post'); await historyTap(-1); await tap('refuse-link');
     await record('refused navigate prelude', '/', n + 1, 1, 1);

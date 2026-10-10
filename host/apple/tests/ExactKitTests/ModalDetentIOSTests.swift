@@ -122,7 +122,18 @@ final class ModalDetentIOSTests: XCTestCase {
     /// LLP 1115 D5: a sheet that declares no Back control still swipes down,
     /// and its dismissal goes back by the root's `navigate`, once.
     func testASheetWithNoBackControlStillSwipesDownAndGoesBackByNavigate() throws {
+        try sheetSwipesDown(navigate: true)
+    }
+
+    /// The same with no `navigate` handler: the runner's own back, once.
+    func testASheetWithNoBackControlAndNoNavigateHandlerIsTheRunnersOwnBack() throws {
+        try sheetSwipesDown(navigate: false)
+    }
+
+    private func sheetSwipesDown(navigate: Bool) throws {
         let session = try fixture("sheet-back-always")
+        let root = try node(session, "navigation")
+        if !navigate { root.handlers.remove("navigate") }
         try tap(session, "open-note")
         until("the note is presented as a sheet") { sheet()?.sheetPresentationController != nil }
         let presented = try XCTUnwrap(sheet())
@@ -140,7 +151,8 @@ final class ModalDetentIOSTests: XCTestCase {
             return ((nav?["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1
         }
         let journal = session.agent(#"{"op":"logs","since":0}"#)
-        XCTAssertEqual(journal.components(separatedBy: "(follow)").count - 1, 1, "navigate once: \(journal)")
+        XCTAssertEqual(journal.components(separatedBy: "(follow)").count - 1, navigate ? 1 : 0, "navigate once, or never: \(journal)")
+        XCTAssertEqual(journal.components(separatedBy: "host back").count - 1, navigate ? 0 : 1, "the runner's own back without a handler: \(journal)")
         XCTAssertFalse(journal.contains("modal dismissal refused"))
     }
 

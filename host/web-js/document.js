@@ -76,9 +76,9 @@ function publish() {
  * the covered hidden and inert, now and after every commit's tree (`after`,
  * rt.js `After`), as the web host projects after every batch; Escape on a
  * modal route presses its back, and `navigate` takes a popstate's location. */
-export function projectRoots(history, navigate, say, after) {
+export function projectRoots(history, navigate, say, after, hostBack) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
-  history.connect(root, navigate, say);
+  history.connect(root, navigate, say, hostBack);
   after.push(project); project();
 }
 

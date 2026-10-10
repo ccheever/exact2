@@ -473,6 +473,11 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 14, n, now))
         }
     }
+    /// The platform's own Back from the visit keyed `key` (LLP 1115 D5).
+    func hostBack(_ key: String, now: Double) -> Batch? {
+        guard let id = UInt64(key) else { return nil }
+        return on { read(exact_host_back(rt, id, now)) }
+    }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
     /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
     func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }

@@ -748,5 +748,34 @@ fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
     act(&mut r, "select", "home");
     let to = r.location_beneath(stack[2].id).unwrap();
     let change = act(&mut r, "go", &to).unwrap();
-    assert_eq!((change.top, change.removed), (stack[1].id, vec![stack[2].id]));
+    assert_eq!(
+        (change.top, change.removed),
+        (stack[1].id, vec![stack[2].id])
+    );
+}
+
+/// LLP 1115 D5 with no `navigate` handler: the host's own Back is the
+/// router's `back`, one commit journaled as `host back`, and only from the
+/// selected top that has a visit beneath it.
+#[test]
+fn a_host_back_pops_the_selected_top_as_its_own_commit() {
+    let mut r = boot(fixture::plan(&table()), "/t/1/details");
+    r.take_router_change();
+    let stack = nav(&r).tabs[0].stack.clone();
+    assert!(r.host_back(stack[1].id).unwrap().is_none(), "not the top");
+    assert!(r.host_back(u64::MAX).unwrap().is_none());
+    assert!(r.take_router_change().is_none());
+    assert!(r.host_back(stack[2].id).unwrap().is_some());
+    let change = r.take_router_change().unwrap();
+    assert_eq!(
+        (change.top, change.url.as_str(), change.removed),
+        (stack[1].id, "/t/1", vec![stack[2].id])
+    );
+    assert_eq!(r.journal().filter(|l| l.contains("host back")).count(), 1);
+    r.host_back(stack[1].id).unwrap();
+    assert!(
+        r.host_back(stack[0].id).unwrap().is_none(),
+        "a stack's root has nowhere to go"
+    );
+    assert_eq!(nav(&r).tabs[0].stack.len(), 1);
 }

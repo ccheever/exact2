@@ -961,10 +961,11 @@ drawn title bar) is a bug. On iOS:
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`. A route with no such
-control still has the platform's back button, edge swipe and swipe down: they go back
-as the browser's Back does, through the root's `navigate` handler with the location
-beneath (`nav = go(nav, url)` pops to it), so give the root one (LLP 1115 D5). A
-declared but disabled control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
+control still has the platform's back button, edge swipe and swipe down (and the
+browser's Back): they go back through the root's `navigate` handler with the location
+beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the
+router itself, as `nav = back(nav)` would (LLP 1115 D5). A declared but disabled
+control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`.

@@ -271,6 +271,32 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertFalse(journal(session).contains("back gesture refused"))
     }
 
+    /// LLP 1115 D5 with no `navigate` handler on the root: the button and
+    /// the edge swipe still go, and a completed pop is the runner's own
+    /// `back` (`host back` in the journal), with nothing dispatched.
+    func testAPushedRouteWithNoBackControlAndNoNavigateHandlerIsTheRunnersOwnBack() throws {
+        let session = try fixture("bar-host-back", module: false)
+        let root = try node(session, "navigation")
+        root.handlers.remove("navigate")
+        XCTAssertNil(Agent(session: session).tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        root.handlers.remove("navigate") // a batch may have written the root's handlers again
+        XCTAssertFalse(try XCTUnwrap(nav.topViewController).navigationItem.hidesBackButton, "Back is always there")
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)))
+        nav.popViewController(animated: true)
+        until("the runner went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        let lines = journal(session)
+        XCTAssertEqual(lines.components(separatedBy: "host back").count - 1, 1, "the runner's own back, once: \(lines)")
+        XCTAssertEqual(lines.components(separatedBy: "(follow)").count - 1, 0, "no navigate")
+        XCTAssertEqual(backs(session), 0)
+    }
+
     /// A pop UIKit finishes with no enabled Back control to press (here,
     /// disabled just before the bar's pop, as a tap racing that batch does)
     /// presses nothing, and the native stack goes back to the one the router

@@ -206,11 +206,9 @@ guide's rules don't make obvious.
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
-  by the root's `navigationBack`; a route that declares one that is disabled refuses it,
-  and a route with none goes back through the root's `navigate` handler (LLP 1115 D5),
-  so with no `navigate=` it is refused (the log says "back gesture refused" and why).
-  Fix: `navigate=follow` on the root with `action follow(url: string)` doing
-  `nav = go(nav, url)`, or an `id="back"` button on the pushed screen (LLP 1038 §6).
+  by the root's `navigationBack`, and a route that declares one that is disabled
+  refuses it (the log says "back gesture refused" and why). A route with no such
+  control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -222,12 +220,9 @@ guide's rules don't make obvious.
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
-  dismissal refused: …" and why). Cause: as for edge-swipe back, the swipe presses the
-  sheet's control named by the root's `navigationBack`, or with none goes back through
-  the root's `navigate`; a disabled control, no `navigate=` handler, or
-  `closedby="none"` refuses it. Fix: a `navigate=` handler on the root, or an
-  `id="back"` button (Cancel, Done) in the sheet (`ModalIOS.swift`,
-  `refusesDismissal`). (Exact-new iOS app feedback, 2026-10-04.)
+  dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
+  control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
+  control always swipes down (LLP 1115 D5). (`ModalIOS.swift`, `refusesDismissal`.)
 - **The app looks like an imitation of iOS.** Cause: controls built from boxes
   (a painted switch, buttons laid out as a tab bar or a title bar, rows drawn as a
   grouped list), and values copied from a screenshot: Apple's system colours as hex

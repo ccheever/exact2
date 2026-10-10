@@ -1031,6 +1031,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `exact_host_back`: the platform's own Back from visit `id` (LLP 1115
+    /// D5), a batch.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
+        let out = match self.host.as_mut() {
+            Some(h) => h.host_back(id, now_ms),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
+
     /// Consume the exact120-byte paired transform packet from the owned input buffer.
     pub fn transform_motion(&mut self, len: usize) -> u32 {
         let out = match self.host.as_mut() {

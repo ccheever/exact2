@@ -200,6 +200,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
         }
 
+        /// The platform's own Back from a visit, a batch. @ref LLP 1115 D5
+        #[no_mangle]
+        pub extern "C" fn exact_host_back(rt: u32, id: u64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.host_back(id, now_ms), |n| n)
+        }
+
         /// Supply the launch location before the first boot. @ref LLP 1038 D5/D8
         #[no_mangle]
         pub extern "C" fn exact_set_launch_location(rt: u32, len: usize) -> u32 {

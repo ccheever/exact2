@@ -77,6 +77,8 @@ enum NavigationRules {
         case press(UInt32)
         /// Deliver this location to the navigation root's `navigate`.
         case navigate(String)
+        /// The runner's own `back` of the router (no `navigate` handler).
+        case pop
     }
 
     /// LLP 1115 D5, Back is always there: a route that declares a Back
@@ -86,12 +88,13 @@ enum NavigationRules {
     /// D1 has it. A route that declares none still goes back, as a
     /// hand-built UIKit screen does and as the web's history Back does
     /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
-    /// location of the visit beneath. Without a `navigate` handler or a
-    /// visit beneath there is nothing to go back by, and it is refused.
+    /// location of the visit beneath, or with no `navigate` handler the
+    /// runner's own `back` of the router, the same on the web. With no
+    /// visit beneath there is nothing to go back to, and it is refused.
     static func back(control: UInt32?, declared: Bool, hearsNavigate: Bool, beneath: () -> String?) -> Back? {
         if let control { return .press(control) }
-        guard !declared, hearsNavigate, let location = beneath(), !location.isEmpty else { return nil }
-        return .navigate(location)
+        guard !declared, let location = beneath(), !location.isEmpty else { return nil }
+        return hearsNavigate ? .navigate(location) : .pop
     }
 
     /// D1: whether an interactive pop may begin at all — a stack to pop, no

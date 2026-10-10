@@ -656,6 +656,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         case .navigate(let location)?:
             guard let root = container, let session = presenter.session else { return }
             session.navigate(location, at: root)
+        case .pop?:
+            guard let key = selectedRoute?.props["navigationKey"], let session = presenter.session else { return }
+            session.hostBack(key)
         case nil: break
         }
     }
@@ -713,9 +716,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Why Back does not go from the selected route, for the journal.
     var backRefusal: String {
         if let route = selectedRoute, declaresBack(route) { return "its navigationBack control is disabled or has no press handler" }
-        if container?.handlers.contains("navigate") != true {
-            return "no navigationBack control in the active route, and no navigate handler on the navigation root to go back by"
-        }
         return "no visit beneath the active route"
     }
 

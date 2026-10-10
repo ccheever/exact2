@@ -1495,5 +1495,5 @@ async function main() {
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
-function navigate(location) { return globalThis.exact.navigate(location); }
-navigation.connect(root, navigate, log);
+function navigate(location) { const batch = globalThis.exact.navigate(location); return /^NoHandler|no navigation root/.test(batch?.error ?? "") ? false : batch; } // false: unheard, so Back is the runner's own (LLP 1115 D5)
+navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); });
