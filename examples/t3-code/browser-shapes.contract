@@ -63,3 +63,32 @@ shape BrowserPanel
   keys: string
   recents: list<BrowserRecent>
   servers: list<BrowserServer>
+  capture: BrowserCapture // part 3 (browser-surface-capture)
+
+// browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview, and the separate window
+// (browser-capture.ts `BrowserCaptureView`).
+shape BrowserCapture
+  pickActive: bool
+  pickDisabled: bool
+  pickTip: string
+  captureDisabled: bool
+  recording: bool
+  floating: bool
+  floatDisabled: bool
+  separateWindow: bool
+
+// The floating player's browser source (browser-capture.ts `BrowserMiniView`); its frame is the chat canvas's.
+shape BrowserMini
+  show: bool
+  key: string
+  sourceKey: string
+  tabId: string
+  runtimeId: string
+  url: string
+  profileId: string
+  environment: string
+  hasWebContents: bool
+  recording: bool
+  separateWindow: bool
+  width: number
+  height: number

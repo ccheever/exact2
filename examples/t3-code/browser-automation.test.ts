@@ -239,12 +239,12 @@ describe('agentBrowserCursorOpacity', () => {
 // ── The client: drain, queue, plan, dispatch ──────────────────────────────────────────────────────
 type Sent = Obj;
 /** A focused client with a fake transport (`call`, `rpc`) and module (`raw`), as browser-surface.test.ts's. */
-function fakeClient(options: { list?: (payload: Obj) => Obj; presentation?: Obj } = {}) {
+function fakeClient(options: { list?: (payload: Obj) => Obj; presentation?: Obj; clientSettings?: Obj } = {}) {
   const sent: Sent[] = [], rpcs: Array<{ method: string; payload: Obj }> = [];
   let serial = 0;
   const client = {
     environmentId: 'env-1', threadId: 'thread-1', projectId: 'p1', generation: 3, connection: 'connected', ready: true, origin: 'http://127.0.0.1:16750',
-    draftKey: 'env-1:thread-1', presentation: options.presentation ?? {}, revision: 0, diffOpen: true, local: { composerControls: false }, shell: { threads: [], projects: [] },
+    draftKey: 'env-1:thread-1', presentation: options.presentation ?? {}, revision: 0, diffOpen: true, local: { composerControls: false, ...(options.clientSettings ? { clientSettings: options.clientSettings } : {}) }, shell: { threads: [], projects: [] },
     async ids() { return ['0123abcd-4567-89ab-cdef-0123456789ab']; },
     restAccess() { return { call: async (request: Obj) => { sent.push(request); return request.op === 'request' ? (rpcs.push({ method: String(request.method), payload: obj(request.payload) }), {}) : { id: `3-${++serial}` }; } }; },
     async rpc(_native: Native, method: string, payload: Obj) {
@@ -422,6 +422,14 @@ describe('the host on the client', () => {
     expect(plans(sent)[0]).toMatchObject({ tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1') });
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
+  });
+  it('leaves the panel alone for an agent’s use when Auto-show floating preview is off (part 3’s setting, part 4’s row)', async () => {
+    const { client, sent } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }), clientSettings: { browserAutoShowFloatingPreview: false } });
+    previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
+    await automationPrepare(client, module);
+    expect(plans(sent)[0]).toMatchObject({ tabId: 'tab-1' });
+    expect(surfaceStore(client).panels.get('env-1:thread-1')?.visible ?? false).toBe(false);
+    expect(client.diffOpen).toBe(true);
   });
   it('sends a plan once, with the request’s host wait budget (the module’s deadline starts at its receipt)', async () => {
     const { client, sent } = await subscribed();

@@ -1131,7 +1131,8 @@ component T3Code
   action chatLocal(op: string, id: string, value: string)
     if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
-    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0)
+    // browser-surface part 3: Float preview closes the right panel too (handlePictureInPicture: rightPanelStore.close).
+    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating)
       rightPanelAt = ""
     // audit-wave-followups FU-3: a Files preview comment's ops have their own queued send. Its save inserts the composer's
     // chip, whose text change is the composer's `draft` write on localChanged: on one send, that write replaced the
@@ -1172,7 +1173,7 @@ component T3Code
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, shell.panel.deviceMini.key, shell.panel.deviceMini.show) as shape ChatCanvasView
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show) as shape ChatCanvasView
   resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer (terminal-drawer-view.ts)
   state titleDialog = false
   state confirmTitle = ""
@@ -1201,6 +1202,17 @@ component T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
+  // browser-surface part 3: ⌘Return in Annotate sends the composer with the annotation at once, whatever the panel shows
+  // (PreviewView onSendAnnotation); when Send cannot go, ChatView onSend says "Annotation attached to draft" instead.
+  state annotationSendHandled = 0
+  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
+    after(1, annotationSendNow)
+  action annotationSendNow
+    annotationSendHandled = shell.panel.annotationSend
+    if commandPending or not data.canSend or data.requestMode == "question"
+      chatLocal("surface-browser-annotation-held", "", "")
+    else
+      send()
   task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
     after(1, terminalCloseConfirm)
   action terminalCloseConfirm
@@ -1225,7 +1237,7 @@ component T3Code
   action toastHovering(over: bool)
     toastHover = over
   action toastAct(id: number, op: string, target: string, value: string)
-    toastDismissed = op == "copy" ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}`
+    toastDismissed = op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}` // browser-surface part 3: a screenshot's Copy and Reveal keep their toast
     if op == "copy"
       send localChanged = command("shelllocal:copy-error", `${id}`, value, 0)
     if op == "ui:settings" and not settingsOpen
