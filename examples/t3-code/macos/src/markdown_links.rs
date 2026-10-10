@@ -218,6 +218,62 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
         .collect()
 }
 
+/// Gives each run its `label`: every run of a link (its first run, `link-start`, and the next runs that keep its `href`,
+/// `link`) carries the whole link's text, as the reference's one `<a>` reads; every other run has "". FlowRuns draws a
+/// link word by word: the first word is the link node named with this text, and its other words, which carry the same
+/// label, are hidden from assistive tech (realinput-1010g RG-4). A link that starts with a code span draws no link
+/// node (FlowRuns' code box), so its runs keep "" and its words stay readable as text.
+fn link_labels(runs: Vec<Value>) -> Vec<Value> {
+    let field = |run: &Value, index: usize| match run {
+        Value::Record(fields) => fields
+            .get(index)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        _ => String::new(),
+    };
+    let mono = |run: &Value| match run {
+        Value::Record(fields) => fields.get(4).and_then(Value::as_bool).unwrap_or(false),
+        _ => false,
+    };
+    // The link the walk is in: its href and its label.
+    let mut link: Option<(String, String)> = None;
+    let mut labels = Vec::with_capacity(runs.len());
+    for (at, run) in runs.iter().enumerate() {
+        let kind = field(run, 6);
+        let href = field(run, 5);
+        if kind == "link-start" {
+            let mut label = field(run, 1);
+            for next in &runs[at + 1..] {
+                if field(next, 6) != "link" || field(next, 5) != href {
+                    break;
+                }
+                label.push_str(&field(next, 1));
+            }
+            let label = if mono(run) {
+                String::new()
+            } else {
+                label.trim().to_string()
+            };
+            link = Some((href, label));
+        } else if kind != "link" || link.as_ref().is_some_and(|(open, _)| *open != href) {
+            link = None;
+        }
+        labels.push(link.as_ref().map_or_else(String::new, |(_, label)| label.clone()));
+    }
+    runs.into_iter()
+        .zip(labels)
+        .map(|(run, label)| match run {
+            Value::Record(fields) => {
+                let mut fields = fields.to_vec();
+                fields.push(Value::str(&label));
+                Value::record(fields)
+            }
+            other => other,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod link_tests {
     use super::*;
@@ -434,6 +490,77 @@ mod link_tests {
                 .filter(|f| f[17] != Value::Number(-1.0))
                 .count(),
             6
+        );
+    }
+
+    /// realinput-1010g RG-4: every run of a link carries the whole link's text (the reference's `<a>` reads as one link;
+    /// FlowRuns names the first word's link node with it and hides the other words), other runs nothing; a link that
+    /// starts with a code span draws no link node, so its runs carry nothing and stay readable.
+    #[test]
+    fn a_links_runs_are_labelled_with_the_whole_link() {
+        let labelled = |text: &str| -> Vec<(String, String, bool, String)> {
+            let Value::Record(doc) = document(Value::str("a"), text) else {
+                panic!("document")
+            };
+            let Value::List(blocks) = &doc[1] else {
+                panic!("blocks")
+            };
+            let Value::Record(block) = &blocks[0] else {
+                panic!("block")
+            };
+            let Value::List(runs) = &block[7] else {
+                panic!("runs")
+            };
+            runs.iter()
+                .map(|run| {
+                    let Value::Record(fields) = run else {
+                        panic!("run")
+                    };
+                    assert_eq!(
+                        fields.len(),
+                        9,
+                        "id, text, weight, slant, mono, href, kind, icon, label"
+                    );
+                    let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
+                    (text(1), text(6), fields[4] == Value::Bool(true), text(8))
+                })
+                .filter(|(text, kind, _, label)| {
+                    kind.starts_with("link") || !label.is_empty() || text.contains("today")
+                })
+                .collect()
+        };
+        let row = |text: &str, kind: &str, mono: bool, label: &str| {
+            (text.to_string(), kind.to_string(), mono, label.to_string())
+        };
+        assert_eq!(
+            labelled(
+                "See [the docs](https://example.com/docs) and [more docs](https://example.com/docs) or https://example.com/x today."
+            ),
+            vec![
+                row("the ", "link-start", false, "the docs"),
+                row("docs", "link", false, "the docs"),
+                row("more ", "link-start", false, "more docs"),
+                row("docs", "link", false, "more docs"),
+                row(
+                    "https://example.com/x",
+                    "link-start",
+                    false,
+                    "https://example.com/x"
+                ),
+                row("today.", "", false, ""),
+            ]
+        );
+        // A code span after the link's first word is one of its runs; a link that starts with one has no link node.
+        assert_eq!(
+            labelled("Was [linked `$verify`](https://example.test/) and [`x` docs](https://example.com/c) today."),
+            vec![
+                row("linked ", "link-start", false, "linked $verify"),
+                row("$verify", "link", true, "linked $verify"),
+                row("x", "link-start", true, ""),
+                row(" ", "link", false, ""),
+                row("docs", "link", false, ""),
+                row("today.", "", false, ""),
+            ]
         );
     }
 }

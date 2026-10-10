@@ -110,9 +110,20 @@ describe('the reply link menu hookup', () => {
     const lines = markdown.split('\n');
     const links = lines.filter(line => line.includes('press=linkOpen("link", run.href)'));
     expect(links.length).toBe(4);
-    // The link-start run's text sits in a row with its globe, which carries the menu for both (a right-click bubbles to it).
-    expect(links.filter(line => line.includes('contextmenu=linkMenu(run.href)')).length).toBe(3);
-    expect(markdown).toContain('row contextmenu=linkMenu(run.href) flex-shrink=0 align-items="flex-start"');
+    expect(links.filter(line => line.includes('contextmenu=linkMenu(run.href)')).length).toBe(4);
+    // FlowRuns: a link's first word is the link node with its globe inside (ChatMarkdown's `<a>` holds the favicon), named
+    // with the whole link; the link's other words are hidden from assistive tech when it has that node, which their
+    // label says (a link that starts with a code span has none, and its label is "") (realinput-1010g RG-4).
+    const start = lines.find(line => line.trimStart().startsWith('link href=run.href press=linkOpen("link", run.href)'));
+    expect(start).toContain('contextmenu=linkMenu(run.href) aria-label=run.label');
+    expect(markdown).toMatch(/link href=run\.href press=linkOpen\("link", run\.href\)[^\n]*\n {12}box [^\n]*\n {14}TimelineIcon\(name="globe"[^\n]*\n {12}text run\.text white-space="pre"/);
+    const words = lines.filter(line => line.trimStart().startsWith('text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href)') && line.includes('white-space="pre"'));
+    expect(words.length).toBe(1);
+    expect(words[0]).toContain('aria-hidden=(run.label != "")');
+    // A code span inside a web link ("linked `$verify`") after its first word is hidden as its words are; not in a link
+    // that starts with code or in a pull request link (each of its words is its own link).
+    expect(markdown).toContain('box aria-hidden=(run.kind == "link" and run.label != "" and webLink(run.href) and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0) height="1.421875rem"');
+    expect(markdown).toMatch(/shape ChatRun\n(?: {2}[^\n]*\n)*? {2}label: string\n/);
     // Only a web link has the menu (ChatMarkdown: `if (!href || !faviconHost) return;`): each handler sits under a branch
     // that asserts webLink(run.href), so a mailto, irc, xmpp or fragment link leaves its click to the shell's menu.
     const indent = (line: string) => line.length - line.trimStart().length;

@@ -52,11 +52,19 @@ final class T3TextContextMenu: NSObject {
     /// What the last answered click showed (the agent's log line, and the tests).
     private(set) var lastShown: [String] = []
     /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
-    /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, which Electron's menu has not
-    /// (realinput-1010f RF-1).
+    /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
+    /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of (realinput-1010f RF-1,
+    /// realinput-1010g RG-3); nor Writing Tools, which macOS 15.2 and later add to a text view's menu where Apple
+    /// Intelligence is on.
     var present: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
-        menu.allowsContextMenuPlugIns = false
+        T3TextContextMenu.withoutSystemItems(menu)
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    /// The shell's menu holds only DesktopWindow's items: no Services, AutoFill or Writing Tools.
+    static func withoutSystemItems(_ menu: NSMenu) {
+        menu.allowsContextMenuPlugIns = false
+        if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
     }
     /// The editors that are a contenteditable in the reference (the composer, Settings › Appearance's prompt sample):
     /// their Select All stays enabled when they are empty, a text control's does not.
@@ -171,15 +179,25 @@ final class T3TextContextMenu: NSObject {
     /// The image under the pointer: an app view that draws one (`T3ShellImageView`), or a layer of the node that holds a
     /// bitmap (ExactKit's image layer); and that bitmap.
     static func image(at event: NSEvent, in hit: NSView) -> CGImage? {
+        if let image = drawnImage(at: event.locationInWindow, in: hit) { return image }
         let point = hit.convert(event.locationInWindow, from: nil)
-        for case let drawn as T3ShellImageView in hit.subviews where !drawn.isHidden && drawn.frame.contains(point) {
-            if let image = drawn.shellImage { return image }
-        }
         guard let layer = hit.layer else { return nil }
         for candidate in [layer] + (layer.sublayers ?? []) {
             guard let contents = candidate.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else { continue }
             let frame = candidate === layer ? hit.bounds : candidate.frame
             if frame.contains(point) { return (contents as! CGImage) }
+        }
+        return nil
+    }
+
+    /// An app-drawn image under `location` (window coordinates) anywhere below the node that took the click, topmost first:
+    /// the image lets presses through, and so may the node that holds it. The work group's tool icon is two levels down
+    /// (ToolActivityIcon's box › its `pointer-events="none"` hook box › `T3ToolActivityIcon`'s view), so the click is the
+    /// outer box's (realinput-1010g RG-1); Chromium's hit test for Copy Image passes `pointer-events: none` the same way.
+    static func drawnImage(at location: NSPoint, in view: NSView) -> CGImage? {
+        for child in view.subviews.reversed() where !child.isHidden && child.frame.contains(view.convert(location, from: nil)) {
+            if let drawn = child as? T3ShellImageView, let image = drawn.shellImage { return image }
+            if let image = drawnImage(at: location, in: child) { return image }
         }
         return nil
     }

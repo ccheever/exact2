@@ -71,7 +71,7 @@ component ChatHeader
             TipBubble(label=`New thread in ${data.projectName}`, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "crumb"))
           text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" flex-shrink=0
         when renaming
-          input value=renameText input=title("edit") key=title("key") blur=title("commit", "") submit=title("commit", "") id="header-rename" aria-label="Thread title" testId="header-rename" flex=1 min-width="2.5rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+          input value=renameText input=title("edit") key=title("key") blur=title("commit", "") submit=title("commit", "") id="header-rename" aria-label="Thread title" testId="header-rename" flex=1 min-width="2.5rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
         else
           when shell.serverThread
             // ChatHeader's title item is `min-w-10 flex-1`: it takes the room left after the
