@@ -1,0 +1,25 @@
+right-panel-escape, review of PR #403 (2026-10-10). The Files search's Escape, the URL field in a sheet, inline Browser and
+Diff. Reference: T3 Code Alpha 0.0.45 (1e2ecbd975) over CDP, lane right-panel-escape (backend 16600, CDP 16601).
+Clone: agent mode; before = evidence-base c03d7e908, after = this branch's bundle (one live drive and its one retry).
+
+T3 Code reference
+  inline 1280x840, Files, "app" typed in Search files, Escape   toggle aria-pressed true; search ""; focus BODY
+  sheet 900x840, Files, "app" typed in Search files, Escape     dialogs 0 (closed)
+    reopened with Toggle right panel                            search ""; the whole tree
+  (earlier record, escape-record.txt: inline Browser and Diff stay open; the sheet closes from the URL field)
+
+Clone (panel from the screenshots; field value read by `type files-search key Shift` after the step)
+                                                    before                         after                     reference
+  inline Files search "app", Escape                 panel closed (toggle's key)    stays; search ""; no focus  stays; search ""; BODY
+  sheet Files search "app", Escape                  sheet closed                   sheet closed                closed
+    reopened                                        search "app"                   search ""                   search ""
+  sheet Browser, URL field focused, Escape          sheet stays (field held it)    sheet closed (floats tab)   closed (floats tab)
+  inline Browser, URL field focused, Escape         stays                          stays                       stays
+  inline Browser, Escape at panel-toggle-right      closed (floats tab)            stays                       stays
+  inline Diff (Timeline verification), Escape at
+    panel-toggle-right                              closed                         stays                       stays
+  logs (after)                                      -                              no error lines              -
+
+First live drive (module-kept focus, discarded): inline Escape left "app" in the search and the sheet's Escape closed it
+through the toggle; the log showed "forget request 731 (localChanged)" when the first keystroke's send followed the
+focus's. The retry above runs the window-kept focus.
