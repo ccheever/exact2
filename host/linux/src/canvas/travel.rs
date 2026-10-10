@@ -111,6 +111,9 @@ pub(crate) struct Travel {
     turned: bool,
     /// Since the last collection pass.
     since_pass: f32,
+    /// Since the runner last heard where the view is (a pass, or
+    /// [`Travel::shows`]).
+    since_shown: f32,
     /// A pass's ms per row it built, smoothed (0: none measured).
     row_ms: f32,
 }
@@ -125,6 +128,7 @@ impl Travel {
             0.5 * (self.step + d)
         };
         self.since_pass += d;
+        self.since_shown += d;
         self.stepped = true;
         let toward = dy.signum();
         let last = self.steps.checked_sub(1).map(|i| self.recent[i]);
@@ -194,6 +198,22 @@ impl Travel {
         TIERS.get(usize::from(self.tier.checked_sub(1)?))
     }
 
+    /// Whether a pass that waits should tell the runner where the view is
+    /// (rows that came into it start what waited for that): under the
+    /// tiers below the last, each quarter `viewport` of travel, which is as
+    /// often as a pass ran, and said so, before those tiers waited longer.
+    /// (Under the last tier a row has always waited for its pass: telling
+    /// the runner each third step there cost heavy 10 to 15% of its exact
+    /// thread, a commit and a paint a row.)
+    pub(crate) fn shows(&mut self, viewport: f32) -> bool {
+        let due =
+            (1..TIERS.len() as u8).contains(&self.tier) && self.since_shown >= BATCH * viewport;
+        if due {
+            self.since_shown = 0.0;
+        }
+        due
+    }
+
     /// The reader asks for a pass: whether a step came since it last did
     /// (not its timer's ask once the steps pause, nor its ask for what a
     /// slice left).
@@ -250,6 +270,7 @@ impl Travel {
     /// Frames the scroll may move the last paint before one must paint to
     /// show it in time (0: paint now); `None` when that is not soon.
     pub(crate) fn passed(&mut self, lead: f32, soon: u32) -> Option<u32> {
+        self.since_shown = 0.0;
         let ahead = (lead - std::mem::take(&mut self.since_pass)).max(0.0);
         if self.step <= 0.0 {
             return None;
@@ -457,6 +478,27 @@ mod tests {
         let mut slow = moving(10.0, 8);
         slow.scrolled(-10.0, 8.0 * FRAME);
         assert!(!slow.turned());
+    }
+
+    #[test]
+    fn a_waiting_pass_says_where_the_view_is_each_quarter_viewport() {
+        // 3,000 dp/s (the first tier): 214 dp is nine steps.
+        let mut t = moving(25.0, 8);
+        assert!(!t.shows(858.0), "200 dp");
+        more(&mut t, 25.0, 8, 1);
+        assert!(t.shows(858.0));
+        assert!(!t.shows(858.0), "counted from there");
+        more(&mut t, 25.0, 9, 9);
+        assert!(t.shows(858.0));
+        // A pass says it too.
+        more(&mut t, 25.0, 18, 9);
+        t.passed(858.0, 6);
+        assert!(!t.shows(858.0));
+        // Not under the last tier, nor with no lead.
+        let mut fast = moving(100.0, 12);
+        assert!(!fast.shows(858.0));
+        let mut slow = moving(10.0, 40);
+        assert!(!slow.shows(858.0));
     }
 
     #[test]

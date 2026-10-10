@@ -52,10 +52,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
             // Nor does what its rows do as they come into view (a draw-in
             // animation waits for its row to show, and the runner learns that
             // a row shows from a report): the runner is told where the view
-            // is. Without it a row waited for the next pass, up to 21 steps
-            // at 6,000 dp/s, and crypto's rows came into view with their
-            // charts undrawn.
-            self.p.show_collection();
+            // is, as often as a pass did before the slower tiers waited
+            // longer ([`crate::travel::Travel::shows`]). Without it a row
+            // waited for the next pass, up to 21 steps at 6,000 dp/s, and
+            // crypto's rows came into view with their charts undrawn.
+            let viewport = (self.feed.and_then(|id| self.p.host().kernel().node(id)))
+                .map_or(self.viewport.1, |n| n.frame.height);
+            if self.travel.shows(viewport) {
+                self.p.show_collection();
+            }
             return false;
         }
         let started = std::time::Instant::now();
