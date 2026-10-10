@@ -1,0 +1,73 @@
+X69 record: no read lists the rendered nodes a paint role reaches
+exact2 main abc1eadff885e203b68021df6dea76c3d48faf20; PR #327 head 14493d25343529c47938085263935d5b30535071 (it changes nothing under contract/)
+macOS 26.6.2 (25G83), Apple Silicon
+
+== app.json: "data": ["paint"] (declares the data-paint word); app.ts exports an empty sources ==
+
+== app.contract ==
+component X69app
+  state rows = [0, 1]
+  state uses = "-"
+  action addRow
+    rows = concat(rows, [length(rows)])
+  action showUses
+    // T3 Code counts and outlines every element a colour role paints ("Accent · N uses").
+    // Contract's structural reads are frame(id), measure("id") and elementFromPoint(x, y).
+    uses = "no read lists the nodes with data-paint=accent"
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 display="flex" flex-direction="column" gap=8 background-color="#ffffff" color="#111111"
+      row gap=8
+        button press=addRow testId="add"
+          text "Add a row"
+        button press=showUses testId="uses"
+          text "Show Accent uses"
+      text `Accent: ${uses}` testId="out"
+      button id="save" data-paint="accent" background-color="#2563eb" color="#ffffff" testId="save"
+        text "Save"
+      each i in rows key=i
+        text `row ${i}` id=`row-${i}` data-paint=(i % 2 == 0 ? "accent" : "muted") color=(i % 2 == 0 ? "#2563eb" : "#71717a")
+
+== macOS, main: bun exact.mjs agent macos --size 420x260 "tap add" "tap add" "tap uses" "clock settle" tree ==
+epoch 5 · incarnation 1 · clock 0 ms · 13 nodes
+View#1 [root]
+  View#2
+    Control#3 [add] (press)
+      Text#4 "Add a row"
+    Control#5 [uses] [focused] (press)
+      Text#6 "Show Accent uses"
+  Text#7 [out] "Accent: no read lists the nodes with data-paint=accent"
+  Pressable#8 [save]
+    Text#9 "Save"
+  Text#10 "row 0"
+  Text#11 "row 1"
+  Text#12 "row 2"
+  Text#13 "row 3"
+
+== the same, --json tree: every node carries its data-paint (dataset) ==
+{"id":8,"type":"Pressable","props":{"testId":"save","id":"save","accessibilityRole":"button","dataset":"{\"paint\":\"accent\"}"}}
+{"id":10,"type":"Text","props":{"id":"row-0","text":"row 0","dataset":"{\"paint\":\"accent\"}"}}
+{"id":11,"type":"Text","props":{"id":"row-1","text":"row 1","dataset":"{\"paint\":\"muted\"}"}}
+{"id":12,"type":"Text","props":{"id":"row-2","text":"row 2","dataset":"{\"paint\":\"accent\"}"}}
+{"id":13,"type":"Text","props":{"id":"row-3","text":"row 3","dataset":"{\"paint\":\"muted\"}"}}
+
+== macOS, #327 head: same drive ==
+epoch 4 · incarnation 1 · clock 0 ms · 13 nodes
+View#1 [root]
+  View#2
+    Control#3 [add] (press)
+      Text#4 "Add a row"
+    Control#5 [uses] [focused] (press)
+      Text#6 "Show Accent uses"
+  Text#7 [out] "Accent: no read lists the nodes with data-paint=accent"
+  Pressable#8 [save]
+    Text#9 "Save"
+  Text#10 "row 0"
+  Text#11 "row 1"
+  Text#12 "row 2"
+  Text#13 "row 3"
+
+== compile: showUses with a list read (main and #327 alike) ==
+$ bun exact.mjs contract build x69-query.contract   # uses = `${length(querySelectorAll("[data-paint~=accent]"))} uses`
+x69-query.contract:9:22 [type-unknown-function] `querySelectorAll` is not in the stdlib roster and is not an action; data comes from a `resource`
+$ bun exact.mjs contract build x69-points.contract  # uses = `${length(elementsFromPoint(0, 0))} uses` (#321 is not built either)
+x69-points.contract:9:22 [type-unknown-function] `elementsFromPoint` is not in the stdlib roster and is not an action; data comes from a `resource`; did you mean `elementFromPoint`?
