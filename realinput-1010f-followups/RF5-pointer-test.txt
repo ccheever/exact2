@@ -1,0 +1,14 @@
+== before (feature tip T3ActivityReporter.swift, 596672b62; a stand-in T3ActivityPointer type so the test compiles)
+Test Case '-[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView]' started.
+examples/t3-code/macos/tests/activity/main.swift:154: error: -[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView] : XCTAssertFalse failed - the window does not send its moves to the first responder
+examples/t3-code/macos/tests/activity/main.swift:158: error: -[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView] : XCTAssertEqual failed: ("1") is not equal to ("0") - a move away from the focused view does not reach it
+examples/t3-code/macos/tests/activity/main.swift:160: error: -[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView] : XCTAssertNotNil failed - a tracking area over the window's content hears the pointer
+examples/t3-code/macos/tests/activity/main.swift:161: error: -[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView] : XCTAssertEqual failed: ("nil") is not equal to ("Optional(true)")
+examples/t3-code/macos/tests/activity/main.swift:165: error: -[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView] : XCTAssertGreaterThan failed: ("1791637360685.553") is not greater than ("1791637360685.553") - each move over the content is an interaction
+Test Case '-[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView]' failed (0.392 seconds).
+	 Executed 10 tests, with 5 failures (0 unexpected) in 2.463 (2.464) seconds
+
+== after (this branch)
+Test Case '-[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView]' started.
+Test Case '-[T3activityTests.ActivityTests testPointerMovesReachTheReporterAndNoFocusedView]' passed (0.382 seconds).
+	 Executed 10 tests, with 0 failures (0 unexpected) in 2.452 (2.454) seconds
