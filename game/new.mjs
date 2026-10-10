@@ -426,6 +426,10 @@ controls"): a \`button\` (native by default), \`list appearance="auto"\` with
 \`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
 date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
 and a route whose first child is a \`header\` holding one heading (the nav bar).
+The recipe to copy from is ${pathFrom(dir, resolve(ROOT, 'apps/shelf/app.contract'))}
+(and its \`app.ts\`, \`app.test.contract\`): an iPhone app written that way, with tabs,
+push, a sheet, a segmented control, header search, a long-press menu, swipe to
+delete, the system alert, pull to refresh, grouped lists, persistence and fetch.
 A screen scrolls only inside a \`scroll\`, a \`list\` or an \`overflow-y="auto"\` box; right after the
 header and named by the route's \`navigationScroll\`, it also collapses a large
 title. A sheet swipes down, and a pushed screen swipes back, only when the route
@@ -444,6 +448,8 @@ thing is instead (a \`header\` with its heading and buttons, \`role="heading"
 aria-level=1\` rather than a big \`font-size\`, a \`tablist\`). When you must colour
 something, name a role (\`CanvasText\`, \`AccentColor\`, \`-exact-secondary-label\`,
 \`-exact-separator\`, \`-exact-system-red\`; the agent guide lists them), never a hex.
+\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/no-tells.mjs'))} .\` lists every literal
+colour, font size and weight the app's \`.contract\` files still write.
 
 Match a reference's structure, controls and hierarchy, not its pixels: native
 controls set their own metrics. Don't measure sub-point positions; stop when it

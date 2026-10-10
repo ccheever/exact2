@@ -106,7 +106,7 @@ struct HeaderShape: Equatable {
         var tap: NodeView?, items: [NodeView] = []
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
-                if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
+                if child.isParagraph, child.headingLevel != nil {
                     headings.append(child)
                 } else if child.kind == "input", child.props["type"] == "search" {
                     search = search ?? child
@@ -129,7 +129,7 @@ struct HeaderShape: Equatable {
         guard headings.count == 1 else { return nil }
         self.header = header
         title = headings[0].accessibleText
-        level = Int(headings[0].props["accessibilityHeadingLevel"] ?? "") ?? 2
+        level = headings[0].headingLevel ?? 2
         leading = before
         trailing = after
         self.search = search

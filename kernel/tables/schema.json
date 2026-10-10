@@ -4016,6 +4016,31 @@
       "camera",
       "camera",
       "M3 8h4l2-3h6l2 3h4v12H3ZM16 13.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"
+    ],
+    [
+      "star",
+      "star",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "star-fill",
+      "star.fill",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "minus",
+      "minus",
+      "M5 12h14"
+    ],
+    [
+      "chart",
+      "chart.bar",
+      "M4 20h16M6 20v-7h3v7M10.5 20V5h3v15M15 20v-10h3v10"
+    ],
+    [
+      "sparkles",
+      "sparkles",
+      "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",

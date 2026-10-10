@@ -234,8 +234,10 @@ guide's rules don't make obvious.
   title) and an `input type="search"` (the bar's search field); a colour role
   (`-exact-secondary-label`, `AccentColor`, `-exact-grouped-background`) or nothing
   where you would write a hex. A hand-built lookalike of a system control is a bug.
-  Match a reference's structure and controls, not its pixels. (Exact-new iOS app
-  feedback, 2026-10-04; LLP 1115.)
+  Match a reference's structure and controls, not its pixels; copy
+  [`apps/shelf`](../apps/shelf/app.contract), the recipe, and run `bun
+  scripts/no-tells.mjs <app>`, which lists every literal colour, font size and weight
+  left. (Exact-new iOS app feedback, 2026-10-04; LLP 1115.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -285,6 +287,23 @@ guide's rules don't make obvious.
   saved record (refresh the resource after each write, or key the child by a string or
   number from the answer). (Authoring bench, LLP 1087, ios19, ios22 and ios32
   t7-wizard, 2026-10-05/06.)
+- **A grouped-list row you lay out loses its side insets, or its content runs off the
+  card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
+  its padding, and `padding="12px 0"` replaces all four sides, so the row's content
+  starts and ends at the card's edge; its children are a flex row, so a `column` or a
+  bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only, and
+  put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal rows).
+  (Shelf recipe, 2026-10-10.)
+- **A text field or `textarea` in a grouped-list row draws a rounded box inside the
+  card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s
+  rounded rect); a settings-style form's fields have none. Fix: `appearance="none"` on
+  a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
+  **Candidate fix:** the iOS host could drop the border of a field carried into a
+  list cell. (Shelf recipe, 2026-10-10.)
+- **A section `footer`'s colour is ignored.** A validation message written
+  `color="-exact-system-red"` in a footer shows in the footer's grey on iOS: the list
+  reads the footer's text, not its colour. Leave it grey (`apps/shelf` does) or put the
+  message in a row. (Shelf recipe, 2026-10-10.)
 
 ## Actions
 
@@ -467,7 +486,8 @@ guide's rules don't make obvious.
   with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
   children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
   which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
-  `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
+  `apps/shelf/app.contract`'s `BookRow` (`swipe-…`; `apps/messages` paints its own
+  circles in hex and is no model for the rest). (Ledger2 DIARY, "Needed:
   swipe gesture", about 15 minutes, 2026-10-04.) iOS refuses a row whose content is
   not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
   #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
@@ -530,6 +550,16 @@ guide's rules don't make obvious.
   LLP 1108, 2026-10-08.)
 
 ## Driving and testing
+
+- **An alert's action has not run by the next step on iOS.** `tap "remove-confirm"`
+  then `clock data` finds nothing removed, though a drive shows the press. Cause:
+  UIKit runs an alert button's handler after the alert has gone, a transition the
+  tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
+  after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
+  (Shelf recipe, 2026-10-10.)
+- **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
+  driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
+  as the drive's first operation. (Shelf recipe, 2026-10-10.)
 
 - **Asserting a boot loading state against a live backend is a race.** The
   real reply lands on real time, and under load it can arrive before the first

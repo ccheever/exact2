@@ -151,8 +151,18 @@ label selection, `NSSearchField` and the selected-text menu (3d4713c02; the syst
 was already drawn); D5 (29bd3dcd1 by the root's `navigate`, 6e78068b4 by the runner's
 `host_back` where there is none; `exact new`'s root names `navigationBack`, a92deb3eb);
 press feedback and `UISearchTextField` (edd4690de); D6 (b968df0d8, `showModal`/`close` on every
-host); D3's heading styles (2d26c223f). Still open: the recipe app and lint; Bold Text;
-`text aria-level` without `role="heading"`; the grouped list's fixed sizes as text styles.
+host); D3's heading styles (2d26c223f); the recipe app, `apps/shelf`, and its lint,
+`scripts/no-tells.mjs` (held by the app's `app.test.ts`), with what it found fixed on
+iOS: a `role="heading"` without `aria-level` is a level-2 heading to the bar and
+VoiceOver (it was neither, so a sheet's header stayed painted), a segmented control in a
+grouped-list row is judged where it shows (it was disabled), and a route's bar follows a
+grouped list drawn in its scroller's place (a large title over one never showed); symbol
+roles `star`, `star-fill`, `minus`, `chart`, `sparkles`. Still open: Bold Text; `text
+aria-level` without `role="heading"`; the grouped list's fixed sizes as text styles; and
+from the recipe, a determinate `progress` (`UIProgressView`), a stepper (`UIStepper`), an
+app-wide tint (`accent-color` on the root reaches the tab bar and controls, but a bar
+button takes only its own `color`; LLP 1095 D4's `theme`), swipe actions and context menus on
+grouped-list rows, borderless fields in list cells, and a footer's colour.
 
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac

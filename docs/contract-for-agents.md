@@ -940,7 +940,12 @@ See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
-drawn title bar) is a bug. On iOS:
+drawn title bar) is a bug. [`apps/shelf`](../apps/shelf/app.contract) is the recipe
+to copy for an iPhone app: tabs, a large title with a bar button and header search, a
+segmented filter, rows that push, a long-press menu, swipe to delete, the system
+alert, a sheet with Cancel and Save, pull to refresh, grouped lists, persistence and
+fetch, with its tests, in roles and text styles only. `bun scripts/no-tells.mjs <app>`
+lists any literal colour, font size or weight an app's `.contract` files still write. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
