@@ -1,0 +1,54 @@
+#!/bin/zsh
+# adopt-main-fixes-r8: one agent-mode drive of the clone's main surfaces (not committed). Usage: drive.sh <before|after>
+#   before: the evidence-base worktree (c03d7e908, main bc357d03c's framework and agent), lane adopt-main-fixes-r8-before
+#   after:  this worktree (main 1f127a788 merged), lane adopt-main-fixes-r8
+# Base port 16580: the clone's embedded server on 16582. Both lanes: the same seed, provider CLIs pinned to an absent
+# path, and a t3.json in the work project (Settings › Projects › Actions › Import scripts).
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r8
+MODE=${1:?before|after}
+if [ "$MODE" = before ]; then export EXACT_ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=adopt-main-fixes-r8-before
+else export EXACT_ROOT=$W; LANE=adopt-main-fixes-r8; fi
+OUT=$W/target/r8/drive/$MODE; rm -rf $OUT; mkdir -p $OUT; S=$OUT
+# Equal starts: a fresh clone T3 home from the seed (lane-init.sh), the same settings, a fresh agent store.
+S0=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/adopt-main-fixes-r8
+rm -rf $A/lanes/$LANE/clone-t3-home && $A/lane-init.sh $LANE
+cat > $A/lanes/$LANE/clone-t3-home/userdata/settings.json <<JSON
+{
+  "projectSettingsFolded": true,
+  "enableProviderUpdateChecks": false,
+  "providers": { "cursor": { "enabled": false }, "grok": { "enabled": false }, "opencode": { "enabled": false } },
+  "providerInstances": {
+    "claudeAgent": { "driver": "claudeAgent", "enabled": true, "config": { "customModels": [], "binaryPath": "$S0/absent/claude", "homePath": "", "launchArgs": "", "autoCompactWindow": "" } },
+    "codex": { "driver": "codex", "enabled": true, "config": { "binaryPath": "$S0/absent/codex", "homePath": "", "shadowHomePath": "", "launchArgs": "", "customModels": [] } }
+  }
+}
+JSON
+export CLONE_STORAGE=r8-$MODE-$(date +%s)
+WK="settings-scope-choice-project-ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720:$A/lanes/$LANE/projects/work"
+OPS=("clock +20000 real" "clock +3000 real"
+  # 1 the shell at launch
+  "screenshot $S/1-shell.png window" "tree" "tree --ax"
+  "tap toast-dismiss-1" "clock +600 real"
+  # 2 the Verification fixture's thread
+  "tap thread-verify-timeline" "clock +3000 real" "screenshot $S/2-thread.png window" "tree"
+  # 3 the transcript (a virtualized list, the runner's collection) scrolled back
+  "tap transcript wheel 0 -1600" "clock +1500 real" "screenshot $S/3-thread-scrolled.png window" "layout transcript"
+  # 4 the composer: a draft (never sent) and the model picker
+  "type composer adoption round eight" "clock +800 real"
+  "tap model-picker" "clock +1200 real" "screenshot $S/4-composer.png window" "tree model-picker"
+  "tap dismiss-model-picker" "clock +800 real"
+  # 5 the right panel's launcher
+  "tap toggle-right-panel" "clock +2000 real" "screenshot $S/5-right-panel.png window" "tree"
+  "tap panel-toggle-right" "clock +1200 real"
+  # 6 Settings (General), its accessibility tree (headings and levels)
+  "tap connection-settings" "clock +2500 real" "screenshot $S/6-settings.png window" "tree" "tree --ax"
+  "logs"
+  # 7 Settings › Projects on the work project, and Import scripts (its "Import from t3.json" label)
+  "tap settings-scope-project" "clock +800 real" "tap $WK" "clock +3000 real"
+  "tap settings-projects" "clock +2000 real"
+  "screenshot $S/7-projects.png window"
+  "tap import-scripts" "clock +1200 real" "screenshot $S/8-import-menu.png window" "tree --ax import-scripts-menu" "tree import-scripts-menu"
+  "logs")
+$A/clone-drive.sh $LANE 16580 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "drive exit $?" >> $OUT/agent.err
