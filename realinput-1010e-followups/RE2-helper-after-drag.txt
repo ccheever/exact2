@@ -1,0 +1,53 @@
+realinput-1010e-followups RE-2: the permission helper after a drag (2026-10-10)
+
+Reference show/hide rules (apps/desktop/src/permissions/MacPermissionHelper.ts, MacSettingsWindow.ts):
+        const syncPosition = () => {
+          if (window.isDestroyed()) return;
+          if (!trackingAvailable) {
+            window.hide();
+            return;
+          }
+          if (!settingsWindow && foundSettings) {
+            finish();
+            return;
+          }
+          if (!settingsWindow || (!settingsWindow.frontmost && !window.isFocused())) {
+            window.hide();
+            return;
+          }
+          const bounds = settingsHelperBounds(settingsWindow);
+          const current = window.getBounds();
+          if (
+            current.x !== bounds.x ||
+            current.y !== bounds.y ||
+            current.width !== bounds.width ||
+            current.height !== bounds.height
+          ) {
+            window.setBounds(bounds, false);
+          }
+          if (!window.isVisible()) window.showInactive();
+        };
+        let stopTracking = () => {};
+        window.on("blur", syncPosition);
+    ... watchMacSettingsWindow: one osascript (JXA) process polls System Settings every 0.5 s (frontmost) or 1 s and
+    writes a line only when the reading changes (MacSettingsWindow.ts:21-57); syncPosition runs on each line and on blur.
+
+Clone (modules/apple/T3PermissionHelper.swift): the same rules (sync: hide unless Settings is frontmost or the panel is key;
+resignKey -> sync; a reading reported only when it changes; finish on grant, close, Escape, Settings closed, owner closed).
+One difference: the clone polled with a Timer in the default run-loop mode only, so a drag from the helper (AppKit's
+event-tracking loop) or an open menu held every reading back until it ended, while the reference's tracker is its own
+process. The timer now runs in the common modes.
+
+AppKit check (macos/tests/snapshot permission-helper.swift: a change while RunLoop.main runs in .eventTracking for 0.6 s):
+  before (timer in .default):
+    T3snapshotTests/permission-helper.swift:6: Fatal error: a change is reported while a drag's tracking loop runs
+  after  (timer in .common):
+    58 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)
+
+The first press (RE-1): the reference's page takes the click that activates T3 Code (always-on-top, Chromium kAlways), so its
+drag also starts on the first press, as the clone's does; that part of RE-2 matches the reference.
+
+Not shown by any code read: why the helper did not come back after the next click on System Settings in realinput-1010e
+(its r9 log has a second press on the row whose release landed in the list with the panel no longer key). With R9_INPUT_LOG
+set, the clone now writes each reading, show, hide (and why) and finish (and why), the panel's key changes and the drag's
+start and end to that log ('<time> helper <event>'), so the next session can tell a hidden helper from a closed one.
