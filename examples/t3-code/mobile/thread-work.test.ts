@@ -163,3 +163,51 @@ test('expanded reasoning uses existing Markdown/code blocks while commands remai
   setTurnItemOpen(commands, activity.id, true);
   expect(mobileThreadRows(commands, now).flatMap(row => row.activities)[0]).toMatchObject({ reasoningBlocks: [], output: markdown });
 });
+
+function forkRow(source = 'source', target = 'thread'): Obj {
+  return { sourceThreadId: source, sourceItemId: 'fork-item', visibility: 'synthetic', item: { id: 'fork-item',
+    threadId: target, runId: null, status: 'completed', title: 'Forked from conversation', updatedAt: time, type: 'fork',
+    source: { type: 'run', threadId: source, runId: 'source-run' }, targetThreadId: target } };
+}
+test('fork lifecycle discloses the actual projection locally and leaves selection and unsent drafts intact', async () => {
+  const row = forkRow(), client = clientFor([row]), key = '["source","fork-item"]';
+  client.local.drafts[client.draftKey] = '  '; const calls: unknown[] = [];
+  const bridge: Native = { available: true, watch() {}, async later(input) { calls.push(input); return { ok: true, value: {}, generation: 1 }; } };
+  const collapsed = mobileThreadRows(client, now);
+  expect(collapsed).toHaveLength(1);
+  expect(collapsed[0]).toMatchObject({ kind: 'fork', title: '', body: '', blocks: [], showMeta: false, toggleOp: '' });
+  expect(collapsed[0]!.activities).toHaveLength(1);
+  expect(collapsed[0]!.activities[0]).toMatchObject({ id: key, label: 'thread', symbol: 'bolt', expanded: false, expandable: true, body: '', output: '', loading: false });
+  await chatLocal(client, bridge, 'item-detail', key, 'open');
+  const expanded = mobileThreadRows(client, now)[0]!.activities[0]!;
+  expect(expanded.expanded).toBe(true);
+  expect(JSON.parse(expanded.body)).toEqual(row);
+  expect(expanded.body).toContain('\n  "visibility": "synthetic",');
+  expect(mobileThreadRows(client, now)[0]!.blocks).toEqual([]);
+  expect(client.threadId).toBe('thread'); expect(client.draft).toBe('  ');
+  expect(calls).toEqual([]);
+  expect(await refreshNextOpenTurnItemDetail(client, bridge, now)).toBe(false);
+  await chatLocal(client, bridge, 'item-detail', key, 'closed');
+  expect(mobileThreadRows(client, now)[0]!.activities[0]).toMatchObject({ expanded: false, body: '' });
+  expect(calls).toEqual([]);
+});
+test('fork disclosure distinguishes inherited source identities and selected environments and threads', async () => {
+  const client = clientFor([forkRow('first'), forkRow('second')]);
+  await chatLocal(client, native, 'item-detail', '["first","fork-item"]', 'open');
+  const shown = () => mobileThreadRows(client, now).flatMap(row => row.activities);
+  expect(shown().map(row => [row.id, row.expanded])).toEqual([['["first","fork-item"]', true], ['["second","fork-item"]', false]]);
+  client.threadId = 'another-thread'; expect(shown().every(row => !row.expanded)).toBe(true);
+  client.threadId = 'thread'; client.environmentId = 'another-env'; expect(shown().every(row => !row.expanded)).toBe(true);
+});
+test('fork detail retains actual values with source schema field order after native dictionary transport', () => {
+  const row = forkRow(), original = obj(row.item);
+  row.item = { targetThreadId: original.targetThreadId, source: { runId: 'source-run', threadId: 'source', type: 'run' },
+    type: 'fork', updatedAt: time, title: 'Forked from conversation', status: 'completed', runId: null, threadId: 'thread', id: 'fork-item' };
+  const client = clientFor([row]); setTurnItemOpen(client, '["source","fork-item"]', true);
+  const text = mobileThreadRows(client, now)[0]!.activities[0]!.body;
+  expect(JSON.parse(text)).toEqual(row);
+  expect(text.indexOf('"id":')).toBeLessThan(text.indexOf('"threadId":'));
+  expect(text.indexOf('"updatedAt":')).toBeLessThan(text.indexOf('"type": "fork"'));
+  expect(text).toContain('"source": {\n      "type": "run",\n      "threadId": "source",\n      "runId": "source-run"\n    }');
+  expect(text).not.toContain('"nodeId"'); expect(text).not.toContain('"providerThreadId"');
+});
