@@ -211,6 +211,19 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
   });
 });
 
+describe('realinput-1010d RD-5: the snooze menu sizes to its rows', () => {
+  test('MenuPopup\'s one minimum (min-w-[min(10rem,…)]), no fixed width: "Next week" and "Mon 9:00 AM" fit inside', async () => {
+    // A fixed 10.8rem cut the widest time at the menu's edge; the reference's menu is 192 px wide on a weekday.
+    const row = await component('sidebar-row.contract', 'ThreadRow');
+    const menu = row.split('\n').find(line => line.includes('aria-label="Snooze thread" position="absolute"')) ?? '';
+    expect(menu).toContain('position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem"');
+    expect(menu).not.toMatch(/\swidth=/);
+    const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
+    expect(item).toContain('text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0');
+    expect(item).toContain('text detail margin-left="auto" font-size="0.75rem" line-height="1rem" font-weight=500 letter-spacing="0.075rem" color="light-dark(#71717b, #818181)" white-space="nowrap"');
+  });
+});
+
 describe('#298 bugs 6 and 5: Escape goes to the palette over Custom snooze, and the dialog gets its focus back', () => {
   test('covered by the palette, the dialog declares no Escape, so the palette\'s own takes it first', async () => {
     const dialog = await component('sidebar-overlays.contract', 'SidebarSnoozeDialog');

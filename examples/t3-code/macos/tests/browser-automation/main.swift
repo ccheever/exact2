@@ -275,6 +275,46 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(js(session.web, "window.clicks") as? Int, 4)
     }
 
+    /// realinput-1010d RD-3: in the panel the page sits in the stage's flipped host (`T3BrowserView.Host`), scaled to fit
+    /// (a 1280 × 800 Responsive viewport in a narrower panel). The agent's cursor lands on the target there, tip up, as
+    /// AgentBrowserCursor puts it at the point; it sat at the page's height minus the target's y.
+    func testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost() throws {
+        let session = page(visible: false)
+        let host = T3BrowserView.Host(frame: NSRect(x: 40, y: 30, width: 640, height: 400))
+        window.contentView!.addSubview(host)
+        host.setFrameSize(NSSize(width: 640, height: 400))
+        host.fitScale = 0.5
+        session.web.frame = host.bounds
+        host.addSubview(session.web)
+        spin(until: { false }, timeout: 0.3)
+        XCTAssertEqual(session.web.bounds.width, 1280, accuracy: 0.5, "the page lays out at the viewport, drawn at half size")
+        for (selector, label) in [("#go", "Go"), ("#name", "the Name field")] {
+            let point = js(session.web, "(() => { const r = document.querySelector('\(selector)').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()") as? [Double] ?? [0, 0]
+            _ = result(run(plan("click", ["locator": "css=\(selector)"])))
+            let cursor = try XCTUnwrap(session.web.layer?.sublayers?.first { $0.name == "t3-agent-cursor" })
+            let arrow = try XCTUnwrap(cursor.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
+            // Through the layer tree to the window's content layer (y up), against AppKit's own view conversion.
+            let content = window.contentView!, contentLayer = try XCTUnwrap(content.layer)
+            let scale = session.web.pageZoom * session.web.magnification
+            let target = session.web.convert(NSPoint(x: point[0] * scale, y: session.web.isFlipped ? point[1] * scale : session.web.bounds.height - point[1] * scale), to: nil)
+            let expected = content.convertToLayer(content.convert(target, from: nil))
+            let tip = session.web.layer!.convert(cursor.position, to: contentLayer)
+            XCTAssertEqual(tip.x, expected.x, accuracy: 1, "\(label): the tip's x")
+            XCTAssertEqual(tip.y, expected.y, accuracy: 1, "\(label): the tip's y (\(tip) against \(expected))")
+            var drawn: [CGPoint] = []
+            arrow.path?.applyWithBlock { element in
+                if element.pointee.type == .moveToPoint || element.pointee.type == .addLineToPoint { drawn.append(element.pointee.points[0]) }
+            }
+            XCTAssertEqual(drawn.count, 4)
+            let arrowTip = arrow.convert(drawn[0], to: contentLayer), arrowBase = arrow.convert(drawn[1], to: contentLayer)
+            XCTAssertGreaterThan(arrowTip.y, arrowBase.y, "\(label): the arrow points up, its tip above its foot")
+            XCTAssertEqual(arrowTip.x, tip.x, accuracy: 1.5)
+            XCTAssertEqual(arrowTip.y, tip.y, accuracy: 1.5, "the tip is the cursor's point")
+        }
+        session.web.removeFromSuperview()
+        host.removeFromSuperview()
+    }
+
     func testAClickOnAPageInNoWindowIsDOMEvents() {
         let session = page(visible: false)
         _ = result(run(plan("click", ["locator": "role=button[name='Go']"])))

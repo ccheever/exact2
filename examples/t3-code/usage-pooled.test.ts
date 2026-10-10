@@ -521,12 +521,12 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
       (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
     }
-    // browser-surface-capture (realinput-1010c): the floating player's handle hears `pointermove` for its pill's tooltips
-    // (its buttons hear no hover, X62); a press there is the player's drag or a pill button's, and the Usage page's
-    // popover is never on screen with the chat's floating player.
+    // browser-surface-capture (realinput-1010c, 1010d RD-1): the floating player hears `pointermove` for its pill and the
+    // pill's tooltips (its buttons hear no hover, X62); a press there is the page's, the player's drag or resize, or a pill
+    // button's, and the Usage page's popover is never on screen with the chat's floating player.
     expect(takers).toEqual([
       'app-window.contract t3-code',
-      'browser-capture.contract browser-mini-handle',
+      'browser-capture.contract browser-mini-player',
       'pages-usage.contract usage-page',
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',

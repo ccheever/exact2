@@ -165,8 +165,10 @@ component ThreadRow
                     CnMachineIcon(kind=t.remoteMachine, size=14, color="light-dark(#71717bb3, #818181b3)")
                 SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
           when t.canSnooze
-            column id=`snooze-${t.id}` popover="auto" role="menu" aria-label="Snooze thread" position="absolute" top=0 left=0 width="10.8rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
-              // The glass's blur does not reach the popover layer: a denser tint stands in for it.
+            column id=`snooze-${t.id}` popover="auto" role="menu" aria-label="Snooze thread" position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
+              // MenuPopup sizes to its content from one minimum (min-w-[min(10rem,…)]): "Next week" and its "Mon 9:00 AM" fit
+              // (realinput-1010d RD-5; a fixed 10.8rem cut the time at the menu's edge). The glass's blur does not reach the
+              // popover layer: a denser tint stands in for it.
               KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)
                 each preset in presets key=preset.id
                   SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""), inside=snoozeInside, pointer=snoozePointer)
