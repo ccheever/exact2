@@ -244,7 +244,7 @@ Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, 
 user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. In flight: markdown-links-and-files-preview,
 usage-and-pr-pages, model-picker-parity, audit-wave-followups (#372), realinput-1010-fixes, and Browser parts 3 (#349)
 and 4 (#354), which merge the base after #352 and re-drive. Queued: [audit-wave-followups-2](tasks/closed/20261010-audit-wave-followups-2.md),
-then [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
+then [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md) and main adoption round 7 (user, 2026-10-10:
 flatten after the fix waves). New local framework draft: [X70](issues/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
@@ -253,7 +253,7 @@ real lane accounts; #227/#228 stay with the user.
 Coordinator additions:
 - [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
   (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.
-- [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
+- [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
   2 MiB test-thread limit (X67, main `issues/20261009-compiler-small-stack-depth.md`), which unblocks main adoption
   round 7 and #99's clean candidate. After the wave that is in flight when it starts (it touches many `.contract` files).
 - Open Browser PRs: #352 waits for one real-input row (Rotate/Lock on `26f5c9066`; the 2026-10-09 evening try stopped when
