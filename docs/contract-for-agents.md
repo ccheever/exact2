@@ -965,6 +965,15 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
 
+On iOS, keep `select` and date/time inputs native: leave `appearance` unset or
+write `appearance="auto"`, and put backgrounds, borders and corners on a surrounding
+row. `appearance="none"` removes their native control, including its displayed
+value and picker; it does not leave an editable bare text field. Custom select
+presentation (`appearance: base-select`) is deferred ([LLP 1069.001 D6](../llp/1069.001-form-controls.rfc.md#d6--styling-appearance-and-accent-color)).
+The driver's `type` can still set a control removed from the screen, so a passing
+value assertion does not prove a person can choose an option or date. Verify the
+picker with a finger on the target platform.
+
 `contract vocab <name>` lists each one's props. A route does not scroll by
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the

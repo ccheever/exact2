@@ -940,6 +940,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+- **An iOS select or date field is blank and does not open, although `type` passes.**
+  `appearance="none"` removes these native controls from the screen. It does not
+  keep a bare picker, as it keeps an editable text field. Leave `appearance` unset
+  or use `appearance="auto"`; move box paint to a surrounding row. The driver's
+  `type` can still set the removed control, so verify the picker with a finger.
+  Custom select presentation is deferred in [LLP 1069.001 D6](../llp/1069.001-form-controls.rfc.md#d6--styling-appearance-and-accent-color).
+
 ## Access hatches
 
 - **A view a hatch adds on macOS hears no click while its window is not key.**
