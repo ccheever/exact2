@@ -59,7 +59,6 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let gen = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
-        case "mobileAttachmentSource": chooseSource(request, reply: reply)
         case "composerAttachPick": pick(request, reply: reply)
         case "composerAttachRead", "snapshotDraftRead":
             let image = request["op"] as? String == "snapshotDraftRead"
@@ -180,31 +179,6 @@ final class T3MobileAttachments: NSObject, PHPickerViewControllerDelegate, UIDoc
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw T3ComposerPasteError.recovery }
         try replace(bytes, destination)
         try T3MobileIncomingShares.sync(drafts); try T3MobileIncomingShares.sync(snapshots); try T3MobileIncomingShares.sync(dataRoot)
-    }
-
-    private func chooseSource(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
-        let gen = request["generation"] as? Int ?? 0
-        guard completion == nil else { reply(failure("An attachment picker is already open.", generation: gen)); return }
-        guard request["supportsFiles"] as? Bool == true else {
-            reply(["ok": true, "generation": gen, "value": ["source": "photos"]]); return
-        }
-        guard imports == nil else {
-            reply(failure("An agent drive must choose photos or files explicitly.", generation: gen)); return
-        }
-        guard let presenter = activePresenter() else { reply(failure("There is no active window for this picker.", generation: gen)); return }
-        generation = gen; completion = reply
-        let menu = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        picker = menu
-        for (source, title) in [("photos", "Photo Library"), ("files", "Choose Files"), ("", "Cancel")] {
-            menu.addAction(UIAlertAction(title: title, style: source.isEmpty ? .cancel : .default) { [weak self] _ in
-                guard let self else { return }
-                let done = self.completion; self.completion = nil; self.picker = nil
-                done?(["ok": true, "generation": gen, "value": ["source": source]])
-            })
-        }
-        menu.popoverPresentationController?.sourceView = presenter.view
-        menu.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.maxY - 44, width: 1, height: 1)
-        presenter.present(menu, animated: true); menu.presentationController?.delegate = self
     }
 
     /// Native-only intake context. Its coordinator reserves cleanup ownership before any canonical write.

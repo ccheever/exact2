@@ -1053,7 +1053,8 @@ component App
   action openMedia(id: string)
     mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
-  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + now()) as shape ComposerAttachmentsSnapshot
+  derive attachmentMenuActive = top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskData.canSelect) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
+  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + now(), `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
   mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
   task prepareComposerPreviews when (top(nav).name == "thread" or top(nav).name == "newTaskDraft" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and composerAttachments.previewRequest != "" and not pending(composerPreviewsPrepared) key=`${composerAttachments.contentOwner}:${composerAttachments.previewRequest}`
     after(1, loadComposerPreviews)
@@ -1061,10 +1062,10 @@ component App
     send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + now())
   action removeAttachment(kind: string, id: string, owner: string)
     lastOperation = "attachments"
-    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner)
-  action pickAttachments(owner: string)
+    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
+  action pickAttachments(value: string)
     lastOperation = "attachments"
-    send changed = attachmentAction("menu", "", taskGuardOwner, taskGuardRoute, owner)
+    send changed = attachmentAction("choice", value, taskGuardOwner, taskGuardRoute, composerAttachments.contentOwner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
   action openModelSettings
     modelQuery = ""
     modelFilter = ""

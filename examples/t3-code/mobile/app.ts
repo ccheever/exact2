@@ -54,7 +54,8 @@ import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead
 import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
 import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
-import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
+import { mobileComposerAttachmentAction, mobileComposerAttachmentPreviews } from './composer-attachments';
+import {mobileComposerAttachmentMenuAction,mobileComposerAttachmentMenuSnapshot} from './composer-attachment-menu';
 // @ref llp/1109.003-pairing-and-transport.decision.md#decision
 import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
@@ -490,12 +491,13 @@ const sources: Sources = {
   },
   attachmentAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('attachmentAction', args, nativeInput);
-    return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!, mobileClient, str(args[4]));
+    if(args[0]==='choice')return mobileComposerAttachmentMenuAction(str(args[1]),{visit:str(args[5]),url:str(args[6]),active:args[7]===true},str(args[4]),native,storage!);
+    return mobileComposerAttachmentAction(String(args[0] ?? ''), String(args[1] ?? ''), native, storage!, mobileClient, str(args[4]));
   },
   composerAttachments: (args, _store, storage, nativeInput) => {
-    if (newTaskGuard('composerAttachments', args)?.() === false) return { contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
-    const native = sourceNative('composerAttachments', args, nativeInput);
-    return mobileComposerAttachments(mobileClient, Number(args[3]));
+    if (newTaskGuard('composerAttachments', args)?.() === false) return { menuConfiguration:'', contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
+    sourceNative('composerAttachments', args, nativeInput);
+    return mobileComposerAttachmentMenuSnapshot(mobileClient,{visit:str(args[4]),url:str(args[5]),active:args[6]===true},Number(args[3]));
   },
   composerPreviewsPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('composerPreviewsPrepare', args, nativeInput);

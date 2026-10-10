@@ -151,12 +151,6 @@ export async function mobileComposerPickerAction(client:T3Client,source:string,i
         return '';
       }
       if(!client.projectId)throw fail('Choose a project first.');
-      if(source==='menu'){
-        const answer=await bridgeReply(native,{op:'mobileAttachmentSource',supportsFiles:mobileComposerPickerFileLimit(client,'files')>0});
-        if(!answer.ok)throw fail(answer.error!.message);
-        if(str(obj(answer.value).error))throw fail(str(obj(answer.value).error));source=str(obj(answer.value).source);
-        if(!source)return '';
-      }
       if(!current(client,captured))throw fail();
       if(source!=='photos'&&source!=='files')throw fail('Choose Photo Library or Choose Files.');
       const draft=mobileComposerContextPickerRead(client,captured.intent.target);if(!draft)throw fail();

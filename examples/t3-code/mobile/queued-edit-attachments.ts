@@ -14,6 +14,7 @@ import { mobileComposerStageSelection } from './voice-data';
 import { mobileComposerTarget } from './composer-target';
 import { queuedEditImageMime } from './queued-edit-upload';
 const picking = new WeakSet<T3Client>();
+export const mobileQueuedEditAttachmentPicking=(client:T3Client):boolean=>picking.has(client);
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 async function invoke(native: Native, input: Obj): Promise<Obj> {
   const reply = await bridgeReply(native, input);
@@ -57,10 +58,6 @@ export async function mobileQueuedEditAttachmentAction(source: string, id: strin
         if (letGo(error)) throw error; return { start: edit.text.length, end: edit.text.length };
       });
       current();
-      if (source === 'menu') {
-        const selected = await invoke(native, { op: 'mobileAttachmentSource', supportsFiles: fileLimit > 0 });
-        source = str(selected.source); if (!source) return result(); current();
-      }
       if (!['photos', 'files'].includes(source)) throw new ClientError('Choose Photo Library or Choose Files.');
       if (source === 'files' && !fileLimit) throw new ClientError('This server does not support file attachments.');
       const remaining = Math.max(0, 100 - current().attachments.length - current().existingAttachments.length);
