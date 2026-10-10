@@ -1,0 +1,57 @@
+realinput-1010f. Bundle target/clients/59162dd9bd2b20489cc6c0e4/com.exact.t3code.macos/macos/T3 Code (Exact).app, built at d057787cb
+(ri-build-d057787cb.log exit 0; development). Lane copies com.exact.t3code.macos.ri1010f-1 (RD rows: lane-only fake ACP agent
+"Lane browser agent", fixture page on 127.0.0.1:16961, server 16960) and ri1010f-2 (RE rows: server 16970, browser fixture,
+claude pinned to a refusing lane fake, codex absent; GitHub lane server 127.0.0.1:16760 paired). open -n --env, homes in the
+scratchpad. Pointer moves for hover rows: a guarded no-activation mover (refuses unless the lane is front and owns the point).
+
+ROW 1, #400 (20261010-realinput-1010d-followups.md)
+RD-1 PASS. Composer -> the player's dot in one 8-step move, rest 1 s: pill shows 3 of 3. Onto Pop: its tooltip after the delay,
+  pill stays. Onto the page: pill hides. From the dot up-right in one quick move: pill hides.
+RD-2 PASS (positions), sizes differ from the record's numbers because the agent's tab is 1280x800 (landscape player):
+  start 984,666 320x200. Pill padding drag (-300,-200) -> 964,466 320x200 (moved -20,-200: x barely moves; noted).
+  NW grip (-80,-80) -> 871,408 413x258 (aspect kept, SE corner fixed). Toggle right panel: panel shows the tab, player hidden.
+  Panel's Toggle right panel: player back at 871,408 413x258. Pill's Open in right panel, then Toggle right panel: the
+  default corner, 984,666 320x200.
+RD-3 PASS. "bsn cursor http://127.0.0.1:16961/form" (tab 1280x800 Responsive): the arrow's tip sits on Go, inside the Name
+  field and on "Page B" with a ping at each; no offset below (films F1-RD3-*; agent results jsonl).
+RD-4 PARTIAL. Drag-select "Scenario cur" in the timeline, right-click inside: Cut (dimmed) Cmd-X, Copy Cmd-C, Paste (dimmed)
+  Cmd-V, Select All Cmd-A, no Look Up, no Speech; but a separator and "Services >" follow (the record says no Services).
+  Escape: no second menu (0 menus at +0.5/1/1.5 s). Copy then Cmd-V in the composer: "Scenario cur". Right-click in a new
+  selection, Select All: the timeline text is selected. Sidebar row: its thread menu (New thread on..., Pin, Settle, Snooze,
+  Rename, Regenerate title, Mark unread, Filter by work, Auto-settle, Copy, Project settings, Archive, Delete). Composer: the
+  AppKit text menu (Cut/Copy dimmed, Paste, Paste and Match Style, Font, Spelling and Grammar, Substitutions, Speech, Layout
+  Orientation, AutoFill). Links (agent message and user message): no menu at all (no ExactKit menu either).
+  Clipboard: was empty before, restored empty after.
+
+ROW 2, #406 (20261010-realinput-1010e-followups.md)
+RE-1 PASS (confirmation). Probe pid recorded, --hold 40000. System Settings front, one click on the panel row: app
+  did-become-active, window focus, page mousedown on #app, page click on #app. Press-drag-back-release: did-become-active
+  (12:25:04.892) then mousedown, then page dragstart (12:25:05.101), drag-request, startDrag returned: the reference is front
+  on press, before the drag starts. The probe quit by itself.
+RE-2 PASS. SnapShots > Set up > Allow (Screen Recording): System Settings on Screen & System Audio Recording, helper docked
+  (show at 555,100 475x140). (a) one click: Finder front with the lane bundle selected, helper hidden; click System Settings:
+  helper back. (b) press, drag into the list and back, release, click System Settings' sidebar: "helper blur", "hide: Settings
+  covered, helper not key", then 0.44 s later "reading ... frontmost: true", "show at ..." (docked). Nothing added to the list.
+  macOS raised "T3 Code (RI1010f 2)" would like to record ... (Open System Settings / Deny); not needed by the row; pressed
+  Deny after the row was done (lane id reset at cleanup).
+RE-3 PASS. Chip click after "now": details open, chip selected (AXSelectedTextRange 0,16, tinted, no caret). Escape: details
+  close, range stays 0,16. Type x: "x now", caret after x (1,0).
+RE-4 PASS. Add profile > Chrome > Cancel by pointer: AXFocusedUIElement "Add profile", no ring. By keys: Down (Blank
+  profile), Down (Chrome), Return (wizard), Escape: wizard closed, focus and ring on Add profile.
+  (While the wizard was open AXFocusedUIElement still reported "Add profile".)
+RE-5 Code tab PASS; #308 step 2 FAIL (drag), the rest of step 2 PASS except Discard.
+  Paired 127.0.0.1:16760 (Connected). PR #168 > Code: files load, no HTTP 503 (100 files+, 310 after Load more).
+  Viewed on assets/logo.png: 0 -> 1/100; Refresh pull requests ~1 s later: still ticked; GitHub read back VIEWED;
+  unticked: GitHub back to all UNVIEWED.
+  #308 step 2: press in docs/usage.md's gutter at new line 3 (on the + and on the number), drag to line 5, release (3 tries):
+  no lines paint, no draft; during the drag the gutter hover stays on line 3; r9 down/up hit NodeView (no id).
+  A click on line 3's + opens "Comment on lines docs/usage.md:3"; "lane check", Cmd-Return: pending card + badge 1;
+  a second draft (line 7), Escape: closed, still 1 pending; no GitHub write (no pending review on GitHub; the only gh call in
+  that window was a read before the click). "Discard this comment" (trash) on the pending card: two real clicks, no effect.
+RE-6 DONE (diagnostic). Usage > Cost > 30 days. The first hover after pressing Cost opened the popover; a 1 pt move closed it
+  (bad state) -> Opt-Cmd-T at once: alert "Trace" with the file. Trace 1 journal: the 1 pt move gives hover out view 14006
+  (enterSeg#9291, the (i)) -> hover in view 13954 (hover#9308, the Cost metric segment that took the press, usageMetricSet)
+  -> 67 ms later hover out 13954 -> hover in 14006. Then hover stopped opening it: trace 2 (Opt-Cmd-T while resting on the
+  (i) with nothing open): every pointer step alternates hover in/out between 14006 and 13954 (2-20 ms apart), and the last
+  event at rest is "hover in view 13954", so the (i) stays out. View 13954's hover region claims the (i)'s point although the
+  segment is at 758..810 x 52..76. No popup hover box (1019-style) appears in either.
