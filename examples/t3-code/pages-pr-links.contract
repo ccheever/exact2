@@ -61,7 +61,7 @@ component PrdLinkedCount
     over = value
   view
     Tip(label=links.countTip, side="top", align="center", offset=20)
-      button id="pull-request-linked-threads" press=act("links", "linked") hover=hover aria-label=links.countLabel testId="pull-request-linked-threads" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over ? plAccent() : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button id="pull-request-linked-threads" press=act("links", "linked") hover=hover aria-label=links.countLabel testId="pull-request-linked-threads" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over ? plAccent() : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
           PgIcon(name="message-square", size=14, color=plMuted())
         text links.countText font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=plInk() aria-hidden=true testId="pull-request-linked-threads-count"

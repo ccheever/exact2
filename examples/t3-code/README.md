@@ -376,8 +376,10 @@ root's (`…Root`). Feature areas live in their own files
 (`sidebar-*`, `timeline-*`, `composer-*`, `shell-*`, `pages-*`, `settings-*`,
 `palette*`, `r3-*`), each `.ts` with its Contract view and tests. `client.ts`,
 `protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and
-event projection. A labelled icon-only `button` says `title=""`: since LLP 1115 the Mac host
-shows such a button's `aria-label` as its help tag, and the reference shows only its own tips. `modules/apple/` is the native module; `apple/` holds the bake adapter
+event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
+LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
+give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
+applies the host's rule to the view tree). `modules/apple/` is the native module; `apple/` holds the bake adapter
 and native tests. T3's MIT notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change

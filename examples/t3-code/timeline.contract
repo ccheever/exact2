@@ -352,7 +352,7 @@ component TimelineContent
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
               else
                 when message.kind == "live"
-                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                     // Keyed by its label: a reused one-line text would keep drawing the old string.
                     each keyed in message.activities key=keyed.id
                       LiveActivity(label=keyed.label, icon=message.icon, failed=message.failed, active=message.live, shimmer=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)

@@ -177,7 +177,7 @@ component SnapshotPanel
           SnapRow(title="Include app text", description="Include text and controls when the app makes them available.", status="", first=false, rowId="snap-shot-accessibility")
             SnapSwitch(checked=data.includeAccessibility, label="Include app text in snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-include-text", toggle=change("snapShotIncludeAccessibility", data.includeAccessibility ? "false" : "true"))
           SnapRow(title="Capture shortcut", description="Capture the window you're using without switching apps.", status=data.shortcutStatus, first=false, rowId="snap-shot-shortcut")
-            button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff14)") opacity=(busy ? 0.64 : 1)
+            button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-record-shortcut" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") border-color=(data.recording ? "#00000000" : "light-dark(#d4d4d8, #ffffff14)") opacity=(busy ? 0.64 : 1) title=""
               when data.recording
                 text "Press shortcut…" class=SnapLabelXs
               else
@@ -349,7 +349,7 @@ component SnapshotSetup
               text "Use both Shift keys, or record a different shortcut." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             column gap="0.75rem" align-items="flex-start"
               row gap="0.5rem" align-items="center"
-                button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-setup-record" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)")
+                button press=record("true") class=SnapOutlineXs disabled=busy aria-label=data.shortcutAria testId="snapshot-setup-record" background-color=(data.recording ? "light-dark(#fafafae6, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") title=""
                   when data.recording
                     text "Press shortcut…" class=SnapLabelXs
                   else

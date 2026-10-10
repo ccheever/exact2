@@ -105,6 +105,54 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
   });
 });
 
+// adopt-main-fixes-r7: since exact2 #314 the host's default for ContextMenu at a focused element runs its `contextmenu`
+// and opens its context popover at its centre. A thread row leaves it to the host (ThreadMenu, as Chromium's keyboard
+// contextmenu); a draft row and a legacy row prevent it and open their own menus, or the host would open a second one.
+describe('the rows\' key handlers and the host\'s ContextMenu default (exact2 #314)', () => {
+  const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+  /** The lines of `action name` in `component`'s body in `file`, up to the next member at its indent. */
+  async function action(file: string, component: string, name: string): Promise<string> {
+    const lines = (await source(file)).split('\n');
+    const from = lines.findIndex(line => line === `component ${component}`);
+    const start = lines.findIndex((line, index) => index > from && line.startsWith(`  action ${name}(`));
+    if (from < 0 || start < 0) throw new Error(`${file}: no action ${name} in ${component}`);
+    const end = lines.findIndex((line, index) => index > start && /^  \S/.test(line) && !line.startsWith('  //'));
+    return lines.slice(start, end).join('\n');
+  }
+
+  test('a draft row prevents the default for ContextMenu and Shift+F10, then opens its own menu', async () => {
+    expect(await action('sidebar-row.contract', 'DraftCard', 'rowKey')).toBe([
+      '  action rowKey(k: string, e: KeyboardEvent)',
+      '    if e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10"',
+      '      preventDefault()',
+      '      run("row-key", `draft:${d.id}`, "Shift+F10")',
+      '    else if k == "ContextMenu"',
+      '      preventDefault()',
+      '      run("row-key", `draft:${d.id}`, k)',
+      '    else',
+      '      run("row-key", `draft:${d.id}`, k)',
+    ].join('\n'));
+    expect(await source('sidebar-row.contract')).toContain('button cursor="pointer" press=run("open-draft", d.id, "") key=rowKey ');
+  });
+
+  test('a legacy row prevents the default for ContextMenu, then opens its own menu', async () => {
+    expect(await action('legacy-sidebar.contract', 'LegacyThread', 'rowKey')).toBe([
+      '  action rowKey(name: string)',
+      '    if name == "ContextMenu"',
+      '      preventDefault()',
+      '    if name != "Enter" and name != " "',
+      '      run("legacy-row-key", t.id, name)',
+    ].join('\n'));
+    expect(await source('legacy-sidebar.contract')).toContain('contextmenu=run("legacy-thread-menu", t.id, "") key=rowKey ');
+  });
+
+  test('a thread row leaves ContextMenu to the host: its key handler prevents nothing', async () => {
+    const rows = (await source('sidebar-row.contract')).split('\n').filter(line => line.includes('button cursor="pointer" id=`thread-${t.id}`'));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toContain(' key=run("row-key", t.id) ');
+  });
+});
+
 describe('Environments never list the primary (ConnectionsSettings savedEnvironments)', () => {
   const A = 'http://127.0.0.1:15083', B = 'http://127.0.0.1:15084';
   const focusB = (): ConnectionHost => ({ connection: 'connected', origin: B, environmentId: 'env-b', statusMessage: 'Connected.', scopes: ['orchestration:read'],
