@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-import-wizard-initial-focus
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/409
 verified_commit: null
 ---
 
@@ -21,7 +21,7 @@ cookies"). `BrowserImportWizard.tsx:145-146` is a Base UI `Dialog` / `DialogPopu
 (`ui/dialog.tsx` `DialogPopup`). Base UI focuses only when the dialog opens, not when a step changes. The clone focuses
 Import (`browser-profiles.contract`, `BiButton(buttonId="browser-import-run", … first=true)`, `autofocus=first`). Its
 other steps each autofocus a button ("I’ve quit it", Cancel on Full Disk Access, Done, Close), and `autofocus` applies
-again at every step change. Found by [realinput-1010e-followups](20261010-realinput-1010e-followups.md) RE-4 (#406).
+again at every step change. Found by [realinput-1010e-followups](closed/20261010-realinput-1010e-followups.md) RE-4 (#406).
 
 ## Steps
 
@@ -138,7 +138,7 @@ sources, not driven).
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code`.
+Draft PR [#409](https://github.com/ccheever/exact2/pull/409) into `feat(example)/t3-code`.
 
 ## Next action
 
