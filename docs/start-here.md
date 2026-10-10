@@ -21,7 +21,15 @@ built from the patterns below.
 4. **When you have to say something, name a role**, never a value:
    `color="-exact-secondary-label"`, `font="-exact-footnote"`, `role="heading"
    aria-level=1`, `AccentColor`. `bun <exact2>/scripts/no-tells.mjs .` lists every
-   literal colour, font size and weight left.
+   literal colour, font size and weight left. The roles: `CanvasText`, `Canvas`,
+   `AccentColor`, `LinkText`, `GrayText`; `-exact-label`, `-exact-secondary-label`,
+   `-exact-tertiary-label`, `-exact-placeholder`, `-exact-separator`,
+   `-exact-background`, `-exact-secondary-background`, `-exact-grouped-background`,
+   `-exact-secondary-grouped-background`, `-exact-fill`, and the hues
+   `-exact-system-red` … `-blue`, `-green`, `-orange`, `-gray` (the full list:
+   contract-for-agents.md, "Colours: say a role"). Text styles for `font`/`font-size`:
+   `-exact-large-title`, `-exact-title1`…`3`, `-exact-headline`, `-exact-body`,
+   `-exact-callout`, `-exact-subheadline`, `-exact-footnote`, `-exact-caption1`/`2`.
 5. **A hand-built lookalike of a system control is a bug**: a painted switch, a
    row of buttons drawn as a tab bar, a title in a big `font-size`.
 
