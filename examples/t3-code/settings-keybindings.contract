@@ -131,7 +131,7 @@ component KeybindingsPanel
           when searchOpen
             row width="11rem" height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
               LucideSearch(size=12, color="light-dark(#71717b, #818181)")
-              input value=query input=search key=searchKey focus=searchFocus blur=searchToggle(false) autofocus=true placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
+              input autocorrect="off" value=query input=search key=searchKey focus=searchFocus blur=searchToggle(false) autofocus=true placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
           button press=add disabled=(busy or not data.writable) class=KbIcon aria-label="Add keybinding" id="add-keybinding" testId="add-keybinding" opacity=(busy or not data.writable ? 0.64 : 1) title=""
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
           button press=openFile disabled=(busy or data.path == "") class=KbIcon aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1) title=""
@@ -297,7 +297,7 @@ component WhenEditor
             text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       column gap="0.375rem"
         row height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(view.error != "" ? "light-dark(#dc262666, #f8717166)" : "light-dark(#d4d4d8, #ffffff14)") background-color="light-dark(#fcfcfc, #ffffff07)"
-          input value=expression input=setWhen placeholder="Always" aria-label="When expression" testId="when-expression" flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)"
+          input autocorrect="off" value=expression input=setWhen placeholder="Always" aria-label="When expression" testId="when-expression" flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)"
           when view.unknown != ""
             Warning(label=view.unknown, detail="T3 Code does not recognize this condition yet. It can still be saved, but it may not match unless the runtime provides it.")
         when view.error != ""

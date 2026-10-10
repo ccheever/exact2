@@ -163,7 +163,7 @@ component CodexCallbackForm
     column width="100%" gap="0.75rem" id=`codex-help-${setup.instanceId}` testId=`codex-callback-${setup.instanceId}`
       text "If sign-in doesn't return to T3 Code, paste the URL from the final localhost page." font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)"
       row width="100%" gap="0.5rem" align-items="center"
-        input value=draft input=edit submit=op("setup:codex-callback", setup.target, setup.flowId, draft, not off and trim(draft) != "") type="password" autocomplete="off" maxlength=16384 placeholder="Paste the URL from the sign-in tab" aria-label="ChatGPT sign-in redirect URL" class=PvField flex=1 min-width=0 height="2rem" disabled=off testId=`codex-callback-url-${setup.instanceId}`
+        input autocorrect="off" value=draft input=edit submit=op("setup:codex-callback", setup.target, setup.flowId, draft, not off and trim(draft) != "") type="password" autocomplete="off" maxlength=16384 placeholder="Paste the URL from the sign-in tab" aria-label="ChatGPT sign-in redirect URL" class=PvField flex=1 min-width=0 height="2rem" disabled=off testId=`codex-callback-url-${setup.instanceId}`
         button press=op("setup:codex-callback", setup.target, setup.flowId, draft, true) class=PvOutline height="2rem" disabled=(off or trim(draft) == "") opacity=(off or trim(draft) == "" ? 0.64 : 1) testId=`codex-callback-connect-${setup.instanceId}`
           text "Connect" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       row
@@ -337,7 +337,7 @@ component CodexPathRow
         column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
           text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
-        input value=value placeholder=placeholder aria-label=label title=value disabled=true class=PvField width=(wide ? "20rem" : "100%") opacity=0.64 testId=testId
+        input autocorrect="off" value=value placeholder=placeholder aria-label=label title=value disabled=true class=PvField width=(wide ? "20rem" : "100%") opacity=0.64 testId=testId
 
 // ChatGptAccountPicker ("Reconnect ChatGPT"): the saved profiles, then "Use a different account";
 // Continue with ChatGPT signs in with the chosen one. Escape or Close returns focus to the opener.

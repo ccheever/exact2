@@ -218,6 +218,48 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
         .collect()
 }
 
+/// Gives each run its `label`: a link's first run (`link-start`) names the whole link, its words and the next runs'
+/// up to its end (the runs that keep its `href`, `link`), as the reference's one `<a>` reads; every other run has "".
+/// FlowRuns draws a link word by word, so the first word is the link node and carries this name
+/// (realinput-1010g RG-4).
+fn link_labels(runs: Vec<Value>) -> Vec<Value> {
+    let field = |run: &Value, index: usize| match run {
+        Value::Record(fields) => fields
+            .get(index)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        _ => String::new(),
+    };
+    let labels: Vec<String> = (0..runs.len())
+        .map(|at| {
+            if field(&runs[at], 6) != "link-start" {
+                return String::new();
+            }
+            let href = field(&runs[at], 5);
+            let mut label = field(&runs[at], 1);
+            for next in &runs[at + 1..] {
+                if field(next, 6) != "link" || field(next, 5) != href {
+                    break;
+                }
+                label.push_str(&field(next, 1));
+            }
+            label.trim().to_string()
+        })
+        .collect();
+    runs.into_iter()
+        .zip(labels)
+        .map(|(run, label)| match run {
+            Value::Record(fields) => {
+                let mut fields = fields.to_vec();
+                fields.push(Value::str(&label));
+                Value::record(fields)
+            }
+            other => other,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod link_tests {
     use super::*;
@@ -434,6 +476,60 @@ mod link_tests {
                 .filter(|f| f[17] != Value::Number(-1.0))
                 .count(),
             6
+        );
+    }
+
+    /// realinput-1010g RG-4: a link's first run names the whole link (the reference's `<a>` reads as one link), the
+    /// rest of its words and every other run name nothing.
+    #[test]
+    fn a_links_first_run_is_labelled_with_the_whole_link() {
+        let Value::Record(doc) = document(
+            Value::str("a"),
+            "See [the docs](https://example.com/docs) and [more docs](https://example.com/docs) or https://example.com/x today.",
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let Value::Record(block) = &blocks[0] else {
+            panic!("block")
+        };
+        let Value::List(runs) = &block[7] else {
+            panic!("runs")
+        };
+        let labelled: Vec<(String, String, String)> = runs
+            .iter()
+            .map(|run| {
+                let Value::Record(fields) = run else {
+                    panic!("run")
+                };
+                assert_eq!(
+                    fields.len(),
+                    9,
+                    "id, text, weight, slant, mono, href, kind, icon, label"
+                );
+                let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
+                (text(1), text(6), text(8))
+            })
+            .filter(|(_, kind, _)| kind.starts_with("link"))
+            .collect();
+        let row = |text: &str, kind: &str, label: &str| {
+            (text.to_string(), kind.to_string(), label.to_string())
+        };
+        assert_eq!(
+            labelled,
+            vec![
+                row("the ", "link-start", "the docs"),
+                row("docs", "link", ""),
+                row("more ", "link-start", "more docs"),
+                row("docs", "link", ""),
+                row(
+                    "https://example.com/x",
+                    "link-start",
+                    "https://example.com/x"
+                ),
+            ]
         );
     }
 }

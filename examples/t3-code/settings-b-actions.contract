@@ -103,7 +103,7 @@ component ProjectActionEditor
                     ScriptIconChoice(id="configure", label="Configure", selected=(icon == "configure"), choose=chooseIcon)
                     ScriptIconChoice(id="build", label="Build", selected=(icon == "build"), choose=chooseIcon)
                     ScriptIconChoice(id="debug", label="Debug", selected=(icon == "debug"), choose=chooseIcon)
-              input value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name"
+              input autocorrect="off" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name"
           column gap="0.5rem"
             text "Keybinding" class=AeLabel
             when recording

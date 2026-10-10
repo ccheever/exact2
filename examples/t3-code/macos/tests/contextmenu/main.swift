@@ -156,6 +156,8 @@ suite.addTest(XCTestSuite(forTestCaseClass: ShellPageMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: ShellTextMenuTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: ShellTemplateTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: ShellWebMenuTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: RealInput1010gTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: RealInput1010gWebTests.self))
 suite.run()
 let run = suite.testRun!
 print("context menu tests: \(run.executionCount) run, \(run.totalFailureCount) failed")

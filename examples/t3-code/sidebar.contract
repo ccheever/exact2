@@ -102,7 +102,7 @@ component Sidebar
           Icon(name="search", size=16, color="light-dark(#a8a8ae, #545454)")
           when data.query == ""
             text "Search" position="absolute" left="2rem" top="0.375rem" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #a3a3a3)" pointer-events="none"
-          input value=data.query input=search key=local("search-key", "") submit=open(data.sidebar.searchSelectedId, "search") placeholder="" aria-label="Search threads" testId="search-threads" font-size="0.875rem" font-weight=500 flex=1 min-width=0 height="1.3125rem" padding=0 border-width=0 background-color="#00000000" color="light-dark(#27272a, #f3f3f3)"
+          input autocorrect="off" value=data.query input=search key=local("search-key", "") submit=open(data.sidebar.searchSelectedId, "search") placeholder="" aria-label="Search threads" testId="search-threads" font-size="0.875rem" font-weight=500 flex=1 min-width=0 height="1.3125rem" padding=0 border-width=0 background-color="#00000000" color="light-dark(#27272a, #f3f3f3)"
           when data.query != ""
             button cursor="pointer" press=search("") aria-label="Clear thread search" testId="clear-thread-search" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               Icon(name="x", size=14, color="light-dark(#71717b, #a3a3a3)")

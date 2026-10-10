@@ -209,7 +209,7 @@ component ProjectName
   action edit(next: string)
     draft = next
   view
-    input value=draft input=edit change=raw("rename-group", groupKey) aria-label="Project name" disabled=busy testId="managed-project-name" box-sizing="border-box" width="16rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" flex-shrink=0 border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+    input autocorrect="off" value=draft input=edit change=raw("rename-group", groupKey) aria-label="Project name" disabled=busy testId="managed-project-name" box-sizing="border-box" width="16rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" flex-shrink=0 border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
 
 // ProviderModelPicker / TraitsPicker triggers in a settings row: ghost buttons.
 component GhostSelect

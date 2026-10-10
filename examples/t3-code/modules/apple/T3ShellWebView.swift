@@ -20,6 +20,11 @@ class T3ShellWebView: WKWebView {
     /// Called once the menu's items are final (tests).
     var shown: (([String]) -> Void)?
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { T3ShellWebMenu.keepSystemItemsOut() }
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         let selectAll = T3ShellWebMenu.reshape(menu, target: self)
         lastShown = T3ShellMenu.describe(menu)
@@ -48,6 +53,19 @@ enum T3ShellWebMenu {
     enum Tag { static let copyLink = 3, copyImage = 6, copy = 8, cut = 13, paste = 14, guess = 15, noGuesses = 16 }
     /// Chromium's `canSelectAll` is false in an empty text control.
     static let emptyTextControl = "(() => { const e = document.activeElement; return !!e && (e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) && e.value === ''; })()"
+
+    private static var systemItemsObserver: NSObjectProtocol?
+    /// AppKit draws WebKit's menu with Services after a selection and AutoFill in a field, and reads the menu's switches
+    /// for them when the pop-up starts, before `willOpenMenu` (realinput-1010g RG-3; Electron's `<webview>` menu has
+    /// neither). WebKit builds the menu item by item just before, so the switches go off at its first item.
+    static func keepSystemItemsOut() {
+        guard systemItemsObserver == nil else { return }
+        systemItemsObserver = NotificationCenter.default.addObserver(forName: NSMenu.didAddItemNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, let index = note.userInfo?["NSMenuItemIndex"] as? Int, index < menu.numberOfItems,
+                  menu.item(at: index)?.action == forward else { return }
+            T3TextContextMenu.withoutSystemItems(menu)
+        }
+    }
 
     /// Rebuilds WebKit's `menu` as the shell's; returns its Select All. The editing roles go to `target` (the web view).
     @discardableResult
