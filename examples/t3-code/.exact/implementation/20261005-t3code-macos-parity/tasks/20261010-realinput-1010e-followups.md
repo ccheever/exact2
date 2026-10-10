@@ -200,6 +200,12 @@ examples/t3-code` 4375 pass / 1 skip / 0 fail (298 files); strict tsc; `contract
 r8-keys 6, menus 46, all 0 failures; caps; the five checks (cargo test 3679 pass, 0 fail, 34 ignored). The bundle was built
 for the live drives (`427c80fb1`, `bf86e902a`).
 
+Checks after the review fixes, on the code head `4823a79dc` (TypeScript only; `feat(example)/t3-code` unchanged since
+`8d69a4329`, all exit 0): `bun test examples/t3-code --timeout 60000` 4381 pass / 1 skip / 0 fail (298 files); strict tsc;
+`contract build` of `app.contract` (1353 lines, unchanged); caps; the five checks (cargo test 3679 pass, 0 fail, 34
+ignored). No Rust or Swift changed, so `cargo test -p t3-code-macos` and the AppKit binaries were not run again; no bundle
+or live drive (the task's one drive and its retry were used).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
@@ -209,6 +215,7 @@ for the live drives (`427c80fb1`, `bf86e902a`).
 | After drive 1 | this branch (`427c80fb1`) | RE-3 `x now`, but the pressed chip showed as a grey box: the text view's highlight covers the pill painted below the text; RE-4 Add profile; RE-5 files | [the grey box](https://raw.githubusercontent.com/ccheever/exact2/b3b8effd6accf2e9e188d5b5e7341e7e45d99de6/realinput-1010e-followups/RE3-after-drive1-chip-under-highlight.png), [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/43084892f7dcd2e3eb7fb07577a28b0623f6c136/realinput-1010e-followups/drive-record.txt) |
 | After drive 2 (the retry) | `bf86e902a` (a clear highlight while a chip is the selection) | RE-3 `x now`, RE-4 Add profile (node 2172), RE-5 files: the images and texts above. The grey box stayed: an inactive window's highlight (agent mode) ignores `selectedTextAttributes` | [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/43084892f7dcd2e3eb7fb07577a28b0623f6c136/realinput-1010e-followups/drive-record.txt), [drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/c553a8468910e723484408d938838327a8688aa4/realinput-1010e-followups/drive.sh.txt) |
 | AppKit render | `33cfc9071` (an overlay above the text paints the selected chip) | the pressed chip shows, tinted; not driven live again (one retry) | [selected chip, AppKit render](https://raw.githubusercontent.com/ccheever/exact2/9aa5eac2965249628d887d1972b5175ce9608f02/realinput-1010e-followups/RE3-selected-chip-appkit.png) |
+| Review fixes (round 1) | `4823a79dc` (the Viewed write routed: `dispatch`, `afterWrite`; RE-5 tests) | tests: the feature tip's sources 1 pass / 5 fail, the PR's previous head 5 / 1, now all pass; mutation checks fail the matching tests; not driven live | [RE5-review-viewed-write.txt](https://raw.githubusercontent.com/ccheever/exact2/4ce356226d75eb2188e5996bb81690c1a2f81d5e/realinput-1010e-followups/RE5-review-viewed-write.txt) |
 
 ## Not done / not verified
 
