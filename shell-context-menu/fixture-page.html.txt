@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Menu cases</title>
+<style>
+html,body{margin:0;height:100%}
+body{font-family:-apple-system,sans-serif}
+.band{position:absolute;left:0;width:100%;height:14vh;box-sizing:border-box;padding:0 2vw;display:flex;align-items:center;font-size:7vh;line-height:1}
+#text{top:0}
+#linkband{top:14vh}
+#imgband{top:28vh;padding:0}
+#img{width:100%;height:100%;display:block}
+#fieldband{top:42vh}
+#emptyband{top:56vh}
+#ownband{top:70vh}
+input{font:7vh -apple-system,sans-serif;width:96%;height:11vh;box-sizing:border-box}
+</style></head>
+<body>
+<div class="band" id="text">Plain words here</div>
+<div class="band" id="linkband"><a id="link" href="https://example.com/docs">Example link</a></div>
+<div class="band" id="imgband"><img id="img" src="square.png" alt="square"></div>
+<div class="band" id="fieldband"><input id="field" value="Field text"></div>
+<div class="band" id="emptyband"><input id="empty" value=""></div>
+<div class="band" id="ownband"><span id="own">Own menu here</span></div>
+<script>document.getElementById('ownband').addEventListener('contextmenu', (e) => e.preventDefault());</script>
+</body></html>
