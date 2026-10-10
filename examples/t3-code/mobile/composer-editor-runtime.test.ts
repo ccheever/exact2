@@ -77,6 +77,25 @@ test('root-only submit effects are captured once; unsupported rich callbacks nev
  expect(claim(f.client,v.admission,v.effect!.id)?.id).toBe(v.effect!.id);expect(claim(f.client,v.admission,v.effect!.id)).toBeNull();expect(f.calls).toHaveLength(0);
  expect((await f.send('rich','{}')).message).toContain('not integrated');
 });
+test('native content-size observations preserve draft, pending effects and existing notices without paste refusal',async()=>{
+ const f=fixture('keep');await f.ready();await f.send('event',f.event('submit',undefined,{alternate:false}));
+ const owner=mobileEditorOwner(f.client)!,before=structuredClone(owner.state),effects=structuredClone(owner.effects),revision=f.view().revision;
+ const callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contentSize',richEventId:'layout-event',eventCount:owner.state.eventCount,payload:{width:932,height:64}};
+ expect(await f.send('rich',JSON.stringify(callback))).toMatchObject({message:'',effect:null});
+ expect(f.view()).toMatchObject({message:'',revision});expect(owner.state).toEqual(before);expect(owner.effects).toEqual(effects);
+ expect(f.client.draft).toBe('keep');expect(f.calls).toHaveLength(0);expect(f.writes).toHaveLength(0);
+ await f.send('rich','{}');const notice=f.view().message;
+ await f.send('rich',JSON.stringify(callback));expect(f.view().message).toBe(notice);
+});
+test('content-size callbacks refuse stale mounts and malformed dimensions without replacing an existing notice',async()=>{
+ const f=fixture('keep');await f.ready();await f.send('rich','{}');const notice=f.view().message,owner=mobileEditorOwner(f.client)!;
+ const callback={...owner.state.identity,mountId:owner.state.mountId,kind:'contentSize',richEventId:'layout-event',eventCount:owner.state.eventCount,payload:{width:932,height:64}};
+ for(const patch of [{mountId:'retired'},{routeVisit:'old'},{eventCount:-1},{richEventId:''},{payload:{width:'932',height:64}},{payload:{width:932,height:-1}}]){
+  await expect(f.send('rich',JSON.stringify({...callback,...patch}))).rejects.toMatchObject({kind:'superseded'});
+  expect(f.view().message).toBe(notice);
+ }
+ expect(f.client.draft).toBe('keep');expect(f.calls).toHaveLength(0);expect(f.writes).toHaveLength(0);
+});
 test('initial path runs directly, later path wake waits200ms and uses actual query owner',async()=>{
  const f=fixture('@src');let v=await f.ready();expect(v.queries.immediateKey).not.toBe('');await immediate(f.client,v.admission,v.queries.immediateKey,f.native,f.now);expect(f.calls.map(r=>r.method||r.path)).toEqual(['/api/auth/session','projects.searchEntries']);
  await f.send('event',f.event('text','@other'));v=f.view();expect(v.queries.path.delayMs).toBe(200);f.time(1199);await wake(f.client,v.queries.path.key,f.native,f.now);expect(f.calls).toHaveLength(2);
