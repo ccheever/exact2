@@ -966,8 +966,10 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationPresentation="modal"` | a sheet |
 
 On iOS, keep `select` and date/time inputs native: leave `appearance` unset or
-write `appearance="auto"`, and put backgrounds, borders and corners on a surrounding
-row. `appearance="none"` removes their native control, including its displayed
+write `appearance="auto"`. An explicit native `select` still accepts box rows such
+as `border-width=0` and `background-color="transparent"`; the text-field rules that
+refuse box paint with native appearance do not apply to `select`.
+`appearance="none"` removes their native control, including its displayed
 value and picker; it does not leave an editable bare text field. Custom select
 presentation (`appearance: base-select`) is deferred ([LLP 1069.001 D6](../llp/1069.001-form-controls.rfc.md#d6--styling-appearance-and-accent-color)).
 The driver's `type` can still set a control removed from the screen, so a passing

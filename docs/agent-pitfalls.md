@@ -943,8 +943,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **An iOS select or date field is blank and does not open, although `type` passes.**
   `appearance="none"` removes these native controls from the screen. It does not
   keep a bare picker, as it keeps an editable text field. Leave `appearance` unset
-  or use `appearance="auto"`; move box paint to a surrounding row. The driver's
-  `type` can still set the removed control, so verify the picker with a finger.
+  or use `appearance="auto"`. An explicit native `select` still accepts
+  `border-width=0` and `background-color="transparent"`; the text-field paint
+  refusal above does not apply to it. The driver's `type` can still set the removed
+  control, so verify the picker with a finger.
   Custom select presentation is deferred in [LLP 1069.001 D6](../llp/1069.001-form-controls.rfc.md#d6--styling-appearance-and-accent-color).
 
 ## Access hatches
