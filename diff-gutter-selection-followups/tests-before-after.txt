@@ -1,0 +1,13 @@
+diff-gutter-selection-followups.test.ts on the feature tip's sources (327336447, copied beside the test):
+(fail) GS-1: a drag that starts on the gutter selects no text > the number is DiffNumber's: no pointer (the press is the gutter's), no text selection, as [data-column-number] [0.14ms]
+(fail) GS-1: a drag that starts on the gutter selects no text > the number sits where it did: the gutter cell's width and inset, its colours unchanged [0.10ms]
+(fail) GS-1: a drag that starts on the gutter selects no text > every row draws its numbers after all of its code, so a copy across the list's rows reads the code where the host placed it [0.06ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > the number's cell and the number take the CDP colours; the number's is the diff's [0.14ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > no row tint and no bar: the code and the comment card under a selected line stay the surface's [0.03ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > no amber selection is left in the clone [5.46ms]
+ 1 pass
+ 6 fail
+
+This branch (c160a4d6f): the new test, #416's diff-gutter-visuals.test.ts and #413's realinput-1010f-followups.test.ts:
+ 18 pass
+ 0 fail
