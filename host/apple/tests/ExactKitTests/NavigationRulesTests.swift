@@ -643,7 +643,8 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("View").first?.title, "Zoom In")
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
@@ -657,7 +658,8 @@ final class MacShortcutTests: XCTestCase {
         presenter.shortcuts.sync()
         XCTAssertEqual(shown("Edit").first?.title, "Undo")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
-        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Duplicate",
+                                                "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
         XCTAssertEqual(shown("Edit").first { $0.title == "Duplicate" }?.keyEquivalent, "d")
     }
 
@@ -680,7 +682,13 @@ final class MacShortcutTests: XCTestCase {
         let listed = { (title: String) in menu(title).items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
         for _ in 0..<3 { presenter.shortcuts.sync() }
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Find", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        // The app's ⌘F stands in for Find… in Edit ▸ Find (LLP 1115 D8).
+        let findMenu = menu("Edit").items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title),
+                       ["Find", "Find and Replace…", "Find Next", "Find Previous", "Use Selection for Find", "Jump to Selection"])
+        XCTAssertTrue(findMenu.items.first?.target is ShortcutHost)
+        XCTAssertEqual(findMenu.items.filter { $0.keyEquivalent == "f" && $0.keyEquivalentModifierMask == .command }.count, 1)
         XCTAssertFalse(listed("File").contains { $0.hasPrefix("Paste") })
         let asText = menu("Edit").items.first { $0.title == "Paste as Text" }!
         XCTAssertEqual(asText.keyEquivalent, "v")
@@ -695,7 +703,42 @@ final class MacShortcutTests: XCTestCase {
         presenter.views.removeValue(forKey: find.id)
         presenter.shortcuts.sync()
         XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste Rows", "Paste as Text", "Paste and Match Style",
-                                        "Delete", "Select All", "—", "Speech"])
+                                        "Delete", "Select All", "—", "Find", "Spelling and Grammar", "Substitutions", "Transformations", "Speech"])
+        XCTAssertEqual(findMenu.items.filter { !$0.isHidden }.map(\.title).first, "Find…")
+        XCTAssertEqual(findMenu.items.first { $0.title == "Find…" }?.keyEquivalent, "f")
+    }
+
+    /// LLP 1115 D8: the bar ends with Help, which AppKit is told is Help
+    /// (its search field), and Edit has the template's text submenus, each
+    /// a responder-chain action with nothing targeted.
+    func testHelpMenuIsLastAndEditHasTheTemplatesTextMenus() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let help = bar.items.last!.submenu!
+        XCTAssertEqual(help.title, "Help")
+        XCTAssertTrue(NSApp.helpMenu === help)
+        XCTAssertEqual(help.items.first?.action, #selector(NSApplication.showHelp(_:)))
+        XCTAssertEqual(help.items.first?.keyEquivalent, "?")
+        let edit = bar.items.first { $0.submenu?.title == "Edit" }!.submenu!
+        let match = edit.items.first { $0.title == "Paste and Match Style" }!
+        XCTAssertEqual(match.action, #selector(NSTextView.pasteAsPlainText(_:)))
+        XCTAssertEqual(match.keyEquivalentModifierMask, [.command, .option, .shift])
+        let find = edit.items.first { $0.title == "Find" }!.submenu!
+        XCTAssertEqual(find.items.prefix(5).map(\.tag), [NSTextFinder.Action.showFindInterface, .showReplaceInterface, .nextMatch, .previousMatch, .setSearchString].map(\.rawValue))
+        XCTAssertTrue(find.items.prefix(5).allSatisfy { $0.action == #selector(NSResponder.performTextFinderAction(_:)) })
+        for title in ["Find", "Spelling and Grammar", "Substitutions", "Transformations"] {
+            let items = edit.items.first { $0.title == title }!.submenu!.items.filter { !$0.isSeparatorItem }
+            XCTAssertFalse(items.isEmpty, title)
+            XCTAssertTrue(items.allSatisfy { $0.target == nil && $0.action != nil }, title)
+        }
+        // A field editor answers them: Make Upper Case validates there.
+        let field = NSTextView()
+        XCTAssertTrue(field.responds(to: #selector(NSResponder.uppercaseWord(_:))))
+        XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

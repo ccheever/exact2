@@ -37,7 +37,21 @@ package final class Presenter {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
         // HTML's `title`: the platform's tooltip (studio diary R24).
-        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+        // An icon-only button's help tag is its label (LLP 1115 wave 1), as
+        // a toolbar item's is; settled once the batch has mounted its face.
+        if view.isButton && !view.isNativeButton && view.props["title"] == nil && view.authoredLabel != nil { pendingTips.insert(view.id) }
+        else if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
+    /// Custom buttons with a label and no `title`, whose help tag waits for
+    /// the batch to mount their content.
+    var pendingTips: Set<UInt32> = []
+    func settleTips() {
+        for id in pendingTips {
+            guard let view = views[id] else { continue }
+            let tip = view.props["title"] ?? (view.accessibleText.isEmpty ? view.authoredLabel : nil)
+            if view.toolTip != tip { view.toolTip = tip }
+        }
+        pendingTips.removeAll()
     }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
@@ -130,7 +144,9 @@ package final class Presenter {
         viewport.automaticallyAdjustsContentInsets = false
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
-        viewport.backgroundColor = .white
+        // LLP 1115 D2: an unset page background is the platform's window
+        // background, which follows Dark Mode, never a fixed white.
+        viewport.backgroundColor = .windowBackgroundColor
         viewport.contentView.postsBoundsChangedNotifications = true
         // LLP 1050.000 stage 1: a collection reports its travel and builds
         // ahead in the pump's slices.
@@ -1105,11 +1121,13 @@ package final class Presenter {
         }
         if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
+        if !pendingTips.isEmpty { settleTips() }
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
+        // Unset, the platform's window background (LLP 1115 D2).
+        let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
         if viewport.backgroundColor != color { viewport.backgroundColor = color }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
