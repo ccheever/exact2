@@ -1,0 +1,200 @@
+// browser-surface-capture, review round of 2026-10-10 (second; from realinput-1010c's driver, adds bdrag): drive the reference's renderer AND its preview guest over CDP
+// (not committed). Usage: node ref-drive.mjs <cdpPort> "<op>" ...
+// Renderer ops (Playwright): size <w> <h> | role <role> <name> | shiftrole <role> <name> | hoverrole <role> <name> |
+//   css <selector> | hovercss <selector> | fill <placeholder>|<text> | press <key> | wait <ms> | aria <file> | eval <js>
+// Guest ops (raw CDP on the preview's `webview` target, by URL prefix; Playwright lists it only when it appears during
+//   its own session): gclick <x> <y> | gtype <text> | gpress <Enter|Meta+Enter|Escape>
+// shot <base>: <base>.r.png (renderer), <base>.g<i>.png (each guest, Page.captureScreenshot) and <base>.json (each
+//   [data-browser-surface-slot] rect in CSS px, the scale) for compositing.
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, ...ops] = process.argv.slice(2);
+const GUEST = process.env.GUEST || 'http://127.0.0.1:16703';
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const renderer = browser.contexts().flatMap(context => context.pages()).find(page => page.url().startsWith('t3code://'));
+const out = value => console.log(JSON.stringify(value));
+const split = text => { const at = text.indexOf(' '); return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at + 1)]; };
+
+async function guestTargets() {
+  const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  return list.filter(target => target.url.startsWith(GUEST) && target.webSocketDebuggerUrl);
+}
+/** One raw CDP connection to a guest target. */
+async function connect(target) {
+  const socket = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  let id = 0; const waiting = new Map();
+  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.id && waiting.has(message.id)) { waiting.get(message.id)(message); waiting.delete(message.id); } };
+  const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const messageId = ++id; waiting.set(messageId, message => message.error ? reject(new Error(message.error.message)) : resolve(message.result));
+    socket.send(JSON.stringify({ id: messageId, method, params }));
+  });
+  return { send, close: () => socket.close() };
+}
+async function withGuest(fn) {
+  const [target] = await guestTargets();
+  if (!target) throw new Error('no guest');
+  const cdp = await connect(target);
+  try { return await fn(cdp, target); } finally { cdp.close(); }
+}
+const KEYS = { Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }, Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 } };
+async function key(cdp, name) {
+  const meta = name.startsWith('Meta+'), base = KEYS[meta ? name.slice(5) : name];
+  const modifiers = meta ? 4 : 0;
+  if (meta) await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91, modifiers });
+  await cdp.send('Input.dispatchKeyEvent', { type: base.text && !meta ? 'keyDown' : 'rawKeyDown', ...base, ...(meta ? { text: undefined } : {}), modifiers });
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base, text: undefined, modifiers });
+  if (meta) await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91, modifiers: 0 });
+}
+
+for (const raw of ops) {
+  const [op, rest] = split(raw);
+  try {
+    switch (op) {
+      case 'size': { // 2× like the clone's window renders; the slot rects stay in CSS px
+        const [w, h] = rest.split(' ').map(Number), session = await renderer.context().newCDPSession(renderer);
+        await session.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: false });
+        out({ op, w, h }); break;
+      }
+      case 'role': case 'shiftrole': case 'hoverrole': {
+        const [role, ...name] = rest.split(' '), target = renderer.getByRole(role, { name: name.join(' '), exact: true }).first();
+        if (op === 'hoverrole') await target.hover({ timeout: 5000 });
+        else await target.click({ timeout: 5000, ...(op === 'shiftrole' ? { modifiers: ['Shift'] } : {}) });
+        out({ op, role, name: name.join(' ') }); break;
+      }
+      case 'css': await renderer.locator(rest).first().click({ timeout: 5000 }); out({ op, rest }); break;
+      case 'hovercss': await renderer.locator(rest).first().hover({ timeout: 5000 }); out({ op, rest }); break;
+      case 'fill': { const [placeholder, text] = rest.split('|'); const field = renderer.getByPlaceholder(placeholder).first(); await field.click({ timeout: 5000 }); await field.fill(text); out({ op, placeholder, text }); break; }
+      case 'press': await renderer.keyboard.press(rest); out({ op, key: rest }); break;
+      case 'wait': await renderer.waitForTimeout(Number(rest)); out({ op, ms: Number(rest) }); break;
+      case 'aria': fs.writeFileSync(rest, await renderer.locator('body').ariaSnapshot()); out({ op, file: rest }); break;
+      case 'eval': out({ op, value: await renderer.evaluate(rest) }); break;
+      case 'guests': out({ op, guests: (await guestTargets()).map(target => `${target.type} ${target.url}`) }); break;
+      case 'gclick': await withGuest(async cdp => {
+        const [x, y] = rest.split(' ').map(Number);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x - 4, y: y - 4 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        out({ op, x, y });
+      }); break;
+      case 'gtype': await withGuest(async cdp => { await cdp.send('Input.insertText', { text: rest }); out({ op, text: rest }); }); break;
+      case 'gpress': await withGuest(async cdp => { await key(cdp, rest); out({ op, key: rest }); }); break;
+      case 'shot': {
+        await renderer.screenshot({ path: `${rest}.r.png`, omitBackground: true }); // the webview's area stays transparent: the guest goes under the app's layers
+        const slots = await renderer.evaluate(() => [...document.querySelectorAll('[data-browser-surface-slot]')].map(element => {
+          const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+          return { tab: element.getAttribute('data-browser-surface-slot'), x: box.x, y: box.y, width: box.width, height: box.height, visible: box.width > 1 && box.height > 1 && style.visibility !== 'hidden' };
+        }));
+        const scale = await renderer.evaluate(() => window.devicePixelRatio);
+        // Layers above the webview (toasts, menus, tooltips, the floating player's controls): drawn back over the guest.
+        const overlays = await renderer.evaluate(selector => [...document.querySelectorAll(selector)].map(element => {
+          const box = element.getBoundingClientRect(); return { x: box.x, y: box.y, width: box.width, height: box.height, role: element.getAttribute('role') ?? element.tagName };
+        }).filter(box => box.width > 1 && box.height > 1), '[role="dialog"], [role="alertdialog"], [role="menu"], [role="tooltip"], [role="listbox"], [data-preview-mini-player] div.group, [data-preview-mini-player] div.group > div');
+        const shots = [];
+        for (const [index, target] of (await guestTargets()).entries()) {
+          const file = `${rest}.g${index}.png`;
+          try {
+            const cdp = await connect(target);
+            const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
+            const viewport = (await cdp.send('Runtime.evaluate', { expression: '[innerWidth, innerHeight]', returnByValue: true })).result.value;
+            cdp.close();
+            fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
+            shots.push({ file, url: target.url, viewport });
+          } catch (error) { shots.push({ error: String(error.message).split('\n')[0] }); }
+        }
+        fs.writeFileSync(`${rest}.json`, JSON.stringify({ scale, slots, shots, overlays }, null, 1));
+        out({ op, base: rest, slots: slots.filter(slot => slot.visible).length, guests: shots.length }); break;
+      }
+      case 'mmove': { const [x, y, steps] = rest.split(' ').map(Number); await renderer.mouse.move(x, y, { steps: steps || 1 }); out({ op, x, y }); break; }
+      case 'mdown': await renderer.mouse.down(); out({ op }); break;
+      case 'mup': await renderer.mouse.up(); out({ op }); break;
+      case 'rect': out({ op, sel: rest, rect: await renderer.evaluate(sel => { const e = document.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; }, rest) }); break;
+      case 'attr': { const [sel, name] = rest.split('|'); out({ op, sel, name, values: await renderer.evaluate(([s, n]) => [...document.querySelectorAll(s)].map(e => e.getAttribute(n)), [sel, name]) }); break; }
+      case 'gdrag': await withGuest(async cdp => {
+        const [x1, y1, x2, y2, n] = rest.split(' ').map(Number), steps = n || 8;
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x1, y: y1 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1 });
+        for (let i = 1; i <= steps; i++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x1 + (x2 - x1) * i / steps, y: y1 + (y2 - y1) * i / steps, button: 'left', buttons: 1 });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1 });
+        out({ op, from: [x1, y1], to: [x2, y2] });
+      }); break;
+      case 'gkey': await withGuest(async cdp => { // a printable key (d, e, r, v or a digit) as keyDown with text
+        await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: rest, text: rest, unmodifiedText: rest });
+        await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: rest });
+        out({ op, key: rest });
+      }); break;
+      case 'geval': await withGuest(async cdp => { const r = await cdp.send('Runtime.evaluate', { expression: rest, returnByValue: true }); out({ op, value: r.result.value ?? r.result.description }); }); break;
+      case 'gfocus': await withGuest(async cdp => { // the focused node, piercing closed shadow roots (DOM.getDocument pierce)
+        const doc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+        const found = [];
+        const walk = node => { if (!node) return; if (['TEXTAREA', 'INPUT'].includes(node.nodeName)) found.push({ id: node.backendNodeId, name: node.nodeName, attrs: node.attributes }); for (const c of node.children ?? []) walk(c); for (const r of node.shadowRoots ?? []) walk(r); };
+        walk(doc.root);
+        const ax = await cdp.send('Accessibility.getFullAXTree', {});
+        const focused = ax.nodes.filter(n => (n.properties ?? []).some(p => p.name === 'focused' && p.value?.value === true)).map(n => ({ role: n.role?.value, name: n.name?.value, value: n.value?.value }));
+        out({ op, fields: found.length, focused });
+      }); break;
+      case 'pdrag': case 'gripdrag': { // the floating player: a drag from the pill's bottom padding (pdrag) or a resize grip's middle (gripdrag <dir> dx dy)
+        const parts = rest.split(' '), dir = op === 'gripdrag' ? parts.shift() : null, [dx, dy] = parts.map(Number);
+        const rectOf = sel => renderer.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; }, sel);
+        const before = await rectOf('[data-preview-mini-player]');
+        let x, y;
+        if (dir) { const g = await rectOf(`[data-preview-mini-player-resize=${dir}]`); x = g.x + g.width / 2 + (process.env.GRIP_OFFSET ? Number(process.env.GRIP_OFFSET) : 0); y = g.y + g.height / 2 + (process.env.GRIP_OFFSET ? Number(process.env.GRIP_OFFSET) : 0); await renderer.mouse.move(x, y, { steps: 3 }); const hit = await renderer.evaluate(([px, py]) => { const e = document.elementFromPoint(px, py); return e ? (e.getAttribute('data-preview-mini-player-resize') || e.tagName) : null; }, [x, y]); out({ op: 'grip-hit', hit }); }
+        else {
+          const dot = await rectOf('[data-preview-mini-player] div.group');
+          await renderer.mouse.move(600, 300); await renderer.mouse.move(dot.x + 6, dot.y + 6, { steps: 4 }); await renderer.waitForTimeout(250);
+          const pill = await rectOf('[data-preview-mini-player] div.group > div:nth-child(2)');
+          x = pill.x + 28; y = pill.y + pill.height - 2; await renderer.mouse.move(x, y, { steps: 2 }); await renderer.waitForTimeout(150);
+        }
+        await renderer.mouse.down();
+        await renderer.mouse.move(x + dx / 2, y + dy / 2, { steps: 6 }); await renderer.mouse.move(x + dx, y + dy, { steps: 6 });
+        await renderer.mouse.up(); await renderer.waitForTimeout(400);
+        const after = await rectOf('[data-preview-mini-player]');
+        out({ op, dir, dx, dy, from: [x, y], before, after, moved: [after.x - before.x, after.y - before.y], size: [after.width, after.height] }); break;
+      }
+      case 'bdrag': { // the floating player: a drag that starts on a pill button (bdrag <aria-label>|<dx> <dy>), the pointer there from the dot
+        const [label, delta] = rest.split('|'), [dx, dy] = delta.split(' ').map(Number);
+        const rectOf = sel => renderer.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; }, sel);
+        const before = await rectOf('[data-preview-mini-player]');
+        const dot = await rectOf('[data-preview-mini-player] div.group');
+        await renderer.mouse.move(600, 300); await renderer.mouse.move(dot.x + 6, dot.y + 6, { steps: 4 }); await renderer.waitForTimeout(250);
+        const button = await rectOf(`[data-preview-mini-player] button[aria-label="${label}"]`);
+        const x = button.x + button.width / 2, y = button.y + button.height / 2;
+        await renderer.mouse.move(x, y, { steps: 2 }); await renderer.waitForTimeout(150);
+        const hit = await renderer.evaluate(([px, py]) => { const e = document.elementFromPoint(px, py); const b = e && e.closest('button'); return b ? b.getAttribute('aria-label') : (e ? e.tagName : null); }, [x, y]);
+        await renderer.mouse.down();
+        await renderer.mouse.move(x + dx / 2, y + dy / 2, { steps: 6 }); await renderer.mouse.move(x + dx, y + dy, { steps: 6 });
+        await renderer.mouse.up(); await renderer.waitForTimeout(400);
+        const after = await rectOf('[data-preview-mini-player]');
+        out({ op, label, hit, dx, dy, from: [x, y], before, after, moved: after && before ? [after.x - before.x, after.y - before.y] : null, floating: !!after }); break;
+      }
+      case 'gtool': case 'gactive': await withGuest(async cdp => { // the overlay's closed shadow root, through DOM pierce
+        const doc = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+        const roots = [], buttons = [];
+        const walk = node => { if (!node) return; if (node.shadowRootType === 'closed') roots.push(node); if (node.nodeName === 'BUTTON') buttons.push(node); for (const c of node.children ?? []) walk(c); for (const r of node.shadowRoots ?? []) walk(r); };
+        walk(doc.root);
+        const textOf = node => (node.children ?? []).map(c => c.nodeType === 3 ? c.nodeValue : textOf(c)).join('');
+        if (op === 'gtool') {
+          const button = buttons.find(b => textOf(b).trim() === rest);
+          if (!button) { out({ op, error: `no button ${rest}`, labels: buttons.map(textOf) }); return; }
+          const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: button.backendNodeId });
+          await cdp.send('Runtime.callFunctionOn', { objectId: object.objectId, functionDeclaration: 'function(){ this.click(); }' });
+          out({ op, label: rest });
+        } else {
+          const answers = [];
+          for (const root of roots) {
+            const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: root.backendNodeId });
+            const r = await cdp.send('Runtime.callFunctionOn', { objectId: object.objectId, returnByValue: true, functionDeclaration: 'function(){ const a = this.activeElement; return a ? { tag: a.tagName, placeholder: a.getAttribute("placeholder"), value: a.value ?? null } : null; }' });
+            answers.push(r.result.value);
+          }
+          const main = await cdp.send('Runtime.evaluate', { expression: 'document.activeElement && document.activeElement.tagName', returnByValue: true });
+          out({ op, shadowActive: answers, documentActive: main.result.value });
+        }
+      }); break;
+      default: out({ op, error: 'unknown op' });
+    }
+  } catch (error) { out({ op, rest, error: String(error.message ?? error).split('\n')[0] }); }
+}
+process.exit(0);
