@@ -51,6 +51,7 @@ shape ThreadActivity
   answerPreview: string
   hasAnswer: bool
   answerHistory: list<ThreadAnswerHistory>
+  nativeWorkRow: string
 shape ThreadRow
   id: string
   kind: string

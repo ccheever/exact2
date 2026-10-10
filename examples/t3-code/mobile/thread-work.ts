@@ -14,7 +14,7 @@ export interface ThreadAnswerFile { id: string; name: string; image: boolean; ur
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[] }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -36,11 +36,18 @@ function forkDisplayItem(item: Obj): Obj {
 }
 
 /** Pinned threadActivity's standalone fork work row, not the desktop ancestry link. */
-export function mobileForkLifecycleActivity(row: Obj, client: T3Client, now: number, dark: boolean): ThreadActivity {
+export function mobileForkLifecycleActivity(row: Obj, client: T3Client, now: number, dark: boolean, routeKey = ''): ThreadActivity {
   const item = obj(row.item), id = JSON.stringify([row.sourceThreadId, row.sourceItemId]), expanded = turnItemIsOpen(client, id);
-  return mobileThreadActivity({ id, label: str(item.targetThreadId), icon: 'zap', timestamp: str(item.updatedAt),
-    body: expanded ? JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId, item: forkDisplayItem(item) }, null, 2) : '',
+  const title = str(item.title).trim(), summary = title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Thread forked';
+  const label = str(item.targetThreadId), fullDetail = JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId, item: forkDisplayItem(item) }, null, 2);
+  const shown = mobileThreadActivity({ id, label, icon: 'zap', timestamp: str(item.updatedAt),
+    body: expanded ? fullDetail : '',
     output: '', result: '', failed: item.status === 'failed', expandable: true, detailOpen: expanded }, row, client, now, dark, '');
+  return { ...shown, nativeWorkRow: JSON.stringify({ id, routeKey, expanded, label,
+    owner: JSON.stringify([client.origin, client.environmentId, client.generation, client.projectId, client.threadId, client.threadEpoch, routeKey, id]),
+    copyText: [summary, label, fullDetail].filter((text, index, values) => !!text && values.indexOf(text) === index).join('\n'),
+    // Exact sRGB conversions of source adaptive-emerald-600-400's pinned OKLCH values.
+    copiedColor: dark ? '#00d492' : '#009966' }) };
 }
 
 /** QuestionAnswerHistory365aa87982 preserves the source union order. */
@@ -74,7 +81,7 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
   const fetched = detail !== null && detail.item !== original;
   const answer = original.type === 'user_input_request' && original.questionAnswer ? obj(original.questionAnswer) : null;
   return {
-    id: activity.id, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
+    id: activity.id, nativeWorkRow: '', reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
     body: activity.reasoning ? '' : call ? callBody : readPaths || activity.body,

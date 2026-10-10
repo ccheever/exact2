@@ -284,6 +284,13 @@ guide's rules don't make obvious.
   the bound value, not the screenshot. (Authoring bench, LLP 1087, ios20 t7-wizard,
   2026-10-05.)
 
+- **A native factory's `props["testId"]` is empty.** Common node attributes stay
+  on the Contract node; the factory receives the authored custom props. If the
+  app's native view itself is the accessibility element, include its stable id
+  in a custom prop or existing configuration and set `accessibilityIdentifier`
+  on that view. Reading `testId` from the factory dictionary can overwrite its
+  identifier with nil. (T3 Code fork row, LLP 1109.005, 2026-10-10.)
+
 ## Actions
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds

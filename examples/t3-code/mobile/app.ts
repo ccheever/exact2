@@ -777,7 +777,7 @@ async function threadView(args: unknown[], native?: Native | null) {
     const preparing = mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark');
     if (preparing) return preparing;
   }
-  const view = mobileThread(Number(time), scheme === 'dark');
+  const view = mobileThread(Number(time), scheme === 'dark', mobileClient, matched && routeName === 'thread' ? str(visit) : '');
   if (matched) return view;
   return { ...view, title: '', loaded: false, loading: active === true, rows: [], approvals: [],
     emptyTitle: active ? 'Loading thread' : '', emptyDetail: '', readsNeeded: false,
