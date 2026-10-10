@@ -1,0 +1,17 @@
+diff-gutter-selection-followups.test.ts at f7ad4e8f3 (the review round's narrowed amber check and source-tied user-select constants)
+
+=== on the feature tip 327336447's diff-rows.contract and r4-surfaces-files.contract (copied beside the test)
+(fail) GS-1: a drag that starts on the gutter selects no text > the number is DiffNumber's: no pointer (the press is the gutter's), no text selection, as [data-column-number] [0.14ms]
+(fail) GS-1: a drag that starts on the gutter selects no text > the number sits where it did: the gutter cell's width and inset, its colours unchanged [0.09ms]
+(fail) GS-1: a drag that starts on the gutter selects no text > every row draws its numbers after all of its code, so a copy across the list's rows reads the code where the host placed it [0.05ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > the number's cell and the number take the CDP colours; the number's is the diff's [0.14ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > no row tint and no bar: the code and the comment card under a selected line stay the surface's [0.03ms]
+(fail) GS-2: the Files surface's selected lines in the reference's blue > no amber is left where a selected line is painted [2.32ms]
+ 1 pass
+ 6 fail
+Ran 7 tests across 1 file. [6.00ms]
+
+=== on this branch
+ 13 pass
+ 0 fail
+Ran 13 tests across 2 files. [285.00ms]
