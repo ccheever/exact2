@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-gutter-selection-followups
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/417
 verified_commit: null
 ---
 
@@ -95,6 +95,12 @@ steps (its record) still cover the gutter drag under a real pointer.
 - `diff-gutter-visuals.test.ts`: its number-colour assertion reads `DiffNumber` (the colour is unchanged).
 - Before (the feature tip's sources with the new test): 1 pass, 6 fail; after: all pass ([tests-before-after.txt](https://raw.githubusercontent.com/ccheever/exact2/017a0a30479f75542d4467d071f81f4230c47cb7/diff-gutter-selection-followups/tests-before-after.txt)).
 
+Checks on `694fd0d33` (the branch merged with `feat(example)/t3-code`, already up to date; all exit 0): `bun test
+examples/t3-code --timeout 60000` 4451 pass / 1 skip / 0 fail (304 files); strict tsc; `contract build` of `app.contract`
+(1397 lines; 109,609 nodes, 28,573,305 bytes); caps; the five checks (cargo build, cargo test 3679 pass / 0 fail / 34
+ignored, clippy, fmt, caps, boot). No Rust or Swift changed, so `cargo test -p t3-code-macos --lib` and the AppKit binaries
+were not run. The bundle for the live drive was built from `c160a4d6f` (the code; the record only after it).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
@@ -120,6 +126,10 @@ steps (its record) still cover the gutter drag under a real pointer.
 ## Not done / not verified
 
 - Nothing of this record's rows.
+
+## Delivery
+
+Draft PR [#417](https://github.com/ccheever/exact2/pull/417) into `feat(example)/t3-code`.
 
 ## Next action
 
