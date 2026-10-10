@@ -1,0 +1,19 @@
+diff-gutter-visuals tests, before and after.
+Before: the feature tip ca034e055's sources (worktree t3-code-diff-gutter-visuals-before) with this branch's three test files copied in
+(diff-gutter-visuals.test.ts, diff-review.test.ts, pages-pr-code.test.ts), run there and removed:
+(fail) what sits under a selected line is painted selected (Pierre's renderSelection; diff-gutter-visuals) > the draft under its range, and a saved comment once its line is selected again
+(fail) what sits under a selected line is painted selected (Pierre's renderSelection; diff-gutter-visuals) > a drag over lines 1 to 2 marks the conversations under deleted 2 and added 2, not under 3; the draft at the release
+(fail) a selected line takes the reference's blue, not amber > the selection's colours are the ones CDP read
+(fail) a selected line takes the reference's blue, not amber > the row, the number's cell and the number take them; the selection's bar replaces the change bar
+(fail) a selected line takes the reference's blue, not amber > a comment under a selected line takes the row's colour and the bar, in both panels
+(fail) the "+" sits at the number's right, as Pierre's gutter utility > a 20pt square of the modified blue, its 16pt plus in the code surface's colour
+(fail) the "+" sits at the number's right, as Pierre's gutter utility > its left edge is the number's right edge: the reference's offsets at the default size
+ 34 pass
+ 7 fail
+Ran 41 tests across 3 files.
+
+After: this branch (149170af0), the same files plus #413's drag tests (realinput-1010f-followups.test.ts, diff-line-drag.test.ts):
+ 57 pass
+ 0 fail
+Ran 57 tests across 5 files.
+(The one diff-gutter-visuals test that passes before is '#413's handlers and placement stay as they were'.)
