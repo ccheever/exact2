@@ -303,7 +303,8 @@ try {
     const looks = await evaluate(`[...document.querySelectorAll('[data-testid$="-${key}"]')].filter(el => el.localName === 'a')
       .map(el => { const s = getComputedStyle(el), p = getComputedStyle(el.parentElement); return [el.dataset.testid.replace('-${key}', ''), s.display, s.textDecorationLine, s.cursor, s.color === p.color]; })`);
     assert.deepEqual(looks.filter(([id]) => ['link-post', 'link-person'].includes(id)),
-      [['link-post', 'block', 'none', 'default', true], ['link-person', 'inline', 'none', 'default', true]]);
+      // An inline link run is LinkText (LLP 1115); a block link inherits its parent's colour.
+      [['link-post', 'block', 'none', 'default', true], ['link-person', 'inline', 'none', 'default', false]]);
     // A same-origin path no pattern declares (a file) is the browser's: a new document.
     await tap('link-file'); await until(`location.pathname==='/manifest.json'`);
     assert.notEqual(await evaluate('globalThis.fixtureBoot ?? null'), boot);
