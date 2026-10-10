@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+target/settings-headings/base-tree/examples/t3-code/headings.test.ts:
+25 |   expect(unlevelled).toEqual([]);
+26 | });
+27 | 
+28 | const line = (file: string, needle: string) => {
+29 |   const found = views().find(v => v.name === file)!.lines.filter(l => l.includes(needle));
+30 |   expect(found).toHaveLength(1);
+                     ^
+error: expect(received).toHaveLength(expected)
+Expected length: 1
+Received length: 0
+      at line (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-headings/target/settings-headings/base-tree/examples/t3-code/headings.test.ts:30:17)
+      at <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-settings-headings/target/settings-headings/base-tree/examples/t3-code/headings.test.ts:44:10)
+(fail) Settings section titles are h2 and row titles h3, as the reference [4.43ms]
+ 2 pass
+ 1 fail
+ 7 expect() calls
+Ran 3 tests across 1 file. [23.00ms]
