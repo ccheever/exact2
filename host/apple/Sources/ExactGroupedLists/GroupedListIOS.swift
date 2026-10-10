@@ -275,6 +275,7 @@ final class GroupedListHost: GroupedLists {
     func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)] {
         lists[id]?.scrollAnchors() ?? []
     }
+    var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
 }
 
 /// One projected list.

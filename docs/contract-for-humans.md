@@ -94,12 +94,12 @@ component Counter
   action reset
     count = 0
   view
-    column padding=24 gap=12
-      text `Count: ${count}` testId="count" font-size=24
+    column gap=12
+      text `Count: ${count}` role="heading" aria-level=1 testId="count"
       row gap=8
-        button press=increment testId="increment" padding=12
+        button press=increment testId="increment"
           text "Add one"
-        button press=reset testId="reset" padding=12
+        button press=reset testId="reset"
           text "Reset"
 ```
 
@@ -189,9 +189,9 @@ logical line. Element attributes may continue on deeper-indented lines:
 
 ```text
 text title
-  font-size=24
-  font-weight=700
-  color="#243044"
+  role="heading"
+  aria-level=2
+  color="-exact-secondary-label"
 ```
 
 An attribute continuation starts with `name=`. A child starts with a tag or a
@@ -477,7 +477,7 @@ and a descendant's typed `inject` section:
 ```contract
 component App
   provide
-    accent = "#3355aa"
+    accent = "-exact-system-indigo"
   view
     Label(title="Hello")
 
@@ -506,7 +506,7 @@ component App
 component Card
   slot
   view
-    column padding=16 border-radius=12 background-color="#eeeeee"
+    column padding=16 border-radius=12 background-color="-exact-secondary-background"
       children
 ```
 
@@ -566,9 +566,10 @@ component Items
       text notice testId="notice"
 ```
 
-The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
-the source gives at once shows immediately) and forces it again when the reply
-lands. `then afterSave` runs a parameterless action in its own commit at the
+The `refreshes items` clause asks `items` again when the reply lands. To show the
+save before then, the data module exports an `overlay` for `loadItems` (the [agent
+guide](contract-for-agents.md#optimistic-writes-the-overlay) has the pattern).
+`then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
 reads the latest answer (the agent driver lands it at the end of the input
 that settled the answer). It does not run for a failure that brought no answer,
@@ -706,8 +707,8 @@ component ReadingList
         notice = ""
   view
     column padding=24 gap=12
-      text "Reading list" font-size=28 font-weight=700
-      text quote.text color="#6b7280" testId="quote"
+      text "Reading list" role="heading" aria-level=1
+      text quote.text color="-exact-secondary-label" testId="quote"
       row gap=8
         input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
         button press=add testId="add"
@@ -908,7 +909,7 @@ A reusable `style` contains literal style values:
 ```contract
 style Panel
   padding=16 gap=8 border-radius=12
-  background-color="#f0f2f5"
+  background-color="-exact-secondary-background"
 
 component App
   view
@@ -964,7 +965,8 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes none of them.
-Font sizes, touch targets, focus behavior, and contrast remain author decisions.
+Leave font sizes, colours and control metrics unsaid and the platform supplies them;
+what you set on a node wins.
 
 Declare bundled fonts at file scope:
 
@@ -1185,14 +1187,16 @@ component App
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
-          text e.name testId=`route-${e.id}`
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
+          header
+            when e.name == "item"
+              button id="back" press=back testId=`back-${e.id}`
+                text "Back"
+            text e.name role="heading" aria-level=1 testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
-          button id="back" press=back testId=`back-${e.id}`
-            text "Back"
 ```
 
 A navigation stack is built this way: one row per entry of `stack(nav)`, keyed by

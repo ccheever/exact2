@@ -1,6 +1,8 @@
 import { renderMarkup, reportPlace, onSelection, textField, settleRadios } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
+import * as Ov from "./overlay.js"; // optimistic writes shown over answers (the runner's writes.rs)
+export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -148,7 +150,7 @@ let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [
 /** Queued sends and gated tasks (schedule.js, LLP 1092), installed by a plan that declares them; the last commit's refusal. */
 export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
-const say = line => journal.push(`t=${clock.now} ${line}`);
+export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
@@ -167,7 +169,7 @@ export function commit(f, what = "commit") {
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = []; Refused = null;
   time();
-  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save();
+  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save(), queued = Sched?.save(), writes = Ov.save();
   let ok = true;
   try {
     untracked(f);
@@ -179,6 +181,7 @@ export function commit(f, what = "commit") {
       if (n.m && !n.landing) n.m.forget(undo);
     }
     for (const [m, source, args, own] of Sends) m.send(source, args, undo, own);
+    for (const [n] of Writes) if (n.m && !n.landing && Sends.some(x => x[0] === n.m)) n.m.forget(undo); // an assignment beside a send wins
     for (const r of Refresh) r.force(undo);
     if (!routerValid()) throw new Refusal("invalid router value"); // runner/src/runner/router.rs `change`
     settle();
@@ -189,12 +192,12 @@ export function commit(f, what = "commit") {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued);
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
     Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
     if (!(e instanceof Refusal)) console.error(e);
-    try { settle(); } catch {}
+    Restoring = true; try { settle(); } catch {} finally { Restoring = false; }
   }
   const [out, cmds, landed] = [Out, Commands, Landed];
   // A key handler's preventDefault/stopPropagation act on its event before the dispatch ends, a tree update a view transition defers too (review C3).
@@ -215,6 +218,9 @@ export function commit(f, what = "commit") {
   };
   return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
 }
+/** A commit made again after a write ended or the source became ready (the runner's `commit_again`). Refused while reads are
+ * owed (a reconciling ask), they fail, keeping what they show, before a commit publishes it; a refusal of that leaves nothing owed. */
+export function recommit(f, what) { const done = commit(f, what), owed = done === false ? Resources.filter(r => r.reconciling) : [], why = Refused?.message; if (owed.length) { for (const r of owed) r.giveUp(`the commit that asked it again was refused: ${why}`); commit(() => {}, "the reads a refused commit owed"); } return done; }
 /** What runs after each commit's tree update (a loaded piece's publication), before it (the text flow piece puts
  * flowed paragraphs back), and as the clock moves: before each timer or `then` fires, and where an advance lands. */
 export const After = [], Before = [], Clocked = [];
@@ -225,7 +231,7 @@ const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
 export function settled(inCommit) { drain(); markDocument(); Paint?.flush(); Present?.(); for (const f of After) f(); if (!inCommit && !Booting) autofocus(); } // a list's own mounts (list.js); a commit's scan follows its commands
-let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
+let Restoring = false, Booting = false; // `Restoring`: a refused commit's settle over what it put back, which asks nothing. The boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
     const at = o[name];
@@ -442,9 +448,9 @@ function reply(t, name, source, held, f, next, gone) {
       try { if (o.error !== undefined) throw new Failed(o.error, o.code); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e)); }
       f(p, o);
-    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
-    gone(Refused.message, Refused.code); commit(() => { if (t.r) again(t); }, "a failed request");
+    gone(Refused.message, Refused.code); recommit(() => { if (t.r) again(t); }, "a failed request");
   };
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
@@ -453,8 +459,8 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, reread: false, rev: false, store: false };
-  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed"] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0 };
+  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code) => { r.failed = args; r.error = error; r.code = code; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed"] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
     if (r.value !== undefined) return;
@@ -462,30 +468,30 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     if (v === undefined) throw new Failed(`${name} answers later and has nothing to show; give it an \`else\``);
     r.value = v;
   };
-  const take = (v, a) => {
+  const take = (v, a, origin) => { // `origin`: when it was asked (overlay.js)
     if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`, "shape");
     r.checked = v;
-    r.value = v; r.settled = a;
+    r.value = v; r.settled = a; r.origin = origin;
   };
   // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
   // A stream's message (`o.more`) is a settlement that keeps the ticket (LLP 1016.000 D1); a message
   // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
   const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; r.error = r.code = undefined; if (!o.more) r.ticket = null; again(t);
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r, origin: t.origin }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args, t.origin); r.failed = null; r.error = r.code = undefined; if (!o.more) r.ticket = null; again(t);
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
-  const m = memo(() => {
+  const m = memo(() => Ov.shown(r, (() => {
     ver();
-    const a = args();
-    const forced = r.forced, reread = r.reread, rev = r.rev;
-    r.forced = r.reread = r.rev = false;
+    const a = r.asked = args(); if (Restoring) return r.value; // `asked`: the overlay's arguments while a placeholder stands
+    const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
+    r.forced = r.rev = r.reconciling = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
     if (r.failed && (forced || !equal(a, r.failed))) { r.failed = null; r.error = r.code = undefined; }
     flag(fail, failure());
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
-    if (!forced && !reread && !rev) {
+    if (!forced && !rev) {
       // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
       if (r.settled !== undefined && equal(a, r.settled) && !baked) return r.value;
       if (r.ticket && equal(a, r.ticket.args)) return r.value;
@@ -494,18 +500,18 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     try { ans = ask(source, a, name); }
     catch (e) {
       if (e instanceof Refusal) throw e;
-      if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
-      r.failed = a; r.error = String(e?.message ?? e); r.code = failureCode(e); flag(fail, failure()); say(`resource ${name} failed: ${e.message}`); return r.value;
+      if (e.refuse && !reconciling) throw new Failed(`resource ${name}: ${e.message}`);
+      return fails(a, String(e?.message ?? e), failureCode(e)); // its newest ask failed: an older one in flight is let go
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
-      if (baked) say(revalidated(name, eq(ans.v, r.value))); take(ans.v, a);
-      if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
+      if (baked) say(revalidated(name, eq(ans.v, r.value)));
+      try { take(ans.v, a, Ov.tick()); }
+      catch (e) { if (!reconciling) throw e; return fails(a, String(e?.message ?? e), "shape"); }
+      if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
       if (!r.ticket) flag(pend, false);
       return r.value;
     }
-    // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
-    if (reread) return r.value;
     if (ans && ans.req && !forced && !rev && r.ticket?.req && !equal(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a;
@@ -513,24 +519,25 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     }
     if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, stream: ans.stream, baked, r }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, stream: ans.stream, baked, r, origin: Ov.tick() }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
     }
-    // Not ready (Rust loads after first paint): the bake's answer for its arguments stands, not pending, and is asked at `ready` as a
-    // native runner asks at data_ready (review B3); another compiled value stands, stale, asked again, forced, when it is (LLP 1027 D4).
+    // Not ready (Rust loads after first paint): the bake's answer stands, not pending, asked at `ready` as at data_ready (review B3); another compiled
+    // value stands, stale, forced then (LLP 1027 D4). That ask's refusal fails it, not the commit; a commit refused otherwise is followed by one failing it.
     const shown = baked && eq(a, r.settled);
     if (!shown) { hold(); flag(pend, true); }
-    if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; r.baked ||= shown; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
+    if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; r.forced = r.reconciling = true; r.baked ||= shown; recommit(() => { r.ov = null; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
     return r.value;
-  }, type);
+  })(), r.settled ?? r.asked, r.origin), type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked, r.error, r.ticket?.again, r.code, r.origin, r.forced, r.reconciling, r.rev],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) { r.ticket.args = x[3]; r.ticket.again = x[8]; } r.store = x[4]; r.failed = x[5]; r.baked = x[6]; r.error = x[7]; r.code = x[9]; r.origin = x[10]; r.forced = x[11]; r.reconciling = x[12]; r.rev = x[13]; write(ver.n, ver.n.v + 1); }, // and what it shows is read again, from what was put back
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
-    reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
-    revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
+    touch: undo => flag(ver, ver.n.v + 1, undo), // its writes changed: what it shows is laid over again
+    reconcile: undo => { r.forced = r.reconciling = true; flag(ver, ver.n.v + 1, undo); },
+    revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); }, giveUp: why => { r.baked = r.forced = r.reconciling = false; fails(r.asked ?? [], why, "error"); }, // owed by a refused commit (`commit`)
   });
   onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
@@ -545,25 +552,29 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
 export const Mutations = [];
 export function mut(name, slot, refreshes, type, queue) {
   const pend = sig(false);
-  const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend };
+  const m = { name, ticket: null, then: null, due: Infinity, next: Infinity, queue: !!queue, pend, refreshes: refreshes.map(x => x.r) };
+  const shown = (re, undo) => { for (const r of m.refreshes) r.touch(undo); for (const r of re ?? []) r.reconcile(undo); }; // a write began or ended (overlay.js)
   Mutations.push(m);
   slot.n.m = m;
   // An answer now lands before the action's own writes, as the runner's do: an assignment in the same action wins.
   const landWrite = (v, undo) => { if (!Writes.some(w => w[0] === slot.n)) { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
   const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
-    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req, write: t.write }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
     if (!o.more) m.ticket = null; W(pend, !!m.wait?.length);
+    Ov.land(m, p.v, t.write);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); });
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, !!m.wait?.length); m.ended(t.write); });
   Object.assign(m, {
     // A queue's assignment forgets nothing (LLP 1092 D4).
-    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
+    forget(undo) { if (m.ticket && !m.wait) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } if (!m.wait) shown(Ov.endPending(m), undo); },
+    ended(write) { const re = Ov.end(m, write); if (re) shown(re); return !!re; }, // its send in flight ended without landing: whether a write showed (the caller's commit publishes it)
     send(source, args, undo, own) {
+      if (!own) shown(Ov.accept(m, source, args), undo); // its write shows from here (a queue's next was accepted as it began to wait)
       // A queue's send waits unless the mutation is free; `own` is a `next`'s, whose ask refusing drops it (LLP 1092 D3).
       if (m.wait && !own && Sched.hold(m, source, args, undo)) return;
       let a;
@@ -574,15 +585,15 @@ export function mut(name, slot, refreshes, type, queue) {
       } catch (e) { if (own) Sched.own = e; throw e; }
       if ("v" in a) {
         m.checked = a.v;
+        Ov.land(m, a.v);
+        m.forget(undo); // answered at once, it replaces one still in flight (newest wins): the older reply is not wanted
         landWrite(a.v, undo);
         if (m.wait && pend.n.v !== !!m.wait.length) { undo.push([pend.n, pend.n.v]); write(pend.n, !!m.wait.length); } // a queue: pending while one waits
       } else {
-        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
+        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream, write: Ov.asked(m) };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       }
-      // Answered at once, it has landed: what it changes is forced, as a reply's landing forces it (a re-read
-      // drops a source that answers later, and no reply would come to ask again; runner commit.rs `landed_now`).
-      for (const r of refreshes) if ("v" in a) R(r.r); else r.r.reread_(undo);
+      if ("v" in a) for (const r of refreshes) R(r.r); // answered at once, it has landed: what it changes is forced (commit.rs `landed_now`)
     },
   });
   m.p = () => pend();
@@ -789,26 +800,13 @@ export function nm(e) {
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
-function normal(prop, t) {
+export function normal(prop, t) {
   const k = prop + "\0" + t;
   let v = Normal.get(k);
   if (v === undefined) { const s = Scratch ??= document.createElement("i").style; s.removeProperty(prop); s.setProperty(prop, t); Normal.set(k, v = same(s.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
   return v;
 }
-function withoutLines(s) { let o = "", bracket = 0; for (let i = 0; i < s.length; i++) { if (s[i] === "\\") { if (!bracket) o += s[i]; if (++i < s.length && !bracket) o += s[i]; } else if (s[i] === "[") bracket++; else if (s[i] === "]" && bracket) bracket--; else if (!bracket) o += s[i]; } return o; }
-function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (/\s/.test(s[i])) i++; if (i >= s.length) break; if (s[i] === "[") { for (i++; i < s.length && s[i] !== "]"; i += s[i] === "\\" ? 2 : 1); i++; continue; } const start = i; let depth = 0; for (; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")") depth--; else if (!depth && /\s/.test(s[i])) break; } const part = s.slice(start, i); if (/^repeat\(/i.test(part)) { const comma = part.indexOf(","), n = part.slice(7, comma).trim(); count += (/^\d+$/.test(n) ? Number(n) : 1) * trackCount(part.slice(comma + 1, -1)); } else count++; } return count; }
-export function gridValue(kind, value) {
-  if (value == null) return value;
-  const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
-  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return null; };
-  if (!v) return refuse("the browser rejected it");
-  const lower = v.toLowerCase(), wide = /^(?:inherit|initial|unset|revert|revert-layer)$/;
-  if (wide.test(lower)) return refuse("CSS-wide values have no kernel cascade");
-  if (kind === "tracks") { const sizes = withoutLines(lower); if (/^subgrid(?:\s|\[|$)/.test(lower) || /\b(?:calc|min|max|clamp|var|env)\s*\(/.test(sizes)) return refuse("Taffy has no value for it"); for (const m of sizes.matchAll(/(?:^|[^\w.-])(?:\d*\.)?\d+([a-z]+)\b/g)) if (!/^(?:px|fr)$/.test(m[1])) return refuse("Taffy has no value for its unit"); if (trackCount(lower) > 10000) return refuse("Taffy supports at most 10000 explicit tracks"); }
-  if (kind === "placement" && lower.split(/[ \/]+/).some(x => /^-?\d+$/.test(x) && Math.abs(Number(x)) > 10000)) return refuse("Taffy supports grid indexes and spans through 10000");
-  if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
-  return v;
-}
+export { gridValue } from "./grid.js";
 // A row's CSS text; `auto` on a maximum is CSS's unbounded `none` (LLP 1102 §3.11).
 const cssText = (prop, unit, v) => { const t = v == null ? null : typeof v === "number" ? v + unit : String(v); return t === "auto" && (prop === "max-width" || prop === "max-height") ? "none" : t; };
 function css(e, prop, unit, v, rendered) {

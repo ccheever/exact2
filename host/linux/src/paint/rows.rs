@@ -18,6 +18,8 @@ use exact_kernel::NodeKey;
 pub struct Dirty {
     hard: Vec<NodeKey>,
     moved: Vec<NodeKey>,
+    /// Nodes a commit bound to another item (LLP 1078).
+    renewed: Vec<NodeKey>,
 }
 
 impl Dirty {
@@ -26,6 +28,7 @@ impl Dirty {
         self.hard.extend(&r.touched);
         self.hard.extend(&r.created);
         self.hard.extend(&r.destroyed);
+        self.renewed.extend(&r.renewed);
     }
 
     /// A layout's moved frames, and paragraphs whose exclusions changed.
@@ -177,6 +180,18 @@ impl Painter {
         for key in dirty.hard {
             if let Some(row) = row_of(&self.rows, key) {
                 self.rows.kept.get_mut(&row).expect("found").stale = true;
+            }
+        }
+        // A row bound to another item is a new row (LLP 1078): its kept
+        // recording is the other item's, and a backend told the row was that
+        // one draws it in the row's place until the new one is made. The
+        // Canvas reader did, for as long as no stream followed: a rebound
+        // row coming into view showed the item it had been, in a slot that
+        // item's height left short (easy at 3,000 dp/s toward the start: up
+        // to five frames, three times in two seconds).
+        for key in dirty.renewed {
+            if let Some(row) = self.rows.kept.remove(&key) {
+                self.rows.freed.push(row.id);
             }
         }
         let mut seen = IdSet::default();

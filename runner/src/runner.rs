@@ -38,7 +38,7 @@ mod collection;
 mod source;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, PreloadWake, Target, BACKGROUND,
+    NativeHandler, Overlaid, PreloadWake, Target, Write, BACKGROUND,
 };
 mod delivery;
 mod links;
@@ -70,6 +70,7 @@ mod settlement;
 mod surface_record;
 mod time;
 mod viewport;
+mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
@@ -249,6 +250,20 @@ struct ResourceState {
     /// readiness (LLP 1027.005 D3). Settlement and rollback copy this with
     /// its value; activation or losing that identity consumes it.
     kept_seed: bool,
+    /// The sequence when this answer was asked (0 for a compiled, kept,
+    /// carried or placeholder value): a write that landed before it is
+    /// answered by it (`writes.rs`).
+    origin: u64,
+    /// The arguments `value` answers when they are not `args`: the bake's,
+    /// for a compiled answer standing in for newer arguments until the
+    /// source can answer. An overlay lays writes over it for these.
+    answered_for: Option<Vec<Value>>,
+}
+
+impl ResourceState {
+    fn answered_args(&self) -> &[Value] {
+        self.answered_for.as_deref().unwrap_or(&self.args)
+    }
 }
 
 /// What a boot starts from besides the plan and the launch.
@@ -286,6 +301,12 @@ struct PendingReq {
     /// A topic its resource watches changed while it was in flight: its
     /// reply lands, then the resource is asked again (LLP 1016.002 D4).
     ask_again: bool,
+    /// The sequence when its answer was first asked; its later rounds keep
+    /// it. Only an answer asked after a write landed retires that write.
+    origin: u64,
+    /// A mutation's: the write it carries (`writes.rs`), which only its
+    /// reply lands or ends.
+    write: Option<u64>,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -401,9 +422,18 @@ pub struct Runner<D: DataSource> {
     /// Resources an action asked to re-request; consumed by the next settle
     /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
-    /// Resources a send declared it changes, to read again from the source
-    /// without sending anything (LLP 1054.000.000 D1); the next settle's.
-    reread_next: Vec<usize>,
+    /// Sends to mutations that declare `refreshes`, shown over the answers
+    /// of the resources they change until they end or are answered.
+    writes: writes::Writes,
+    /// Each resource's last overlay, by what it was computed from.
+    overlays: Vec<Option<writes::OverlayCache>>,
+    /// Resources asked again after a write ended, or asked at `data_ready`
+    /// in place of a stand-in: a refusal of that ask marks the resource
+    /// failed instead of refusing the commit.
+    reconciling: Vec<usize>,
+    /// Sends made before the source was ready that it refused when sent, by
+    /// mutation and write: a refused commit does not bring them back.
+    refused_unsent: Vec<(usize, Option<u64>)>,
     /// Durable client state (LLP 1018 D1): the host's snapshot, and the
     /// writes since for the host to persist.
     store: Store,
@@ -593,8 +623,9 @@ impl<D: DataSource> Runner<D> {
                 .zip(&self.resources)
                 .enumerate()
                 // A request in flight or a placeholder shown until the
-                // source is ready is not an answer to carry.
-                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i])
+                // source is ready is not an answer to carry, nor one a
+                // write affects: the replacement runner asks it.
+                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i] && !self.written(*i))
                 .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
                 .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
@@ -815,7 +846,10 @@ impl<D: DataSource> Runner<D> {
             held_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
-            reread_next: Vec::new(),
+            writes: writes::Writes::default(),
+            overlays: Vec::new(),
+            reconciling: Vec::new(),
+            refused_unsent: Vec::new(),
             store,
             entropy_readers: Vec::new(),
             store_readers,
@@ -874,6 +908,8 @@ impl<D: DataSource> Runner<D> {
                         store_revision: runner.store.revision(),
                         placeholder: false,
                         kept_seed: false,
+                        answered_for: None,
+                        origin: 0,
                     })
             })
             .collect();
@@ -930,6 +966,8 @@ impl<D: DataSource> Runner<D> {
                         store_revision: runner.store.revision(),
                         placeholder: false,
                         kept_seed: true,
+                        answered_for: None,
+                        origin: 0,
                     });
                 }
             }
@@ -946,6 +984,7 @@ impl<D: DataSource> Runner<D> {
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.failed_args = vec![None; runner.plan.resources.len()];
+        runner.overlays = vec![None; runner.plan.resources.len()];
         runner.failed_why = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.queues = queue::Queues::new(runner.plan.mutations.len());
@@ -1204,7 +1243,8 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
-    /// Current value of a resource by name.
+    /// A resource's answer by name: what its source answered, without the
+    /// writes laid over it.
     pub fn resource(&self, name: &str) -> Option<&Value> {
         self.plan
             .resources

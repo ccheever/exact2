@@ -294,12 +294,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     private func placeEdit(_ commands: [NSMenuItem], pastes: [NSMenuItem], in menu: NSMenu) {
         var extra: [NSMenuItem] = []
         for item in commands {
+            // In Edit or in its Find submenu, where the host's item was.
             if let host = unbound.first(where: { host, key, mask in
-                host.menu === menu && replaced.contains { $0 === host } && Self.same((key.lowercased(), mask), (item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask))
-            })?.0 {
-                if item.menu !== menu || menu.index(of: item) != menu.index(of: host) {
+                (host.menu === menu || host.menu?.supermenu === menu) && replaced.contains { $0 === host }
+                    && Self.same((key.lowercased(), mask), (item.keyEquivalent.lowercased(), item.keyEquivalentModifierMask))
+            })?.0, let into = host.menu {
+                if item.menu !== into || into.index(of: item) != into.index(of: host) {
                     item.menu?.removeItem(item)
-                    menu.insertItem(item, at: menu.index(of: host))
+                    into.insertItem(item, at: into.index(of: host))
                 }
             } else {
                 extra.append(item)
@@ -344,7 +346,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 guard !host.keyEquivalent.isEmpty,
                       claimed.contains(where: { Self.sameChord(host, key: $0.0, $0.1) }) else { continue }
                 unbound.append((host, host.keyEquivalent, host.keyEquivalentModifierMask))
-                if menu === editMenu, Self.editRoles.contains(host.action ?? Selector("")) {
+                if menu === editMenu || menu.supermenu === editMenu, Self.standsIn(host) {
                     host.isHidden = true
                     replaced.append(host)
                 }
@@ -354,7 +356,15 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     /// The host's Edit items an app command may stand in for.
     private static let editRoles: Set<Selector> = [Selector(("undo:")), Selector(("redo:")), #selector(NSText.cut(_:)),
-                                                   #selector(NSText.copy(_:)), #selector(NSText.paste(_:)), #selector(EditMenuTarget.selectAll(_:))]
+                                                   #selector(NSText.copy(_:)), #selector(NSText.paste(_:)), #selector(NSTextView.pasteAsPlainText(_:)),
+                                                   #selector(EditMenuTarget.selectAll(_:))]
+    /// Edit ▸ Find's Find…, Find Next and Find Previous: an app's ⌘F, ⌘G,
+    /// ⇧⌘G stands in for them there (LLP 1115 D8).
+    private static let findRoles = Set([NSTextFinder.Action.showFindInterface, .nextMatch, .previousMatch].map(\.rawValue))
+    private static func standsIn(_ host: NSMenuItem) -> Bool {
+        guard let action = host.action else { return false }
+        return editRoles.contains(action) || action == #selector(NSResponder.performTextFinderAction(_:)) && findRoles.contains(host.tag)
+    }
     private static let chordMask: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
     private static func same(_ a: (String, NSEvent.ModifierFlags), _ b: (String, NSEvent.ModifierFlags)) -> Bool {
         a.0 == b.0 && a.1.intersection(chordMask) == b.1.intersection(chordMask)

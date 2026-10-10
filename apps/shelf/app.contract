@@ -1,0 +1,779 @@
+// Shelf: a reading tracker, and the recipe for an iPhone app in Exact. Copy from
+// here (LLP 1115, "write the web, ship the platform").
+//
+// Say what a thing is; leave how it looks unsaid. This file writes no colour and
+// no font size or weight: where it must, it names a role (`-exact-secondary-label`,
+// `-exact-separator`, `-exact-fill`, `AccentColor`) or a text style (`role="heading"`
+// with an `aria-level`, `font="-exact-footnote"`), and `bun scripts/no-tells.mjs
+// shelf` fails on anything else. The platform supplies the rest, and on iOS:
+//
+// - each route's `header` is its navigation bar: a level-1 heading the large
+//   title, a level-2 one the inline title, its buttons the bar items, its
+//   `input type="search"` the bar's search field;
+// - the root `tablist` is the tab bar, a `tablist` in the content a segmented
+//   control, `list appearance="auto"` a grouped list (Settings' look);
+// - a `modal` route is a sheet; a pushed route gets the system Back button and
+//   edge swipe, and the sheet swipes down, with nothing written for either;
+// - `dialog role="alertdialog"` is the system alert, `contextPopover` the
+//   long-press menu, `swipeTrailing` the row's swipe action, `refresh=` the
+//   pull-to-refresh, and `progress` the activity indicator.
+//
+// The tint is the platform's: the app names none, so every bar button, control,
+// selected tab and star is the system's accent. (A root `accent-color` would tint
+// the tab bar and controls but not the bar buttons, so there is no one place to set
+// an app's tint yet: QUEUE.md.) Layout (flex, gap, padding) is
+// CSS and the author's; the web host draws the same file as a web page.
+
+routes nav
+  tab library "/"
+    book "/book/:id"
+    add "/add"
+  tab discover "/discover"
+  tab stats "/stats"
+
+shape Book
+  id: string
+  title: string
+  author: string
+  pages: number
+  currentPage: number
+  status: string
+  rating: number
+  notes: string
+  addedAt: number
+  coverUrl: string
+  sourceKey: string
+
+shape Library
+  ready: bool
+  books: list<Book>
+  goal: number
+  pagesRead: number
+  avgText: string
+
+shape Ack
+  ok: bool
+
+shape Work
+  key: string
+  title: string
+  author: string
+  pages: number
+  coverUrl: string
+
+shape Subject
+  ok: bool
+  error: string
+  works: list<Work>
+
+shape Time
+  epochAtZero: number
+
+fn statusLabel(s: string): string = s == "want" ? "Want to Read" : (s == "reading" ? "Reading" : "Finished")
+fn percent(cur: number, total: number): number = total > 0 ? round(cur / total * 100) : 0
+fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or includes(toLowerCase(b.title), q) or includes(toLowerCase(b.author), q))
+fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n and n > 0 and n <= 10000, case none => false }
+fn pagesValue(text: string): number = match parseNumber(text) { case some(n) => n, case none => 0 }
+fn countText(n: number, one: string, many: string): string = n == 1 ? `1 ${one}` : `${n} ${many}`
+
+component Shelf
+  state query = ""
+  state filter = "all"
+  // The book a long press or Remove is about, for the alert.
+  state aimed = ""
+  state draftTitle = ""
+  state draftAuthor = ""
+  state draftPages = ""
+  state draftStatus = "want"
+  state submitted = false
+  state subject = "science_fiction"
+
+  resource time = exactTime() as shape Time
+  resource lib = library() as shape Library else empty(ready=false, goal=12, avgText="—")
+  resource works = subjectWorks(subject) as shape Subject else empty(ok=true)
+  mutation changed as shape Ack queue refreshes lib
+
+  derive current = top(nav)
+  derive visible = filter(lib.books, b => matches(b, filter, toLowerCase(trim(query))))
+  derive aimedTitle = match first(filter(lib.books, b => b.id == aimed)) { case some(b) => b.title, case none => "This book" }
+  derive finished = length(filter(lib.books, b => b.status == "done"))
+  derive owned = map(lib.books, b => b.sourceKey)
+  derive titleError = trim(draftTitle) == "" ? "Enter a title." : ""
+  derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
+
+  // Navigation: a tab, a push, a sheet, and Back (also what the platform's
+  // own Back button, edge swipe and sheet swipe-down press).
+  action pick(name: string)
+    nav = select(nav, name)
+  action follow(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  action openBook(id: string)
+    nav = push(nav, path("book", id))
+  action openAdd
+    draftTitle = ""
+    draftAuthor = ""
+    draftPages = ""
+    draftStatus = "want"
+    submitted = false
+    nav = push(nav, "/add")
+
+  // Library
+  action search(v: string)
+    query = v
+  action show(f: string)
+    filter = f
+  action aim(id: string)
+    aimed = id
+  // A destructive choice asks first: the system alert, from any action.
+  action askRemove(id: string)
+    aimed = id
+    showModal("remove")
+  action askRemoveAimed
+    showModal("remove")
+  action remove
+    if current.name == "book"
+      nav = back(nav)
+    send changed = removeBook(aimed)
+  // A full swipe is its own confirmation, as in Mail.
+  action swipeRemove(id: string)
+    send changed = removeBook(id)
+
+  // The add sheet
+  action editTitle(v: string)
+    draftTitle = v
+  action editAuthor(v: string)
+    draftAuthor = v
+  action editPages(v: string)
+    draftPages = v
+  action chooseDraftStatus(s: string)
+    draftStatus = s
+  action save
+    submitted = true
+    if titleError == "" and pagesError == ""
+      let author = trim(draftAuthor) == "" ? "Unknown author" : trim(draftAuthor)
+      send changed = addBook(trim(draftTitle), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
+      nav = back(nav)
+
+  // A book
+  action setStatus(id: string, s: string)
+    send changed = setStatus(id, s)
+  action turnTo(id: string, page: number)
+    send changed = setPage(id, page)
+  action rate(id: string, n: number)
+    send changed = setRating(id, n)
+  action keepNotes(id: string, text: string)
+    send changed = setNotes(id, text)
+
+  // Discover
+  action chooseSubject(s: string)
+    subject = s
+  action reload
+    refresh works
+  action addWork(w: Work)
+    send changed = addBook(w.title, w.author, w.pages, "want", w.coverUrl, w.key, time.epochAtZero + performanceNow())
+
+  // Stats
+  action goalBy(d: number)
+    send changed = setGoal(lib.goal + d)
+
+  view
+    main testId="shelf"
+      navigationKey=`${current.id}`
+      navigationBack="back"
+      navigate=follow
+      width="100%"
+      height="100%"
+      display="flex"
+      flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        each t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key = e.id
+              when e.name == "library"
+                column navigationKey=`${e.id}`
+                  navigationScroll="library-list"
+                  testId="route-library"
+                  position="absolute"
+                  inset=0
+                  display="flex"
+                  flex-direction="column"
+                  header display="flex"
+                    flex-wrap="wrap"
+                    align-items="center"
+                    gap=8
+                    padding="8px 16px"
+                    text "Library" role="heading" aria-level=1 flex=1
+                    button press=openAdd aria-label="Add Book" testId="add-book"
+                      image "symbol:add"
+                    input type="search"
+                      value=query
+                      input=search
+                      placeholder="Search"
+                      aria-label="Search title or author"
+                      testId="search"
+                      width="100%"
+                  scroll id="library-list" testId="library-list" flex=1 min-height=0
+                    row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px"
+                      button role="tab"
+                        aria-selected=(filter == "all")
+                        press=show("all")
+                        testId="filter-all"
+                        flex=1
+                        text "All"
+                      button role="tab"
+                        aria-selected=(filter == "reading")
+                        press=show("reading")
+                        testId="filter-reading"
+                        flex=1
+                        text "Reading"
+                      button role="tab"
+                        aria-selected=(filter == "want")
+                        press=show("want")
+                        testId="filter-want"
+                        flex=1
+                        text "Want"
+                      button role="tab"
+                        aria-selected=(filter == "done")
+                        press=show("done")
+                        testId="filter-done"
+                        flex=1
+                        text "Finished"
+                    each b in visible key = b.id
+                      BookRow(book=b, open=openBook, aim=aim, swipeRemove=swipeRemove)
+                    when lib.ready and length(visible) == 0
+                      Empty(
+                        title=(length(lib.books) == 0 ? "No Books" : "No Results"),
+                        message=(length(lib.books) == 0 ? "Tap + to add the first book on your shelf." : "Try another search or filter."),
+                        tid="library-empty"
+                      )
+                    when length(visible) > 0
+                      text `${length(visible)} of ${countText(length(lib.books), "book", "books")}` testId="library-count"
+                        font="-exact-footnote"
+                        color="-exact-secondary-label"
+                        text-align="center"
+                        padding=16
+                  // The long-press menu every row names (`contextPopover`).
+                  column id="book-menu" popover="auto" role="menu" aria-label="Book"
+                    button press=askRemoveAimed
+                      destructive=true
+                      popovertarget="book-menu"
+                      popovertargetaction="hide"
+                      testId="menu-remove"
+                      image "symbol:delete"
+                      text "Remove…"
+              when e.name == "book"
+                column navigationKey=`${e.id}`
+                  navigationScroll="book-list"
+                  testId="route-book"
+                  position="absolute"
+                  inset=0
+                  display="flex"
+                  flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text (match first(filter(lib.books, b => b.id == e.params.id)) { case some(b) => b.title, case none => "" }) role="heading"
+                      aria-level=2
+                  list id="book-list"
+                    appearance="auto"
+                    listStyle="inset-grouped"
+                    testId="book-detail"
+                    flex=1
+                    min-height=0
+                    each b in filter(lib.books, x => x.id == e.params.id) key = b.id
+                      BookSections(
+                        book=b,
+                        setStatus=setStatus,
+                        turnTo=turnTo,
+                        rate=rate,
+                        keepNotes=keepNotes,
+                        askRemove=askRemove
+                      )
+              when e.name == "add"
+                column navigationKey=`${e.id}`
+                  navigationPresentation="modal"
+                  navigationScroll="add-form"
+                  testId="route-add"
+                  position="absolute"
+                  inset=0
+                  display="flex"
+                  flex-direction="column"
+                  header display="flex"
+                    align-items="center"
+                    justify-content="space-between"
+                    padding="8px 16px"
+                    button id="back" press=back testId="add-cancel"
+                      text "Cancel"
+                    text "New Book" role="heading"
+                    button press=save buttonStyle="bordered-prominent" testId="add-save"
+                      text "Save"
+                  list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                    section
+                      header
+                        text "Title"
+                      row
+                        input appearance="none"
+                          value=draftTitle
+                          input=editTitle
+                          placeholder="Middlemarch"
+                          aria-label="Title"
+                          autofocus=true
+                          enterkeyhint="next"
+                          testId="add-title"
+                          flex=1
+                      footer
+                        text (submitted ? titleError : "") color="-exact-system-red"
+                          testId="error-title"
+                    section
+                      header
+                        text "Author"
+                      row
+                        input appearance="none"
+                          value=draftAuthor
+                          input=editAuthor
+                          placeholder="Optional"
+                          aria-label="Author"
+                          autocomplete="off"
+                          enterkeyhint="next"
+                          testId="add-author"
+                          flex=1
+                    section
+                      header
+                        text "Pages"
+                      row
+                        input type="number"
+                          appearance="none"
+                          value=draftPages
+                          input=editPages
+                          placeholder="Optional"
+                          aria-label="Pages"
+                          inputmode="numeric"
+                          testId="add-pages"
+                          flex=1
+                      footer
+                        text (submitted ? pagesError : "") color="-exact-system-red"
+                          testId="error-pages"
+                    section background-color="transparent"
+                      StatusControl(
+                        status=draftStatus,
+                        choose=chooseDraftStatus,
+                        prefix="add-status"
+                      )
+              when e.name == "discover"
+                column navigationKey=`${e.id}`
+                  navigationScroll="discover-list"
+                  testId="route-discover"
+                  position="absolute"
+                  inset=0
+                  display="flex"
+                  flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text "Discover" role="heading" aria-level=1
+                  // Pull to refresh: `refresh` on the scroller; `refreshing` holds
+                  // the spinner until the reload settles.
+                  scroll id="discover-list"
+                    testId="discover-list"
+                    refresh=reload
+                    refreshing=(pending(works) and length(works.works) > 0)
+                    flex=1
+                    min-height=0
+                    row role="tablist" aria-label="Subject" testId="subjects" margin="8px 16px"
+                      button role="tab"
+                        aria-selected=(subject == "science_fiction")
+                        press=chooseSubject("science_fiction")
+                        testId="subject-science_fiction"
+                        flex=1
+                        text "Sci-Fi"
+                      button role="tab"
+                        aria-selected=(subject == "fantasy")
+                        press=chooseSubject("fantasy")
+                        testId="subject-fantasy"
+                        flex=1
+                        text "Fantasy"
+                      button role="tab"
+                        aria-selected=(subject == "mystery_and_detective_stories")
+                        press=chooseSubject("mystery_and_detective_stories")
+                        testId="subject-mystery_and_detective_stories"
+                        flex=1
+                        text "Mystery"
+                    when pending(works) and length(works.works) == 0
+                      row justify-content="center" padding=40
+                        progress aria-label="Loading" testId="discover-loading"
+                    else when not works.ok
+                      Empty(title="Couldn’t Load Books", message=works.error, tid="discover-error")
+                      row justify-content="center"
+                        button press=reload testId="retry"
+                          text "Try Again"
+                    else
+                      each w in works.works key = w.key
+                        WorkRow(work=w, added=includes(owned, w.key), add=addWork)
+              when e.name == "stats"
+                column navigationKey=`${e.id}`
+                  navigationScroll="stats-list"
+                  testId="route-stats"
+                  position="absolute"
+                  inset=0
+                  display="flex"
+                  flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text "Stats" role="heading" aria-level=1
+                  list id="stats-list"
+                    appearance="auto"
+                    listStyle="inset-grouped"
+                    testId="stats"
+                    flex=1
+                    min-height=0
+                    StatsSections(lib=lib, finished=finished, goalBy=goalBy)
+      // The tab bar: each tab a symbol over its label, naming its panel.
+      row role="tablist" testId="tabs"
+        button role="tab"
+          aria-controls="panel-library"
+          aria-selected=(nav.tab == "library")
+          press=pick("library")
+          testId="tab-library"
+          flex=1
+          image "symbol:book"
+          text "Library"
+        button role="tab"
+          aria-controls="panel-discover"
+          aria-selected=(nav.tab == "discover")
+          press=pick("discover")
+          testId="tab-discover"
+          flex=1
+          image "symbol:sparkles"
+          text "Discover"
+        button role="tab"
+          aria-controls="panel-stats"
+          aria-selected=(nav.tab == "stats")
+          press=pick("stats")
+          testId="tab-stats"
+          flex=1
+          image "symbol:chart"
+          text "Stats"
+      // The confirmation: the system alert. Its label is the title, the text the
+      // message; Cancel is the closing button without a `press`.
+      dialog id="remove" role="alertdialog" aria-label="Remove Book?"
+        text `“${aimedTitle}” will be removed from your library.`
+        button press=remove
+          destructive=true
+          commandfor="remove"
+          command="close"
+          testId="remove-confirm"
+          text "Remove"
+        button commandfor="remove" command="close" testId="remove-cancel"
+          text "Cancel"
+
+// A row of the library: tap to open, long-press for the menu, swipe to delete.
+// The swipe is a horizontal snap scroll naming its content and its action; iOS
+// makes the action UIKit's own, and the web scrolls to it.
+component BookRow
+  props
+    book: Book
+    open: action
+    aim: action
+    swipeRemove: action
+  view
+    scroll swipeContent=`book-${book.id}`
+      swipeTrailing=`delete-${book.id}`
+      testId=`swipe-${book.id}`
+      width="100%"
+      overflow-x="scroll"
+      overflow-y="hidden"
+      scrollbar-width="none"
+      scroll-snap-type="x mandatory"
+      row width="100%"
+        button id=`book-${book.id}`
+          press=open(book.id)
+          contextmenu=aim(book.id)
+          contextPopover="book-menu"
+          testId=`book-${book.id}`
+          width="100%"
+          flex-shrink=0
+          scroll-snap-align="start"
+          text-align="start"
+          display="flex"
+          align-items="center"
+          row flex=1
+            min-width=0
+            align-items="center"
+            gap=8
+            margin-left=16
+            padding="10px 16px 10px 0"
+            border-bottom="0.5px solid -exact-separator"
+            column flex=1 min-width=0 gap=2
+              text book.title font="-exact-headline" line-clamp=2 testId=`book-title-${book.id}`
+              text book.author font="-exact-subheadline" color="-exact-secondary-label"
+              row align-items="center" gap=6
+                text (book.status == "reading" ? `${percent(book.currentPage, book.pages)}% · page ${book.currentPage} of ${book.pages}` : statusLabel(book.status)) font="-exact-footnote"
+                  color="-exact-secondary-label"
+                  testId=`book-status-${book.id}`
+                when book.status == "done" and book.rating > 0
+                  Stars(value=book.rating, tid=`book-stars-${book.id}`)
+              when book.status == "reading"
+                Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
+            image "symbol:forward-chevron" aria-hidden=true
+              font="-exact-footnote"
+              -exact-tint-color="-exact-tertiary-label"
+        button id=`delete-${book.id}`
+          destructive=true
+          press=swipeRemove(book.id)
+          aria-label="Delete"
+          testId=`delete-${book.id}`
+          flex-shrink=0
+          scroll-snap-align="start"
+          image "symbol:delete"
+
+// A book's screen: a grouped list, one section per concern.
+component BookSections
+  props
+    book: Book
+    setStatus: action
+    turnTo: action
+    rate: action
+    keepNotes: action
+    askRemove: action
+  view
+    when book.coverUrl != ""
+      section background-color="transparent"
+        row justify-content="center"
+          image book.coverUrl alt=book.title width=100 height=150 object-fit="cover" border-radius=6
+    section
+      row
+        text "Author"
+        text book.author testId="detail-author"
+      when book.pages > 0
+        row
+          text "Pages"
+          text `${book.pages}` testId="detail-pages"
+    section background-color="transparent"
+      StatusControl(status=book.status, choose=setStatus(book.id), prefix="detail-status")
+    when book.status != "want" and book.pages > 0
+      section testId="progress"
+        header
+          text "Progress"
+        // A custom row is a flex row: its content takes the width with `flex=1`.
+        row padding-top=12 padding-bottom=12
+          column flex=1 gap=12
+            Meter(value=percent(book.currentPage, book.pages), tid="detail-progress")
+            row align-items="center" justify-content="space-between"
+              button appearance="auto"
+                buttonStyle="bordered"
+                press=turnTo(book.id, book.currentPage - 10)
+                disabled=(book.currentPage <= 0)
+                aria-label="Back 10 pages"
+                testId="page-back"
+                text "−10"
+              text `Page ${book.currentPage} of ${book.pages}` testId="page-label"
+              button appearance="auto"
+                buttonStyle="bordered"
+                press=turnTo(book.id, book.currentPage + 10)
+                disabled=(book.currentPage >= book.pages)
+                aria-label="Forward 10 pages"
+                testId="page-forward"
+                text "+10"
+        footer
+          text `${percent(book.currentPage, book.pages)}% read` testId="page-percent"
+    when book.status == "done"
+      section testId="rating-section"
+        header
+          text "Rating"
+        row flex=1
+          justify-content="center"
+          gap=12
+          padding-top=8
+          padding-bottom=8
+          role="group"
+          aria-label=`Rated ${book.rating} of 5`
+          testId="rating"
+          each n in [1, 2, 3, 4, 5] key = n
+            button appearance="auto"
+              buttonStyle="plain"
+              press=rate(book.id, n == book.rating ? 0 : n)
+              aria-label=(n == 1 ? "1 star" : `${n} stars`)
+              testId=`star-${n}`
+              image (n <= book.rating ? "symbol:star-fill" : "symbol:star")
+    section
+      header
+        text "Notes"
+      // Keyed by the book, so the draft starts from the saved notes once.
+      each k in [book.id] key = k
+        Notes(bookId=book.id, initial=book.notes, keep=keepNotes)
+    section
+      button press=askRemove(book.id) destructive=true testId="remove-book"
+        text "Remove from Library"
+
+component Notes
+  props
+    bookId: string
+    initial: string
+    keep: action
+  state draft = initial
+  action edit(v: string)
+    draft = v
+    keep(bookId, v)
+  view
+    row padding-top=8 padding-bottom=8
+      textarea appearance="none"
+        value=draft
+        input=edit
+        placeholder="Thoughts, quotes, where you left off…"
+        aria-label="Notes"
+        rows=4
+        testId="notes"
+        flex=1
+
+// A segmented control: a `tablist` of text tabs outside a header.
+component StatusControl
+  props
+    status: string
+    choose: action
+    prefix: string
+  view
+    row role="tablist" aria-label="Status" testId=prefix
+      button role="tab"
+        aria-selected=(status == "want")
+        press=choose("want")
+        testId=`${prefix}-want`
+        flex=1
+        text "Want to Read"
+      button role="tab"
+        aria-selected=(status == "reading")
+        press=choose("reading")
+        testId=`${prefix}-reading`
+        flex=1
+        text "Reading"
+      button role="tab"
+        aria-selected=(status == "done")
+        press=choose("done")
+        testId=`${prefix}-done`
+        flex=1
+        text "Finished"
+
+component WorkRow
+  props
+    work: Work
+    added: bool
+    add: action
+  view
+    row align-items="center" gap=12 padding-left=16 testId=`work-${work.key}`
+      when work.coverUrl != ""
+        image work.coverUrl alt=""
+          width=44
+          height=66
+          object-fit="cover"
+          border-radius=4
+          flex-shrink=0
+          background-color="-exact-fill"
+      else
+        column width=44 height=66 border-radius=4 flex-shrink=0 background-color="-exact-fill"
+      row flex=1
+        min-width=0
+        align-items="center"
+        gap=12
+        padding="10px 16px 10px 0"
+        border-bottom="0.5px solid -exact-separator"
+        column flex=1 min-width=0 gap=2
+          text work.title font="-exact-headline" line-clamp=2
+          text work.author font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+        when added
+          button disabled=true testId=`added-${work.key}` flex-shrink=0
+            text "Added"
+        else
+          button press=add(work)
+            aria-label=`Add ${work.title}`
+            testId=`add-${work.key}`
+            flex-shrink=0
+            text "Add"
+
+component StatsSections
+  props
+    lib: Library
+    finished: number
+    goalBy: action
+  view
+    section
+      header
+        text "Library"
+      row testId="stat-reading"
+        text "Reading"
+        text `${length(filter(lib.books, b => b.status == "reading"))}`
+      row testId="stat-want"
+        text "Want to Read"
+        text `${length(filter(lib.books, b => b.status == "want"))}`
+      row testId="stat-finished"
+        text "Finished"
+        text `${finished}`
+      row testId="stat-pages"
+        text "Pages Read"
+        text `${lib.pagesRead}`
+    section
+      row testId="stat-rating"
+        text "Average Rating"
+        text lib.avgText testId="avg-rating"
+      footer
+        text "Of the finished books you rated."
+    section
+      header
+        text "Yearly Goal"
+      row padding-top=12 padding-bottom=12 testId="goal-row"
+        column flex=1 gap=10
+          row align-items="center" gap=8
+            text countText(lib.goal, "book", "books") testId="goal" flex=1
+            button appearance="auto"
+              buttonStyle="bordered"
+              press=goalBy(-1)
+              disabled=(lib.goal <= 1)
+              aria-label="Fewer books"
+              testId="goal-down"
+              image "symbol:minus"
+            button appearance="auto"
+              buttonStyle="bordered"
+              press=goalBy(1)
+              disabled=(lib.goal >= 365)
+              aria-label="More books"
+              testId="goal-up"
+              image "symbol:add"
+          Meter(
+            value=(lib.goal > 0 ? min(100, round(finished / lib.goal * 100)) : 0),
+            tid="goal-progress"
+          )
+      footer
+        text (finished >= lib.goal ? "Goal reached." : `${lib.goal - finished} to go.`) testId="goal-left"
+
+// What a screen shows with nothing in it (UIKit's ContentUnavailableView).
+component Empty
+  props
+    title: string
+    message: string
+    tid: string
+  view
+    column align-items="center" gap=6 padding="48px 32px 16px" testId=tid
+      text title role="heading" aria-level=3 text-align="center"
+      text message color="-exact-secondary-label" text-align="center" testId=`${tid}-message`
+
+// A determinate progress bar, 0 to 100, in the system fill and the tint.
+// `progress value=… max=…` is refused today (no UIProgressView yet), so this is
+// drawn, in roles only.
+component Meter
+  props
+    value: number
+    tid: string
+  view
+    row height=4
+      border-radius=2
+      overflow="hidden"
+      background-color="-exact-fill"
+      role="progressbar"
+      aria-label=`${value}%`
+      testId=tid
+      row width=`${value}%` background-color="AccentColor"
+
+// Five stars, filled to the rating, in the tint.
+component Stars
+  props
+    value: number
+    tid: string
+  view
+    row gap=2 role="img" aria-label=`Rated ${value} of 5` testId=tid
+      each n in [1, 2, 3, 4, 5] key = n
+        image (n <= value ? "symbol:star-fill" : "symbol:star") font="-exact-caption2"

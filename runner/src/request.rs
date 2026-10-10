@@ -631,9 +631,28 @@ pub enum Dispatch {
     /// Not yet: the source holds it — a turn is reserved ahead of it — and
     /// releases it from `DataSource::release` after a later commit.
     Held,
+    /// Ask the answer again: no work to run, only its settlement, in its
+    /// place among the ordered requests (LLP 1041 §8.4, amended
+    /// 2026-10-09). A host settles it with [`Dispatch::again_outcome`]; a
+    /// native executor never makes it worker work, never counts it against
+    /// the sixteen effects, and keeps it pending rather than refusing it
+    /// when its settlement window is full.
+    Again,
     /// No work: the token is unknown or already consumed. The host refuses
     /// the request as it does a missing continuation.
     Missing,
+}
+
+impl Dispatch {
+    /// What an [`Dispatch::Again`] settles with: an empty success, which
+    /// the source reads as "look again", never as a reply.
+    pub fn again_outcome() -> Outcome {
+        Outcome::Response(Response {
+            status: 200,
+            headers: Vec::new(),
+            body: Vec::new(),
+        })
+    }
 }
 
 /// A request the host is to run: its ticket, the resource or mutation it

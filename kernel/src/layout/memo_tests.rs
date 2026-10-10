@@ -403,14 +403,22 @@ impl Row {
 
 #[test]
 fn rebound_rows_replayed_equal_rows_laid_out_fresh() {
-    let (mut hits, mut records) = (0, 0);
-    for case in 0..4u64 {
-        let mut list = List::new(0x1078_0029_5eed ^ (case * 0x9E37_79B9));
-        list.run(6 + case as usize * 2, 300);
-        let (h, r) = list.k.row_layout_memo_counts();
-        hits += h;
-        records += r;
-    }
+    // One thread per case: each builds its own kernel.
+    let (hits, records) = std::thread::scope(|scope| {
+        let cases: Vec<_> = (0..4u64)
+            .map(|case| {
+                scope.spawn(move || {
+                    let mut list = List::new(0x1078_0029_5eed ^ (case * 0x9E37_79B9));
+                    list.run(6 + case as usize * 2, 300);
+                    list.k.row_layout_memo_counts()
+                })
+            })
+            .collect();
+        cases
+            .into_iter()
+            .map(|case| case.join().unwrap())
+            .fold((0, 0), |(h, r), (ch, cr)| (h + ch, r + cr))
+    });
     // Rows of two kinds, three titles and unseen ones, four bodies, a chip,
     // a hidden badge and two margins: most rebinds still find a row like
     // theirs laid out before; every row with an unseen title does not.

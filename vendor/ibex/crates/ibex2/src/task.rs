@@ -1053,6 +1053,11 @@ impl RuntimeState {
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Host operations started and not yet returned (Exact patch 11).
+    pub fn in_flight(&self) -> usize {
+        self.in_flight.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Is the driver already running a cycle?
     ///
     /// A drive request made while not `Idle` records a wakeup rather than

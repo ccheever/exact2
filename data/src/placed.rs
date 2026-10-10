@@ -144,6 +144,8 @@ pub struct Placed<D> {
     next: u64,
     validation: bool,
     logs: Vec<String>,
+    /// The sources the journal said don't overlay on the owner thread.
+    told_overlay: std::collections::BTreeSet<String>,
 }
 
 impl<D: DataSource + Send + 'static> Placed<D> {
@@ -185,6 +187,7 @@ impl<D: DataSource + 'static> Placed<D> {
             next: 0,
             validation: false,
             logs: Vec::new(),
+            told_overlay: Default::default(),
         }
     }
 
@@ -573,6 +576,26 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         self.parse_with(None, store, source, args, outcome)
+    }
+
+    /// Inline, the source's own overlay. On its owner thread it can't be
+    /// called synchronously, so the answer shows; the journal says so once.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if self.inline() {
+            return self.here()?.overlay(source, args, answer, writes);
+        }
+        if self.told_overlay.insert(source.to_string()) {
+            self.logs.push(format!(
+                "overlay: {source} runs on its owner thread, so its writes show when answered"
+            ));
+        }
+        Ok(None)
     }
 
     fn parse_for(

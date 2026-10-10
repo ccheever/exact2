@@ -4016,6 +4016,31 @@
       "camera",
       "camera",
       "M3 8h4l2-3h6l2 3h4v12H3ZM16 13.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"
+    ],
+    [
+      "star",
+      "star",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "star-fill",
+      "star.fill",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "minus",
+      "minus",
+      "M5 12h14"
+    ],
+    [
+      "chart",
+      "chart.bar",
+      "M4 20h16M6 20v-7h3v7M10.5 20V5h3v15M15 20v-10h3v10"
+    ],
+    [
+      "sparkles",
+      "sparkles",
+      "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
@@ -4076,7 +4101,7 @@
   "colors": [
     ["Canvas", "", "systemBackgroundColor", "textBackgroundColor", "#ffffff", "#000000"],
     ["CanvasText", "", "labelColor", "textColor", "#000000", "#ffffff"],
-    ["LinkText", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["LinkText", "", "@tint", "linkColor", "#007aff", "#0984ff"],
     ["GrayText", "", "tertiaryLabelColor", "disabledControlTextColor", "#3c3c434d", "#ebebf54d"],
     ["Highlight", "", "@tint/0.2", "selectedTextBackgroundColor", "#007aff33", "#0a84ff33"],
     ["HighlightText", "", "labelColor", "selectedTextColor", "#000000", "#ffffff"],
@@ -4117,5 +4142,20 @@
     ["system-pink", "-apple-system-pink", "systemPinkColor", "systemPinkColor", "#ff2d55", "#ff375f"],
     ["system-brown", "-apple-system-brown", "systemBrownColor", "systemBrownColor", "#a2845e", "#ac8e68"],
     ["system-gray", "-apple-system-gray", "systemGrayColor", "systemGrayColor", "#8e8e93", "#8e8e93"]
+  ],
+  "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
+  "textStyleBodies": [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53],
+  "textStyles": [
+    ["large-title", "", "largeTitle", "largeTitle", 400, [26, 31, 32, 33, 34, 36, 38, 40, 44, 48, 52, 56, 60]],
+    ["title1", "-apple-system-title1", "title1", "title1", 400, [22, 25, 26, 27, 28, 30, 32, 34, 38, 43, 48, 53, 58]],
+    ["title2", "-apple-system-title2", "title2", "title2", 400, [17, 19, 20, 21, 22, 24, 26, 28, 34, 39, 44, 50, 56]],
+    ["title3", "-apple-system-title3", "title3", "title3", 400, [15, 17, 18, 19, 20, 22, 24, 26, 31, 37, 43, 49, 55]],
+    ["headline", "-apple-system-headline", "headline", "headline", 600, [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53]],
+    ["body", "-apple-system-body", "body", "body", 400, [13, 14, 15, 16, 17, 19, 21, 23, 28, 33, 40, 47, 53]],
+    ["callout", "", "callout", "callout", 400, [12, 13, 14, 15, 16, 18, 20, 22, 26, 32, 38, 44, 51]],
+    ["subheadline", "-apple-system-subheadline", "subheadline", "subheadline", 400, [11, 12, 13, 14, 15, 17, 19, 21, 25, 30, 36, 42, 49]],
+    ["footnote", "-apple-system-footnote", "footnote", "footnote", 400, [10, 12, 12, 12, 13, 15, 17, 19, 23, 27, 33, 38, 44]],
+    ["caption1", "-apple-system-caption1", "caption1", "caption1", 400, [10, 11, 11, 11, 12, 14, 16, 18, 22, 26, 32, 37, 43]],
+    ["caption2", "-apple-system-caption2", "caption2", "caption2", 400, [10, 11, 11, 11, 11, 13, 15, 17, 20, 24, 29, 34, 40]]
   ]
 }

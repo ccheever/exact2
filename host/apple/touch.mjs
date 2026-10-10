@@ -75,7 +75,7 @@ if (device) {
     '--terminate-existing', '--environment-variables', JSON.stringify({TOUCH_CASE: selected}), '--console', app.id]);
 } else {
   run('codesign', ['--force', '--sign', '-', bundle]);
-  const dev = simulator(option('--sim'));
+  const dev = simulator(option('--sim'), { hint: '--sim <udid|name> (or EXACT_SIM)' });
   install(dev, bundle);
   console.log(`Installed Exact Touch Repro: ${bundle}`);
   if (args.includes('--run')) {

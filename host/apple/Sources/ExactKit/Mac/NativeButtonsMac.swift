@@ -23,6 +23,7 @@ final class NativeButtonMac: NSButton {
         var pressed: String?
         var appearance: String
         var interactive: Bool
+        var toolTip: String?
     }
     var written: Written?
     /// Whether it draws glass: the glass bezel, in the macOS 26 design.
@@ -163,7 +164,10 @@ extension ControlHost {
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
-            interactive: owner.style["pointer_events"]?.string != "none")
+            interactive: owner.style["pointer_events"]?.string != "none",
+            // HTML's `title`, else an icon-only button's label: AppKit's help
+            // tag, as a toolbar item's label is (LLP 1115 wave 1).
+            toolTip: owner.props["title"] ?? (face.title == nil ? owner.authoredLabel : nil))
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -173,6 +177,7 @@ extension ControlHost {
         button.isEnabled = written.enabled
         button.setAccessibilityLabel(written.label)
         button.setAccessibilityIdentifier(written.testId)
+        if button.toolTip != written.toolTip { button.toolTip = written.toolTip }
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
         button.setAccessibilityToggle(written.pressed, else: .button)

@@ -1,7 +1,7 @@
 //! The executor's scripted stream (LLP 1069.004 slices 1 and 2): a fake
 //! transport whose body is fed by the test, so every message, gap, close
 //! and abort is the test's to make.
-use super::super::{Core, WORKERS};
+use super::super::{Core, INDEPENDENT, WORKERS};
 use super::EventStream;
 use exact_runner::{FailureKind, Message, Outcome, Request, RequestOut};
 use ibex2::{
@@ -305,10 +305,10 @@ fn an_event_over_the_ceiling_ends_the_stream_refused() {
 
 #[test]
 fn a_stream_opens_while_every_independent_worker_holds_a_reply() {
-    // Exact Live's wave: held replies occupy both independent workers until
+    // Exact Live's wave: held replies occupy every independent worker until
     // release; the wave's progress stream must not wait behind them.
     let (core, script, woke) = setup();
-    for ticket in [1, 2] {
+    for ticket in 1..=INDEPENDENT as u64 {
         core.run_owned(
             RequestOut {
                 ticket,
@@ -321,13 +321,13 @@ fn a_stream_opens_while_every_independent_worker_holds_a_reply() {
         .unwrap();
     }
     std::thread::sleep(Duration::from_millis(20));
-    core.run_owned(stream(3, "/events", 4096), None).unwrap();
+    core.run_owned(stream(100, "/events", 4096), None).unwrap();
     let tx = feed(&script, 0);
     tx.send(b"data: moving\n\n".to_vec()).unwrap();
     assert_eq!(
         next(&core, &woke),
         (
-            3,
+            100,
             Outcome::Message(Message {
                 data: "moving".into(),
                 ..Message::default()

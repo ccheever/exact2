@@ -1250,6 +1250,7 @@ dependencies = [
  "caltrain-data",
  "cc",
  "contract",
+ "exact-apple",
  "exact-data",
  "exact-data-host",
  "exact-js-value",
@@ -4348,6 +4349,27 @@ dependencies = [
  "exact-web",
  "exact-web-capabilities",
  "shared-elements-data",
+]
+
+[[package]]
+name = "shelf-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "shelf-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
 ]
 
 [[package]]

@@ -154,3 +154,37 @@ fn with_none_a_row_mounted_ahead_plays_from_its_insertion() {
         assert!(shown.receipts.iter().all(|t| t.receipt.revealed.is_empty()));
     }
 }
+
+/// A host that waits for more travel before its next report still says
+/// where the view is (`collection_shown`): the row that came into the port
+/// starts, and nothing else of the list moves.
+#[test]
+fn a_row_shown_without_a_report_starts_too() {
+    let mut r = boot("");
+    report(&mut r, 0.0);
+    report(&mut r, 0.0);
+    assert!(held(&r, "coin-4"), "a row below the port waits");
+    let feed = (r.kernel())
+        .node_by_key(key(&r, "feed").unwrap())
+        .unwrap()
+        .id;
+    let before = r.collections();
+    // Where the last report left it: nothing new shows.
+    let none = r.collection_shown(feed, 0.0).unwrap();
+    assert!(none.receipts.is_empty());
+    assert!(held(&r, "coin-4"));
+    // The port at 250..550.
+    let shown = r.collection_shown(feed, 250.0).unwrap();
+    assert_eq!(shown.receipts.len(), 1);
+    assert!(!shown.receipts[0].receipt.revealed.is_empty());
+    assert!(!held(&r, "coin-4"));
+    assert_eq!(
+        r.collections(),
+        before,
+        "the window and rows are the last report's"
+    );
+    // Again, and the report that follows: nothing is revealed twice.
+    assert!(r.collection_shown(feed, 250.0).unwrap().receipts.is_empty());
+    let after = report(&mut r, 250.0);
+    assert!(after.receipts.iter().all(|t| t.receipt.revealed.is_empty()));
+}

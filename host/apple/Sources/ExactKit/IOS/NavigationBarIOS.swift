@@ -71,10 +71,8 @@ struct HeaderShape: Equatable {
             // The platform's tint unless the button says otherwise: a
             // symbol's own tint, or a `color` set on the button rather than
             // inherited from the page (the same as the nearest node above).
-            let above = sequence(first: button.superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
-            let own = button.style["text_color"].flatMap { $0.key == above?.style["text_color"]?.key ? nil : $0 }
             let symbolTint = ink?.1 == "tint_color" ? ink?.0.style["tint_color"] : nil
-            let row = [symbolTint, own].lazy.compactMap { $0 }.first { !$0.isSystemColor }
+            let row = symbolTint.flatMap { $0.isSystemColor ? nil : $0 } ?? button.ownColor("text_color")
             if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
                 tint = [light, dark]
             } else {
@@ -108,7 +106,7 @@ struct HeaderShape: Equatable {
         var tap: NodeView?, items: [NodeView] = []
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
-                if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
+                if child.isParagraph, child.headingLevel != nil {
                     headings.append(child)
                 } else if child.kind == "input", child.props["type"] == "search" {
                     search = search ?? child
@@ -131,7 +129,7 @@ struct HeaderShape: Equatable {
         guard headings.count == 1 else { return nil }
         self.header = header
         title = headings[0].accessibleText
-        level = Int(headings[0].props["accessibilityHeadingLevel"] ?? "") ?? 2
+        level = headings[0].headingLevel ?? 2
         leading = before
         trailing = after
         self.search = search

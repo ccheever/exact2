@@ -28,7 +28,7 @@ final class NavigationBarIOSTests: XCTestCase {
 
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
-        while !done(), Date() < deadline { spin(0.02) }
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         XCTAssertTrue(done(), what)
     }
 
@@ -240,6 +240,61 @@ final class NavigationBarIOSTests: XCTestCase {
         spin(0.2)
         XCTAssertEqual(nav.viewControllers.count, 1)
         XCTAssertEqual(backs(session), 1, "Back once")
+    }
+
+    /// LLP 1115 D5: a pushed route that declares no Back control still has
+    /// UIKit's back button and edge swipe, as a hand-built screen does, and
+    /// a completed pop goes back as the web's history Back does: the root's
+    /// `navigate` with the location beneath, once, and no Back is pressed.
+    func testAPushedRouteWithNoBackControlStillGoesBackByTheRootsNavigate() throws {
+        let session = try fixture("bar-back-always", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let plain = try XCTUnwrap(nav.topViewController)
+        XCTAssertEqual(plain.navigationItem.title, "Plain")
+        XCTAssertFalse(plain.navigationItem.hidesBackButton, "Back is always there")
+        XCTAssertTrue(session.presenter.navigation.canInvokeBack)
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)),
+                      "the edge swipe may begin")
+        // UIKit's own pop (its back button) is a completed pop.
+        nav.popViewController(animated: true)
+        until("the root's navigate went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        XCTAssertEqual(journal(session).components(separatedBy: "(follow)").count - 1, 1, "navigate once")
+        XCTAssertEqual(backs(session), 0, "no Back control was pressed")
+        XCTAssertFalse(journal(session).contains("back gesture refused"))
+    }
+
+    /// LLP 1115 D5 with no `navigate` handler on the root: the button and
+    /// the edge swipe still go, and a completed pop is the runner's own
+    /// `back` (`host back` in the journal), with nothing dispatched.
+    func testAPushedRouteWithNoBackControlAndNoNavigateHandlerIsTheRunnersOwnBack() throws {
+        let session = try fixture("bar-host-back", module: false)
+        let root = try node(session, "navigation")
+        root.handlers.remove("navigate")
+        XCTAssertNil(Agent(session: session).tap(["id": Int(try node(session, "open-plain").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the plain route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        root.handlers.remove("navigate") // a batch may have written the root's handlers again
+        XCTAssertFalse(try XCTUnwrap(nav.topViewController).navigationItem.hidesBackButton, "Back is always there")
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)))
+        nav.popViewController(animated: true)
+        until("the runner went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        let lines = journal(session)
+        XCTAssertEqual(lines.components(separatedBy: "host back").count - 1, 1, "the runner's own back, once: \(lines)")
+        XCTAssertEqual(lines.components(separatedBy: "(follow)").count - 1, 0, "no navigate")
+        XCTAssertEqual(backs(session), 0)
     }
 
     /// A pop UIKit finishes with no enabled Back control to press (here,

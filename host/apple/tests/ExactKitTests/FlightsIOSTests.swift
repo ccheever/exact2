@@ -151,7 +151,7 @@ final class FlightsIOSTests: XCTestCase {
         view.loadGeneration += 1
         loader.load(view, source: source, resolver: resolver)
         let end = Date(timeIntervalSinceNow: 5)
-        while view.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while view.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
     }
 
     /// A new image node's raster lands a turn or more after the commit that

@@ -32,7 +32,7 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
     .replace('component RealWorld\n','component RealWorld\n  state reloadProbe = 7\n')
     .replace('      head title="Conduit" description="A place to share your knowledge."\n','      head title="Conduit" description="A place to share your knowledge."\n      text `${reloadProbe}` testId="reload-probe"\n');
   const withLogic=text=>text
-    .replace("import type { Answer, Sources, Result } from './app.contract.d.ts';\n","import type { Answer, Sources, Result } from './app.contract.d.ts';\nimport { devReloadValue } from './dev-reload-helper';\n")
+    .replace(/^import type .* from '\.\/app\.contract\.d\.ts';\n/m,line=>`${line}import { devReloadValue } from './dev-reload-helper';\n`)
     .replace('const sources: Sources = {\n',"const sources: Sources = {\n  devReloadAnswer: () => ({ value: devReloadValue() }),\n  devReloadRows: () => [{ id: 'one' }],\n");
   const edited=text=>text.replace('          text "conduit"\n','          text "conduit carried"\n');
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));

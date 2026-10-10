@@ -5,7 +5,7 @@
 //! parent's resolved one, as CSS computes it.
 use super::*;
 use crate::generated::StyleProps;
-use crate::style::relative::{Unit, MEDIUM};
+use crate::style::relative::MEDIUM;
 use crate::StyleId;
 
 pub(crate) fn resolve(
@@ -78,7 +78,7 @@ pub(crate) fn resolve(
             if id != StyleId::FontSize {
                 continue;
             }
-            let px = n * if unit == Unit::Rem { root } else { parent };
+            let px = n * unit.basis(root, parent);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }
@@ -90,7 +90,7 @@ pub(crate) fn resolve(
             if id == StyleId::FontSize {
                 continue;
             }
-            let px = n * if unit == Unit::Rem { root } else { font };
+            let px = n * unit.basis(root, font);
             if next.set_resolved(id, px) {
                 changed.set(id);
             }
