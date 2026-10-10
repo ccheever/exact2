@@ -188,7 +188,7 @@ Each diagnostic names its fix. These come up most:
 | `route-template` | Build locations with `path("note", id)`, never a template string. |
 | `lower-route-place` | A route (a node with `navigationKey`) must be a direct child of the root or of a `role="tabpanel"`, through `each`/`when` only. |
 | `lower-route-scroll` | `navigationScroll` must name a scroller in that route. |
-| `lower-alertdialog` | An `alertdialog` holds only text, buttons that close it and one Cancel. Use `role="dialog" aria-modal=true` for anything you lay out yourself. |
+| `lower-alertdialog` | An `alertdialog` holds only text, buttons that close it and one Cancel. For custom content on iOS, use a [modal route](#a-sheet-with-cancel-and-save-and-validation). A `dialog role="dialog" aria-modal=true` can hold custom content on web and macOS. |
 | `analyze-send-twice` | One action sends one mutation twice. Declare it `queue`, or send one combined request. |
 | `analyze-call-stale-read` | A called action reads a slot its caller just wrote, and would see the old value. Pass the value as an argument instead. |
 | `type-initializer-scope` | A `state` starts from props or earlier states only. Use a `derive`, or a child component made once the data is in. |

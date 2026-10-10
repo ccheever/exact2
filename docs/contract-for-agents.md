@@ -1532,6 +1532,13 @@ sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a pop
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
 `close("<id>")` from an action closes it as its Cancel does.
 
+For a picker or form that stays open while its controls update state, use a
+[route with `navigationPresentation="modal"`](start-here.md#a-sheet-with-cancel-and-save-and-validation).
+On iOS, the `dialog` tag supports the native confirmation shape above: its
+action buttons must close it. `role="dialog" aria-modal=true` does not give
+that tag a custom presentation on iOS. Web and macOS dialogs can hold custom
+content, including buttons that leave the dialog open.
+
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
 path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
 on the web and under the agent the nested popover, opened by `tap <row>`. Place
