@@ -24,7 +24,7 @@ verified_commit: 3b334f704c53028ed33820be860905ff6073b9b0
   - "Add project script" opens the Add Action dialog in place;
   - an unstarted server thread offers the Workspace select.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

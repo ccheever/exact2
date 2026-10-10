@@ -20,7 +20,7 @@ panel docked under the System Settings window. The panel says "Set up <permissio
 above" with a T3 Code button you can drag (a click reveals the app in Finder), and has a close button. It follows the
 Settings window and closes when the grant is detected.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)), from source (the screen was
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)), from source (the screen was
 locked). Reference: T3 Code `1e2ecbd975`. Clone: `c603c22d6`.
 
 ## Findings

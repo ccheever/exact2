@@ -24,7 +24,7 @@ The thread timeline's work rows and message actions match the reference:
 - The subagent card shows the provider icon and the reference's elapsed format.
 - Tool image icons use the muted tone.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

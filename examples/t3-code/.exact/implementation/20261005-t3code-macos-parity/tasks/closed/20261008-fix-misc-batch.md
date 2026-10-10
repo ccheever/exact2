@@ -1,14 +1,14 @@
 ---
 name: 20261008-fix-misc-batch
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
 delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-fix-misc-batch'
 pr_url: https://github.com/ccheever/exact2/pull/306
-verified_commit: 08b8ded8a
+verified_commit: fa46ad5d0610f0c9cb48aa4a548a7d95e0dfc1fd
 ---
 
 # Fixes from the real-input batch: a minimized window, the model picker's empty state, the update-branch storm, undo
@@ -104,7 +104,7 @@ Tests:
 | 3: regression test fails on the base | pass | `R8KeysTests.testUndoAndRedoActOnTheFocusedTextsOwnHistory`. Its first assertions show the old route (`undo:` through the responder chain leaves the text); then ⌘Z, Edit › Redo, Edit › Undo, Edit › Redo, a composition left alone, and no thread.undo while text is focused | — |
 | 3: composer, real keys (real input, normal launch) | pass | [04](https://raw.githubusercontent.com/ccheever/exact2/1209a2b1ee64709c1834c6baabfc304977453b61/fix-misc-batch/04-composer-undo-before-after.png). Base keeps "123" after real ⌘Z and Edit › Undo. Branch undoes it, Edit › Undo brings back an earlier deletion, ⇧⌘Z redoes. `R8_KEYS_LOG`: responder `TextArea`, "sent Undo target=R8KeysMenus" | — |
 | 3: prompt preview, real keys | pass | [05](https://raw.githubusercontent.com/ccheever/exact2/5e86dfa9007112a975eddc878de195a94adafa9b/fix-misc-batch/05-prompt-preview-undo-after.png) after-only: ⌘Z removes the typed "12" (caret kept), ⇧⌘Z restores. Before: #298's real-input batch ([efp-undo12](https://raw.githubusercontent.com/ccheever/exact2/ec2aeba0830cebdf6f0af0275e53a46bc330b90a/real-input-batch/editable-font-prompt-preview/02-efp-undo12.png)) | — |
-| X63 (framework half of 3) | reported | [x63-repro](https://raw.githubusercontent.com/ccheever/exact2/56357628645f3ab2f7cd92d37217229808492ae9/fix-misc-batch/x63-repro.txt): the host's own `TextArea` on main `fa965d3e2`. `undo:` through the responder chain is handled by `NSWindow` and the text stays. [Issue draft](../issues/closed/20261008-x63-textarea-undo-menu.md), compared with #275, #276 and #125 | — (not blocking) |
+| X63 (framework half of 3) | reported | [x63-repro](https://raw.githubusercontent.com/ccheever/exact2/56357628645f3ab2f7cd92d37217229808492ae9/fix-misc-batch/x63-repro.txt): the host's own `TextArea` on main `fa965d3e2`. `undo:` through the responder chain is handled by `NSWindow` and the text stays. [Issue draft](../../issues/closed/20261008-x63-textarea-undo-menu.md), compared with #275, #276 and #125 | — (not blocking) |
 | Visual and protocol parity with the oracle | not run | — | user decision 2026-10-06: the desktop oracle and trace tools are not built |
 
 ## Progress
@@ -136,3 +136,7 @@ Tests:
 
 The coordinator reviews and merges draft PR #306. fix-hover-cards picks up bug 9 from the handoff. X63 waits for the
 user's approval to publish.
+
+## Delivery
+
+Merged on 2026-10-08 as `fa46ad5d0` (#306, squash); the verified branch head was `08b8ded8a`. Every row passed, the real-input ones (7 and 3) included, except the oracle row the user dropped on 2026-10-06. Bug 9 was delivered by [fix-hover-cards](20261008-fix-hover-cards.md) (#307, merged; its real-pointer row passed). X63 moved to main (`issues/20261009-macos-textarea-native-undo.md`). Closed in the records sync after `realinput-1010d`; it had stayed in `tasks/` only because a comment in `settings-model-picker.test.ts` names its old path.
