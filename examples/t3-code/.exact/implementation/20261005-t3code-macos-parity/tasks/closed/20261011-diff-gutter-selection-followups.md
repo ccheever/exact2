@@ -1,21 +1,21 @@
 ---
 name: 20261011-diff-gutter-selection-followups
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: done
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-gutter-selection-followups
 pr_url: https://github.com/ccheever/exact2/pull/417
-verified_commit: null
+verified_commit: f427a9a271f2f67d732a857847dcb8150840ab24
 ---
 
 # The gutter drag's text selection, and the Files surface's line selection colour
 
 ## Outcome
 
-[diff-gutter-visuals](closed/20261011-diff-gutter-visuals.md) (#416) saw two differences outside its rows while
+[diff-gutter-visuals](../closed/20261011-diff-gutter-visuals.md) (#416) saw two differences outside its rows while
 comparing with T3 Code (`1e2ecbd975`):
 
 | Id | Clone | Reference |
@@ -159,8 +159,11 @@ code; the record only after it). The first round's checks ran on `694fd0d33` wit
 
 ## Delivery
 
-Draft PR [#417](https://github.com/ccheever/exact2/pull/417) into `feat(example)/t3-code`.
+Merged on 2026-10-11 as `f427a9a27` (#417, squash) after an independent review and its repair round (five should-fix
+items). No real-input rows. The copy across diff rows is X81 (main #418). Observations carried on: the Files surface's
+'+' and line drag, and split view's flat empty side, are [files-gutter-parity](../20261011-files-gutter-parity.md); the
+live colour-scheme switch that leaves some texts light is checked against main separately.
 
 ## Next action
 
-Coordinator review of the draft PR (review round fixes pushed).
+Closed.
