@@ -2,7 +2,32 @@
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
-use MediaCompletion from "./app-shapes.contract"
+use MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent from "./app-shapes.contract"
+
+fn followedLocation(reply: option<AppLink>, route: string): string = match reply {
+  case some(result) => not result.ignore and result.requestRoute == route ? result.location : "",
+  case none => ""
+}
+fn pairingUiScan(previous: PairingUi, reply: option<PairingFields>): PairingUi = match reply {
+  case some(result) => PairingUi(previous, host=result.host, code=result.code, scannerOpen=false),
+  case none => PairingUi(previous, scannerOpen=false)
+}
+fn settingsEventPlan(previous: string, reply: option<SettingsScopeEvent>): SettingsScopeEvent = match reply {
+  case some(event) => event,
+  case none => SettingsScopeEvent(selection=previous, close=false)
+}
+shape PairingCameraPlan
+  next: PairingUi
+  kind: string
+  message: string
+fn pairingCameraPlan(previous: PairingUi, reply: option<Camera>): PairingCameraPlan = match reply {
+  case some(result) => PairingCameraPlan(
+    next=PairingUi(previous, cameraStatus=result.status, scannerOpen=(result.status == "granted" or previous.scannerOpen)),
+    kind=(result.status == "denied" ? "camera-settings" : "info"),
+    message=(result.status == "granted" ? "" : result.status == "unavailable" ? "Camera capture is unavailable on this device." : result.status == "denied" ? "Camera access was denied for this app. Open Settings to enable it." : "Allow camera access to scan an environment pairing QR code.")
+  ),
+  case none => PairingCameraPlan(next=PairingUi(previous, cameraStatus="undetermined"), kind="", message="")
+}
 
 shape TerminalCaptureSelection
   text: string

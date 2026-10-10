@@ -1,9 +1,10 @@
 use ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors from "./thread-send-root.contract"
 use threadSubmissionNoticeMessage, changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
 use TerminalAttachChange from "./app-shapes.contract"
-use PairingUi, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
+use PairingUi, pairingUiScan, followedLocation, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
 use IncomingShareInbox, IncomingSharePresentation from "./incoming-share-shapes.contract"
 use MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult from "./mobile-keyboard.contract"
+use MobileGitFeedback, MobileGitFeedbackSnapshot, MobileGitFeedbackResult from "./git-overview.contract"
 use ArchiveChromeSnapshot, ArchiveChromeEvent from "./archive-chrome.contract"
 use ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission from "./project-favicon.contract"
 use MobileOutboxDrive, MobileOutboxEdit from "./mobile-outbox-drive.contract"
@@ -424,13 +425,10 @@ component App
   action settingsHeaderEvent(value: string)
     send settingsEvent = settingsScopeEvent(value, preferences.serialized, settingsSelection, data.environments)
   action didSettingsEvent
-    match settingsEvent
-      case some(event)
-        settingsSelection = event.selection
-        if event.close
-          nav = back(nav)
-      case none
-        settingsSelection = settingsSelection
+    let event = settingsEventPlan(settingsSelection, settingsEvent)
+    settingsSelection = event.selection
+    if event.close
+      nav = back(nav)
   action openSetting(target: string)
     let location = mobileSettingPath(target)
     if location != ""
@@ -827,7 +825,24 @@ component App
       case none
         terminalSelection = terminalSelection
   resource gitLook = gitColors(appearance.scheme, appearance.themeId) as shape GitColors
-  resource gitData = gitSnapshot(wallTime.epochAtZero + elapsed, data.revision) as shape MobileGitSnapshot
+  state gitFeedbackPreviousPhase = "idle"
+  resource gitFeedback = gitFeedback(wallTime.epochAtZero + max(agentsElapsed, now()), data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
+  mutation gitFeedbackChanged as shape MobileGitFeedbackResult refreshes gitFeedback
+  task gitFeedbackClock when gitFeedback.visible and gitFeedback.phase == "running"
+    every(1000, tickAgents)
+  task gitFeedbackExpiry when gitFeedback.visible and gitFeedback.deadline > 0 key=gitFeedback.id
+    after(5000, tickAgents)
+  task gitFeedbackRetire when not gitFeedback.visible and gitFeedback.id != "" key=gitFeedback.id
+    after(150, tickAgents)
+  task gitFeedbackPhase key=gitFeedback.phase
+    after(1, gitFeedbackPhase)
+  action gitFeedbackPhase
+    if gitFeedbackPreviousPhase == "running" and (gitFeedback.phase == "success" or gitFeedback.phase == "error")
+      haptic(gitFeedback.phase)
+    gitFeedbackPreviousPhase = gitFeedback.phase
+  action pressGitFeedback(owner: string, id: string)
+    send gitFeedbackChanged = gitFeedbackAction(owner, id, "press", wallTime.epochAtZero + now())
+  resource gitData = gitSnapshot(wallTime.epochAtZero + max(elapsed, now()), data.revision) as shape MobileGitSnapshot
   resource gitBranchesData = gitBranchesSnapshot(data.revision) as shape MobileGitBranchesSnapshot
   state gitForm = GitForm(message="", branch="", worktreeBase="", worktreeBranch="")
   mutation gitPrepared as shape MobileGitSnapshot refreshes gitData, data
@@ -864,10 +879,8 @@ component App
   action didGitChange
     match gitChanged
       case some(result)
-        if result.requestRoute == `${top(nav).id}` and result.data.owner == gitData.owner
-          if result.message != ""
-            send notice = alert("info", "Git", result.message)
-          else if result.destination == "review"
+        if result.requestRoute == `${top(nav).id}` and result.data.owner == gitData.owner and result.message == ""
+          if result.destination == "review"
             if top(nav).name == "gitOverview"
               nav = replace(nav, path("threadReview", data.environmentId, data.threadId))
             else
@@ -1360,25 +1373,19 @@ component App
   action follow(url: string)
     send followed = appLink(url, `${top(nav).id}`, false)
   action didFollow
-    match followed
-      case some(result)
-        if not result.ignore and result.requestRoute == `${top(nav).id}`
-          nav = open(nav, result.location)
-      case none
-        composerFocusIdentity = composerFocusIdentity
+    let location = followedLocation(followed, `${top(nav).id}`)
+    if location != ""
+      nav = open(nav, location)
   action scan
     if pairingUi.scannerOpen
       pairingUi = PairingUi(pairingUi, scannerOpen=false)
     else
       send camera = cameraPermission()
   action didRequestCamera
-    match camera
-      case some(result)
-        pairingUi = PairingUi(pairingUi, cameraStatus=result.status, scannerOpen=(result.status == "granted" or pairingUi.scannerOpen))
-        if result.status != "granted"
-          send notice = alert(result.status == "denied" ? "camera-settings" : "info", "Camera access needed", result.status == "unavailable" ? "Camera capture is unavailable on this device." : result.status == "denied" ? "Camera access was denied for this app. Open Settings to enable it." : "Allow camera access to scan an environment pairing QR code.")
-      case none
-        pairingUi = PairingUi(pairingUi, cameraStatus="undetermined")
+    let plan = pairingCameraPlan(pairingUi, camera)
+    pairingUi = plan.next
+    if plan.message != ""
+      send notice = alert(plan.kind, "Camera access needed", plan.message)
   action permissionChanged(value: string)
     pairingUi = PairingUi(pairingUi, cameraStatus=value)
   action receiveScan(value: string)
@@ -1387,11 +1394,7 @@ component App
     else
       send scanned = pairingFields(value)
   action didScan
-    match scanned
-      case some(result)
-        pairingUi = PairingUi(pairingUi, host=result.host, code=result.code, scannerOpen=false)
-      case none
-        pairingUi = PairingUi(pairingUi, scannerOpen=false)
+    pairingUi = pairingUiScan(pairingUi, scanned)
   action didConfirmRemove
     match removal
       case some(result)
@@ -1403,8 +1406,6 @@ component App
     targetEnvironment = ""
     pairingUi = PairingUi(pairingUi, formError="", scannerOpen=false)
     nav = push(nav, path("connect"))
-  action openEnvironments
-    nav = push(nav, path("environments"))
   action closeNewTask
     if newTaskFlow.pendingEditor
       taskAction("pending-close", "", "")
@@ -1490,6 +1491,7 @@ component App
       MobileInspectorPanel(workspace=workspace, reviewLook=reviewLook, gitLook=gitLook, inspectorPresentation=inspectorPresentation, inspectorState=inspectorState, layout=layout, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit, inspectorEvent=inspectorEvent)
       MobileWorkspaceMarkers()
       MobileKeyboard(data=keyboard, colors=threadLook, card=homeLook.card, dangerBorder=look.colors.dangerBorder, top=layout.safeTop + 56, event=keyboardEvent, dismiss=keyboardDismiss)
+      MobileGitFeedback(feedback=gitFeedback, press=pressGitFeedback, left=workspace.sidebarContentWidth + 10.5, right=workspace.inspectorContentWidth + 10.5, top=layout.safeTop + 56, reduced=viewport.prefersReducedMotion, colors=gitLook)
       t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
       when voiceData.globalVisible

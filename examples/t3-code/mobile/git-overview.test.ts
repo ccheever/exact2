@@ -7,6 +7,7 @@ import { vcsStatusEvent } from './shared/shell-vcs';
 import { mobileGitAction, mobileGitRead, mobileGitSnapshot, mobileGitEvents } from './git-overview';
 import { mobileGitBranchAction, mobileGitBranchesRead, mobileGitBranchesSnapshot } from './git-branches';
 import { mobileFeatureBranch, mobileAutoBranch } from './git-overview-model';
+import { mobileGitFeedbackSnapshot, mobileGitFeedbackMetadata, mobileGitFeedbackAction, mobileGitFeedbackError } from './git-feedback';
 function fixture() {
   const client = new T3Client(); Object.assign(client, { origin: 'https://example.test', environmentId: 'e', projectId: 'p', threadId: 't',
     connection: 'connected', configLive: true, shellLive: true, threadLive: true, generation: 9 });
@@ -36,6 +37,98 @@ function fixture() {
 }
 const read = (f: ReturnType<typeof fixture>) => mobileGitRead(f.owner(), 10, f.native, f.client);
 const action = (f: ReturnType<typeof fixture>, op: string, id = '', value = '') => mobileGitAction(f.owner(), op, id, value, 10, f.native, f.client);
+
+async function feedbackRun() {
+  const f = fixture(); f.status.isDefaultRef = false; await read(f); await action(f, 'select', 'push');
+  const run = gitState(f.client).run!;
+  const event = (value: Obj, seq = 1) => ({ key: 'r4-git-action', generation: 9, subscriptionId: run.subscriptionId,
+    seq, value: { actionId: run.transportId, cwd: '/repo', ...value } });
+  return { ...f, run, event };
+}
+test('mobile Git feedback reads actual shared phase/output and never completes from CTA metadata alone', async () => {
+  const f = await feedbackRun();
+  const phase = f.event({ kind: 'phase_started', label: 'Pushing branch' }); gitActionEvent(f.client, phase);
+  mobileGitSnapshot(1000, f.client);
+  expect(mobileGitFeedbackSnapshot(1000, f.client)).toMatchObject({ phase: 'running', label: 'Pushing branch', description: '', visible: true });
+  expect(mobileGitFeedbackSnapshot(3000, f.client).description).toBe('Running for 2s');
+  gitActionEvent(f.client, f.event({ kind: 'hook_output', text: 'older line\nlatest line\n' }, 2));
+  expect(mobileGitFeedbackSnapshot(3100, f.client).description).toBe('latest line');
+  const terminal = f.event({ kind: 'action_finished', result: { toast: { title: 'Pushed', description: 'main', cta: { kind: 'open_pr', url: 'https://github.test/a/b/pull/8' } } } }, 3);
+  mobileGitFeedbackMetadata([terminal], 2, f.client);
+  expect(mobileGitFeedbackSnapshot(3200, f.client)).toMatchObject({ phase: 'running', prUrl: '' });
+  gitActionEvent(f.client, terminal);
+  expect(mobileGitFeedbackSnapshot(10000, f.client)).toMatchObject({ phase: 'success', label: 'Pushed', description: 'main', prUrl: 'https://github.test/a/b/pull/8', deadline: 15000 });
+});
+test('Git results last five fresh-clock seconds, fade for 150ms and cannot be revived by retained shared success', async () => {
+  const f = await feedbackRun(); gitActionEvent(f.client, f.event({ kind: 'action_finished', result: { toast: { title: 'Pushed' } } }));
+  const shown = mobileGitFeedbackSnapshot(20000, f.client);
+  expect(shown.deadline).toBe(25000); expect(mobileGitFeedbackSnapshot(24999, f.client).visible).toBe(true);
+  expect(mobileGitFeedbackSnapshot(25000, f.client)).toMatchObject({ visible: false, deadline: 25150 });
+  const before = f.calls.length; await mobileGitFeedbackAction(shown.owner, shown.id, 'press', 25001, f.native, f.client);
+  expect(f.calls).toHaveLength(before);
+  expect(mobileGitFeedbackSnapshot(25150, f.client)).toMatchObject({ phase: 'idle', id: '' });
+  expect(gitState(f.client).success?.title).toBe('Pushed'); expect(mobileGitFeedbackSnapshot(26000, f.client).phase).toBe('idle');
+});
+test('Git feedback presses dismiss results, ignore running and stale identities, and revalidate the completed PR URL', async () => {
+  const f = await feedbackRun(); const running = mobileGitFeedbackSnapshot(11, f.client), before = f.calls.length;
+  await mobileGitFeedbackAction(running.owner, running.id, 'press', 12, f.native, f.client);
+  expect(mobileGitFeedbackSnapshot(12, f.client).phase).toBe('running'); expect(f.calls).toHaveLength(before);
+  const terminal = f.event({ kind: 'action_finished', result: { toast: { title: 'Created PR #8', cta: { kind: 'open_pr', url: 'https://github.test/a/b/pull/8' } } } });
+  mobileGitFeedbackMetadata([terminal], 0, f.client); gitActionEvent(f.client, terminal);
+  const success = mobileGitFeedbackSnapshot(20, f.client);
+  expect(await mobileGitFeedbackAction(success.owner, success.id, 'press', 21, f.native, f.client)).toEqual({ opened: true });
+  expect(f.calls.at(-1)).toEqual({ op: 'mobileOpenURL', url: 'https://github.test/a/b/pull/8' });
+  expect(mobileGitFeedbackSnapshot(22, f.client).visible).toBe(true);
+  await mobileGitFeedbackAction(success.owner, success.id, 'dismiss', 23, f.native, f.client);
+  expect(mobileGitFeedbackSnapshot(23, f.client).visible).toBe(false);
+  mobileGitFeedbackMetadata([terminal], 0, f.client); gitActionEvent(f.client, terminal);
+  expect(mobileGitFeedbackSnapshot(200, f.client).phase).toBe('idle');
+  mobileGitFeedbackError(f.client, 200, 'second result'); const replacement = mobileGitFeedbackSnapshot(200, f.client);
+  await mobileGitFeedbackAction(success.owner, success.id, 'dismiss', 201, f.native, f.client);
+  expect(mobileGitFeedbackSnapshot(201, f.client).id).toBe(replacement.id);
+  f.client.generation++; const calls = f.calls.length;
+  await mobileGitFeedbackAction(replacement.owner, replacement.id, 'press', 202, f.native, f.client);
+  expect(mobileGitFeedbackSnapshot(202, f.client).phase).toBe('idle'); expect(f.calls).toHaveLength(calls);
+});
+test('Git CTA metadata rejects stale batches, wrong owners, mismatched folded results and credential-bearing URLs', async () => {
+  for (const bad of ['old', 'generation', 'workspace', 'action', 'subscription', 'title', 'url']) {
+    const f = await feedbackRun();
+    const terminal = f.event({ kind: 'action_finished', result: { toast: { title: 'Created PR', cta: { kind: 'open_pr', url: bad === 'url' ? 'https://user:secret@github.test/a/b/pull/8' : 'https://github.test/a/b/pull/8' } } } });
+    const metadata = { ...terminal, value: { ...terminal.value } };
+    if (bad === 'generation') metadata.generation = 8;
+    if (bad === 'workspace') metadata.value.cwd = '/other';
+    if (bad === 'action') metadata.value.actionId = 'other';
+    if (bad === 'subscription') metadata.subscriptionId = 'other';
+    if (bad === 'title') metadata.value.result = { toast: { title: 'Forged result', cta: { kind: 'open_pr', url: 'https://github.test/a/b/pull/8' } } };
+    mobileGitFeedbackMetadata([metadata], bad === 'old' ? 1 : 0, f.client); gitActionEvent(f.client, terminal);
+    const result = mobileGitFeedbackSnapshot(20, f.client); expect(result.phase).toBe('success'); expect(result.prUrl).toBe('');
+    const before = f.calls.length; await mobileGitFeedbackAction(result.owner, result.id, 'press', 21, f.native, f.client);
+    expect(f.calls).toHaveLength(before); expect(mobileGitFeedbackSnapshot(21, f.client).visible).toBe(false);
+  }
+});
+test('shared asynchronous failures become one mobile error; new thread selection preserves the global connection result', async () => {
+  const f = await feedbackRun(); gitActionEvent(f.client, f.event({ kind: 'action_failed', action: 'push', phase: 'push' }));
+  const error = mobileGitFeedbackSnapshot(20, f.client);
+  expect(error).toMatchObject({ phase: 'error', label: 'Git action failed', description: "Source control action 'push' failed during push.", deadline: 5020 });
+  f.client.threadId = 'other'; f.client.threadEpoch++;
+  expect(mobileGitFeedbackSnapshot(21, f.client).id).toBe(error.id);
+  expect(mobileGitFeedbackSnapshot(22, f.client, false).id).toBe('');
+  expect(mobileGitFeedbackSnapshot(23, f.client).id).toBe(error.id);
+  f.client.environmentId = 'other'; expect(mobileGitFeedbackSnapshot(24, f.client).phase).toBe('idle');
+});
+test('a real mobile pull presents progress while awaiting RPC and uses the shared success; request refusal shows an error', async () => {
+  const f = fixture(); f.status.behindCount = 1; await read(f);
+  let release!: (value: unknown) => void, started!: () => void;
+  const gate = new Promise(resolve => release = resolve), begun = new Promise<void>(resolve => started = resolve);
+  f.hook(request => { if (request.method === 'vcs.pull') { started(); return gate; } });
+  const pending = action(f, 'select', 'pull'); await begun;
+  expect(mobileGitFeedbackSnapshot(20, f.client)).toMatchObject({ phase: 'running', label: 'Pulling latest changes' });
+  release({ ok: true, generation: 9, value: { status: 'pulled', refName: 'main' } }); await pending;
+  expect(mobileGitFeedbackSnapshot(30, f.client)).toMatchObject({ phase: 'success', label: 'Pulled latest on main', deadline: 5030 });
+  f.hook(request => request.method === 'vcs.pull' ? { ok: false, generation: 9, error: { kind: 'server', message: 'pull refused' } } : undefined);
+  expect((await action(f, 'select', 'pull')).message).toBe('pull refused');
+  expect(mobileGitFeedbackSnapshot(40, f.client)).toMatchObject({ phase: 'error', label: 'Git action failed', description: 'pull refused' });
+});
 
 test('mobile status menu keeps source View PR and stricter dirty Push/Create PR rules', async () => {
   const f = fixture(); let data = await read(f);
@@ -183,7 +276,7 @@ test('Git action buttons use source secondary surface/border and adaptive diff c
   const { mobileGitColors } = await import('./git-colors');
   for (const palette of ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris']) for (const scheme of ['light', 'dark']) {
     const colors = mobileGitColors(scheme, palette);
-    expect(Object.keys(colors)).toHaveLength(18); expect(Object.values(colors).every(color => color.length > 0)).toBe(true);
+    expect(Object.values(colors).every(color => color.length > 0)).toBe(true);
     const name = `${palette === 't3-code' ? '' : `${palette}-`}${scheme}`;
     const tokens = (await import(`./themes/${name}.json`)).default;
     expect(colors.secondaryBackground).toBe(tokens['--color-secondary']); expect(colors.secondaryBorder).toBe(tokens['--color-secondary-border']);

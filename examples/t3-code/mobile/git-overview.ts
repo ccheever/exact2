@@ -3,6 +3,7 @@ import { resolveQuickAction } from './thread-header-model';
 // Shared status reducer/action stream remain the sole transport and mutation owners.
 // @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 import { mobileClient, mobileNative } from './client';
+import { mobileGitFeedbackObserve, mobileGitFeedbackError, mobileGitFeedbackPull, mobileGitFeedbackCancelPull } from './git-feedback';
 import type { T3Client } from './shared/client';
 import { arr, num, obj, str, type Obj } from './shared/domain';
 import { ClientError, nativeFiles, bridgeReply, type Native } from './shared/protocol';
@@ -107,6 +108,7 @@ function confirmationIdentity(status: Obj | null) {
 export function mobileGitSnapshot(now = 0, client: T3Client = mobileClient) {
   const state = mobileGitAccess(client), status = mobileGitCurrentStatus(client, state), cwd = workspaceOf(client).cwd;
   const card = gitCardView(client, status, state.error, cwd, now), git = gitState(client);
+  mobileGitFeedbackObserve(client, now);
   const busy = state.acting || card.progress, typed = mobileGitStatus(status), repo = status?.isRepo !== false;
   const files = state.allowed ? workingFiles(status).map(file => ({ ...file, included: !git.excluded.has(file.path) })) : [];
   const selected = files.filter(file => file.included);
@@ -192,7 +194,7 @@ export async function mobileGitRefreshAfterMutation(owner: string, cwd: string, 
 export async function mobileGitAction(owner: string, op: string, id: string, value: string, now: number,
   nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   assertReviewOwner(client, owner);
-  const state = mobileGitAccess(client); let error = '', destination = '', dismiss = false;
+  const state = mobileGitAccess(client); let error = '', destination = '', dismiss = false, pull = '';
   if (state.acting) return { message: 'Git action in progress.', destination, dismiss, data: mobileGitSnapshot(now, client) };
   // Local selection carries the captured owner but does not need a new network permission read.
   if (['close', 'files-edit', 'file', 'files-reset'].includes(op)) {
@@ -204,7 +206,10 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
   const before = mobileGitSnapshot(now, client);
   if (op === 'select') {
     const row = before.rows.find(row => row.id === id);
-    if (!row || row.disabled) return { message: row?.subtitle || 'That action is unavailable.', destination, dismiss, data: before };
+    if (!row || row.disabled) {
+      const error = row?.subtitle || 'That action is unavailable.'; mobileGitFeedbackError(client, now, error);
+      return { message: error, destination, dismiss, data: before };
+    }
     if (id === 'review' || id === 'branches') return { message: '', destination: id, dismiss, data: before };
   }
   state.acting = true;
@@ -256,6 +261,7 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
       git.dialog = 'commit'; git.editing = false; git.excluded.clear(); destination = 'commit';
     } else if (op === 'select' && id === 'pull') {
       if (!state.write || num(status?.behindCount) <= 0) throw new ClientError('Pull is currently unavailable.');
+      pull = mobileGitFeedbackPull(client, now);
       const result = await client.restAccess(native).request('vcs.pull', { cwd }, true); assertCurrent();
       git.success = { cwd, title: result.status === 'skipped_up_to_date' ? 'Already up to date' : `Pulled latest on ${str(result.refName)}`, description: '', at: now };
       const refreshed = await client.restAccess(native).request('vcs.refreshStatus', { cwd }); if (typeof refreshed.isRepo === 'boolean') state.status = refreshed;
@@ -291,7 +297,7 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
       dismiss = true;
     } else throw new ClientError('Unsupported Git action.');
     assertCurrent();
-  } catch (cause) { if (letGo(cause)) throw cause; error = message(cause); if (mobileGitAccess(client) === state) state.error = error; }
-  finally { state.acting = false; client.revision++; }
+  } catch (cause) { if (letGo(cause)) throw cause; error = message(cause); if (mobileGitAccess(client) === state) { state.error = error; mobileGitFeedbackError(client, now, error); } }
+  finally { state.acting = false; mobileGitFeedbackObserve(client, now); if (pull) mobileGitFeedbackCancelPull(client, pull); client.revision++; }
   return { message: error, destination, dismiss: dismiss && !error, data: mobileGitSnapshot(now, client) };
 }
