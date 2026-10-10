@@ -124,9 +124,16 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.click(fixture.center(chip))
         XCTAssertTrue(press.isOpen, "the press opens the details")
         XCTAssertEqual(fixture.view.selectedRange(), chip.range, "the press selects the chip, as ProseMirror's NodeSelection")
-        // The text view's highlight would hide the pill painted below it: clear while a chip is the selection (the underlay tints the pill).
+        // The text view's highlight covers the pill painted below the text: the overlay above it paints the selected chip.
         XCTAssertEqual(fixture.preview.styler.selectedChip, chip)
-        XCTAssertEqual(fixture.view.selectedTextAttributes[.backgroundColor] as? NSColor, NSColor.clear)
+        let overlay = fixture.preview.styler.overlay, host = fixture.scroller.superview
+        XCTAssertTrue(overlay != nil && overlay!.superview === host && host!.subviews.firstIndex(of: overlay!)! > host!.subviews.firstIndex(of: fixture.scroller)!, "the overlay is above the text")
+        if let directory = ProcessInfo.processInfo.environment["T3_COMPOSER_TEST_DIR"], let content = fixture.base.window.contentView {
+            let area = content.convert(fixture.scroller.frame, from: host).insetBy(dx: -4, dy: -4)
+            let rep = content.bitmapImageRepForCachingDisplay(in: area)!
+            content.cacheDisplay(in: area, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/re3-selected-chip.png"))
+        }
         fixture.base.escape()
         XCTAssertFalse(press.isOpen, "Escape closes the details")
         XCTAssertEqual(fixture.view.selectedRange(), chip.range, "and the chip stays selected")
@@ -134,8 +141,7 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.base.tick()
         XCTAssertEqual(fixture.view.string, previewSample.replacingOccurrences(of: "$frontend-design", with: "x"), "typing replaces the chip")
         XCTAssertEqual(fixture.view.selectedRange(), NSRange(location: chip.start + 1, length: 0), "with the caret after what was typed")
-        XCTAssertNil(fixture.preview.styler.selectedChip)
-        XCTAssertNotEqual(fixture.view.selectedTextAttributes[.backgroundColor] as? NSColor, NSColor.clear, "a text selection is highlighted again")
+        XCTAssertNil(fixture.preview.styler.selectedChip, "no chip is the selection once it is replaced")
         // The press gives the chip's editor the focus, wherever it was.
         fixture.view.string = previewSample; fixture.view.didChangeText(); fixture.base.tick()
         fixture.base.window.makeFirstResponder(fixture.base.editor)
