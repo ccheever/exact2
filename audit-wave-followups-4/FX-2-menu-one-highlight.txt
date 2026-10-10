@@ -1,0 +1,26 @@
+FX-2 behavioural test: examples/t3-code/menu-one-highlight.test.contract (agent pointer and keys, macOS host, lane audit-wave-followups-4)
+Each case hovers rows, sends the keys to the popup's own box (a node that takes no focus, so they reach whatever holds it),
+presses Enter, and reads which row was pressed from the state (prList.sort, settingsCore.projectLabel).
+
+| Case | Expected | Before (t3-code-evidence-base 950e8e2e5, the same steps as plain agent ops) | After (this branch's bundle, --test) |
+| --- | --- | --- | --- |
+| Sort: hover Blocked on me, ↓, Enter | updated | ready (↓ went from the popup to the first row): FAIL | ok |
+| Sort: hover Blocked on me, hover Oldest shown, ↓, Enter | largest | ready: FAIL | ok |
+| Sort: hover Oldest shown, hover the Sort trigger (leave), ↓ ↓, Enter | blocked | blocked (the base never moved the keys with the pointer) | ok |
+| Scope: hover All projects, ↓, Enter | Verification fixture | All projects: FAIL | ok |
+| Scope: hover All projects, hover the trigger (leave), ↓ ↓, Enter | Verification fixture | Verification fixture (as above) | ok |
+
+After run output:
+test "Sort: the pointer on Blocked on me, ↓ goes on to Recently updated, and Enter picks it": ok
+test "Sort: the highlight follows the pointer from row to row; ↓ goes on from the last one": ok
+test "Sort: the pointer leaving the menu hands the keys back to the popup; ↓ starts at the first row": ok
+test "Settings scope: the pointer on All projects, ↓ goes on to Verification fixture, and Enter picks it": ok
+test "Settings scope: the pointer leaving the menu hands the keys back to the popup; ↓ starts at All projects": ok
+5 passed, 0 failed
+
+Before run (state after each case, in order):
+STATE sort=ready scope=All projects
+STATE sort=ready scope=All projects
+STATE sort=blocked scope=All projects
+STATE sort=ready scope=All projects
+STATE sort=ready scope=Verification fixture
