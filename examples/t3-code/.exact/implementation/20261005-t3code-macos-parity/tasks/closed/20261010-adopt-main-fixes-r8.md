@@ -3,19 +3,19 @@ name: 20261010-adopt-main-fixes-r8
 plan: 20261005-t3code-macos-parity
 implementation: done
 verification: verified
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r8'
 pr_url: https://github.com/ccheever/exact2/pull/402
-verified_commit: 883db992af711f19c727ef05911e01c4b0d0b170
+verified_commit: 5c68225663975c2637bc39eee12b72c227d859e9
 ---
 
 # Main adoption, round 8: merge current main into the T3 branch
 
 ## Outcome
 
-`feat(example)/t3-code` takes current `main`. Round 7 ([adopt-main-fixes-r7](closed/20261010-adopt-main-fixes-r7.md),
+`feat(example)/t3-code` takes current `main`. Round 7 ([adopt-main-fixes-r7](20261010-adopt-main-fixes-r7.md),
 #384) adopted main `bc357d03c`; outside `examples/t3-code/` the branch's tree equals that commit except the workspace
 registration in `Cargo.toml` and `Cargo.lock`. Main has 22 commits after it (`bc357d03c..1f127a788` when this record was
 written; take main's tip at merge time). `git rev-list` reports hundreds more because #384 was squash-merged, which
@@ -74,7 +74,7 @@ drops main from the branch's ancestry; the content is already here.
 On `308668781` and on `883db992a`, after a fresh fetch: `git merge-base --is-ancestor origin/main <rev>` yes (origin/main
 `d413487a8`), and so for the base (`a1ade42f9`); `git diff origin/main <rev> -- ':!examples/t3-code' ':!Cargo.lock'
 ':!Cargo.toml'` empty (evidence §1). On `883db992a` the Bun suite, caps and the five checks ran again (evidence §7).
-This PR is squash-merged like the others, so round 9 starts with `git merge -s ours d413487a8`.
+The PR was merged by fast-forward, not squash (see Delivery), so main `d413487a8` is an ancestor of the T3 branch and round 9 is a plain `git merge origin/main`.
 
 ## Each item of step 2
 
@@ -152,5 +152,15 @@ No row needs real input.
 ## Next action
 
 The coordinator reviews the draft PR [#402](https://github.com/ccheever/exact2/pull/402), syncs `STATUS.md` and `plan.md` (round 8 done, main `d413487a8` adopted), merges
-it, and decides on the Settings headings follow-up above. Round 9 starts with `git merge -s ours d413487a8` and takes
+it, and decides on the Settings headings follow-up above. Round 9 is a plain `git merge origin/main` and takes
 #327's retirements once it lands.
+
+## Delivery
+
+Merged on 2026-10-10 as `5c6822566` (#402) after an independent review and its repair round (one should-fix: evidence
+§1 named main `a10050516`). It was merged by fast-forwarding `feat(example)/t3-code` to the PR's head, not by a squash:
+the repository allows only squash merges, and a squash of an adoption round drops main from the branch's ancestry, which
+is why this round began with `git merge -s ours bc357d03c` and why `git rev-list` had reported hundreds of main commits
+missing. After the fast-forward, main `d413487a8` is an ancestor of the T3 branch and `git rev-list --count
+feat(example)/t3-code..origin/main` is 0, so round 9 (#327's retirements) is a plain `git merge origin/main`. The
+Settings headings difference found here is [settings-headings](../20261010-settings-headings.md).
