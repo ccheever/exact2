@@ -1,0 +1,288 @@
+diff-gutter-selection-followups: the agent drives of the clone and what their window screenshots show (points; the 2x window
+screenshots halved). One drive per build, the same steps, 1280x840, both exit 0; the after drive is the one live run of this
+branch's bundle (no retry).
+
+Builds: before = the feature tip 327336447 (worktree t3-code-diff-gutter-selection-followups-before, bundle built there: the
+shared evidence base c03d7e908 predates #413, whose pointerdown on the gutter made the gutter drag select text; there the
+number cell was a press target, which selects no text). after = this branch's c160a4d6f (bundle built from it).
+Lanes: diff-gutter-selection-followups(-before), clone server 16782, fresh storages audit-dgs-before-final / audit-dgs-after-final;
+both lanes point Codex and Claude at missing binaries (clone-t3-home/userdata/settings.json), as the reference finds neither
+(this removes the "Updates Available" toast that covered the panel). The GitHub lane's primary server on 16783, paired with a
+fresh single-use link per drive (no GitHub write; the Code tab's draft is cancelled).
+The before build's first run stopped at `tap file-line-1`: the provider-update toast lay over the Files tree row, so the
+tree tap landed on it (no screenshot of this run is used). The drive then closes the fresh storage's Nightly notice first.
+
+Where the after build's pixels differ from the before build's (same steps; threshold 8 per channel):
+  1-diff-open (nothing selected)          identical: moving the number out of the gutter cell kept every pixel
+  2-diff-gutter-held (numbers 2 -> 4)     x 756.5..1236.5 y 146.5..182.0: before paints a text selection over numbers 2-3 and
+                                          their code ("name: verify", "description: ..."); after paints none
+  3-diff-gutter-released                  the same region: the before selection stays after the release; after none
+  4-diff-code-drag (code, line 2 -> 4)    x 756.5..764.5 y 166.5..202.0 only: before also paints numbers 3 and 4 inside the
+                                          code selection; the code's selection paint is the same in both
+  5-diff-number-press (number 3)          identical: in both builds a press on a number ends the code selection and selects
+                                          line 3 (the reference clears it too)
+  8-pr-open (nothing selected)            identical
+  9-pr-gutter-held (#168 docs/usage.md)   x 664.5..768.5 y 261.5..297.0: before paints numbers 2-4 and "## Install" as selected
+                                          text; after none
+  10-pr-code-drag (code, line 2 -> 4)     x 664.5..672.5 y 281.5..317.0 only: before also paints numbers 3 and 4; after only the
+                                          code ("## Install"), as the reference
+  6-files-light, 7-files-dark (line 1)    x 741.0..1024.0 y 100.0..120.0: before the whole row amber (#fef3c7 / #3a3112); after the
+                                          number cell #d5e6ff / #254566 with the number #20649e / #72b6ff and the code row
+                                          untinted, as the reference
+Files surface, both builds: the agent's tap at the centre of number 1 lands on the hidden "+" (a 16x16 button at the cell's
+left, x 2..18 of a 33 pt one-digit gutter), so it opens the draft and the Shift-press on 2 is ignored (the draft is open); the
+selected line 1 is what the images compare. The reference puts its "+" at the number's right edge (cell left + 23.5) and
+opens the draft at the end of any line selection; both are outside this task's rows (see the PR's observations).
+
+=== before: ops
+clock +20000 real
+clock +3000 real
+tap thread-verify-timeline
+clock +2500 real
+tap details-changes
+clock +10000 real
+tap "Dismiss notification"
+clock +1500 real
+tap "Expand .agents/skills/verify/SKILL.md"
+clock +4000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/1-diff-open.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag to diff-line-.agents/skills/verify/SKILL.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/2-diff-gutter-held.png window"
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/3-diff-gutter-released.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/4-diff-code-drag.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/5-diff-number-press.png window
+tap panel-add-surface
+clock +1500 real
+tap add-surface-files
+clock +4000 real
+tap tree-fixture.txt
+clock +4000 real
+tap file-line-1
+clock +1000 real
+tap file-line-2 modifiers Shift
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/6-files-light.png window
+tree file-line-1
+prefer prefers-color-scheme dark
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/7-files-dark.png window
+prefer prefers-color-scheme light
+clock +1000 real
+tap connection-settings
+clock +1500 real
+tap settings-connections
+clock +1500 real
+tap manage-connection
+clock +1000 real
+type server-origin <pairing link>
+clock +500 real
+tap connect
+clock +12000 real
+type t3-code key Escape
+clock +1500 real
+tap open-pull-requests
+clock +6000 real
+type pull-requests-search #168
+clock +6000 real
+tap pr-row-168
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap pull-request-code-fold-docs/usage.md
+clock +4000 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/8-pr-open.png window
+tap diff-line-docs/usage.md-additions-2 drag to diff-line-docs/usage.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/9-pr-gutter-held.png window"
+clock +2000 real
+tap pull-request-comment-cancel
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap diff-line-docs/usage.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/before/10-pr-code-drag.png window
+state
+logs
+=== after: ops
+clock +20000 real
+clock +3000 real
+tap thread-verify-timeline
+clock +2500 real
+tap details-changes
+clock +10000 real
+tap "Dismiss notification"
+clock +1500 real
+tap "Expand .agents/skills/verify/SKILL.md"
+clock +4000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/1-diff-open.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag to diff-line-.agents/skills/verify/SKILL.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/2-diff-gutter-held.png window"
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/3-diff-gutter-released.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/4-diff-code-drag.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/5-diff-number-press.png window
+tap panel-add-surface
+clock +1500 real
+tap add-surface-files
+clock +4000 real
+tap tree-fixture.txt
+clock +4000 real
+tap file-line-1
+clock +1000 real
+tap file-line-2 modifiers Shift
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/6-files-light.png window
+tree file-line-1
+prefer prefers-color-scheme dark
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/7-files-dark.png window
+prefer prefers-color-scheme light
+clock +1000 real
+tap connection-settings
+clock +1500 real
+tap settings-connections
+clock +1500 real
+tap manage-connection
+clock +1000 real
+type server-origin <pairing link>
+clock +500 real
+tap connect
+clock +12000 real
+type t3-code key Escape
+clock +1500 real
+tap open-pull-requests
+clock +6000 real
+type pull-requests-search #168
+clock +6000 real
+tap pr-row-168
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap pull-request-code-fold-docs/usage.md
+clock +4000 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/8-pr-open.png window
+tap diff-line-docs/usage.md-additions-2 drag to diff-line-docs/usage.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/9-pr-gutter-held.png window"
+clock +2000 real
+tap pull-request-comment-cancel
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap diff-line-docs/usage.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots/after/10-pr-code-drag.png window
+state
+logs
+=== drive.sh
+#!/bin/zsh
+# One agent drive of the clone for diff-gutter-selection-followups. Usage: drive.sh before|after
+# before: the feature tip 327336447 built in t3-code-diff-gutter-selection-followups-before (the shared evidence base
+# c03d7e908 predates #413's drag, whose gutter selects text); after: this worktree's bundle. Same steps, 1280x840.
+# (1) The fixture thread's Diff panel (Changes), .agents/skills/verify/SKILL.md: numbers 2 to 4 dragged (held, then
+# released), a drag in the code from line 2 to line 4, then a press on number 3. (2) The Files surface: fixture.txt,
+# number 1 pressed and number 2 Shift-pressed, light then dark. (3) The GitHub lane's server paired (a fresh single-use
+# link; the embedded server stays focused), #168's Code tab, docs/usage.md: numbers 2 to 4 dragged and held (the release
+# opens a draft, then Cancel), then a drag in the code from line 2 to line 4.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups
+S=$W/target/dgs-drive/shots/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups-before; LANE=diff-gutter-selection-followups-before; export CLONE_STORAGE=audit-dgs-before-final; else ROOTDIR=$W; LANE=diff-gutter-selection-followups; export CLONE_STORAGE=audit-dgs-after-final; fi
+# Both lanes point Codex and Claude at missing binaries (clone-t3-home/userdata/settings.json), as the reference finds neither.
+G=$W/examples/t3-code/tools/github-lane
+( cd $G && PATH=$HOME/.bun-1.4.2/bin:$PATH T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane bun lane.mjs pair primary >/dev/null )
+PAIR=$(cat $W/target/github-lane/servers/primary/pairing-url); rm -f $W/target/github-lane/servers/primary/pairing-url
+D=.agents/skills/verify/SKILL.md
+F=docs/usage.md
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  # (1) The thread's Diff panel.
+  "tap thread-verify-timeline" "clock +2500 real"
+  "tap details-changes" "clock +10000 real"
+  # The fresh storage's Nightly mobile-app notice sits over the panel: closed first.
+  "tap \"Dismiss notification\"" "clock +1500 real"
+  "tap \"Expand $D\"" "clock +4000 real"
+  "screenshot $S/1-diff-open.png window"
+  "tap diff-line-$D-additions-2 drag to diff-line-$D-additions-4 mouse over 400 during \"clock +1500 real\" \"screenshot $S/2-diff-gutter-held.png window\""
+  "clock +1500 real"
+  "screenshot $S/3-diff-gutter-released.png window"
+  "tap diff-line-$D-additions-2 drag 140 40 from 70 10 mouse over 400" "clock +1500 real"
+  "screenshot $S/4-diff-code-drag.png window"
+  "tap diff-line-$D-additions-3" "clock +1500 real"
+  "screenshot $S/5-diff-number-press.png window"
+  # (2) The Files surface.
+  "tap panel-add-surface" "clock +1500 real"
+  "tap add-surface-files" "clock +4000 real"
+  "tap tree-fixture.txt" "clock +4000 real"
+  "tap file-line-1" "clock +1000 real"
+  "tap file-line-2 modifiers Shift" "clock +1500 real"
+  "screenshot $S/6-files-light.png window"
+  "tree file-line-1"
+  "prefer prefers-color-scheme dark" "clock +1500 real"
+  "screenshot $S/7-files-dark.png window"
+  "prefer prefers-color-scheme light" "clock +1000 real"
+  # (3) Pair the GitHub lane's server, then #168's Code tab.
+  "tap connection-settings" "clock +1500 real"
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +1000 real"
+  "type server-origin $PAIR" "clock +500 real"
+  "tap connect" "clock +12000 real"
+  "type t3-code key Escape" "clock +1500 real"
+  "tap open-pull-requests" "clock +6000 real"
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap pull-request-code-fold-$F" "clock +4000 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "screenshot $S/8-pr-open.png window"
+  "tap diff-line-$F-additions-2 drag to diff-line-$F-additions-4 mouse over 400 during \"clock +1500 real\" \"screenshot $S/9-pr-gutter-held.png window\""
+  "clock +2000 real"
+  "tap pull-request-comment-cancel" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap diff-line-$F-additions-2 drag 140 40 from 70 10 mouse over 400" "clock +1500 real"
+  "screenshot $S/10-pr-code-drag.png window"
+  "state"
+  "logs"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16780 --epoch 2026-10-11T09:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
