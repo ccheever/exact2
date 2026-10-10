@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
-import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-state';
+import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { prepareComposerAttachmentPreviews, composerAttachmentPreview } from './composer-attachment-previews';
 const item = (id: string, retained = true) => ({ id, name: `${id}.jpg`, mimeType: 'image/jpeg', kind: 'image', removeOperation: retained ? 'remove-retained' : 'remove-snapshot' });
 function fixture() {

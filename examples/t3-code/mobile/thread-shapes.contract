@@ -96,6 +96,7 @@ shape ThreadComposerState
   saving: bool
   canCancel: bool
   editNotice: string
+  editNoticeDismissKey: string
   editPendingId: string
   canRetryEdit: bool
   contentOwner: string
@@ -149,6 +150,7 @@ shape ThreadPreparation
 shape ThreadColors
   glassFallback: string
   screen: string
+  card: string
   foreground: string
   secondary: string
   muted: string

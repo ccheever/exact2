@@ -90,7 +90,8 @@ describe('mobile terminal actual ownership and permissions', () => {
 
 
 test('terminal capture rejects an edit ending during native ID allocation instead of using ordinary content', async () => {
-  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditState } = await import('./queued-edit-memory');
   const f = fixture(); f.client.local.drafts[f.client.draftKey] = 'ordinary untouched';
   const edit = { owner: 'terminal-edit', session: 'terminal-session', draftKey: 'env:thread~queued-edit~r', origin: f.client.origin,
     environmentId: 'env', threadId: 'thread', projectId: 'p', generation: f.client.generation, revision: 1, runId: 'r', messageId: 'm', text: 'queued',

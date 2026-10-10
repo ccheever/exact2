@@ -1,4 +1,5 @@
 import { mobileQueuedEditPresentation } from './queued-edit';
+import { mobileQueuedEditDismissKey } from './queued-edit-memory';
 import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from './thread-fork';
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
 // @ref llp/1109.000-mobile-app-layout.decision.md#shared-typescript
@@ -35,7 +36,7 @@ export interface ThreadRow { id: string; kind: string; title: string; body: stri
   media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
 export interface ThreadApproval { id: string; title: string; detail: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
-export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
+export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editNoticeDismissKey: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
 export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolean; queuedCanEdit: boolean; queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
@@ -122,7 +123,7 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
   // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
   const canSend = edit.editing ? edit.canSave && modelReady : canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
   const sendLabel = edit.editing ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
-  return { editing: edit.editing, saving: edit.saving, canCancel: edit.canCancel, editNotice: edit.error, editPendingId: edit.pendingId, canRetryEdit: edit.canRetry, contentOwner: target.owner, draft: mobileComposerTargetText(client, target) ?? '', placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit.editing,
+  return { editing: edit.editing, saving: edit.saving, canCancel: edit.canCancel, editNotice: edit.error, editNoticeDismissKey: mobileQueuedEditDismissKey(client), editPendingId: edit.pendingId, canRetryEdit: edit.canRetry, contentOwner: target.owner, draft: mobileComposerTargetText(client, target) ?? '', placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit.editing,
     canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit.editing ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',
     blockedReason, modelLabel: str(model?.name, client.modelId), providerDriver: str(provider?.driver), providerIconURL: mobileProviderIconURL(provider?.iconUrl),
     modelUnavailable, running, queueCount: queue.queued.length };

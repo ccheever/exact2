@@ -6,7 +6,8 @@ import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { fileStagingLimit } from './shared/composer-editor-files';
-import { mobileQueuedEditLookup, mobileQueuedEditPersist, queuedEditState, type MobileQueuedEditAttachment, type MobileQueuedEditSession } from './queued-edit-state';
+import { mobileQueuedEditLookup, mobileQueuedEditPersist } from './queued-edit-state';
+import { queuedEditState, type MobileQueuedEditAttachment, type MobileQueuedEditSession } from './queued-edit-memory';
 import { mobileComposerAttachmentWireKindAndMime } from './mobile-attachment-policy';
 export function queuedEditImageMime(file: Pick<MobileQueuedEditAttachment, 'name' | 'mimeType'>): string {
   const wire = mobileComposerAttachmentWireKindAndMime({ ...file, kind: 'file' });

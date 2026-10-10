@@ -4,8 +4,8 @@ import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuedEditBegin, mobileQueuedEditCancel, mobileQueuedEditSave, mobileQueuedEditRetry, mobileQueuedEditRefresh, mobileQueuedEditPresentation } from './queued-edit';
-import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteText, queuedEditState, queuedEditReplaceAttachments,
-  queuedEditSetNotice, queuedEditNoticeOwner } from './queued-edit-state';
+import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteText, queuedEditReplaceAttachments } from './queued-edit-state';
+import { queuedEditState, queuedEditSetNotice, queuedEditNoticeOwner } from './queued-edit-memory';
 import { queuedEditResolvePayload } from './queued-edit-upload';
 import { queuedEditRefreshOrigin, mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileQueuedEditAttachmentAction } from './queued-edit-attachments';
@@ -14,6 +14,7 @@ import { mobileThreadComposer } from './thread';
 import { mobileDraftChanged } from './draft';
 import { nativeFiles } from './shared/protocol';
 import { mobileComposerTarget } from './composer-target';
+import { fleet } from './shared/settings-b-fleet';
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function fixture(client: T3Client = new T3Client()) {
   const records = new Map<string, Obj>(), operations = new Map<string, Obj>(), calls: Obj[] = [], sent: Obj[] = [];
@@ -28,6 +29,7 @@ function fixture(client: T3Client = new T3Client()) {
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(clone(request)); await hook?.(request);
     if (request.op === 'status') return ok({ origin: client.origin, environmentId: client.environmentId, homeOrigin: home });
+    if (request.op === 'forgetEnvironment') return ok({ state: client.connection, origin: client.origin, environmentId: client.environmentId, message: client.statusMessage });
     if (request.op === 'ids') return ok(Array.from({ length: Number(request.count) }, () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}`));
     if (request.path === '/api/auth/session') return ok({ authenticated: true, permissions: grants ? ['orchestration:operate'] : [] });
     if (request.op === 'writePreferences') { if (failPersist) throw new Error('disk failed'); saved = String(request.text); return ok({}); }
@@ -92,6 +94,181 @@ function mobileFixture() {
     expect(f.client.threadId).toBe(id);
   } };
 }
+
+test('actual mobile Dismiss clears only its presented notice without native or persistence work', async () => {
+  const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+  queuedEditSetNotice(f.client, 'This message failed.', owner);
+  const shown = mobileThreadComposer(f.client), before = f.calls.length;
+  expect(shown.editNoticeDismissKey).not.toBe('');
+  expect((await f.client.command('queued-edit-notice-dismiss', shown.editNoticeDismissKey, '', 0, f.native, nativeFiles(f.native))).message).toBe('');
+  expect(mobileThreadComposer(f.client)).toMatchObject({ editNotice: '', editNoticeDismissKey: '' });
+  expect(f.calls).toHaveLength(before);
+});
+
+test('captured Dismiss cannot erase another thread, environment, canonical server or same-text replacement', async () => {
+  for (const changed of ['thread', 'environment', 'origin', 'replacement'] as const) {
+    const f = mobileFixture(), original = queuedEditNoticeOwner(f.client)!;
+    queuedEditSetNotice(f.client, 'Same message', original);
+    const key = mobileThreadComposer(f.client).editNoticeDismissKey;
+    if (changed === 'thread') await f.select('other');
+    if (changed === 'environment') f.client.environmentId = 'another';
+    if (changed === 'origin') f.client.origin = 'https://replacement.test';
+    queuedEditSetNotice(f.client, 'Same message', queuedEditNoticeOwner(f.client));
+    await f.client.command('queued-edit-notice-dismiss', key, '', 0, f.native, nativeFiles(f.native));
+    expect(mobileThreadComposer(f.client).editNotice).toBe('Same message');
+    expect(mobileThreadComposer(f.client).editNoticeDismissKey).not.toBe(key);
+    if (changed !== 'replacement') {
+      Object.assign(f.client, { origin: original.origin, environmentId: original.environmentId, threadId: original.threadId });
+      expect(mobileThreadComposer(f.client).editNoticeDismissKey).toBe(key);
+    }
+  }
+});
+
+test('journal error hides scoped Dismiss and rejects an old scoped action until healthy Refresh', async () => {
+  const f = mobileFixture(); queuedEditSetNotice(f.client, 'Thread error', queuedEditNoticeOwner(f.client));
+  const key = mobileThreadComposer(f.client).editNoticeDismissKey;
+  queuedEditSetNotice(f.client, 'Journal unavailable', null);
+  await f.client.command('queued-edit-notice-dismiss', key, '', 0, f.native, nativeFiles(f.native));
+  expect(mobileThreadComposer(f.client)).toMatchObject({ editNotice: 'Journal unavailable', editNoticeDismissKey: '' });
+  await mobileQueuedEditRefresh(f.native, f.client);
+  expect(mobileThreadComposer(f.client)).toMatchObject({ editNotice: 'Thread error', editNoticeDismissKey: key });
+});
+
+test('successful actual environment removal retires every old route notice, late failures included, despite later save failure', async () => {
+  const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+  queuedEditSetNotice(f.client, 'Primary', owner);
+  queuedEditSetNotice(f.client, 'Old route', { ...owner, origin: 'https://old-route.test', threadId: 'older' });
+  queuedEditSetNotice(f.client, 'Other environment', { ...owner, environmentId: 'e10' });
+  queuedEditSetNotice(f.client, 'Journal unavailable', null);
+  f.hook(request => { if (request.op === 'forgetEnvironment') {
+    queuedEditSetNotice(f.client, 'Late failure on removed environment', { ...owner, threadId: 'late' });
+    f.client.environmentId = 'other'; f.client.threadId = 'other';
+    f.failPersist(true);
+  } });
+  const result = await f.client.command('environment-forget', owner.origin, owner.environmentId, 0, f.native, nativeFiles(f.native));
+  expect(result.message).toBe('');
+  expect(f.calls.filter(request => request.op === 'writePreferences')).toHaveLength(1);
+  expect(f.client.error).toContain('Could not save local drafts and preferences. Keep a copy before closing.');
+  expect(f.calls.filter(request => request.op === 'forgetEnvironment')).toEqual([{ op: 'forgetEnvironment', origin: owner.origin, environmentId: owner.environmentId }]);
+  const keys = [...queuedEditState(f.client).notices.keys()].map(key => JSON.parse(key));
+  expect(keys).toEqual([[owner.origin, 'e10', 't']]);
+  expect(queuedEditState(f.client).globalNotice?.message).toBe('Journal unavailable');
+  Object.assign(f.client, { origin: owner.origin, environmentId: owner.environmentId, threadId: 'late' });
+  expect(queuedEditState(f.client).notices.size).toBe(1);
+});
+
+test('failed, invalid, interrupted and superseded removal replies cannot retire composer notices', async () => {
+  for (const failure of ['failed', 'invalid', 'let-go', 'superseded', 'superseded-invalid-status'] as const) {
+    const f = mobileFixture(); queuedEditSetNotice(f.client, 'Keep error', queuedEditNoticeOwner(f.client));
+    const key = mobileThreadComposer(f.client).editNoticeDismissKey, native = f.native.later;
+    f.native.later = async input => {
+      if (obj(input).op !== 'forgetEnvironment') return native(input);
+      if (failure === 'failed') return { ok: false, generation: f.client.generation, error: { kind: 'storage', message: 'Removal failed' } };
+      if (failure === 'invalid') return { ok: true, value: {} };
+      if (failure === 'let-go') throw { name: 'FetchError', kind: 'Aborted' };
+      // Actual shared nonlocal command supersession after native work but before
+      // the first removal's ownedNative can accept the successful reply.
+      await f.client.command('close-diff', '', '', 0, f.native, nativeFiles(f.native));
+      await f.client.command('unknown-nonlocal-command', '', '', 0, f.native, nativeFiles(f.native));
+      return { ok: true, generation: f.client.generation, value: failure === 'superseded-invalid-status' ? {} : {
+        state: f.client.connection, origin: f.client.origin, environmentId: f.client.environmentId, message: f.client.statusMessage } };
+    };
+    await f.client.command('environment-forget', f.client.origin, f.client.environmentId, 0, f.native, nativeFiles(f.native));
+    expect(mobileThreadComposer(f.client).editNoticeDismissKey).toBe(key);
+    expect(f.calls.some(request => request.op === 'sshForget')).toBe(false);
+  }
+});
+
+test('generated successful replies with malformed decoded status preserve notices and the shared protocol error', async () => {
+  const good = { state: 'connected', origin: 'https://example.test', environmentId: 'e', message: '' };
+  for (const status of [{}, null, [], { ...good, state: 'ready' }, { ...good, origin: null },
+    { ...good, environmentId: 9 }, { ...good, message: false }]) {
+    const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+    queuedEditSetNotice(f.client, 'Keep malformed-status error', owner);
+    queuedEditSetNotice(f.client, 'Keep another route', { ...owner, origin: 'https://old-route.test', threadId: 'older' });
+    const key = mobileThreadComposer(f.client).editNoticeDismissKey, native = f.native.later;
+    f.native.later = async input => {
+      const reply = await native(input);
+      return obj(input).op === 'forgetEnvironment' ? { ...obj(reply), value: status } : reply;
+    };
+    const result = await f.client.command('environment-forget', owner.origin, owner.environmentId, 0, f.native, nativeFiles(f.native));
+    expect(result.message).toBe('The native bridge returned an invalid connection status. Reconnect and try again.');
+    expect(mobileThreadComposer(f.client).editNoticeDismissKey).toBe(key);
+    expect([...queuedEditState(f.client).notices.values()].map(notice => notice.message)).toEqual(['Keep malformed-status error', 'Keep another route']);
+    expect(f.client.connection).toBe('connected'); expect(f.client.generation).toBe(9);
+    // Shared connection cleanup still runs before its status adoption. It must
+    // neither normalize the invalid body nor retire the app's notice owner.
+    expect(f.calls.filter(request => request.op === 'sshForget')).toHaveLength(1);
+    expect(f.calls.some(request => request.op === 'writePreferences')).toBe(false);
+  }
+});
+
+test('a valid removal status older than the live generation cannot retire its notices', async () => {
+  const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+  queuedEditSetNotice(f.client, 'Keep stale removal error', owner);
+  const key = mobileThreadComposer(f.client).editNoticeDismissKey, native = f.native.later;
+  f.native.later = async input => {
+    if (obj(input).op !== 'forgetEnvironment') return native(input);
+    const generation = f.client.generation; f.client.generation++;
+    return { ...obj(await native(input)), generation };
+  };
+  const result = await f.client.command('environment-forget', owner.origin, owner.environmentId, 0, f.native, nativeFiles(f.native));
+  expect(result.message).toBe(''); expect(f.client.generation).toBe(10);
+  expect(mobileThreadComposer(f.client).editNoticeDismissKey).toBe(key);
+  expect([...queuedEditState(f.client).notices.values()].map(notice => notice.message)).toEqual(['Keep stale removal error']);
+  expect(f.calls.filter(request => request.op === 'sshForget')).toHaveLength(1);
+});
+
+test('actual status adoption after removal reply admission preserves notices at cleanup', async () => {
+  for (let depth = 1; depth <= 8; depth++) {
+    const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+    queuedEditSetNotice(f.client, 'Keep stale generation error', owner);
+    const key = mobileThreadComposer(f.client).editNoticeDismissKey, phases: string[] = [];
+    const status = { state: 'connected', origin: owner.origin, environmentId: owner.environmentId, message: '' };
+    const adoptStatus = f.client.adoptStatus.bind(f.client);
+    f.client.adoptStatus = (value, generation) => {
+      phases.push(`adopt:${generation}:live:${f.client.generation}`); adoptStatus(value, generation);
+    };
+    f.native.later = async input => {
+      const request = obj(input); phases.push(`${request.op}:live:${f.client.generation}`);
+      if (request.op === 'forgetEnvironment') {
+        const advance = (left: number) => queueMicrotask(() => {
+          if (left > 1) advance(left - 1);
+          else f.client.adoptStatus(status, 10);
+        });
+        advance(depth);
+        return { ok: true, generation: 9, value: status };
+      }
+      return { ok: true, generation: f.client.generation, value: {} };
+    };
+    const result = await f.client.command('environment-forget', owner.origin, owner.environmentId, 0, f.native, nativeFiles(f.native));
+    expect(result.message).toBe(''); expect(f.client.generation).toBe(10);
+    expect(phases).toContain('sshForget:live:10');
+    expect(phases).toContain('adopt:9:live:10');
+    expect(phases.indexOf('adopt:10:live:9')).toBeLessThan(phases.indexOf('sshForget:live:10'));
+    expect(mobileThreadComposer(f.client).editNoticeDismissKey).toBe(key);
+    expect([...queuedEditState(f.client).notices.values()].map(notice => notice.message)).toEqual(['Keep stale generation error']);
+  }
+});
+
+test('disable and route-only removal preserve notices, while successful removal protects a proven replacement catalog', async () => {
+  const f = mobileFixture(), owner = queuedEditNoticeOwner(f.client)!;
+  queuedEditSetNotice(f.client, 'Old error', owner);
+  const key = mobileThreadComposer(f.client).editNoticeDismissKey;
+  await f.client.command('environment-enabled', `${owner.origin}\n${owner.environmentId}`, 'off', 0, f.native, nativeFiles(f.native));
+  await f.client.command('environment-route-remove', `${owner.origin}\n${owner.environmentId}`, 'old-route', 0, f.native, nativeFiles(f.native));
+  expect(queuedEditState(f.client).notices.get(JSON.stringify([owner.origin, owner.environmentId, owner.threadId]))?.serial).toBe(JSON.parse(key)[3]);
+  const before = fleet.saved; fleet.saved = [{ origin: owner.origin, environmentId: owner.environmentId }];
+  try {
+    f.hook(request => { if (request.op === 'forgetEnvironment') {
+      const replacement = 'https://new-canonical.test'; fleet.saved = [{ origin: replacement, environmentId: owner.environmentId }];
+      Object.assign(f.client, { origin: replacement, environmentId: owner.environmentId, threadId: owner.threadId });
+      queuedEditSetNotice(f.client, 'Replacement error', queuedEditNoticeOwner(f.client));
+    } });
+    await f.client.command('environment-forget', owner.origin, owner.environmentId, 0, f.native, nativeFiles(f.native));
+    expect([...queuedEditState(f.client).notices.values()].map(value => value.message)).toEqual(['Replacement error']);
+  } finally { fleet.saved = before; }
+});
 
 test('actual mobile client keeps a failed Begin notice on its thread through selection and fresh typing', async () => {
   const f = mobileFixture();
