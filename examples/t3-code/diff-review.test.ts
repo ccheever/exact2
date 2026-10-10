@@ -191,6 +191,24 @@ describe('the "+" pinned to a selection (placeUtilityFromSelection; the review o
   });
 });
 
+describe('what sits under a selected line is painted selected (Pierre\'s renderSelection; diff-gutter-visuals)', () => {
+  test('the draft under its range, and a saved comment once its line is selected again', async () => {
+    const { client, command, calls } = harness(false);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    const notes = () => snapshot(client).diffItems.filter(item => item.kind === 'note' || item.kind === 'draft').map(item => `${item.kind}${item.selected ? '*' : ''}`);
+    await command('diffreview', 'gutter:additions', 'a.ts', 3); await command('diffreview', 'to', 'dl:additions:5:a.ts', 0); await command('diffreview', 'end', 'a.ts', 3);
+    expect(notes()).toEqual(['draft*']);
+    await command('diffreview', 'save', 'Why this order?');
+    // The saved comment lives as long as its chip does in the composer's text.
+    client.local.drafts[client.draftKey] = String(calls.filter(call => call.op === 'editorInsert').at(-1)!.text);
+    expect(notes()).toEqual(['note']);
+    await command('diffreview', 'drag:additions', 'a.ts', 3); await command('diffreview', 'to', 'dl:additions:4:a.ts', 0); await command('diffreview', 'end', 'a.ts', 3);
+    expect(notes()).toEqual(['note']);
+    await command('diffreview', 'drag:additions', 'a.ts', 4); await command('diffreview', 'to', 'dl:additions:5:a.ts', 0); await command('diffreview', 'end', 'a.ts', 4);
+    expect(notes()).toEqual(['note*']);
+  });
+});
+
 describe('Cite', () => {
   test('a selection across two answer blocks becomes an Assistant quote chip whose href parses back', async () => {
     const { client, command, calls } = harness(false);

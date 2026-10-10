@@ -12,6 +12,13 @@ use PgIcon from "./pages-icons.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 
+// A selected line's paint, read from T3's StyledDiffCodeView over @pierre/diffs (CDP, 1e2ecbd975; the same in the
+// Code tab and the Diff panel, stacked and split): the row and the number's cell mixed from the code surface and
+// Pierre's modified blue, the number in that blue, and a 4pt bar of it at the gutter's left in place of the change bar
+// (diff-gutter-visuals). The comment cards under a selected line take the row's colour and the bar (Pierre's
+// renderSelection marks the annotation that follows a selected line).
+fn diffSel(role: string): string = role == "row" ? "light-dark(#eff7fd, #0f151a)" : role == "gutter" ? "light-dark(#f0f7fd, #10151a)" : role == "number" ? "light-dark(#20649e, #72b6ff)" : "#009fff"
+
 component DiffTool
   props
     icon: string
@@ -60,10 +67,15 @@ component DiffRow
           box width="45%" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
       when item.kind == "gap"
         DiffGap(item=item, command=command)
-      when item.kind == "note"
-        DiffCommentCard(text=item.text, remove=command("diffreview", "delete", item.entry, 0))
-      when item.kind == "draft"
-        DiffDraftCard(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
+      when item.kind == "note" or item.kind == "draft"
+        // A comment under a selected line takes the line's colour and the selection's bar.
+        column width="100%" position="relative" background-color=(item.selected ? diffSel("row") : "#00000000")
+          when item.kind == "note"
+            DiffCommentCard(text=item.text, remove=command("diffreview", "delete", item.entry, 0))
+          else
+            DiffDraftCard(rangeLabel=item.label, text=draftText, selected=item.selected, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
+          when item.selected
+            box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
       when item.kind == "split"
         row width="100%" align-items="stretch"
           DiffCell(tone=item.leftTone, number=item.leftNumber, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
@@ -135,7 +147,10 @@ component DiffFileHeader
 // by the cell's `id` (`elementFromPoint`); the release ends the drag. While the file has a selection
 // the "+" sits on its bottom line only (`pin`; Pierre's placeUtilityFromSelection), so during a drag it
 // follows the selection; otherwise on the hovered line. A cell whose own drag is in flight keeps its
-// "+" mounted (hidden when the selection moved it), as the pressed node holds the pointer.
+// "+" mounted (hidden when the selection moved it), as the pressed node holds the pointer. The "+" is Pierre's
+// [data-utility-button]: a 1lh (20pt) square in the modified blue with its 16pt plus in the code surface's colour,
+// from the number's right edge (the slot at the cell's right, `margin-right: calc(-1lh + 1ch)`), over the code's
+// first column (diff-gutter-visuals; CDP: the number cell's right minus 1ch + 2pt).
 component DiffCell
   props
     tone: string
@@ -182,22 +197,25 @@ component DiffCell
     if not open and line > 0
       begin(path, side, line)
   view
-    row id=`dl:${side}:${line}:${path}` flex=1 min-width=0 align-items="stretch" hover=hover position="relative" background-color=(selected ? "light-dark(#fef3c7, #3a3112)" : tone == "deletion" ? diffInk(scheme, "del-row") : tone == "addition" ? diffInk(scheme, "add-row") : tone == "empty" ? "light-dark(#e4e4e4, #222222)" : "light-dark(#fcfcfc, #0a0a0a)")
-      box width=((gutter - 2) * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointerdown=down(false) pointermove=move pointerup=up testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? "light-dark(#fde68a, #4a3d14)" : tone == "deletion" ? diffInk(scheme, "del-gutter") : tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
-        // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars).
-        when tone == "addition"
+    row id=`dl:${side}:${line}:${path}` flex=1 min-width=0 align-items="stretch" hover=hover position="relative" background-color=(selected ? diffSel("row") : tone == "deletion" ? diffInk(scheme, "del-row") : tone == "addition" ? diffInk(scheme, "add-row") : tone == "empty" ? "light-dark(#e4e4e4, #222222)" : "light-dark(#fcfcfc, #0a0a0a)")
+      box width=((gutter - 2) * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointerdown=down(false) pointermove=move pointerup=up testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion" ? diffInk(scheme, "del-gutter") : tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
+        // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars); a selected line the selection's.
+        when selected
+          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
+        when tone == "addition" and not selected
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "add")
-        when tone == "deletion"
+        when tone == "deletion" and not selected
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" overflow="hidden" background-color=diffInk(scheme, "del-bar")
             svg width="0.25rem" height="25rem" aria-hidden=true
               defs
                 pattern id="diff-deletion-stripes" patternUnits="userSpaceOnUse" width=4 height=2
                   rect x=0 y=0 width=4 height=1 fill=diffInk(scheme, "del")
               rect x=0 y=0 width=4 height=400 fill="url(#diff-deletion-stripes)"
-        text number width="100%" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
+        text number width="100%" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
       when line > 0 and not open and (pin or not pinned or dragging)
-        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(pin or (hovering and not pinned) ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-          DiffGlyph(name="plus", size=12, color="#ffffff")
+        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left=((gutter - 2) * size / 13 - 7.83 * size / 13) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(pin or (hovering and not pinned) ? 1 : 0) background-color=diffSel("bar") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#fcfcfc, #0a0a0a)" flex-shrink=0 aria-hidden=true
+            path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"

@@ -364,7 +364,9 @@ export function diffSnapshot(client: T3Client, now: number) {
         const anchored = note.range.endSide === 'deletions' ? oldLine > 0 && oldLine === note.range.end : newLine > 0 && newLine === note.range.end;
         if (!anchored) continue;
         placed.add(note.id);
-        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text });
+        // Painted as selected under a selected line (Pierre's renderSelection; diff-gutter-visuals).
+        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text,
+          selected: isSelected(note.range.endSide, note.range.end) });
       }
     };
     const push = (row: Row | { left: Row; right: Row }, key: string) => {
