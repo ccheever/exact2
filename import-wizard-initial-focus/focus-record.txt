@@ -1,0 +1,73 @@
+import-wizard-initial-focus: where the focus is, step by step. Clone: agent mode (macOS), `state` focus.logical named by `tree`;
+before = evidence base c03d7e908, after = this branch. Reference: T3 Code 1e2ecbd975 (Electron) over CDP, document.activeElement.
+Lane fixture browsers only (Brave held by a foreign-host SingletonLock, a Firefox profile "broken" with a garbage cookies.sqlite).
+
+Chrome: the wizard opens on Configure (Add profile, then the Chrome row, pointer)
+  before:    #2168 Pressable testId='browser-profiles-add' label='Add profile'
+  after:     #2685 Pressable testId='browser-import-tile-Default'
+  reference: BUTTON[aria-pressed=true] "Personal 5 cookies"
+
+Cancel
+  before:    none (the window)  [the evidence base predates #406, which added this return; unchanged here]
+  after:     #2173 Pressable testId='browser-profiles-add' label='Add profile'
+  reference: BUTTON "Add profile"
+
+Brave (running): the wizard opens on the quit step
+  before:    #2168 Pressable testId='browser-profiles-add' label='Add profile'
+  after:     #2729 Pressable testId='browser-import-cancel'
+  reference: BUTTON "Cancel"
+
+I've quit it -> Checking -> Quit again (Brave still running)
+  before:    #2741 Pressable testId='browser-import-quit'
+  after:     #2724 View testId='browser-import-step-quit' label='Quit Brave to import'
+  reference: the popup itself (DIV[role=dialog]), also right after the press
+
+Tab from there
+  before:    #2723 Pressable testId='browser-import-x' label='Close'
+  after:     #2749 Pressable testId='browser-import-cancel'
+  reference: BUTTON "Cancel"
+
+Safari (Full Disk Access needed): the wizard opens on Full Disk Access
+  before:    #2168 Pressable testId='browser-profiles-add' label='Add profile'
+  after:     #2768 Pressable testId='browser-import-fda-allow'
+  reference: not reproducible on the lane (needs TCC EPERM); from source: Allow (PermissionChecklist), the first tabbable
+
+Firefox: the wizard opens on Configure
+  before:    #2168 Pressable testId='browser-profiles-add' label='Add profile'
+  after:     #2789 Pressable testId='browser-import-tile-Profiles/lane.default-release'
+  reference: BUTTON[aria-pressed=true] "default-release 1 cookie"
+
+"broken" tile, Import -> Importing -> Couldn't import
+  before:    #2830 Pressable testId='browser-import-close'
+  after:     #2781 View testId='browser-import-step-blocked' label='Couldn’t import from Firefox'
+  reference: the popup itself (DIV[role=dialog])
+
+Shift+Tab from there
+  before:    #2649 Pressable testId='device-hosts-add'
+  after:     #2844 Pressable testId='browser-import-x' label='Close'
+  reference: BUTTON[aria-label=Close] "" (the X, the last stop)
+
+Try again -> Importing -> Couldn't import
+  before:    #2850 Pressable testId='browser-import-close'
+  after:     #2781 View testId='browser-import-step-blocked' label='Couldn’t import from Firefox'
+  reference: the popup itself; then Tab: BUTTON "Close"
+
+Firefox default profile, Import -> Importing -> Imported 1 cookie
+  before:    #2943 Pressable testId='browser-import-done'
+  after:     #2869 View testId='browser-import-step-done' label='Imported 1 cookie'
+  reference: the popup itself (DIV[role=dialog]); then Tab: BUTTON "Done"
+
+Firefox options, Remove profile and data: Remove "Firefox"? opens
+  before:    #2916 Pressable testId='browser-profile-options-profile-75d7d7d9-4116-4a92-9e98-3c69c36c6726' label='Firefox options'
+  after:     #2965 Pressable testId='browser-profile-remove-cancel'
+  reference: BUTTON "Cancel"
+
+Cancel
+  before:    none (the window)
+  after:     #2926 Pressable testId='browser-profile-options-profile-75d7d7d9-4116-4a92-9e98-3c69c36c6726' label='Firefox options'
+  reference: BUTTON[aria-label=Firefox options] ""
+
+Firefox options, Remove profile and data, Remove profile (the row is gone)
+  before:    none (the window)
+  after:     #2173 Pressable testId='browser-profiles-add' label='Add profile'
+  reference: BUTTON "Add profile" (Base UI: the last element focused as a popup opened)
