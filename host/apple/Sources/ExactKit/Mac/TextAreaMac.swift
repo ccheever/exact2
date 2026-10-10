@@ -359,6 +359,11 @@ final class SecureField: NSSecureTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
+/// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
+final class SearchField: NSSearchField {
+    override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+}
 private func bareFieldMask(_ field: NSTextField) -> NSRect? {
     guard let owner = field.delegate as? NodeView, !owner.isNativeTextControl else { return nil }
     return field.convert(owner.bounds, from: owner)

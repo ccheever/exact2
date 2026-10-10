@@ -460,7 +460,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" {
-            let f = makeField(secure: false)
+            let f = makeField(.plain)
             addSubview(f)
             field = f
         }
@@ -785,10 +785,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// The field for an input: `NSSecureTextField` for `type="password"`
-    /// (the web's masking), a plain one otherwise; the same delegate,
-    /// borderless, the node paints its own box.
-    func makeField(secure: Bool) -> NSTextField {
-        let f = secure ? SecureField(frame: .zero) : Field(frame: .zero)
+    /// (the web's masking), `NSSearchField` for a native `type="search"`, a
+    /// plain one otherwise; the same delegate, borderless, the node paints
+    /// its own box.
+    func makeField(_ kind: FieldClass) -> NSTextField {
+        let f: NSTextField = switch kind {
+        case .secure: SecureField(frame: .zero)
+        case .search: SearchField(frame: .zero)
+        case .plain: Field(frame: .zero)
+        }
         f.isBordered = false
         f.isBezeled = false
         f.drawsBackground = false
@@ -901,21 +906,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         props = next
         if set["symbolEffectValue"] != nil { updateSymbol() }
         applyTextArea()
-        if let f = field {
-            // `type` changed between password and text: a secure field is a
-            // different class on AppKit, so the field is remade in place.
-            let secure = props["type"] == "password"
-            if (f is NSSecureTextField) != secure {
-                let n = makeField(secure: secure)
-                n.frame = f.frame
-                n.stringValue = f.stringValue
-                n.font = f.font
-                n.textColor = f.textColor
-                f.removeFromSuperview()
-                addSubview(n)
-                field = n
-            }
-        }
+        remakeFieldIfNeeded()
         if let f = field {
             if let v = props["value"] {
                 // While the field is being edited its field editor holds the

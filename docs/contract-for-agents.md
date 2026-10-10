@@ -2037,8 +2037,12 @@ content box's width and height after the first layout and whenever they change
 (one more parameter: its `DOMRectReadOnly`), on every host
 ([Events](contract-grammar.md#events)); read other boxes there with `frame(id)`
 rather than polling with a timer. `user-select="none"` prevents
-ordinary text selection; `auto` is the default. Text/all/contain need iOS and
-Linux selection executors and are refused precisely. These rows take literals
+ordinary text selection; `auto` is the default, and on the Mac it is AppKit's:
+a label inside a button, link or other control, or in a `header`, `nav`,
+`footer`, toolbar, tablist or menu, is not selectable, while an `article`'s text
+and other content text is (so put prose a reader copies in `article`, not a
+`header`). Text/all/contain need iOS and Linux selection executors and are
+refused precisely. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
 
 **Colours: say a role, not a value.** Leave a colour unsaid where you can (text,
