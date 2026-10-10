@@ -1,0 +1,202 @@
+realinput-1010c-fixes: the before and after drives (same ops, lane realinput-1010c-fixes[-before], 1280x840, --epoch 2026-10-10T06:00:00Z)
+before = feature-branch tip f0aaaa56d built in t3-code-ri1010c-before; after = this branch's bundle
+
+ops:
+     1	clock +20000 real
+     2	clock +3000 real
+     3	tap "Dismiss notification"
+     4	clock +600 real
+     5	tap "Dismiss"
+     6	clock +600 real
+     7	tap open-usage
+     8	clock +2000 real
+     9	tap usage-metric-cost
+    10	clock +3000 real
+    11	tap usage-unpriced hover
+    12	clock +700 real
+    13	screenshot rc5-1-hover-info.png window
+    14	layout usage-unpriced
+    15	layout usage-seg-pop-unpriced
+    16	tap usage-seg-pop-unpriced hover
+    17	clock +700 real
+    18	screenshot rc5-2-hover-popup.png window
+    19	logs
+    20	type t3-code key Escape
+    21	clock +600 real
+    22	type t3-code key Escape
+    23	clock +1500 real
+    24	tap model-picker
+    25	clock +800 real
+    26	tap model-claude-sonnet-5-5 modifiers Shift
+    27	clock +800 real
+    28	screenshot rc2-1-added.png window
+    29	tree model-picker
+    30	tap model-claude-sonnet-5-5 modifiers Shift
+    31	clock +800 real
+    32	screenshot rc2-2-removed.png window
+    33	tree model-picker
+    34	tap dismiss-model-picker
+    35	clock +600 real
+    36	type composer $frontend-design now
+    37	clock +1500 real
+    38	tap draft-hero-heading
+    39	clock +300 real
+    40	tap composer mouse at 60 12
+    41	clock +1000 real
+    42	state
+    43	screenshot rc4-1-chip-open.png window
+    44	type chip-popover key Escape
+    45	clock +800 real
+    46	state
+    47	screenshot rc4-2-chip-escape.png window
+    48	tap connection-settings
+    49	clock +1200 real
+    50	tap settings-integrations
+    51	clock +1500 real
+    52	type browser-profiles-add key ArrowDown
+    53	clock +2000 real
+    54	state
+    55	screenshot rc6-0-down1.png window
+    56	type browser-profiles-setting key ArrowDown
+    57	clock +500 real
+    58	state
+    59	screenshot rc6-1-down2.png window
+    60	type browser-profiles-setting key ArrowDown
+    61	clock +500 real
+    62	state
+    63	screenshot rc6-2-down3.png window
+    64	type browser-profiles-setting key Escape
+    65	clock +500 real
+    66	tap settings-appearance
+    67	clock +1200 real
+    68	tap prompt-font-preview down at 90 13
+    69	tap up
+    70	clock +1000 real
+    71	screenshot rc4-3-settings-chip.png window
+    72	type chip-popover key Escape
+    73	clock +800 real
+    74	state
+    75	screenshot rc4-4-settings-escape.png window
+    76	type t3-code key Escape
+    77	clock +1000 real
+    78	tap open-pull-requests
+    79	clock +2500 real
+    80	tap pull-requests-filters
+    81	clock +600 real
+    82	tap pr-filter-author hover
+    83	clock +300 real
+    84	tap pr-filter-author
+    85	clock +600 real
+    86	tap pr-author-search hover
+    87	clock +300 real
+    88	tap pr-author-search
+    89	clock +300 real
+    90	type pr-author-search key Escape
+    91	clock +500 real
+    92	state
+    93	screenshot rc3-1-author-escape.png window
+    94	type pr-filters-layer key ArrowDown
+    95	clock +300 real
+    96	state
+    97	type pr-filters-layer key Escape
+    98	clock +600 real
+    99	state
+   100	screenshot rc3-2-second-escape.png window
+
+== before: taps, keys, focus (state.focus.logical), trees
+3 tap "Dismiss notification" -> {'tapped': 611, 'delivery': 'platform'}
+5 tap "Dismiss" -> {'tapped': 688, 'delivery': 'platform'}
+7 tap open-usage -> {'tapped': 93, 'delivery': 'platform'}
+9 tap usage-metric-cost -> {'tapped': 757, 'delivery': 'platform'}
+11 tap usage-unpriced hover -> {'tapped': 808, 'delivery': 'platform'}
+16 tap usage-seg-pop-unpriced hover -> {'tapped': 1020, 'delivery': 'platform'}
+20 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+22 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+24 tap model-picker -> {'tapped': 189, 'delivery': 'platform'}
+26 tap model-claude-sonnet-5-5 modifiers Shift -> {'tapped': 1093, 'delivery': 'platform'}
+29 tree model-picker -> [(189, 'model-picker', 'Claude Fable 5.1, Claude Sonnet 5.5'), (195, None, 'Claude Fable 5.1, Claude Sonnet 5.5'), (198, None, 'Claude Fable 5.1, Claude Sonnet 5.5 · ⇧⌘M')]
+30 tap model-claude-sonnet-5-5 modifiers Shift -> {'tapped': 1093, 'delivery': 'platform'}
+33 tree model-picker -> [(189, 'model-picker', 'Claude Fable 5.1'), (195, None, 'Claude Fable 5.1'), (198, None, 'Claude Fable 5.1 · ⇧⌘M')]
+34 tap dismiss-model-picker -> {'tapped': 1048, 'delivery': 'platform'}
+36 type composer $frontend-design now -> {'typed': 150, 'delivery': 'platform'}
+38 tap draft-hero-heading -> {'tapped': 489, 'delivery': 'platform'}
+40 tap composer mouse at 60 12 -> {'tapped': 150, 'delivery': 'platform'}
+42 state focus= {"pending": null, "editor": null, "responder": "NodeView", "logical": 490}
+44 type chip-popover key Escape -> {'typed': 1175, 'key': 'Escape', 'delivery': 'platform'}
+46 state focus= {"editor": null, "responder": "NodeView", "logical": 490, "pending": null}
+48 tap connection-settings -> {'tapped': 1023, 'delivery': 'platform'}
+50 tap settings-integrations -> {'tapped': 1263, 'delivery': 'platform'}
+52 type browser-profiles-add key ArrowDown -> {'typed': 2670, 'key': 'ArrowDown', 'delivery': 'platform'}
+54 state focus= {"pending": null, "logical": 2684, "responder": "NodeView", "editor": null}
+56 type browser-profiles-setting key ArrowDown -> {'typed': 2664, 'key': 'ArrowDown', 'delivery': 'platform'}
+58 state focus= {"logical": 2684, "editor": null, "responder": "NodeView", "pending": null}
+60 type browser-profiles-setting key ArrowDown -> {'typed': 2664, 'key': 'ArrowDown', 'delivery': 'platform'}
+62 state focus= {"logical": 2684, "editor": null, "responder": "NodeView", "pending": null}
+64 type browser-profiles-setting key Escape -> {'typed': 2664, 'key': 'Escape', 'delivery': 'platform'}
+66 tap settings-appearance -> {'tapped': 1247, 'delivery': 'platform'}
+68 tap prompt-font-preview down at 90 13 -> {'tapped': 3879, 'delivery': 'platform'}
+69 tap up -> {'delivery': 'platform'}
+72 type chip-popover key Escape -> {'typed': 4119, 'key': 'Escape', 'delivery': 'platform'}
+74 state focus= {"responder": null, "pending": null, "logical": null, "editor": null}
+76 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+78 tap open-pull-requests -> {'tapped': 1027, 'delivery': 'platform'}
+80 tap pull-requests-filters -> {'tapped': 4251, 'delivery': 'platform'}
+82 tap pr-filter-author hover -> {'tapped': 4279, 'delivery': 'platform'}
+84 tap pr-filter-author -> {'tapped': 4279, 'delivery': 'platform'}
+86 tap pr-author-search hover -> {'tapped': 4420, 'delivery': 'platform'}
+88 tap pr-author-search -> {'tapped': 4420, 'delivery': 'platform'}
+90 type pr-author-search key Escape -> {'typed': 4420, 'key': 'Escape', 'delivery': 'platform'}
+92 state focus= {"editor": null, "pending": null, "logical": null, "responder": null}
+94 type pr-filters-layer key ArrowDown -> {'typed': 4258, 'key': 'ArrowDown', 'delivery': 'platform'}
+96 state focus= {"pending": null, "editor": null, "logical": null, "responder": null}
+97 type pr-filters-layer key Escape -> {'typed': 4258, 'key': 'Escape', 'delivery': 'platform'}
+99 state focus= {"responder": null, "logical": null, "pending": null, "editor": null}
+
+== after: taps, keys, focus (state.focus.logical), trees
+3 tap "Dismiss notification" -> {'tapped': 641, 'delivery': 'platform'}
+5 tap "Dismiss" -> {'tapped': 695, 'delivery': 'platform'}
+7 tap open-usage -> {'tapped': 93, 'delivery': 'platform'}
+9 tap usage-metric-cost -> {'tapped': 764, 'delivery': 'platform'}
+11 tap usage-unpriced hover -> {'tapped': 815, 'delivery': 'platform'}
+16 tap usage-seg-pop-unpriced hover -> {'tapped': 1027, 'delivery': 'platform'}
+20 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+22 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+24 tap model-picker -> {'tapped': 189, 'delivery': 'platform'}
+26 tap model-claude-sonnet-5-5 modifiers Shift -> {'tapped': 1100, 'delivery': 'platform'}
+29 tree model-picker -> [(189, 'model-picker', 'Claude Fable 5.1, Claude Sonnet 5.5'), (1156, 'model-picker-label', 'Claude Fable 5.1, Claude Sonnet 5.5'), (198, None, 'Claude Fable 5.1, Claude Sonnet 5.5 · ⇧⌘M')]
+30 tap model-claude-sonnet-5-5 modifiers Shift -> {'tapped': 1100, 'delivery': 'platform'}
+33 tree model-picker -> [(189, 'model-picker', 'Claude Fable 5.1'), (1176, 'model-picker-label', 'Claude Fable 5.1'), (198, None, 'Claude Fable 5.1 · ⇧⌘M')]
+34 tap dismiss-model-picker -> {'tapped': 1055, 'delivery': 'platform'}
+36 type composer $frontend-design now -> {'typed': 150, 'delivery': 'platform'}
+38 tap draft-hero-heading -> {'tapped': 496, 'delivery': 'platform'}
+40 tap composer mouse at 60 12 -> {'tapped': 150, 'delivery': 'platform'}
+42 state focus= {"pending": null, "logical": 497, "responder": "NodeView", "editor": null}
+44 type chip-popover key Escape -> {'typed': 1184, 'key': 'Escape', 'delivery': 'platform'}
+46 state focus= {"logical": 497, "editor": null, "responder": "NodeView", "pending": null}
+48 tap connection-settings -> {'tapped': 1030, 'delivery': 'platform'}
+50 tap settings-integrations -> {'tapped': 1274, 'delivery': 'platform'}
+52 type browser-profiles-add key ArrowDown -> {'typed': 2681, 'key': 'ArrowDown', 'delivery': 'platform'}
+54 state focus= {"responder": "NodeView", "logical": 2695, "pending": null, "editor": null}
+56 type browser-profiles-setting key ArrowDown -> {'typed': 2675, 'key': 'ArrowDown', 'delivery': 'platform'}
+58 state focus= {"logical": 3169, "editor": null, "responder": "NodeView", "pending": null}
+60 type browser-profiles-setting key ArrowDown -> {'typed': 2675, 'key': 'ArrowDown', 'delivery': 'platform'}
+62 state focus= {"editor": null, "responder": "NodeView", "logical": 3171, "pending": null}
+64 type browser-profiles-setting key Escape -> {'typed': 2675, 'key': 'Escape', 'delivery': 'platform'}
+66 tap settings-appearance -> {'tapped': 1258, 'delivery': 'platform'}
+68 tap prompt-font-preview down at 90 13 -> {'tapped': 3895, 'delivery': 'platform'}
+69 tap up -> {'delivery': 'platform'}
+72 type chip-popover key Escape -> {'typed': 4135, 'key': 'Escape', 'delivery': 'platform'}
+74 state focus= {"editor": null, "responder": "NodeView", "pending": null, "logical": 1258}
+76 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+78 tap open-pull-requests -> {'tapped': 1034, 'delivery': 'platform'}
+80 tap pull-requests-filters -> {'tapped': 4269, 'delivery': 'platform'}
+82 tap pr-filter-author hover -> {'tapped': 4298, 'delivery': 'platform'}
+84 tap pr-filter-author -> {'tapped': 4298, 'delivery': 'platform'}
+86 tap pr-author-search hover -> {'tapped': 4439, 'delivery': 'platform'}
+88 tap pr-author-search -> {'tapped': 4439, 'delivery': 'platform'}
+90 type pr-author-search key Escape -> {'typed': 4439, 'key': 'Escape', 'delivery': 'platform'}
+92 state focus= {"logical": 4277, "pending": null, "editor": null, "responder": "NodeView"}
+94 type pr-filters-layer key ArrowDown -> {'typed': 4276, 'key': 'ArrowDown', 'delivery': 'platform'}
+96 state focus= {"logical": 4277, "editor": null, "pending": null, "responder": "NodeView"}
+97 type pr-filters-layer key Escape -> {'typed': 4276, 'key': 'Escape', 'delivery': 'platform'}
+99 state focus= {"logical": 4269, "editor": null, "pending": null, "responder": "NodeView"}
