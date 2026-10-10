@@ -1,0 +1,54 @@
+// X81: what Chrome's own copy puts on the clipboard after a mouse drag across three rows, on the Exact web (JS target).
+// Usage: bun x81-chrome-copy-probe.mjs <web-dist dir> <out dir>
+import { chromium } from '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-issue-x81/node_modules/playwright-core/index.mjs';
+import { existsSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const [dist, out] = process.argv.slice(2);
+const server = Bun.serve({
+  port: 0,
+  fetch(req) {
+    const path = decodeURIComponent(new URL(req.url).pathname);
+    const file = join(dist, path);
+    if (existsSync(file) && statSync(file).isFile()) return new Response(Bun.file(file));
+    return new Response(Bun.file(join(dist, 'index.html')));
+  },
+});
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const context = await browser.newContext({ viewport: { width: 520, height: 620 } });
+await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://localhost:${server.port}` });
+const page = await context.newPage();
+await page.goto(`http://localhost:${server.port}/`);
+await page.getByText('pcode 5 body', { exact: true }).waitFor();
+console.log('chrome', browser.version(), '| JS target:', await page.evaluate(() => !!document.querySelector('script[type=module]')));
+
+const show = s => JSON.stringify(s);
+for (const g of ['v', 'w', 'p']) {
+  const a = await page.getByText(`${g}code 1 body`, { exact: true }).boundingBox();
+  const b = await page.getByText(`${g}code 3 body`, { exact: true }).boundingBox();
+  // Clear the clipboard and any selection, then drag from row 1's code start to row 3's code end.
+  await page.evaluate(() => navigator.clipboard.writeText('(empty)'));
+  await page.mouse.click(500, 600);
+  await page.mouse.move(a.x + 1, a.y + a.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 12; i++) await page.mouse.move(a.x + 1 + (b.x + b.width - 1 - a.x - 1) * i / 12, a.y + a.height / 2 + (b.y - a.y) * i / 12);
+  await page.mouse.up();
+  const selection = await page.evaluate(() => getSelection().toString());
+  await page.screenshot({ path: join(out, `web-${g}-selected.png`) });
+  // Chrome's own copy of the selection (the default action, no page handler involved).
+  const copied = await page.evaluate(() => document.execCommand('copy'));
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  // The same through the keyboard chord (Meta+C on macOS).
+  await page.evaluate(() => navigator.clipboard.writeText('(empty)'));
+  await page.keyboard.press('Meta+c');
+  const chord = await page.evaluate(() => navigator.clipboard.readText());
+  const userSelect = await page.evaluate(g => getComputedStyle([...document.querySelectorAll('*')].find(e => e.textContent === 'L1' && e.closest(`[data-testid=${g}list], #${g}list, [data-test-id=${g}list]`) || false) ?? document.body).userSelect, g);
+  console.log(`${g.toUpperCase()}: drag (${Math.round(a.x + 1)},${Math.round(a.y + a.height / 2)}) -> (${Math.round(b.x + b.width - 1)},${Math.round(b.y + b.height / 2)})`);
+  console.log(`  getSelection():      ${show(selection)}`);
+  console.log(`  execCommand('copy'): ${copied} -> clipboard ${show(clip)}`);
+  console.log(`  Meta+C:              clipboard ${show(chord)}`);
+}
+const labelStyle = await page.evaluate(() => [...document.querySelectorAll('*')].filter(e => e.children.length === 0 && e.textContent === 'L2').map(e => getComputedStyle(e).userSelect));
+console.log('computed user-select of the three "L2" labels:', labelStyle.join(', '));
+await browser.close();
+server.stop(true);

@@ -1,0 +1,80 @@
+X81: on macOS a copy across a virtualized list's rows includes `user-select: none` text (T3 clone, from
+diff-gutter-selection-followups, T3 PR #417 observation 3)
+Revision: exact2 main c001a862bf41f371999e3c79a1964993ea0f6fe3 (2026-10-10). macOS 26.6.2 (25G83), Apple Silicon.
+Chrome 155.0.8059.39 (Playwright's launch of /Applications/Google Chrome.app, headless).
+
+App: `bun scripts/exact.mjs new <dir>` on that revision; app.ts exports an empty `sources`;
+app.contract is x81-app.contract.txt beside this file (`contract build`: 0 slots, 16 nodes, 3 regions, no warning).
+Three groups of five rows, each row a `row` holding a label `L<n>` with `user-select="none"` and a code text:
+  V  `list virtualized=true`, the label before the code (a gutter)
+  W  `list virtualized=true`, the label after the code (as T3 PR #417's DiffNumber)
+  P  the same rows as V in a plain `column` (no list)
+Every scenario drags with the mouse from the start of row 1's code to the end of row 3's code, then copies.
+`\n` below is a newline in the clipboard text.
+
+1. Exact web, JS target (`bun exact.mjs web-build`, the web build that ships), Chrome 155, Playwright's mouse
+   (x81-chrome-copy-probe.mjs.txt): `document.execCommand('copy')` and the Meta+C chord, read back with
+   `navigator.clipboard.readText()` (headless Chrome's own clipboard; the system pasteboard was not touched)
+     V  drag (65,55) -> (151,111)   clipboard "vcode 1 body\nvcode 2 body\nvcode 3 body"
+     W  drag (29,222) -> (118,278)  clipboard "wcode 1 body\nwcode 2 body\nwcode 3 body"
+     P  drag (65,389) -> (152,445)  clipboard "pcode 1 body\npcode 2 body\npcode 3 body"
+   getSelection().toString() is the same text in each. Computed `user-select` of the three L2 labels: none.
+   -> no label in any copy. host/web-js/list.js has no copy handler: the JS target leaves a list's copy to the
+      browser, which leaves out `user-select: none` text.
+
+2. Exact web, wasm target (`bun exact.mjs web-build --wasm`: index.html loads glue.js + app.wasm), the same probe
+     V  clipboard "vcode 1 body\n\nL2\n\nvcode 2 body\n\nL3\n\nvcode 3 body"
+     W  clipboard "wcode 1 body\n\nL1\n\nwcode 2 body\n\nL2\n\nwcode 3 body"
+     P  clipboard "pcode 1 body\npcode 2 body\npcode 3 body"
+   getSelection().toString() for V and W has no label; the copy handler (host/web/list-selection.js:110-116)
+   replaces it with the runner's list_text. Its paragraph ordinals count every [data-exact-text] (:25-30), as the
+   runner does, so the endpoints land right and only the labels between them come in.
+
+3. macOS, the agent (synthesized NSEvents through NSApp.sendEvent; a mouse drag starts the host's text selection),
+   ⌘C through the responder chain (NSText.copy, as the Edit menu sends it), the system pasteboard read with
+   `pbpaste`. The pasteboard held no item before; it was cleared before each drive and left empty at the end.
+   bun exact.mjs agent macos --size 520x620 "tap v1 drag 86 56 from 45 14" "screenshot mac-v-selected.png" "type root key Meta+c"
+     painted selection: vcode 1-3 only (image)
+     pbpaste: "L1\n\nvcode 1 body\n\nL2\n\nvcode 2 body\n\nL3"
+     -> every label, and row 3's code is missing: the host sent (row 3, paragraph 0, offset 12), its ordinal
+        counting selectable texts only, and the runner read paragraph 0 of row 3 as the label L3.
+        Row 1 likewise starts at the label L1.
+   bun exact.mjs agent macos --size 520x620 "tap w1 drag 89 56 from 9 14" "screenshot mac-w-selected.png" "type root key Meta+c"
+     painted selection: wcode 1-3 only
+     pbpaste: "wcode 1 body\n\nL1\n\nwcode 2 body\n\nL2\n\nwcode 3 body"
+     -> the labels between the endpoints (the ordinals agree here: the code is paragraph 0 for both)
+   bun exact.mjs agent macos --size 520x620 "tap p1 drag 87 56 from 45 14" "screenshot mac-p-selected.png" "type root key Meta+c"
+     painted selection: pcode 1-3 only
+     pbpaste: "pcode 1 body\n\npcode 2 body\n\npcode 3 body"
+     -> plain rows: no label. The Mac host honours `user-select` outside a virtualized list.
+   bun exact.mjs agent macos --size 520x620 "tap v2 drag 30 0 from 45 14" "type root key Meta+a" "screenshot mac-select-all.png" "type root key Meta+c"
+     pbpaste: "L1\n\nvcode 1 body\n\nL2\n\nvcode 2 body\n\nL3\n\nvcode 3 body\n\nL4\n\nvcode 4 body\n\nL5\n\nvcode 5 body"
+     -> ⌘A in a list (allListText) copies every row's every text.
+   Each macOS scenario reproduced on its first drive; no retry.
+   Side note, not part of X81: both Mac paths and the runner join paragraphs with a blank line ("\n\n"); Chrome
+   puts one newline between the rows.
+
+Code read (main c001a862b):
+  runner/src/instance/text.rs:73-117 collect: every Text node of a row is a paragraph unless `display: none`
+    (`hidden`, :64-71); `user-select` is not read.
+  runner/src/instance/text.rs:126-190 Tree::list_text: endpoints are (row key, paragraph ordinal, UTF-16 offset)
+    over collect's paragraphs; every paragraph between them is copied, joined with "\n\n".
+  host/apple/Sources/ExactKit/Mac/TextSelectionMac.swift:58-74 `paragraphs`: only `selectable` texts
+    (:152, `textSelectable`, :401-420: the nearest authored `user-select`, then AppKit's auto rule).
+  TextSelectionMac.swift:313-339 `position`: a list endpoint's paragraph ordinal counts `paragraphs` inside the row,
+    so selectable texts only. Painting (`range`, :285) uses the same ordinals, so what is painted is right.
+  TextSelectionMac.swift:262-278 copy/selectedText: inside a list, `presenter.onListText` (Session.swift:749 ->
+    Bridge.swift:502 listText -> exact_list_text -> host/apple/src/abi_collections.rs:98 -> Runner::list_text);
+    outside one, the `paragraphs` that `range` selects (selectable only), joined with "\n\n".
+  Clipboard.swift:99 and Mac/ExactViewMac.swift:21: ⌘C reaches selection.copy().
+  host/web/list-selection.js:25-30, 110-116: the wasm target's list copy, the same runner call.
+  LLP 1010 (§6 text, "Selection can outlive a row instance"): the endpoint is "the opaque row key, outer
+    text-paragraph ordinal and UTF-16 offset"; it does not say which texts count.
+
+Main PR #327 (head 14493d25343529c47938085263935d5b30535071), read from its diff, not run: it changes none of
+runner/, TextSelectionMac.swift, Bridge.swift, abi_collections.rs, list-selection.js; its Session.swift hunks
+(357, 818-1198) do not touch onListText. -> #327 does not change this.
+
+Not run: iOS (no list text copy there), Linux, Windows, Firefox/WebKit, a hardware mouse, a list whose rows are
+unmounted (a long list scrolled), a row with a button label (AppKit's auto rule makes it unselectable on the Mac
+while the runner counts it; read from code), and ⌘A on the web.

@@ -1,0 +1,25 @@
+// X81 repro: a copy across rows whose number is `user-select="none"`.
+// V: a virtualized list, the number before the code (a gutter).
+// W: a virtualized list, the number after the code (T3 PR #417's DiffNumber).
+// P: the same rows as V in a plain column, no list.
+component X81app
+  view
+    main testId="root" width="100%" height="100%" padding=20 box-sizing="border-box" background-color="#ffffff" color="#111111" display="flex" flex-direction="column" gap=6
+      text "V: list virtualized=true, number first" font-size=12 color="#666666" user-select="none"
+      list virtualized=true testId="vlist" height=140 width=360 estimated-item-height=28 background-color="#f3f4f6"
+        each n in [1, 2, 3, 4, 5] key=n
+          row testId=`v${n}` height=28 align-items="center" gap=12 padding-left=8
+            text `L${n}` user-select="none" width=24 color="#888888" font-size=14
+            text `vcode ${n} body` font-size=14
+      text "W: list virtualized=true, number after the code" font-size=12 color="#666666" user-select="none"
+      list virtualized=true testId="wlist" height=140 width=360 estimated-item-height=28 background-color="#f3f4f6"
+        each n in [1, 2, 3, 4, 5] key=n
+          row testId=`w${n}` height=28 align-items="center" gap=12 padding-left=8
+            text `wcode ${n} body` font-size=14
+            text `L${n}` user-select="none" width=24 color="#888888" font-size=14
+      text "P: plain rows (no list), number first" font-size=12 color="#666666" user-select="none"
+      column testId="plist" width=360 background-color="#f3f4f6"
+        each n in [1, 2, 3, 4, 5] key=n
+          row testId=`p${n}` height=28 align-items="center" gap=12 padding-left=8
+            text `L${n}` user-select="none" width=24 color="#888888" font-size=14
+            text `pcode ${n} body` font-size=14
