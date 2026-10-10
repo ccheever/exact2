@@ -3,12 +3,12 @@ name: 20261010-audit-wave-followups-4
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-audit-wave-followups-4
 pr_url: https://github.com/ccheever/exact2/pull/383
-verified_commit: null
+verified_commit: 954f6bbff15fe766362e7aac19cab8298a8f2b0f
 ---
 
 # Differences the audit fix agents found outside their tasks (fourth set)
@@ -154,3 +154,7 @@ T3_LOCAL_PORT=16502`), app launched normally and active, window 1280×840:
 
 The coordinator reviews the draft PR [#383](https://github.com/ccheever/exact2/pull/383), answers its "Decision needed", runs the real-input steps in the next batch,
 and merges it.
+
+## Delivery
+
+Merged on 2026-10-10 as `954f6bbff` (#383, squash) after an independent review and its repair round. The builder's question (re-highlight on any pointer move) was settled by the coordinator under the user's rule for local framework drafts: the enter-only rule stays, declared in `EXACT2-GAPS.md` with the local draft X71.

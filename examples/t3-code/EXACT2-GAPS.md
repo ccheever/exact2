@@ -625,3 +625,11 @@ Task `20261009-usage-and-pr-pages` (2026-10-09 desktop audit PG-2..PG-7).
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.
+
+## Painted menus: one highlight (declared difference)
+
+Task `20261010-audit-wave-followups-4` (#383) keeps one highlight in the clone's painted menus. The reference (Base UI)
+also takes the highlight back to the hovered row on any pointer move; the clone does so only when the pointer enters a
+row, because a `pointermove` handler would hold the presses inside the menu from the window's light dismiss (and grew the
+plan by 6.6 MB when forwarded). Framework gap X71, a local draft:
+`.exact/implementation/20261005-t3code-macos-parity/issues/20261010-x71-pointermove-without-press-capture.md`.
