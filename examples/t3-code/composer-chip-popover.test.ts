@@ -88,9 +88,19 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   });
   test('a press outside the popover closes it; View instructions closes it with the file', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('when chipShown\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
+    expect(window).toContain('when chipShown\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true), dismiss=chipClose(false), escape=(not (paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")))');
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
+  });
+  // realinput-1010c-fixes RC-4: Base UI's Popover dismisses on Escape anywhere in the document. The native editor heard
+  // Escape only while its text view had the focus (a real Escape after a click on the heading left the details open), and
+  // Settings' Back took it first over the prompt sample (Escape left Settings too).
+  test('Escape closes the details from any focus, before Settings\' Back, and not while the palette or a menu owns it (RC-4)', async () => {
+    const layer = await source('composer-chip-popover.contract');
+    expect(layer).toContain('button press=dismiss aria-keyshortcuts=(escape ? "Escape" : "") aria-hidden=true tabindex=-1 testId="chip-popover-escape"');
+    const settings = await source('app-settings.contract');
+    expect(settings).toContain('derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or ');
+    expect(await source('app-window.contract')).toContain('paletteOpen=paletteOpen, chipOpen=chipShown, ');
   });
   test('Settings or a page over the composer\'s chip hides it at once and closes the native press; the palette does not', async () => {
     const window = await source('app-window.contract');
