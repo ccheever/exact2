@@ -1,0 +1,19 @@
+realinput-1010f-followups RF-3 / RF-4: the reference (T3 Code 1e2ecbd975 desktop, Electron, audit lane realinput-1010f-followups,
+backend 16700, CDP 16701), paired with the GitHub lane's primary server (127.0.0.1:16703, no GitHub write), PR #168 > Code,
+docs/usage.md expanded (stacked). Gutter numbers read from the diffs' shadow roots ([data-column-number], data-selected-line).
+Input: Playwright mouse over CDP (pointerdown / pointermove / pointerup in the page). Scripts: target/t3-audit/lanes/realinput-1010f-followups/ref-*.mjs.
+
+Rows: 2 (context), 3 (context), 4 (context), 5 (change-deletion), [Resolved card], 5 (change-addition), [Open thread card], 6..9, 10, 11 (additions).
+
+(a) A single click (down, 80 ms, up) on line 3's number:
+    selected: [["3","context","single"]]; the draft opens on line 3 ("Add a comment…", focused; Cancel / Add to agent / Add to review).
+    => a click on a number opens the draft (PullRequestCodeTab onLineSelectionEnd: beginComment). Clone tip: a press only selected.
+(b) Cancel; press on line 3's number, 8 moves to added line 5's number, release:
+    during: [["3","context","first"],["5","change-addition","last"]] (the lines paint as the pointer moves)
+    after:  [["3","context","first"],["5","change-addition","last"]]; the draft opens ("Add to review" shown) under added line 5.
+(c) Cancel; press on the gutter's "+" (button[data-utility-button] at line 3), 8 moves to added line 5, release:
+    during: [["3","context","first"],["5","change-addition","last"]] (the "+" follows to line 5)
+    after:  the same range, the draft opens (onGutterUtilityClick: beginComment).
+(d) RF-4: "lane check" in the open draft, Cmd+Return: "Pending — sent when you submit the review" card, badge 1, one button
+    "Discard this comment" (1225,831 24 wide). A click on it: no pending card, 0 discard buttons. No GitHub write (the pending
+    review lives in the client's store until Submit review).
