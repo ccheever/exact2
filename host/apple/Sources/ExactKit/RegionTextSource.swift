@@ -72,7 +72,7 @@ final class RegionTextSource: Sendable {
             return RegionTextRun(text: run.text, font: font(run), lineHeight: run.lineHeight,
                                  letterSpacing: run.letterSpacing,
                                  color: TextEngine.color(run.color ?? spec.color).cgColor,
-                                 underline: run.decoration.contains("underline") || (run.decoration.isEmpty && !run.href.isEmpty),
+                                 underline: run.underlined,
                                  strike: run.decoration.contains("line-through"), href: run.href,
                                  range: NSRange(location: offset, length: count))
         }

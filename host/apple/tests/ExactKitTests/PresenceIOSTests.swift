@@ -205,7 +205,9 @@ final class PresenceIOSTests: XCTestCase {
             XCTAssertEqual(icon.image != nil, found)
             XCTAssertEqual(bar.items?.first?.image != nil, found)
             XCTAssertNil(icon.symbolRefusal)
-            if !found { XCTAssertEqual(sizes.last ?? nil, CGSize(width: 16, height: 16)) }
+            // Unsized, a symbol is the platform body size (LLP 1115 D3).
+            let body = PageFacts.defaultRootFontSize
+            if !found { XCTAssertEqual(sizes.last ?? nil, CGSize(width: body, height: body)) }
         }
         p.apply(wireBatch([
             ["op": "props", "id": 11, "set": ["accessibilityLabel": "Home"]],

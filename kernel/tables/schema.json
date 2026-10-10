@@ -4076,7 +4076,7 @@
   "colors": [
     ["Canvas", "", "systemBackgroundColor", "textBackgroundColor", "#ffffff", "#000000"],
     ["CanvasText", "", "labelColor", "textColor", "#000000", "#ffffff"],
-    ["LinkText", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["LinkText", "", "@tint", "linkColor", "#007aff", "#0984ff"],
     ["GrayText", "", "tertiaryLabelColor", "disabledControlTextColor", "#3c3c434d", "#ebebf54d"],
     ["Highlight", "", "@tint/0.2", "selectedTextBackgroundColor", "#007aff33", "#0a84ff33"],
     ["HighlightText", "", "labelColor", "selectedTextColor", "#000000", "#ffffff"],

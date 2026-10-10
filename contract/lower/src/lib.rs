@@ -720,6 +720,8 @@ impl<'a> Lowerer<'a> {
                 controls::check_nesting(tag, parent_tag, *span)?;
                 controls::check_progress(tag, expanded, children)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
+                let closedby = menus::implied_closedby(tag, expanded, *span);
+                let expanded = closedby.as_deref().unwrap_or(expanded);
                 let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
@@ -822,6 +824,7 @@ impl<'a> Lowerer<'a> {
                         expr: self.fixed(false, value),
                     });
                 }
+                self.link_run_color(tag, parent_tag, expanded, &mut bindings);
                 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
                 // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
                 // fixed prop (text) cannot be.

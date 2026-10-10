@@ -13,6 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::{BindingKind, BindingsRow};
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -1242,4 +1243,27 @@ pub(crate) fn multicol_on_flex(
         return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
     }
     Ok(())
+}
+
+impl crate::Lowerer<'_> {
+    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
+    /// unsaid, its colour is the platform's link role (the tint on iOS,
+    /// `linkColor` on macOS, the browser's own on the web), as the UA's
+    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
+    /// or its class wins; a block-level `link` keeps inheriting.
+    pub(crate) fn link_run_color(
+        &mut self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        bindings: &mut Vec<BindingsRow>,
+    ) {
+        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
+            bindings.push(BindingsRow {
+                kind: BindingKind::Style,
+                id: StyleId::TextColor as u16,
+                expr: self.fixed(true, "LinkText"),
+            });
+        }
+    }
 }

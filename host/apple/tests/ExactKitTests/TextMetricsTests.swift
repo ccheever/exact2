@@ -53,7 +53,8 @@ final class TextMetricsTests: XCTestCase {
                 .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
                 .foregroundColor: TextEngine.color(run.color ?? spec.color)]
             if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
-            if run.decoration.isEmpty { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            // A link run is underlined where the platform underlines links (AppKit; not UIKit: LLP 1115 §3).
+            if run.decoration.isEmpty { if Run.linksUnderlined { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue } }
             else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             appended.append(NSAttributedString(string: run.text, attributes: attrs))
         }
