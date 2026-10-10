@@ -55,7 +55,7 @@ drops main from the branch's ancestry; the content is already here.
 
 ## Adopted main
 
-**`a10050516`** (main's tip at the final merge, 25 commits past round 7's `bc357d03c`):
+**`d413487a8`** (main's tip at the final merge, 26 commits past round 7's `bc357d03c`):
 
 - `b027ae773`: `git merge -s ours bc357d03c` (round 7's squash-merged main; its content was already here).
 - `c595a36b2`: `git merge origin/main` at `1f127a788`, the 22 commits this record names. One conflict, `Cargo.toml`:
@@ -66,10 +66,13 @@ drops main from the branch's ancestry; the content is already here.
   position from the item's timebase), merged before the final checks.
 - `922ba1b5b`: the base `5e3253cfc` (#399 realinput-1010c-fixes and the right-panel-escape record), merged before the
   final checks.
+- `cdfd670ff`, `308668781`: after the checks and the records commit, main `d413487a8` (#401: the X73 issue file only)
+  and the base `a1ade42f9` (X73 moved to main: plan records and one `EXACT2-GAPS.md` line) landed; both are Markdown
+  only and merged clean. On `308668781` the Bun suite (4,360 pass, 0 fail) and caps ran again.
 
-On `922ba1b5b`: `git merge-base --is-ancestor origin/main HEAD` yes; `git diff origin/main -- ':!examples/t3-code'
-':!Cargo.lock' ':!Cargo.toml'` empty. This PR is squash-merged like the others, so round 9 starts with
-`git merge -s ours a10050516`.
+On `308668781`: `git merge-base --is-ancestor origin/main HEAD` yes (origin/main `d413487a8`), and so for the base
+(`a1ade42f9`); `git diff origin/main -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'` empty. This PR is
+squash-merged like the others, so round 9 starts with `git merge -s ours d413487a8`.
 
 ## Each item of step 2
 
@@ -80,7 +83,7 @@ On `922ba1b5b`: `git merge-base --is-ancestor origin/main HEAD` yes; `git diff o
 | LLP 1041 six workers for independent HTTP | `94dfb2332`, `1b31848f5` | Only a request marked `exactIndependentHttp` uses the independent owners. The clone marks none and makes no HTTP `fetch` of its own (its reads are native-module calls on the ordered lane), so the PR panel's one-at-a-time reads and the 16-ticket bound are unchanged. Each executor now starts six idle independent owners instead of two (process bound 112) | nothing | — |
 | Canvas host passes, runner `collection_shown` | `0685da1f0`, `1425ab8a7`, `27ad05cce`, `c811edad8`, `7e785faf1`, `5ee9ce1a0` (QUEUE `a09efff61`, `a60419648`) | `CollectionFill.lean` (feedback flag bit 3) and `Runner::collection_shown` are used only by `host/linux`. The Apple host's report encodes bits 0–2 (`host/apple/Sources/ExactKit/Collection.swift:42`) and never calls `collection_shown`, so `lead()` keeps its old window for the clone's lists (the transcript, diff, PR code, legacy sidebar, connections). The drive still wheels the transcript: its content is 345.9 pt in a 788 pt port, nothing scrolls, the same in both builds | nothing | — |
 | Docs and rules | `37cb9c504`, `a88a90cd6`, `ee564ac6f`, `8a32c4b10`, `cf7196c0d`, `fdfb97276` | `rules/` is unchanged since `bc357d03c`. AGENTS.md makes `docs/start-here.md` the one required read for building an app (LLP 1115 D7) and the long guides lookup; `docs/agent-pitfalls.md` gains the tap entry, the simulator choice and the Shelf recipe's iOS entries. No rule changes the clone. `scripts/no-tells.mjs` lists the literal colours and sizes of an app that should leave them to the platform; the clone writes the reference's tokens on purpose (a parity copy of a web app; author > platform), so it is not applied | nothing | — |
-| Issues | `e281d83e9` (#386), `1f127a788` (#394) | X69, X70, X71, the backdrop beyond the parent and X72 live in main's `issues/`; nothing to copy | nothing | — |
+| Issues | `e281d83e9` (#386), `1f127a788` (#394), `d413487a8` (#401) | X69, X70, X71, the backdrop beyond the parent, X72 and X73 live in main's `issues/`; nothing to copy | nothing | — |
 | `apps/shelf` (LLP 1115 wave 2) | `cf7196c0d` | two new workspace members | `Cargo.toml` keeps `examples/t3-code/macos` | `c595a36b2` |
 | VideoArm reads the item's timebase | `1a71f1cfb`, `2e913b294`, `a10050516` | merged last; the clone's video previews (`r6-media-video`, media markdown) play through it; the bundle of `922ba1b5b` builds; not driven (the drive plays no video) | nothing | `85a1748e0` |
 | #327 (bucket 2) | open | nothing: round 9 | — | — |
@@ -101,8 +104,8 @@ Evidence: [evidence.txt](https://raw.githubusercontent.com/ccheever/exact2/daa80
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| The branch contains main | pass: `git merge-base --is-ancestor origin/main HEAD` on `922ba1b5b` with origin/main `a10050516` (`1f127a788` at the first merge) | evidence §1 |
-| The framework tree is main's | pass: the step 1 diff is empty on `c595a36b2` and on `922ba1b5b` | evidence §1 |
+| The branch contains main | pass: `git merge-base --is-ancestor origin/main HEAD` on `922ba1b5b` with origin/main `a10050516` (`1f127a788` at the first merge), and on `308668781` with `d413487a8` | evidence §1; Adopted main |
+| The framework tree is main's | pass: the step 1 diff is empty on `c595a36b2`, `922ba1b5b` and `308668781` | evidence §1; Adopted main |
 | The five checks pass on the merged tree | pass on `922ba1b5b`: build, test (3,679 passed, 0 failed, 34 ignored, 95 suites), clippy, fmt, boot: all exit 0 | evidence §6 |
 | The clone works | pass: Bun 4,360 pass / 1 skip / 0 fail; strict tsc; contract build; `t3-code-macos` lib 17; AppKit 37 of 37 (mermaid against a scratch T3 server) and `timeline-keyboard`; the live drive of shell, thread, composer, right panel, Settings and Settings › Project: screenshots pixel-identical before and after, trees identical apart from lane ids and the import label's role, no refusal or error in the logs | [shell](https://raw.githubusercontent.com/ccheever/exact2/94922100c7bf17de5b3b3254ac5ff1a0ef013d0b/adopt-main-fixes-r8/1-shell.png), [thread](https://raw.githubusercontent.com/ccheever/exact2/f3b75339268aa85327c49845f0234f522a105981/adopt-main-fixes-r8/2-thread.png), [composer](https://raw.githubusercontent.com/ccheever/exact2/f952a22c8e39efeea149331f6532743fb7000069/adopt-main-fixes-r8/4-composer.png), [right panel](https://raw.githubusercontent.com/ccheever/exact2/9a50bddbede0cd1c45d083b252caea7c650f774e/adopt-main-fixes-r8/5-right-panel.png), [Settings](https://raw.githubusercontent.com/ccheever/exact2/ccf04073f870b58112186b4a83920e2c196e3e3f/adopt-main-fixes-r8/6-settings.png), [Import scripts](https://raw.githubusercontent.com/ccheever/exact2/c97241860a4fb4305d0538dfde3d94c209932a92/adopt-main-fixes-r8/8-import-menu.png); evidence §5, §6 |
 | Each item of step 2 has an outcome | pass: the table above | this record |
@@ -138,6 +141,6 @@ No row needs real input.
 
 ## Next action
 
-The coordinator reviews the draft PR, syncs `STATUS.md` and `plan.md` (round 8 done, main `a10050516` adopted), merges
-it, and decides on the Settings headings follow-up above. Round 9 starts with `git merge -s ours a10050516` and takes
+The coordinator reviews the draft PR, syncs `STATUS.md` and `plan.md` (round 8 done, main `d413487a8` adopted), merges
+it, and decides on the Settings headings follow-up above. Round 9 starts with `git merge -s ours d413487a8` and takes
 #327's retirements once it lands.
