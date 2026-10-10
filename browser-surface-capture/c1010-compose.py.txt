@@ -1,0 +1,56 @@
+# browser-surface-capture, fix round of realinput-1010c: before | after | reference, one image per scenario (not committed).
+import sys
+from PIL import Image, ImageDraw, ImageFont
+
+F = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-browser-surface-capture/target/fix1010c'
+AFTER_RUN = sys.argv[1] if len(sys.argv) > 1 else 'after2'
+B = f'{F}/runs/before-a/shots'      # the bundle realinput-1010c drove (a63794adb), the same agent steps
+A = f'{F}/runs/{AFTER_RUN}/shots'   # this round's build (drive after2)
+A1 = f'{F}/runs/after1/shots'      # drive after1: rows 1 and 7 (after2 stopped on the driver's clock before them; the builds differ only in the pill's tooltip alignment)
+R = f'{F}/ref'                      # T3 Code 0.0.45 (1e2ecbd975) over CDP, the same lane data
+OUT = f'{F}/evidence'
+W, H, BAR, GAP, HEAD = 960, 630, 46, 12, 52
+
+def font(size):
+    for path in ('/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc'):
+        try: return ImageFont.truetype(path, size)
+        except Exception: pass
+    return ImageFont.load_default()
+
+def cell(path, label):
+    image = Image.new('RGB', (W, H + BAR), '#f4f4f5')
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([0, 0, W - 1, BAR - 1], fill='#18181b')
+    draw.text((12, 11), label, fill='white', font=font(20))
+    image.paste(Image.open(path).convert('RGB').resize((W, H), Image.LANCZOS), (0, BAR))
+    return image
+
+def grid(name, title, rows):
+    columns = max(len(row) for row in rows)
+    out = Image.new('RGB', (columns * W + (columns - 1) * GAP, HEAD + len(rows) * (H + BAR) + (len(rows) - 1) * GAP), 'white')
+    ImageDraw.Draw(out).text((12, 12), title, fill='#18181b', font=font(26))
+    for r, row in enumerate(rows):
+        for c, (path, label) in enumerate(row):
+            out.paste(cell(path, label), (c * (W + GAP), HEAD + r * (H + BAR + GAP)))
+    out.save(f'{OUT}/{name}', optimize=True)
+    print(name, out.size)
+
+grid('c1010-escape.png', 'Row 1: Annotate on, then Escape in the page (before a63794adb | after | reference)', [
+    [(f'{B}/08-escape.png', 'Before: the panel closes, the page floats; no cancel in the page'),
+     (f'{A1}/08-escape.png', 'After: the page cancels the pick, the panel stays'),
+     (f'{R}/s20-escape.png', 'Reference: the pick ends in the page, the panel stays')],
+])
+grid('c1010-pill.png', 'Row 2: the pointer on the handle dot, then on Pop into separate window (before | after | reference)', [
+    [(f'{B}/02-pill-dot.png', 'Before: the dot shows the pill'), (f'{A}/02-pill-dot.png', 'After: the dot shows the pill'), (f'{R}/r02-pill-dot.png', 'Reference: the dot shows the pill')],
+    [(f'{B}/03-pill-button.png', 'Before: on its button the pill hides'), (f'{A}/03-pill-button.png', 'After: the pill stays, the button\'s tooltip shows'), (f'{R}/r03-pill-button.png', 'Reference: the pill stays, "Pop into separate window"')],
+])
+grid('c1010-drag-resize.png', 'Rows 3 and 4: drag the handle (-200, -100), then the north-west grip 80 pt out (before | after | reference)', [
+    [(f'{B}/05-dragged.png', 'Before: moved (-100, -188)'), (f'{A}/05-dragged.png', 'After: moved (-100, -100)'), (f'{R}/r05-dragged.png', 'Reference: moved (-100, -100)')],
+    [(f'{B}/06-resized.png', 'Before: 240 x 333 to 403 x 559, past the pointer'), (f'{A}/06-resized.png', 'After: 240 x 333 to 305 x 423'), (f'{R}/s12-after-gestures.png', 'Reference: 240 x 333 to 305 x 423 (its NW grip)')],
+])
+grid('c1010-header-tooltip.png', 'Row 6: Toggle right panel hovered and pressed earlier, the pointer elsewhere, then Float (before | after | reference)', [
+    [(f'{B}/01-float.png', 'Before: "Toggle right panel (⌥⌘B)" stays at the header'), (f'{A}/01-float.png', 'After: no tooltip'), (f'{R}/r01-float.png', 'Reference: no tooltip')],
+])
+grid('c1010-sidebar-draft.png', 'Row 7: a draft with an annotation chip, seen from another thread (before | after | reference)', [
+    [(f'{B}/09-sidebar-draft.png', 'Before: the row shows the chip\'s link text'), (f'{A1}/09-sidebar-draft.png', 'After: the row reads "101"'), (f'{R}/s00.png', 'Reference: the row reads the chips\' labels')],
+])
