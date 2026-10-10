@@ -1,0 +1,27 @@
+realinput-1010e-followups RE-6: the unpriced popover's hover (2026-10-10)
+
+Reference over CDP (T3 Code 1e2ecbd975, lane realinput-1010e-followups, Usage > Cost > 30 days, the transcripts of
+realinput-1010c-fixes; the pointer moved by Playwright's mouse, which Chromium takes as a pointer):
+  (i) at {'x': 424.6015625, 'y': 120.5, 'width': 12, 'height': 12}
+  rest on (i): open
+  ten 1-2 px moves on (i), 60 ms apart: open after each: [True, True, True, True, True, True, True, True, True, True]
+  left-edge entry, ~70 ms detour: closed at [276, 126] -> closed at [276, 104] -> closed at [294, 104]; final closed
+  left-edge entry, ~450 ms detour: closed at [276, 126] -> closed at [276, 104] -> closed at [294, 104]; final closed
+  straight up into the popup, rest 1 s: open
+
+So the left-edge entry matches: the reference also closes as the pointer leaves the (i) sideways
+and does not reopen in the popup; the clone does the same (50 ms crossing grace, no reopen). No change.
+
+The bad state (any 1-2 pt move on the (i) closed it for ~250 ms; later hover stopped opening it until a click and
+Escape): the Contract hover state machine (app-window.contract hoverTipAt, pages-usage.contract enterSeg/enterPop) closes a
+shown popover only on a leave not followed within 50 ms by an enter of the trigger or the card, an outside press, Escape or
+a surface change; a reopen takes the 300 ms open delay, which is the ~250-300 ms seen. Small moves inside the (i) can only
+close it if the host delivers a leave without an enter. That is the macOS host's hover (X62, main issue
+20261009-macos-subtree-hover.md / #322, open main PR #327): one hovered node, tracking areas that trade the hover when
+they overlap and an enter that a node never hears. No clone cause in the code; nothing changed.
+
+The trace for the next session: the clone's menu bar (T3Menus/R8KeysMenus) removed the host's Develop menu, and with it
+Save Trace (Option-Command-T, LLP 1079 D5), so the session's Option-Command-T reached the view as a key. A development build
+now keeps it as a hidden View item. 'kill -USR1' must not be used on macOS: only the Linux host handles SIGUSR1
+(host/linux/src/display.rs); its default action ends the process. AppKit test (macos/tests/r8-keys):
+  testTheBarMatchesTheReferenceDesktopMenus: one hidden 'Save Trace' Option-Command-T in View; the key performs it (6 run, 0 failed).
