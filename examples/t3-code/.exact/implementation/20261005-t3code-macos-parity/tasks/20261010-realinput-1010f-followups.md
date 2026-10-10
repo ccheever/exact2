@@ -34,7 +34,7 @@ with the reference first; a row that matches it closes as such. Session notes:
 ## Scope and exclusions
 
 Included: RF-1 to RF-5. Excluded: RD-4's "links show no menu at all", which is
-[shell-context-menu](20261010-shell-context-menu.md) (#407, in review: Copy Link and the app's link menu). Where a row's
+[shell-context-menu](closed/20261010-shell-context-menu.md) (#407, in review: Copy Link and the app's link menu). Where a row's
 cause is in the framework (RF-5 may be a host tracking area that keeps a stale rect after a press; RF-3 may be the host's
 drag delivery to a gutter), record it in `EXACT2-GAPS.md` with a one-file repro and leave the framework alone; the main
 issue is filed separately.
