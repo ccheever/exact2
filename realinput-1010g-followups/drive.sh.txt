@@ -1,0 +1,26 @@
+#!/bin/zsh
+# realinput-1010g-followups: one agent drive per build (not committed). Usage: drive.sh before|after
+# before: the evidence worktree (prebuilt, c03d7e908); after: this task's worktree. Lane base 16720 (embedded server 16722).
+# RG-1: right-clicks on the work group's tool icon (agent mode logs the shell's menu, `t3.textmenu:`).
+# RG-4: the accessibility tree in-process (`tree --ax`). From another process (AXUIElement) needs an unlocked screen: the
+# locked Mac answers AXWindows with the application element for every app (the reference's Electron too), so that read
+# is a real-input step (axwalk.swift).
+# RG-2 (after only: the before build pops AppKit's own menu, which tracks in the agent's never-key window): Settings'
+# search with "theme", right-clicked on the word.
+MODE=${1:?before|after}
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010g-followups
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+OUT=$W/target/rg/runs/$MODE; rm -rf $OUT; mkdir -p $OUT/shots; S=$OUT/shots
+if [ $MODE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=realinput-1010g-followups-before
+else ROOT=$W; LANE=realinput-1010g-followups; fi
+OPS=("clock +20000 real" "clock +3000 real" "tap thread-verify-timeline" "clock +3000 real" "tap dismiss-provider-warning" "clock +800 real" "screenshot $S/01-thread.png window" "logs")
+for p in "289 90" "286 86" "293 93"; do OPS+=("tap t3-code contextmenu at $p" "clock +600 real" "logs"); done
+OPS+=("tree --ax")
+if [ $MODE = after ]; then
+  OPS+=("tap connection-settings" "clock +2500 real" "type settings-search theme" "clock +800 real"
+        "tap settings-search contextmenu at 14 10" "clock +800 real" "logs" "screenshot $S/02-settings-theme.png window" "tree settings-search")
+fi
+OPS+=("logs" "state")
+cd $OUT
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16720 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" >> $OUT/agent.err
