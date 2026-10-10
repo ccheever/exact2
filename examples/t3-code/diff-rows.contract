@@ -76,13 +76,17 @@ component DiffRow
             DiffDraftCard(rangeLabel=item.label, text=draftText, selected=item.selected, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
           when item.selected
             box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
+      // The numbers come after every cell's code (DiffNumber).
       when item.kind == "split"
-        row width="100%" align-items="stretch"
-          DiffCell(tone=item.leftTone, number=item.leftNumber, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
-          DiffCell(tone=item.rightTone, number=item.rightNumber, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin, open=commentOpen, command=command, begin=beginComment)
+        row width="100%" align-items="stretch" position="relative"
+          DiffCell(tone=item.leftTone, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
+          DiffCell(tone=item.rightTone, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin, open=commentOpen, command=command, begin=beginComment)
+          DiffNumber(number=item.leftNumber, tone=item.leftTone, selected=item.leftSelected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
+          DiffNumber(number=item.rightNumber, tone=item.rightTone, selected=item.rightSelected, gutter=item.gutter, size=size, scheme=scheme, left="50%")
       when item.kind == "line"
-        row width="100%" align-items="stretch"
-          DiffCell(tone=item.tone, number=item.number, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, pinned=item.pinned, pin=item.pin, open=commentOpen, command=command, begin=beginComment)
+        row width="100%" align-items="stretch" position="relative"
+          DiffCell(tone=item.tone, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, pinned=item.pinned, pin=item.pin, open=commentOpen, command=command, begin=beginComment)
+          DiffNumber(number=item.number, tone=item.tone, selected=item.selected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
 
 // "N unmodified lines": a press opens them from the file's contents (git sources; Pierre's hunk expansion).
 component DiffGap
@@ -150,11 +154,11 @@ component DiffFileHeader
 // "+" mounted (hidden when the selection moved it), as the pressed node holds the pointer. The "+" is Pierre's
 // [data-utility-button]: a 1lh (20pt) square in the modified blue with its 16pt plus in the code surface's colour,
 // from the number's right edge (the slot at the cell's right, `margin-right: calc(-1lh + 1ch)`), over the code's
-// first column (diff-gutter-visuals; CDP: the number cell's right minus 1ch + 2pt).
+// first column (diff-gutter-visuals; CDP: the number cell's right minus 1ch + 2pt). The number itself is DiffNumber's,
+// drawn over this cell's gutter after the row's code.
 component DiffCell
   props
     tone: string
-    number: string
     segments: list<DiffSegment>
     gutter: number
     size: number
@@ -198,7 +202,7 @@ component DiffCell
       begin(path, side, line)
   view
     row id=`dl:${side}:${line}:${path}` flex=1 min-width=0 align-items="stretch" hover=hover position="relative" background-color=(selected ? diffSel("row") : tone == "deletion" ? diffInk(scheme, "del-row") : tone == "addition" ? diffInk(scheme, "add-row") : tone == "empty" ? "light-dark(#e4e4e4, #222222)" : "light-dark(#fcfcfc, #0a0a0a)")
-      box width=((gutter - 2) * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointerdown=down(false) pointermove=move pointerup=up testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion" ? diffInk(scheme, "del-gutter") : tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
+      box width=((gutter - 2) * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" min-height="20px" pointerdown=down(false) pointermove=move pointerup=up testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion" ? diffInk(scheme, "del-gutter") : tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
         // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars); a selected line the selection's.
         when selected
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
@@ -211,7 +215,6 @@ component DiffCell
                 pattern id="diff-deletion-stripes" patternUnits="userSpaceOnUse" width=4 height=2
                   rect x=0 y=0 width=4 height=1 fill=diffInk(scheme, "del")
               rect x=0 y=0 width=4 height=400 fill="url(#diff-deletion-stripes)"
-        text number width="100%" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
@@ -219,3 +222,22 @@ component DiffCell
         button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left=((gutter - 2) * size / 13 - 7.83 * size / 13) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(pin or (hovering and not pinned) ? 1 : 0) background-color=diffSel("bar") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#fcfcfc, #0a0a0a)" flex-shrink=0 aria-hidden=true
             path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"
+
+// A line's number over its cell's gutter (the deletions side at 0%, in a split row the additions side at 50%), as
+// @pierre/diffs' [data-column-number], which is `user-select: none` (CDP, 1e2ecbd975): a drag that starts on a number
+// selects lines and no text, and a drag in the code selects the code's text and not the numbers it crosses
+// (diff-gutter-selection-followups GS-1). It takes no pointer, so a press on it is the cell's gutter's (DiffCell's
+// pointerdown). It comes after every cell's code in the row: a copy across a virtualized list's rows reads the runner's
+// list text, which counts every text of a row, while the Mac host places the selection by the row's selectable texts
+// alone, so a number before the code would move what ⌘C takes.
+component DiffNumber
+  props
+    number: string
+    tone: string
+    selected: bool
+    gutter: number
+    size: number
+    scheme: string
+    left: string
+  view
+    text number position="absolute" left=left top=0 width=((gutter - 2) * size / 13 + 2) padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
