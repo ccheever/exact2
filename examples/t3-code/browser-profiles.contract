@@ -53,6 +53,8 @@ shape BrowserImportWizardView
   blockedText: string
   retry: bool
   openFocus: string
+  tabFirst: string
+  tabLast: string
   focusKey: string
 shape BrowserProfilesView
   hydrated: bool
@@ -225,9 +227,19 @@ component BrowserImportWizard
     wizard: BrowserImportWizardView
     local: action
     still: bool
+  state held = false
+  action hold(on: bool)
+    held = on
+  // From the popup itself the web's Tab goes on to its first Tab stop and Shift+Tab (the focus trap's guard) round to its
+  // last; the Mac's key-view loop has no way on from a box that is no Tab stop (EXACT2-GAPS.md X76), so the popup's own
+  // keys take it there. Only while the popup holds the focus: a `focus`/`blur` here hears the popup alone, not its buttons.
+  action popupKeys(k: string, e: KeyboardEvent)
+    if held and k == "Tab" and wizard.tabFirst != ""
+      preventDefault()
+      focus(e.shiftKey ? wizard.tabLast : wizard.tabFirst)
   view
     column class=BpOverlay testId="browser-import-overlay"
-      column id="browser-import-popup" tabindex=-1 class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
+      column id="browser-import-popup" tabindex=-1 key=popupKeys focus=hold(true) blur=hold(false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
         when wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()
@@ -330,7 +342,7 @@ component BiClose
   props
     press: action
   view
-    button press=press aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
+    button id="browser-import-x" press=press aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
       LucideX(size=16, color="light-dark(#71717b, #818181)")
 
 // SelectableTile: a name, an optional detail line, and a check; the primary border and tint when selected.

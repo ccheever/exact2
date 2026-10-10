@@ -167,6 +167,17 @@ const listedProfiles = (client: T3Client) => resolveBrowserProfiles(browserProfi
 const targetProfiles = (client: T3Client) => listedProfiles(client).map(profile => ({ id: profile.id, name: profile.name }));
 const canCreateProfile = (client: T3Client) => hydrated(client) && browserProfilePrefs(client).browserProfiles.length < BROWSER_PROFILE_MAX_COUNT;
 
+// import-wizard-initial-focus: how many times the wizard's screen changed (a step of another kind), which the page's focus
+// follows (`focusKey`): each change removes the focused button, as React's swap of step components does, also when the
+// steps between came and went before the page was read again (blocked → importing → blocked). The same step set again
+// (Configure after a vanished target) keeps its screen, and the focus where it is.
+const screenChanges = new WeakMap<Pick<Wizard, 'step'>, number>();
+export function goTo(wizard: Pick<Wizard, 'step'>, step: WizardStep): void {
+  if (step.step !== wizard.step.step) screenChanges.set(wizard, (screenChanges.get(wizard) ?? 0) + 1);
+  wizard.step = step;
+}
+export const wizardFocusKey = (wizard: Pick<Wizard, 'step' | 'fdaGranted'>) => `${screenChanges.get(wizard) ?? 0}|${wizard.fdaGranted ? 'granted' : ''}`;
+
 function openWizard(client: T3Client, sourceId: string): void {
   const state = ui(client), source = (state.sources ?? []).find(entry => entry.id === sourceId), primary = primaryEntry();
   if (!source || !hydrated(client) || !primary) return;
@@ -216,8 +227,8 @@ async function startImport(client: T3Client, native: Native, storage: Files): Pr
   const state = ui(client), wizard = state.wizard;
   if (!wizard || state.importInFlight) return;
   const chosen = resolveWizardTarget(wizard.target, wizard.newProfileId, targetProfiles(client));
-  if (chosen === undefined) { wizard.targetError = 'That profile is no longer available. Choose where to import these cookies.'; wizard.step = { step: 'configure' }; return; }
-  wizard.targetError = ''; wizard.step = { step: 'importing' };
+  if (chosen === undefined) { wizard.targetError = 'That profile is no longer available. Choose where to import these cookies.'; goTo(wizard, { step: 'configure' }); return; }
+  wizard.targetError = ''; goTo(wizard, { step: 'importing' });
   await progress(client, native); // the page shows "Importing cookies" while the read and the writes run
   const found = await importContext(client, native).catch(() => null);
   const outcome = await runWizardImport(client, wizard, chosen, async targetProfileId => {
@@ -226,8 +237,8 @@ async function startImport(client: T3Client, native: Native, storage: Files): Pr
       async () => nativeCookieWriter(client, native, wizard.environmentId, targetProfileId));
   }, (environmentId, profileId) => clearBrowserProfileData(nativeProfileBridge(raw(client, native)), [environmentId], profileId)).catch((): ImportOutcome => ({ kind: 'blocked', reason: 'readFailed' }));
   // An import whose reads Exact let go made no answer: back to the choice (the reference's wizard cannot be left mid-import).
-  if (found?.io.letGoSeen()) { if (state.wizard === wizard) wizard.step = { step: 'configure' }; throw new ClientError('The import was replaced.', 'superseded'); }
-  if (state.wizard === wizard) wizard.step = outcomeToStep(outcome);
+  if (found?.io.letGoSeen()) { if (state.wizard === wizard) goTo(wizard, { step: 'configure' }); throw new ClientError('The import was replaced.', 'superseded'); }
+  if (state.wizard === wizard) goTo(wizard, outcomeToStep(outcome));
   await client.savePreferences(storage);
 }
 
@@ -235,13 +246,13 @@ async function startImport(client: T3Client, native: Native, storage: Files): Pr
 async function recheck(client: T3Client, native: Native, check: 'browser' | 'fullDiskAccess'): Promise<void> {
   const wizard = ui(client).wizard;
   if (!wizard) return;
-  wizard.step = { step: 'checking', check };
+  goTo(wizard, { step: 'checking', check });
   await progress(client, native);
   let refreshed: BrowserImportSource | undefined;
   try { refreshed = (await loadSources(client, native)).find(source => source.id === wizard.source.id); }
-  catch (error) { if (letGo(error)) throw error; wizard.step = { step: 'blocked', reason: 'readFailed' }; return; }
+  catch (error) { if (letGo(error)) throw error; goTo(wizard, { step: 'blocked', reason: 'readFailed' }); return; }
   if (refreshed) { wizard.source = refreshed; wizard.sourceProfileDirectory = refreshedSourceProfileDirectory(wizard.sourceProfileDirectory, refreshed); }
-  wizard.step = check === 'browser' ? refreshedSourceStep(refreshed) : fullDiskAccessRecheckStep(refreshed);
+  goTo(wizard, check === 'browser' ? refreshedSourceStep(refreshed) : fullDiskAccessRecheckStep(refreshed));
 }
 
 /** PermissionChecklist's Allow: System Settings › Privacy & Security › Full Disk Access (a development build records it
@@ -304,8 +315,9 @@ export type BrowserImportWizardView = {
   from: WizardTileView[]; into: WizardTileView[]; feedback: string; importDisabled: boolean;
   fdaGranted: boolean; fdaStillRequired: boolean; fdaBusy: boolean; fdaNote: string; fdaResume: string;
   doneTitle: string; doneDescription: string; skipped: string; blockedText: string; retry: boolean;
-  /** Where the focus goes as the wizard opens, and what a step change is told by (app.contract importWizardStepFocus). */
-  openFocus: string; focusKey: string;
+  /** Where the focus goes as the wizard opens, the first and last Tab stops (Tab and Shift+Tab from the popup itself), and
+   *  what a step change is told by (app.contract importWizardStepFocus). */
+  openFocus: string; tabFirst: string; tabLast: string; focusKey: string;
 };
 export type BrowserProfilesView = {
   hydrated: boolean; writesDisabled: boolean; importInFlight: boolean; atLimit: boolean; rows: BrowserProfileRowView[];
@@ -316,26 +328,34 @@ export type BrowserProfilesView = {
 };
 const closedWizard = (): BrowserImportWizardView => ({ open: false, step: '', sourceName: '', environmentName: '', canClose: true, check: '', from: [], into: [], feedback: '', importDisabled: true,
   fdaGranted: false, fdaStillRequired: false, fdaBusy: false, fdaNote: '', fdaResume: '', doneTitle: '', doneDescription: '', skipped: '', blockedText: '', retry: false,
-  openFocus: '', focusKey: '' });
+  openFocus: '', tabFirst: '', tabLast: '', focusKey: '' });
 export const emptyBrowserProfilesView = (): BrowserProfilesView => ({ hydrated: false, writesDisabled: true, importInFlight: false, atLimit: false, rows: [], sourcesState: 'loading', sources: [],
   canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalId: '', removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
   defaults: browserDefaultsView({ local: {} }) });
 
-/** import-wizard-initial-focus: the element Base UI's Dialog focuses as the wizard opens on `step` (initialFocus: the popup's
- *  first tabbable element; the close X comes after the step). Configure: the first "From" tile; the quit step: Cancel; Full
- *  Disk Access: PermissionChecklist's Allow, which a grant replaces with "Allowed" and so the popup itself (restoreFocus
- *  "popup"); a blocked source: Close. The other steps follow an action, never an opening. The ids are
- *  browser-profiles.contract's. */
-export function wizardOpenFocus(step: string, fdaGranted: boolean): string {
-  switch (step) {
-    case 'configure': return 'browser-import-from-0';
-    case 'quit': return 'browser-import-cancel';
-    case 'fullDiskAccess': return fdaGranted ? 'browser-import-popup' : 'browser-import-fda-allow';
-    case 'blocked': return 'browser-import-close';
-    default: return 'browser-import-popup';
+/** import-wizard-initial-focus: the wizard's Tab stops in order, as Base UI's focus trap walks them: the screen's enabled
+ *  tiles and buttons, then the close X (ui/dialog DialogPopup renders it after the step). The first takes the focus as the
+ *  wizard opens (initialFocus); from the popup itself, which a step change leaves focused (restoreFocus "popup"), Tab goes
+ *  to the first and Shift+Tab (the trap's guard) to the last. The ids are browser-profiles.contract's. */
+type TabStopFacts = Pick<BrowserImportWizardView, 'step' | 'canClose' | 'importDisabled' | 'fdaGranted' | 'fdaBusy' | 'retry'> & { from: unknown[]; into: unknown[] };
+export function wizardTabStops(view: TabStopFacts): string[] {
+  const close = view.canClose ? ['browser-import-x'] : [];
+  switch (view.step) {
+    case 'configure': return [...view.from.map((_, i) => `browser-import-from-${i}`), ...view.into.map((_, i) => `browser-import-into-${i}`), 'browser-import-cancel',
+      ...(view.importDisabled ? [] : ['browser-import-run']), ...close];
+    case 'quit': return ['browser-import-cancel', 'browser-import-quit', ...close];
+    case 'fullDiskAccess': return [...(view.fdaGranted || view.fdaBusy ? [] : ['browser-import-fda-allow']), 'browser-import-cancel',
+      ...(view.fdaGranted && !view.fdaBusy ? ['browser-import-fda-continue'] : []), ...close];
+    case 'done': return ['browser-import-done', ...close];
+    case 'blocked': return ['browser-import-close', ...(view.retry ? ['browser-import-retry'] : []), ...close];
+    default: return close; // importing (no X) and checking: only the X
   }
 }
-
+/** As the wizard opens: its first Tab stop. On Full Disk Access already granted, the reference first focuses Allow, which
+ *  the grant then replaces with "Allowed", so the popup itself ends with it. */
+export function wizardOpenFocus(view: TabStopFacts): string {
+  return view.step === 'fullDiskAccess' && view.fdaGranted ? 'browser-import-popup' : wizardTabStops(view)[0] ?? 'browser-import-popup';
+}
 async function wizardView(client: T3Client, native: Native, wizard: Wizard | null): Promise<BrowserImportWizardView> {
   if (!wizard) return closedWizard();
   const step = wizard.step, profiles = targetProfiles(client), creatable = canCreateProfile(client);
@@ -351,7 +371,7 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
   const feedback = wizard.targetError || (targetMissing ? 'That profile is no longer available. Choose where to import these cookies.'
     : targetUncreatable ? "You've reached the profile limit. Choose an existing profile to import into." : '');
   const done = step.step === 'done' ? doneCopy(step, wizard.environmentName) : { title: '', description: '' };
-  return {
+  const view: BrowserImportWizardView = {
     open: true, step: step.step, sourceName: wizard.source.name, environmentName: wizard.environmentName, canClose: canCloseWizard(step), check: step.step === 'checking' ? step.check : '',
     from: wizard.source.profiles.map(profile => ({ key: profile.directory, title: profile.name, subtitle: cookieCountLabel(profile.cookieCount), selected: wizard.sourceProfileDirectory === profile.directory })),
     into: [...(creatable ? [{ key: 'new', title: 'New profile', subtitle: 'Created for these cookies', selected: wizard.target.kind === 'new' }] : []),
@@ -364,8 +384,10 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
     fdaResume: step.step === 'fullDiskAccess' ? step.resume : '',
     doneTitle: done.title, doneDescription: done.description, skipped: step.step === 'done' ? formatSkippedDomains(step.skippedDomains) : '',
     blockedText: step.step === 'blocked' ? BROWSER_IMPORT_FAILURE_COPY[step.reason] : '', retry: step.step === 'blocked' && isRetryableReason(step.reason),
-    openFocus: wizardOpenFocus(step.step, wizard.fdaGranted), focusKey: `${step.step}|${wizard.fdaGranted ? 'granted' : ''}`,
+    openFocus: '', tabFirst: '', tabLast: '', focusKey: wizardFocusKey(wizard),
   };
+  const stops = wizardTabStops(view);
+  return { ...view, openFocus: wizardOpenFocus(view), tabFirst: stops[0] ?? '', tabLast: stops[stops.length - 1] ?? '' };
 }
 
 /** The Browser profiles row, its menus and dialogs, for the Integrations page (source-control-view.ts integrationsPage). */
