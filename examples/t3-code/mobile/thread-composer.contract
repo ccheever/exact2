@@ -1,3 +1,5 @@
+use ComposerRootView from "./composer-root.contract"
+use ComposerCommandPopover from "./composer-command-popover.contract"
 use ThreadSubmission from "./thread-send-root.contract"
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
 // @ref llp/1109.002-design-system-parity.spec.md#typography-and-font-assets
@@ -9,6 +11,12 @@ use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceEr
 component ThreadComposer
   props
     submission: ThreadSubmission
+    liquidGlass: bool
+    displayScale: number
+    rich: ComposerRootView
+    richAction: action
+    richEvent: action
+    richMessage: action
     editorId: string
     showQueue: bool
     showBackdrop: bool
@@ -29,6 +37,9 @@ component ThreadComposer
     voiceOwner: string
     voiceAction: action
     voiceDisabled: bool
+  derive richHere = rich.enabled and rich.editorId == editorId
+  action pickCommand(admission: string, id: string)
+    richAction("pick", admission, rich.menuRevision, id)
   derive canSend = submission.ordinary ? submission.canSend : data.canSend
   derive showStop = data.showStop and (not submission.ordinary or not submission.hasContent)
   derive sendLabel = submission.ordinary ? submission.sendLabel : data.sendLabel
@@ -53,7 +64,7 @@ component ThreadComposer
     column position="relative" padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
       when showBackdrop
         view position="absolute" inset=0 background-image=colors.composerBackdrop pointer-events="none" aria-hidden=true
-      column width="100%" max-width=contentMaxWidth align-self="center"
+      column position="relative" width="100%" max-width=contentMaxWidth align-self="center"
         when showQueue and data.queueCount > 0
           MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
           view height=8
@@ -83,15 +94,22 @@ component ThreadComposer
                 column width=44 height=44 align-items="center" justify-content="center"
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
             // Keep the native editor at one plan site while the compact toolbar covers it.
-            textarea id=editorId value=data.draft input=typedDraft key=typedKey focus=focusChanged(true, data.contentOwner, editorId) blur=focusChanged(false, data.contentOwner, editorId) placeholder=data.placeholder
-              readonly=(dictating or (data.editing and not data.canCancel)) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
-              data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
-              opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
-              aria-hidden=(voicePresented and not expanded)
-              height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
-              padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
-              box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
-              border-width=0 background-color="transparent" testId="thread-composer"
+            when richHere
+              t3-composer-editor id=editorId configuration=rich.configuration change=richEvent message=richMessage
+                opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto") aria-hidden=(voicePresented and not expanded)
+                height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? "none" : "1") min-width=0
+                padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4)
+                padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6) box-sizing="border-box" testId="thread-composer"
+            else
+              textarea id=editorId value=data.draft input=typedDraft key=typedKey focus=focusChanged(true, data.contentOwner, editorId) blur=focusChanged(false, data.contentOwner, editorId) placeholder=data.placeholder
+                readonly=(dictating or (data.editing and not data.canCancel)) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+                data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+                opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
+                aria-hidden=(voicePresented and not expanded)
+                height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
+                padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
+                box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
+                border-width=0 background-color="transparent" testId="thread-composer"
             when expanded
               view height=3.5
               when not voicePresented
@@ -121,6 +139,16 @@ component ThreadComposer
                     VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
                   ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
+        when richHere
+          ComposerCommandPopover(data=rich.menu, colors=rich.colors, dark=dark, liquidGlass=liquidGlass, hairline=1 / max(1, displayScale), pick=pickCommand)
+          when rich.files.message != ""
+            button press=richAction("retry", rich.admission, "files", "") padding=7
+              text rich.files.message font-size=13 color=colors.muted
+          when rich.message != ""
+            text rich.message padding=7 font-size=13 color=colors.muted
+          when rich.pendingCommandKey != ""
+            button press=richAction("retry", rich.admission, rich.pendingCommandKey, "") padding=7
+              text "Retry editor action" font-size=13 color=colors.primary
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
 

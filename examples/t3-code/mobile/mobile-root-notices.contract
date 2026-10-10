@@ -28,3 +28,9 @@ fn automationNoticeMessage(reply: option<AutomationChange>, route: string): stri
   case some(result) => result.requestRoute == route ? result.message : "",
   case none => ""
 }
+
+use ThreadSubmissionResult from "./thread-send-root.contract"
+fn threadSubmissionNoticeMessage(reply: option<ThreadSubmissionResult>, visit: string, owner: string): string = match reply {
+  case some(result) => result.visit == visit and result.owner == owner ? result.message : "",
+  case none => ""
+}

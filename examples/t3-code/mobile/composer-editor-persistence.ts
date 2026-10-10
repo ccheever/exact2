@@ -289,3 +289,14 @@ export function mobileEditorPasteRetired(client:T3Client,proof:EditorPasteProof,
   if(s.invalid!==undefined||!old||reply.status!=='retired'||canonical(reply.proof)!==canonical(old)||canonical(proof)!==canonical(old))return false;
   delete s.saved.pasteRetirements[proof.operationId];s.revision++;return true;
 }
+
+/** Internal observed-event counterpart to mounted CAS. The concrete owner must prove this
+ * is its actual latest accepted event, not a caller-created event or a fabricated terminal. */
+export function mobileEditorDocumentCommitObservation(client:T3Client,c:EditorDocumentIntent,
+  event:import('./composer-editor-state').ComposerEditorEvent):boolean {
+  if(event.owner!==c.target.owner||!event.mountId||!Number.isSafeInteger(event.eventCount)||event.eventCount<0
+    ||!mobileEditorDocumentIntentCurrent(client,c)||event.value.length>MAX_TEXT||!range(event.selection,event.value.length))return false;
+  const d=mobileEditorDocument(client,c.key)!;if(d.revision===Number.MAX_SAFE_INTEGER)return false;
+  client.local.drafts[d.draftKey]=event.value;d.value=event.value;d.selection={...event.selection};d.revision++;
+  store(client).revision++;client.revision++;return true;
+}

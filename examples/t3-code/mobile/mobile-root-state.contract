@@ -1,6 +1,8 @@
 // @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
+use AttachmentDocumentAction from "./attachment-document.contract"
+use MediaCompletion from "./app-shapes.contract"
 
 shape TerminalCaptureSelection
   text: string
@@ -50,3 +52,57 @@ fn gitFormField(previous: GitForm, key: string, value: string): GitForm = (
 fn gitFormBranches(previous: GitForm, initialBase: string): GitForm = (
   GitForm(previous, branch="", worktreeBranch="", worktreeBase=initialBase)
 )
+
+// @ref llp/1109.005-composer-and-transcript.decision.md#media-presentation
+// Only values move here; the root commits notices, preferences and navigation.
+shape MediaUi
+  readAt: number
+  readVersion: number
+  rendered: bool
+  nativeOpen: bool
+  nativeError: string
+  nativeSource: string
+shape DocumentReplyPlan
+  next: MediaUi
+  message: string
+  close: bool
+  toggleWrap: bool
+shape MediaReplyPlan
+  next: MediaUi
+  message: string
+  close: bool
+  clearComposerFocus: bool
+fn mediaUiInitial(): MediaUi = MediaUi(readAt=0, readVersion=0, rendered=true, nativeOpen=false, nativeError="", nativeSource="")
+fn mediaUiOpen(previous: MediaUi, at: number): MediaUi = (
+  MediaUi(previous, readAt=at, readVersion=0, rendered=true, nativeOpen=false, nativeError="", nativeSource="")
+)
+fn mediaUiRetry(previous: MediaUi, at: number): MediaUi = (
+  MediaUi(previous, readAt=at, readVersion=previous.readVersion + 1, nativeOpen=false, nativeError="")
+)
+fn documentReplyPlan(previous: MediaUi, reply: option<AttachmentDocumentAction>, active: bool, identifier: string, at: number): DocumentReplyPlan = match reply {
+  case some(result) => not active or result.identifier != identifier ? DocumentReplyPlan(next=previous, message="", close=false, toggleWrap=false) :
+    result.operation == "native-error" ? DocumentReplyPlan(next=MediaUi(previous, nativeError=result.message), message="", close=false, toggleWrap=false) :
+    result.message != "" ? DocumentReplyPlan(next=previous, message=result.message, close=false, toggleWrap=false) :
+    result.removed ? DocumentReplyPlan(next=previous, message="", close=true, toggleWrap=false) :
+    result.operation == "preview" or result.operation == "source" ? DocumentReplyPlan(next=MediaUi(previous, nativeError="", readAt=at, rendered=result.operation == "preview"), message="", close=false, toggleWrap=false) :
+    result.operation == "word-wrap" ? DocumentReplyPlan(next=previous, message="", close=false, toggleWrap=true) :
+    result.operation == "open-viewer" ? DocumentReplyPlan(next=MediaUi(previous, nativeSource=result.sourceJSON, nativeOpen=true), message="", close=false, toggleWrap=false) :
+    DocumentReplyPlan(next=previous, message="", close=false, toggleWrap=false),
+  case none => DocumentReplyPlan(next=previous, message="", close=false, toggleWrap=false)
+}
+fn mediaReplyPlan(previous: MediaUi, reply: option<MediaCompletion>, active: bool, identifier: string): MediaReplyPlan = match reply {
+  case some(result) => not active or result.identifier == "" or result.identifier != identifier ? MediaReplyPlan(next=previous, message="", close=false, clearComposerFocus=false) :
+    previous.nativeOpen ? MediaReplyPlan(next=MediaUi(previous, nativeOpen=false), message=result.message, close=false, clearComposerFocus=false) :
+    result.message != "" ? MediaReplyPlan(next=MediaUi(previous, nativeError=result.message), message="", close=false, clearComposerFocus=false) :
+    MediaReplyPlan(next=previous, message="", close=true, clearComposerFocus=false),
+  case none => MediaReplyPlan(next=previous, message="", close=false, clearComposerFocus=true)
+}
+
+shape PairingUi
+  host: string
+  code: string
+  formError: string
+  expanded: string
+  submitted: bool
+  scannerOpen: bool
+  cameraStatus: string

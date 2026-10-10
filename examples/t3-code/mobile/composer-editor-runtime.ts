@@ -7,6 +7,8 @@ import type { T3Client } from './shared/client';
 import { arr,obj,str,type Obj } from './shared/domain';
 import { ClientError,reply,type Native,type Files } from './shared/protocol';
 import { letGo } from './shared/let-go';
+import {mobileEditorFilesSnapshot,mobileEditorFilesReady,mobileEditorFilesPrepare,mobileEditorFilesPublish,mobileEditorFilesCleanup,type EditorFileProjection} from './composer-file-runtime';
+export {mobileEditorFilesReady,mobileEditorFilesRetry,mobileEditorFilesDelegateRetired} from './composer-file-runtime';
 import {mobileThreadMountedSendConsume} from './thread-send-mounted';
 import { mobileEditorRetirementAllowed, mobileEditorRetirementReceipt, mobileEditorRetirementComplete, mobileEditorDocumentWritten } from './composer-editor-persistence';
 import { fleet } from './shared/settings-b-fleet';
@@ -17,8 +19,7 @@ import { stage } from './shared/composer-controls';
 import { messageContext,workspaceCwd } from './shared/composer-editor';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileComposerTarget,mobileComposerTargetCurrent } from './composer-target';
-import { mobileDraftChanged } from './draft';
-import { mobileComposerContextRead,mobileComposerContextCapture,mobileComposerContextCommit } from './composer-command-context';
+import { mobileComposerContextRead,mobileComposerContextMountedRead } from './composer-command-context';
 import { mobileNewTaskContextProject,type MobileMessageContext } from './mobile-new-task-context';
 import { mobileComposerDocument,formatComposerContextReference,mobileComposerFileIcon,type ComposerInlineToken } from './composer-editor-document';
 import { mobileComposerTrigger,mobileComposerCommandRows,replaceTextRange,
@@ -43,7 +44,7 @@ export interface EditorPresentation {
 }
 export interface EditorWake { key:string; dueAt:number; delayMs:number }
 export interface EditorProjection {
-  enabled:boolean; admission:string; revision:number; pendingCommandKey:string; configuration:string; menu:ComposerCommandPopover; menuRevision:string;
+  files:EditorFileProjection; enabled:boolean; admission:string; revision:number; pendingCommandKey:string; configuration:string; menu:ComposerCommandPopover; menuRevision:string;
   queries:{immediateKey:string;immediateAt:number;immediateClockOffset:number;path:EditorWake;pullRequests:EditorWake;discovery:EditorWake};
   effect:EditorRootEffect|null; message:string;
 }
@@ -69,7 +70,7 @@ function current(client:T3Client,runtime:Runtime):boolean {
 }
 function requireCurrent(client:T3Client,runtime:Runtime):void {if(!current(client,runtime))throw superseded()}
 function context(client:T3Client,owner:EditorOwner,value=owner.state.value,added?:Obj):MobileMessageContext|undefined {
-  const saved=mobileComposerContextRead(client,owner.target.key,value);if(!saved.ok)throw new ClientError(saved.error,'retained');
+  const saved=mobileComposerContextMountedRead(client,owner.target);if(!saved.ok)throw new ClientError('This draft contains unsupported or invalid context. Keep the original draft.','retained');
   const records=new Map<string,Obj>();
   for(const record of [...arr(messageContext(client,value)?.records),...(saved.context?.records??[]),...(added?[added]:[])])records.set(str(record.contextId),record);
   return records.size?{version:1,records:[...records.values()]}:undefined;
@@ -90,7 +91,7 @@ function document(client:T3Client,runtime:Runtime,value=runtime.owner.state.valu
     attachments:clipboardAttachments(client,runtime.owner.target.key),skills:source?resolveProviderSkillsForCwd(source,cwd):[],confirmedTokens:runtime.confirmed,
     iconUri:path=>p.iconUris[mobileComposerFileIcon(path)]??null});
 }
-function reconcile(client:T3Client,runtime:Runtime,now:number,wallTime=Date.now()):void {
+function reconcile(client:T3Client,runtime:Runtime,now:number,wallTime=now):void {
   requireCurrent(client,runtime);
   const owner=runtime.owner,p=runtime.presentation,state=owner.state,cwd=workspaceCwd(client);
   const trigger=mobileComposerTrigger(state.value,state.selection,!owner.route.readOnly&&!owner.route.voiceBusy&&state.focused,state.composing);
@@ -121,11 +122,13 @@ function reconcile(client:T3Client,runtime:Runtime,now:number,wallTime=Date.now(
   if(nextImmediate!==runtime.immediateKey){runtime.immediateKey=nextImmediate;runtime.immediateAt=now;runtime.immediateClockOffset=now-wallTime}
 }
 function empty(client:T3Client):EditorProjection {
-  return {enabled:false,admission:'',revision:mobileEditorOwnerRevision(client),pendingCommandKey:'',configuration:'',menu:closed(),menuRevision:'',
+  return {files:mobileEditorFilesSnapshot(client),enabled:false,admission:'',revision:mobileEditorOwnerRevision(client),pendingCommandKey:'',configuration:'',menu:closed(),menuRevision:'',
     queries:{immediateKey:'',immediateAt:0,immediateClockOffset:0,path:emptyWake(),pullRequests:emptyWake(),discovery:emptyWake()},effect:null,message:''};
 }
-/** Pure IO-free projection may observe an event; only Action claims its effects. */
-export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawLatch:string,presentation:EditorPresentation,now:number,wallTime=Date.now()):EditorProjection {
+/** Pure IO-free projection may observe an event; only Action claims its effects.
+ * Clocks are caller supplied. One clock domain needs no offset; an explicit second
+ * clock can still describe conversion for a caller that actually owns both. */
+export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawLatch:string,presentation:EditorPresentation,now:number,wallTime=now):EditorProjection {
   const target=mobileComposerTarget(client),catalog=mobileCacheCatalogIdentity(fleet.saved,client.environmentId);
   const prior=runtimes.get(client),owner=mobileEditorOwnerAdmit(client,target,route,catalog);
   if(!owner){
@@ -142,9 +145,10 @@ export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawL
   let tokensJson='[]',clipboardFragment='';
   try {const doc=document(client,runtime,owner.state.value,undefined,true);runtime.confirmed=doc.confirmedTokens;tokensJson=doc.tokensJson;clipboardFragment=doc.clipboardFragment}
   catch(error){owner.error=error instanceof Error?error.message:'This draft context is unavailable.'}
+  const files=mobileEditorFilesSnapshot(client);
   const query=mobileComposerQuerySnapshot(client,runtime.query.admission,now),control=mobileComposerEditorControlled(owner.state,tokensJson);
   // This increment dispatches commands through invocation-owned CAS, not render effects.
-  const configuration=JSON.stringify({...control,command:null,active:route.active,editable:!route.readOnly&&!route.voiceBusy,readOnly:route.readOnly||route.voiceBusy,
+  const configuration=JSON.stringify({...control,command:null,active:route.active,editable:files.ready&&!route.readOnly&&!route.voiceBusy,readOnly:route.readOnly||route.voiceBusy,
     focusIntent:route.focusIntent,voiceOwner:target.editorOwner,presentation:{themeJson:presentation.themeJson,placeholder:presentation.placeholder,
       fontSize:presentation.fontSize,lineHeight:presentation.lineHeight,enterBehavior:presentation.enterBehavior,clipboardFragment,
       fontFamily:presentation.fontFamily??'DMSans-Regular',contentInsetVertical:presentation.contentInsetVertical??0,scrollEnabled:presentation.scrollEnabled??true,
@@ -153,7 +157,7 @@ export function mobileEditorSnapshot(client:T3Client,route:EditorRouteInput,rawL
   const menu=mobileComposerCommandPresentation({admission:owner.admission,trigger:runtime.trigger?.kind??null,items:runtime.items,
     loading:runtime.trigger?.kind==='path'?query.pathPending:query.pullRequestsPending,error:runtime.trigger?.kind==='pull-request'?query.pullRequestsError||null:null,voiceBusy:route.voiceBusy});
   if(owner.dismissed===runtime.menuRevision)menu.visible=false;
-  return {enabled:true,admission:owner.admission,revision:client.revision+owner.state.revision+mobileEditorOwnerRevision(client)+query.revision,
+  return {files,enabled:true,admission:owner.admission,revision:files.revision+client.revision+owner.state.revision+mobileEditorOwnerRevision(client)+query.revision,
     pendingCommandKey:owner.pending?.id??'',configuration,menu,menuRevision:runtime.menuRevision,queries:{immediateKey:runtime.immediateKey,immediateAt:runtime.immediateAt,immediateClockOffset:runtime.immediateClockOffset,...editorCopy(runtime.wakes)},effect:editorCopy(owner.effects[0]??null),message:owner.error};
 }
 function result(client:T3Client,runtime:Runtime,message=''):EditorResult {
@@ -189,20 +193,23 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     if(effect)owner.state=mobileComposerEditorCommitted(owner.state,effect);
     return result(client,runtime);
   }
-  let saving:Promise<{revision:number;message:string}>|null=null,needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown,commandMessage='';
+  let needsSave=false,staged:ComposerEditorEffect|null=null,prefixError:unknown,commandMessage='';
   try {
   // Durable terminal disposition is included in the same synchronous draft-save snapshot.
   const pendingRetirement=owner.pending, retirement=pendingRetirement?.retirementKey, outcome=owner.state.commandEffect;
   if(pendingRetirement&&retirement&&outcome&&outcome.event.commandId===pendingRetirement.id&&outcome.event.commandRevision===pendingRetirement.revision){
     mobileEditorRetirementComplete(client,retirement,outcome.event.kind==='commandApplied'?'retired':'preserved');needsSave=true;
   }
+  const needsPublication=!!effect&&owner.state.stagedEventCount<effect.event.eventCount&&(effect.writeText||effect.event.kind==='text')
+    ||!!outcome&&outcome.event.kind==='commandApplied'&&!!owner.pending?.added;
+  if(needsPublication){
+    const publication=mobileEditorFilesPublish(client);
+    if(!publication.ok)throw new ClientError(publication.message,'retained');
+    needsSave=true;
+  }
   if(effect && owner.state.stagedEventCount<effect.event.eventCount){
-    if(effect.writeText){
-      saving=mobileDraftChanged(client,owner.state.value,native,storage,owner.target.owner);
-      if((client.local.drafts[owner.target.key]??'')!==owner.state.value)throw new ClientError('This editor cannot replace the current answer.','retained');
-    }
     const claimed=mobileComposerEditorStageEffect(owner.state,effect.id);owner.state=claimed.state;staged=claimed.effect;
-    if(staged){owner.document.selection={...owner.state.selection};mobileEditorDocumentWritten(client,owner.target,owner.document.value,owner.document.value,owner.state.selection)}
+    if(staged&&!needsPublication){owner.document.selection={...owner.state.selection};mobileEditorDocumentWritten(client,owner.target,owner.document.value,owner.document.value,owner.state.selection)}
     if(staged)rootEffect(owner,staged);
   }
   const terminal=owner.state.commandEffect;
@@ -210,8 +217,6 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     const pending=owner.pending;
     if(!pending || pending.id!==terminal.event.commandId || pending.revision!==terminal.event.commandRevision)throw superseded();
     if(terminal.event.kind==='commandApplied'){
-      if(pending.added){const guard=mobileComposerContextCapture(client,mobileComposerTarget(client));
-        if(!guard || !mobileComposerContextCommit(client,guard,owner.state.value,pending.added))throw new ClientError('The context could not be retained. Keep this draft.','retained');needsSave=true}
       if(pending.localCommand){
         const command=pending.localCommand;
         if(pending.settings===settings(client,runtime)&&command.usageKey===runtime.presentation.usageKey&&!owner.route.readOnly&&!owner.route.voiceBusy){
@@ -230,8 +235,7 @@ async function consume(client:T3Client,runtime:Runtime,native:Native,storage:Fil
     const claimed=mobileComposerEditorStageEffect(owner.state,terminal.id);owner.state=claimed.state;if(claimed.effect)owner.pending=null;
   }
   }catch(error){prefixError=error}
-  if(saving){const answer=await saving;settledCurrent();if(answer.message)throw new ClientError(answer.message)}
-  else if(needsSave){await client.persist(storage);settledCurrent()}
+  if(needsSave){await client.persist(storage);settledCurrent()}
   if(prefixError!==undefined)throw prefixError;
   if(staged)owner.state=mobileComposerEditorCommitted(owner.state,staged);
   return result(client,runtime,commandMessage);
@@ -288,7 +292,7 @@ export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIn
   requireCurrent(client,runtime);const owner=runtime.owner;
   if(localClear&&(next.value!==''||next.selection.start!==0||next.selection.end!==0||added||mode||retirementKey||localCommand))throw superseded();
   if(retirementKey&&!mobileEditorRetirementAllowed(client,retirementKey))throw superseded();
-  if(owner.route.readOnly || owner.route.voiceBusy || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
+  if(owner.route.readOnly || owner.route.voiceBusy || !mobileEditorFilesReady(client,owner.admission) || !native.available || owner.pending)throw new ClientError('The composer is not ready for this edit.','busy');
   const prospective=mobileNewTaskContextProject(next.value,context(client,owner,next.value,added));
   if(!prospective.ok)throw new ClientError(prospective.error,'retained');
   const doc=document(client,runtime,next.value,added),id=`${owner.state.identity.renderEpoch}-command-${++owner.serial}`,revision=owner.state.lastCommandRevision+1;
@@ -300,7 +304,7 @@ export async function mobileEditorRequestIntent(client:T3Client,capture:EditorIn
   return invokeCommand(client,runtime,native,storage);
 }
 export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
-  action:'event'|'rich'|'pick'|'dismiss'|'retry',payload:string,native:Native,storage:Files,clock:()=>number=Date.now):Promise<EditorResult> {
+  action:'event'|'rich'|'pick'|'dismiss'|'retry',payload:string,native:Native,storage:Files,clock:()=>number):Promise<EditorResult> {
   const runtime=actionRuntime(client,route),owner=runtime.owner;
   try {
     if(action==='rich')throw new ClientError('Rich paste and context actions are not integrated yet.','unsupported');
@@ -335,7 +339,7 @@ export async function mobileEditorAction(client:T3Client,route:EditorRouteInput,
 }
 /** Timer identity is source debounce identity; request scope is resolved only when
  * this still-current timer fires. PR project changes do not restart its query timer. */
-export async function mobileEditorQueryWake(client:T3Client,key:string,native:Native,clock:()=>number=Date.now):Promise<{revision:number}> {
+export async function mobileEditorQueryWake(client:T3Client,key:string,native:Native,clock:()=>number):Promise<{revision:number}> {
   const runtime=runtimes.get(client);if(!runtime)throw superseded();requireCurrent(client,runtime);
   const lane=(['path','pullRequests','discovery'] as const).find(name=>runtime.wakes[name].key===key && !!key);
   if(!lane || clock()<runtime.wakes[lane].dueAt)return {revision:runtime.query.revision};
@@ -344,7 +348,7 @@ export async function mobileEditorQueryWake(client:T3Client,key:string,native:Na
   const answer=await mobileComposerQueryPrepare(client,runtime.query.admission,lane,runtime.query[lane].key,native,clock);
   requireCurrent(client,runtime);return answer;
 }
-export async function mobileEditorPrepareImmediate(client:T3Client,admission:string,key:string,native:Native,clock:()=>number=Date.now):Promise<{revision:number}> {
+export async function mobileEditorPrepareImmediate(client:T3Client,admission:string,key:string,native:Native,clock:()=>number):Promise<{revision:number}> {
   const runtime=runtimes.get(client);if(!runtime || runtime.owner.admission!==admission)throw superseded();requireCurrent(client,runtime);
   if(!key || key!==runtime.immediateKey)return {revision:runtime.query.revision};
   const expected=runtime.query.admission;const due=(['path','pullRequests','discovery'] as const).filter(lane=>runtime.query[lane].key&&runtime.query[lane].delayMs===0);
@@ -372,4 +376,16 @@ export async function mobileEditorRequestRetirement(client:T3Client,receiptKey:s
   if(!mobileEditorRetirementAllowed(client,receiptKey))throw superseded();
   const capture=mobileEditorCaptureIntent(client,owner.target,'send-retirement');if(!capture)throw superseded();
   return mobileEditorRequestIntent(client,capture,{value:'',selection:{start:0,end:0}},undefined,native,storage,null,receiptKey);
+}
+
+/** Root schedules once per prepareKey, or explicitly retries. No connection-ready gate. */
+export async function mobileEditorPrepareFiles(client:T3Client,admission:string,key:string,native:Native,storage:Files):Promise<EditorResult> {
+  const runtime=runtimes.get(client);if(!runtime||runtime.owner.admission!==admission)throw superseded();requireCurrent(client,runtime);
+  await mobileEditorFilesPrepare(client,admission,key,native);requireCurrent(client,runtime);
+  if(mobileEditorFilesReady(client,admission)&&runtime.owner.state.latestEffect
+    &&runtime.owner.state.stagedEventCount<runtime.owner.state.latestEffect.event.eventCount)return consume(client,runtime,native,storage);
+  return result(client,runtime,mobileEditorFilesSnapshot(client).message);
+}
+export async function mobileEditorCleanupFiles(client:T3Client,key:string,native:Native,storage:Files):Promise<{revision:number}> {
+  await mobileEditorFilesCleanup(client,key,native,storage);return {revision:mobileEditorFilesSnapshot(client).revision};
 }

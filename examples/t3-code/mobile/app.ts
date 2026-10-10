@@ -1,3 +1,4 @@
+import { mobileComposerRootSnapshot, mobileComposerRootAction } from './composer-root';
 import { mobileThreadSendRootSnapshot, mobileThreadSendRootAction } from './thread-send-root';
 import { mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { letGoAware } from './shared/let-go';
@@ -92,6 +93,18 @@ function storageEnvironments() {
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  composerRoot: args => mobileComposerRootSnapshot(mobileClient, args[0], args[1]),
+  composerRootAction: async (args, _store, suppliedStorage, nativeInput) => {
+    const input = sourceNative('composerRootAction', args, nativeInput);
+    const handle = input?.available ? letGoAware(mobileNative(input)) : input;
+    const { native, storage } = mobileDraftRecoveryHandles(mobileClient, handle,
+      handle?.available ? nativeFiles(handle) : suppliedStorage!);
+    const op = (['event', 'rich', 'pick', 'dismiss', 'retry', 'prepare-files', 'cleanup-files', 'immediate', 'wake', 'claim-effect'] as const).find(value => value === args[1]);
+    if (!native?.available || !op) return { revision: mobileClient.revision, message: 'This editor action is unavailable.',
+      visit: args[0].visit, owner: '', editorId: args[0].editorId, admission: args[2], effectId: '', effectKind: '', alternate: false };
+    return mobileComposerRootAction(mobileClient, { ...args[0], now: args[5] },
+      { op, admission: args[2], key: args[3], payload: args[4] }, native, storage);
+  },
   threadSubmission: args => mobileThreadSendRootSnapshot(mobileClient, args[0]),
   threadLocalColors: args => mobileThreadLocalColors(args[0], args[1]),
   threadSubmissionAction: async (args, _store, suppliedStorage, nativeInput) => {

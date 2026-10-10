@@ -1,3 +1,4 @@
+use ComposerRootInput, ComposerRootView, ComposerRootResult from "./composer-root.contract"
 use homeChromeChange, homeAutomationPath from "./home-routes.contract"
 use NewTaskCloneSnapshot, NewTaskCloneColors from "./new-task-clone.contract"
 // @ref llp/1109.011-responsive-workspace.decision.md#navigation-and-data-ownership

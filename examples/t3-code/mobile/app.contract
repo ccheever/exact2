@@ -1,13 +1,13 @@
 use ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors from "./thread-send-root.contract"
-use changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
+use threadSubmissionNoticeMessage, changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
 use TerminalAttachChange from "./app-shapes.contract"
-use TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
+use PairingUi, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
 use IncomingShareInbox, IncomingSharePresentation from "./incoming-share-shapes.contract"
 use MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult from "./mobile-keyboard.contract"
 use ArchiveChromeSnapshot, ArchiveChromeEvent from "./archive-chrome.contract"
 use ProjectFaviconImages, ProjectFaviconPrepared, ProjectFaviconAdmission from "./project-favicon.contract"
 use MobileOutboxDrive, MobileOutboxEdit from "./mobile-outbox-drive.contract"
-use homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
+use ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileSidebarPanel, MobileInspectorPanel, MobileWorkspaceMarkers, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./root-imports.contract"
 use ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, AutomationPrepared, AutomationData, VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./root-imports.contract"
 use AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource from "./root-imports.contract"
 use SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
@@ -537,7 +537,61 @@ component App
             haptic("selection")
         case none
           streamHaptics = concat(streamHaptics, [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
-  derive threadSubmissionInput = ThreadSubmissionInput(visit=`${top(nav).id}`, url=top(nav).url, active=(top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")), environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, contextImporting=(pending(terminalAttached) or pending(reviewChanged) or pending(documentChanged) or (lastOperation == "attachments" and pending(changed))), now=wallTime.epochAtZero + elapsed, viewportHeight=viewport.height, dark=appearance.scheme == "dark")
+  state richComposerLatch = ""
+  derive richComposerInput = ComposerRootInput(active=top(nav).name == "thread", visit=`${top(nav).id}`, url=top(nav).url, environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, editorId=composerEditor, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, scheme=appearance.scheme, themeId=appearance.themeId, enterBehavior=appearance.enterBehavior, focusSerial=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`, focusAttempt=composerReturn.attempts, focusOperation=(composerReturn.phase == "restoring" and composerReturn.editorId == composerEditor ? "focus" : "none"), now=wallTime.epochAtZero + elapsed)
+  resource richComposer = composerRoot(richComposerInput, richComposerLatch, data.revision) as shape ComposerRootView
+  mutation richComposerFiles as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission
+  mutation richComposerImmediate as shape ComposerRootResult refreshes richComposer
+  mutation richComposerPath as shape ComposerRootResult refreshes richComposer
+  mutation richComposerPullRequests as shape ComposerRootResult refreshes richComposer
+  mutation richComposerDiscovery as shape ComposerRootResult refreshes richComposer
+  mutation richComposerChanged as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission then didRichComposerChange
+  action richComposerAction(op: string, admission: string, key: string, payload: string)
+    send richComposerChanged = composerRootAction(richComposerInput, op, admission, key, payload, wallTime.epochAtZero + now())
+  action richComposerEvent(value: string)
+    richComposerLatch = value
+    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", value, wallTime.epochAtZero + now())
+  action richComposerMessage(value: string)
+    send richComposerChanged = composerRootAction(richComposerInput, "rich", richComposer.admission, "", value, wallTime.epochAtZero + now())
+  task prepareRichComposer when richComposer.files.needsPrepare key=richComposer.files.prepareKey
+    after(1, prepareRichComposer)
+  action prepareRichComposer
+    send richComposerFiles = composerRootAction(richComposerInput, "prepare-files", richComposer.admission, richComposer.files.prepareKey, "", wallTime.epochAtZero + now())
+  task cleanRichComposer when richComposer.files.cleanupKey != "" key=richComposer.files.cleanupKey
+    after(1, cleanRichComposer)
+  action cleanRichComposer
+    send richComposerFiles = composerRootAction(richComposerInput, "cleanup-files", richComposer.admission, richComposer.files.cleanupKey, "", wallTime.epochAtZero + now())
+  task queryRichComposer when richComposer.queries.immediateKey != "" key=richComposer.queries.immediateKey
+    after(1, queryRichComposer)
+  action queryRichComposer
+    send richComposerImmediate = composerRootAction(richComposerInput, "immediate", richComposer.admission, richComposer.queries.immediateKey, "", wallTime.epochAtZero + now())
+  task queryRichPath when richComposer.queries.path.key != "" key=richComposer.queries.path.key
+    after(200, queryRichPath)
+  action queryRichPath
+    send richComposerPath = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.path.key, "", wallTime.epochAtZero + now())
+  task queryRichPullRequests when richComposer.queries.pullRequests.key != "" key=richComposer.queries.pullRequests.key
+    after(180, queryRichPullRequests)
+  action queryRichPullRequests
+    send richComposerPullRequests = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.pullRequests.key, "", wallTime.epochAtZero + now())
+  task queryRichDiscovery when richComposer.queries.discovery.key != "" key=richComposer.queries.discovery.key
+    after(10000, queryRichDiscovery)
+  action queryRichDiscovery
+    send richComposerDiscovery = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.discovery.key, "", wallTime.epochAtZero + now())
+  task claimRichEffect when richComposer.effectId != "" key=richComposer.effectId
+    after(1, claimRichEffect)
+  action claimRichEffect
+    richComposerAction("claim-effect", richComposer.admission, richComposer.effectId, "")
+  action didRichComposerChange
+    match richComposerChanged
+      case some(result)
+        if result.visit == `${top(nav).id}` and result.admission == richComposer.admission and result.editorId == composerEditor and result.owner == composerOwner
+          if result.effectKind == "submit"
+            threadAction(result.alternate ? "send-alternate" : "send", result.owner, "")
+          else if result.effectKind == "focus" or result.effectKind == "blur"
+            composerFocus(result.effectKind == "focus", result.owner, result.editorId)
+      case none
+        richComposerLatch = richComposerLatch
+  derive threadSubmissionInput = ThreadSubmissionInput(editorAdmission=richComposer.admission, visit=`${top(nav).id}`, url=top(nav).url, active=(top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")), environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, contextImporting=(pending(terminalAttached) or pending(reviewChanged) or pending(documentChanged) or (lastOperation == "attachments" and pending(changed))), now=wallTime.epochAtZero + elapsed, viewportHeight=viewport.height, dark=appearance.scheme == "dark")
   resource threadSubmission = threadSubmission(threadSubmissionInput, data.revision) as shape ThreadSubmission
   resource threadLocalLook = threadLocalColors(appearance.scheme, appearance.themeId) as shape ThreadLocalColors
   mutation threadSubmissionRead as shape ThreadSubmissionResult refreshes data, threadSubmission
@@ -548,12 +602,9 @@ component App
       send threadSubmissionRead = threadSubmissionAction(threadSubmissionInput, "recovery-read", threadSubmission.readKey, "", threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
   mutation threadSubmissionChanged as shape ThreadSubmissionResult refreshes data, threadData, queueData, threadSubmission then didThreadSubmission
   action didThreadSubmission
-    match threadSubmissionChanged
-      case some(result)
-        if result.visit == `${top(nav).id}` and result.owner == threadSubmission.expectedOwner and result.message != ""
-          send notice = alert("info", "Could not complete action", result.message)
-      case none
-        composerFocusIdentity = composerFocusIdentity
+    let message = threadSubmissionNoticeMessage(threadSubmissionChanged, `${top(nav).id}`, threadSubmission.expectedOwner)
+    if message != ""
+      send notice = alert("info", "Could not complete action", message)
   action threadLocalCommand(op: string, id: string, value: string)
     if not pending(changed) and not pending(threadSubmissionChanged)
       send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
@@ -953,10 +1004,7 @@ component App
   derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
   derive mediaScope = top(nav).name == "threadMedia" ? "transcript" : "composer"
   state mediaContentOwner = ""
-  state mediaReadAt = 0
-  state mediaReadVersion = 0
-  state mediaRendered = true
-  state mediaNativeOpen = false
+  state mediaUi = mediaUiInitial()
   state audioRaw = ""
   resource audioData = audioStatus(audioRaw, documentData.identifier) as shape AttachmentAudioStatus
   mutation audioChanged as shape Change then didAudioChange
@@ -966,11 +1014,9 @@ component App
     audioRaw = value
   action audioControl(value: string)
     send audioChanged = audioAction(documentData.identifier, value)
-  state mediaNativeError = ""
-  state mediaNativeSource = ""
-  resource mediaViewerData = attachmentNativePreview(mediaNativeSource) as shape MediaPreviewSnapshot
-  derive mediaRouteKey = `${top(nav).id}:${mediaReadVersion}`
-  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaRendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaReadAt > 0 ? mediaReadAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute) as shape AttachmentDocumentSnapshot
+  resource mediaViewerData = attachmentNativePreview(mediaUi.nativeSource) as shape MediaPreviewSnapshot
+  derive mediaRouteKey = `${top(nav).id}:${mediaUi.readVersion}`
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute) as shape AttachmentDocumentSnapshot
   resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
   mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
   action documentAction(value: string)
@@ -978,70 +1024,34 @@ component App
   action documentNativeEvent(value: string)
     send documentChanged = attachmentNativeEvent(value, documentData.identifier)
   action didDocumentAction
-    match documentChanged
-      case some(result)
-        if mediaActive and result.identifier == documentData.identifier
-          if result.operation == "native-error"
-            mediaNativeError = result.message
-          else if result.message != ""
-            send notice = alert("info", "File", result.message)
-          else if result.removed
-            nav = back(nav)
-          else if result.operation == "preview"
-            mediaNativeError = ""
-            mediaReadAt = wallTime.epochAtZero + now()
-            mediaRendered = true
-          else if result.operation == "source"
-            mediaNativeError = ""
-            mediaReadAt = wallTime.epochAtZero + now()
-            mediaRendered = false
-          else if result.operation == "word-wrap"
-            send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
-          else if result.operation == "open-viewer"
-            mediaNativeSource = result.sourceJSON
-            mediaNativeOpen = true
-      case none
-        mediaNativeOpen = mediaNativeOpen
+    let result = documentReplyPlan(mediaUi, documentChanged, mediaActive, documentData.identifier, wallTime.epochAtZero + now())
+    mediaUi = result.next
+    showMobileNotice("File", result.message)
+    if result.close
+      nav = back(nav)
+    if result.toggleWrap
+      send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
   action retryDocument
-    mediaNativeError = ""
-    mediaNativeOpen = false
-    mediaReadAt = wallTime.epochAtZero + now()
-    mediaReadVersion = mediaReadVersion + 1
+    mediaUi = mediaUiRetry(mediaUi, wallTime.epochAtZero + now())
   resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner) as shape MediaPreviewSnapshot
   mutation mediaCompleted as shape MediaCompletion then didMediaComplete
   action mediaComplete(value: string)
     send mediaCompleted = mediaCompletion(value, mediaData.identifier)
   action didMediaComplete
-    match mediaCompleted
-      case some(result)
-        if mediaActive and result.identifier != "" and result.identifier == mediaData.identifier
-          if mediaNativeOpen
-            mediaNativeOpen = false
-            if result.message != ""
-              send notice = alert("info", "Could not open document", result.message)
-          else if result.message != ""
-            mediaNativeError = result.message
-          else
-            nav = back(nav)
-      case none
-        composerFocusIdentity = ""
+    let result = mediaReplyPlan(mediaUi, mediaCompleted, mediaActive, mediaData.identifier)
+    mediaUi = result.next
+    showMobileNotice("Could not open document", result.message)
+    if result.close
+      nav = back(nav)
+    if result.clearComposerFocus
+      composerFocusIdentity = ""
   action openDraftMedia(id: string, owner: string)
     if owner == composerAttachments.contentOwner
       mediaContentOwner = owner
-      mediaReadAt = wallTime.epochAtZero + now()
-      mediaRendered = true
-      mediaNativeError = ""
-      mediaNativeSource = ""
-      mediaNativeOpen = false
-      mediaReadVersion = 0
+      mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
       nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
-    mediaReadAt = wallTime.epochAtZero + now()
-    mediaRendered = true
-    mediaNativeError = ""
-    mediaNativeSource = ""
-    mediaNativeOpen = false
-    mediaReadVersion = 0
+    mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
   resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + now()) as shape ComposerAttachmentsSnapshot
   mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
@@ -1295,14 +1305,8 @@ component App
   action chooseThread(id: string)
     if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
       send selected = selectThread(id, `${top(nav).id}`)
-  state host = ""
-  state code = ""
-  state formError = ""
-  state expanded = ""
-  state submitted = false
+  state pairingUi = PairingUi(host="", code="", formError="", expanded="", submitted=false, scannerOpen=false, cameraStatus="undetermined")
   state lastOperation = ""
-  state scannerOpen = false
-  state cameraStatus = "undetermined"
   state pendingRemove = ""
   mutation camera as shape Camera then didRequestCamera
   mutation notice as shape Notice
@@ -1314,30 +1318,23 @@ component App
   action rootFont
     setRootFontSize(14)
   action editHost(value: string)
-    host = value
-    formError = ""
+    pairingUi = PairingUi(pairingUi, host=value, formError="")
   action editCode(value: string)
-    code = value
-    formError = ""
+    pairingUi = PairingUi(pairingUi, code=value, formError="")
   action connect
     lastOperation = "connect"
-    submitted = true
-    send changed = command(targetEnvironment == "" ? "environment-add" : "environment-add-route", host, code, targetEnvironment, taskGuardOwner, taskGuardRoute)
+    pairingUi = PairingUi(pairingUi, submitted=true)
+    send changed = command(targetEnvironment == "" ? "environment-add" : "environment-add-route", pairingUi.host, pairingUi.code, targetEnvironment, taskGuardOwner, taskGuardRoute)
   action didChange
     match changed
       case some(result)
-        formError = result.message
+        pairingUi = PairingUi(pairingUi, formError=result.message, expanded=(lastOperation == "save" and result.message == "" ? "" : pairingUi.expanded), host=(pairingUi.submitted and result.message == "" ? "" : pairingUi.host), code=(pairingUi.submitted and result.message == "" ? "" : pairingUi.code), submitted=false)
         if result.message != "" and (lastOperation == "thread-action" or lastOperation == "attachments")
           send notice = alert("info", "Could not complete action", result.message)
-        if lastOperation == "save" and result.message == ""
-          expanded = ""
-        if submitted and result.message == ""
-          host = ""
-          code = ""
+        if pairingUi.submitted and result.message == ""
           nav = back(nav)
-        submitted = false
       case none
-        submitted = false
+        pairingUi = PairingUi(pairingUi, submitted=false)
   mutation followed as shape AppLink then didFollow
   state launchRouteId = `${top(nav).id}`
   state launchLocation = top(nav).url
@@ -1360,22 +1357,20 @@ component App
       case none
         composerFocusIdentity = composerFocusIdentity
   action scan
-    if scannerOpen
-      scannerOpen = false
+    if pairingUi.scannerOpen
+      pairingUi = PairingUi(pairingUi, scannerOpen=false)
     else
       send camera = cameraPermission()
   action didRequestCamera
     match camera
       case some(result)
-        cameraStatus = result.status
-        if result.status == "granted"
-          scannerOpen = true
-        else
+        pairingUi = PairingUi(pairingUi, cameraStatus=result.status, scannerOpen=(result.status == "granted" or pairingUi.scannerOpen))
+        if result.status != "granted"
           send notice = alert(result.status == "denied" ? "camera-settings" : "info", "Camera access needed", result.status == "unavailable" ? "Camera capture is unavailable on this device." : result.status == "denied" ? "Camera access was denied for this app. Open Settings to enable it." : "Allow camera access to scan an environment pairing QR code.")
       case none
-        cameraStatus = "undetermined"
+        pairingUi = PairingUi(pairingUi, cameraStatus="undetermined")
   action permissionChanged(value: string)
-    cameraStatus = value
+    pairingUi = PairingUi(pairingUi, cameraStatus=value)
   action receiveScan(value: string)
     if trim(value) == ""
       send notice = alert("info", "Invalid QR code", "Scanned QR code did not contain a pairing URL.")
@@ -1384,11 +1379,9 @@ component App
   action didScan
     match scanned
       case some(result)
-        host = result.host
-        code = result.code
-        scannerOpen = false
+        pairingUi = PairingUi(pairingUi, host=result.host, code=result.code, scannerOpen=false)
       case none
-        scannerOpen = false
+        pairingUi = PairingUi(pairingUi, scannerOpen=false)
   action didConfirmRemove
     match removal
       case some(result)
@@ -1398,8 +1391,7 @@ component App
         pendingRemove = ""
   action addEnvironment
     targetEnvironment = ""
-    formError = ""
-    scannerOpen = false
+    pairingUi = PairingUi(pairingUi, formError="", scannerOpen=false)
     nav = push(nav, path("connect"))
   action openEnvironments
     nav = push(nav, path("environments"))
@@ -1419,11 +1411,11 @@ component App
     if top(nav).name == "environments"
       nav = push(nav, path("environmentDetail", id))
     else
-      expanded = expanded == id ? "" : id
+      pairingUi = PairingUi(pairingUi, expanded=pairingUi.expanded == id ? "" : id)
   action detailAction(kind: string, key: string, value: string)
     if kind == "route-add"
       targetEnvironment = value
-      formError = ""
+      pairingUi = PairingUi(pairingUi, formError="")
       nav = push(nav, path("connect"))
     else if kind == "route-remove" or kind == "update-server"
       confirmKind = kind
@@ -1468,7 +1460,7 @@ component App
           column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 width=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? viewport.width : workspace.contentSettledWidth) background-color=look.sheet display="flex" flex-direction="column"
             data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
             data-mobile-form-sheet=(entry.name == "threadModel" or entry.name == "newTaskModel" ? "composer" : entry.name == "newTask" and not workspace.usesSplitView ? "new-task" : entry.name == "connections" or entry.name == "connect" ? "true" : "")
-            data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=scannerOpen
+            data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=pairingUi.scannerOpen
             navigationScroll=(entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
             navigationPresentation=(entry.name == "homeArrange" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "fullscreen" : entry.name == "threadModel" or entry.name == "newTaskModel" or (entry.name == "newTask" and not workspace.usesSplitView) or entry.name == "threadQueue" or startsWith(entry.name, "git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" ? "modal" : "")
             closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=(entry.name == "threadQueue" ? "medium large" : entry.name == "threadModel" or entry.name == "newTaskModel" or (entry.name == "newTask" and not workspace.usesSplitView) ? "large" : "")
@@ -1476,9 +1468,9 @@ component App
               threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
-              reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaNativeOpen, mediaNativeError=mediaNativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=host, code=code, formError=formError, expanded=expanded, scannerOpen=scannerOpen, cameraStatus=cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
+              reviewWrap=reviewWrap, reviewComment=reviewComment, filesQuery=filesQuery, fileWrap=fileWrap, filePreview=filePreview, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveData)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
-              threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
+              richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, reviewSection=reviewSection, reviewFile=reviewFile, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, toggleReviewWrap=toggleReviewWrap,
               openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, toggleFileWrap=toggleFileWrap, toggleFilePreview=toggleFilePreview, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent,
               retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, openModelFilter=openModelFilter, chooseModelFilter=chooseModelFilter,
               openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents,

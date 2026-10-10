@@ -1,3 +1,4 @@
+use ComposerRootView from "./composer-root.contract"
 use ThreadSubmission, ThreadLocalColors, ThreadSubmissionRecoveryNotice from "./thread-send-root.contract"
 use ThreadLocalFeedback, ThreadLocalUsage from "./thread-local-dock.contract"
 use ArchiveChrome, ArchiveChromeSnapshot from "./archive-chrome.contract"
@@ -56,6 +57,10 @@ use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "
 component MobileRouteContent
   props
     threadSubmission: ThreadSubmission
+    richComposer: ComposerRootView
+    richComposerAction: action
+    richComposerEvent: action
+    richComposerMessage: action
     threadLocalLook: ThreadLocalColors
     threadLocalCommand: action
     addProjectData: AddProjectSnapshot
@@ -369,7 +374,7 @@ component MobileRouteContent
               ThreadSubmissionRecoveryNotice(data=threadSubmission.recovery, colors=threadLook, card=threadLocalLook.card, busy=threadSubmission.busy or changedPending, command=threadLocalCommand)
               ThreadLocalUsage(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, tertiary=threadLocalLook.tertiary, subtleStrong=threadLocalLook.subtleStrong, dark=appearance.scheme == "dark", command=threadLocalCommand)
             ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(submission=threadSubmission, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ThreadComposer(liquidGlass=layout.liquidGlass, displayScale=layout.displayScale, submission=threadSubmission, rich=richComposer, richAction=richComposerAction, richEvent=richComposerEvent, richMessage=richComposerMessage, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
     else when routeName == "gitOverview"

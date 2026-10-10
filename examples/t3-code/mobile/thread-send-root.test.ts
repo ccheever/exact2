@@ -3,6 +3,9 @@ import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {mobileThreadSendRootSnapshot as snapshot,mobileThreadSendRootAction as action,type ThreadSendRootInput,type ThreadSendRootAction} from './thread-send-root';
 import {MobileDraftClient,mobileDraftRecoveryHandles} from './mobile-draft-recovery';
+import {mobileEditorSnapshot,mobileEditorAction,type EditorRouteInput} from './composer-editor-runtime';
+import {mobileEditorFilesSnapshot} from './composer-file-runtime';
+import {mobileEditorOwner} from './composer-editor-owner';
 import {mobileThreadSendCaptureDraft} from './thread-send-handoff-draft';
 import {queuedEditState} from './queued-edit-state';
 import {mobileComposerTarget} from './composer-target';
@@ -288,4 +291,42 @@ test('refused concrete command clear does not claim acceptance or dispatch feedb
  const f=await fixture();connected(f);expect(mobileThreadSendCaptureDraft(f.client,f.target).status).toBe('captured');
  f.client.local.drafts[f.target.key]='/feedback';await prepared(f);const result=await run(f,'send');
  expect(result.accepted).toBe(false);expect(result.message).toContain('changed');expect(f.client.draft).toBe('/feedback');expect(f.requests.some(r=>r.method==='provider.uploadFeedback')).toBe(false);
+});
+
+async function mountedRoot(f:Fixture) {
+ const route:EditorRouteInput={active:true,routeVisit:f.input.visit,editorId:`thread-composer-${f.input.visit}`,
+  environmentId:f.client.environmentId,threadId:f.client.threadId,readOnly:false,voiceBusy:false,focusIntent:{serial:'',attempt:0,operation:'none'}};
+ const presentation={themeJson:'{}',placeholder:'Message',fontSize:16,lineHeight:23,enterBehavior:'send',iconUris:{},
+  hasCompactableConversation:false,offersUsageLimits:false,allowInteractionMode:true,repository:'',permissionRevision:''};
+ const shown=mobileEditorSnapshot(f.client,route,'',presentation,now);
+ const owner=mobileEditorOwner(f.client)!;
+ const event={...owner.state.identity,mountId:'root-native-mount',kind:'ready',eventCount:1,value:f.client.draft,
+  selection:{start:f.client.draft.length,end:f.client.draft.length},composing:false,focused:false};
+ await mobileEditorAction(f.client,route,'event',JSON.stringify(event),f.native,f.storage,()=>now);
+ f.input.editorAdmission=shown.admission;
+ return {route,presentation};
+}
+test('mounted root Send requires the live admission, exact visit, and native mount',async()=>{
+ const f=await fixture();await prepared(f);await mountedRoot(f);expect(view(f).canSend).toBe(true);
+ const admission=f.input.editorAdmission;
+ for(const bad of ['', 'forged']){f.input.editorAdmission=bad;expect(view(f).canSend).toBe(false);const before=f.requests.length;
+  expect((await run(f,'send')).accepted).toBe(false);expect(f.requests).toHaveLength(before)}
+ f.input.editorAdmission=admission;f.input.visit='new-visit';expect(view(f).canSend).toBe(false);
+ expect((await run(f,'send')).accepted).toBe(false);expect(f.claim()).toBeNull();
+});
+test('mounted root Send refuses canonical files before genuine native hold preparation',async()=>{
+ const f=await fixture();await prepared(f);
+ f.client.local.composerFiles=[{id:id(901),contextId:'saved-file',draftKey:f.target.key,environmentId:f.client.environmentId,
+  name:'saved.txt',mimeType:'text/plain',sizeBytes:3,source:'attached',attachmentId:'',status:'staged'}];
+ await f.client.persist(f.storage);await mountedRoot(f);
+ const files=mobileEditorFilesSnapshot(f.client);expect(files.needsPrepare).toBe(true);expect(files.prepareKey).not.toBe('');
+ expect(f.requests.some(r=>r.op==='composerFileHold')).toBe(false);expect(view(f).canSend).toBe(false);
+ const before=f.requests.length;expect((await run(f,'send')).accepted).toBe(false);expect(f.requests).toHaveLength(before);
+ expect(f.claim()).toBeNull();expect(f.client.local.composerFiles).toHaveLength(1);
+});
+test('a rich admission cannot authorize the plain composer after route retirement',async()=>{
+ const f=await fixture();await prepared(f);const mounted=await mountedRoot(f);expect(view(f).canSend).toBe(true);
+ mobileEditorSnapshot(f.client,{...mounted.route,active:false},'',mounted.presentation,now);
+ expect(view(f).canSend).toBe(false);expect((await run(f,'send')).accepted).toBe(false);expect(f.claim()).toBeNull();
+ f.input.editorAdmission='';expect(view(f).canSend).toBe(true);
 });
