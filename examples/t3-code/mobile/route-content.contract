@@ -153,7 +153,6 @@ component MobileRouteContent
     composerFocused: bool
     reviewComment: string
     filesQuery: string
-    fileWrap: bool
     filePreview: bool
     mediaNativeOpen: bool
     mediaNativeError: string
@@ -403,9 +402,9 @@ component MobileRouteContent
         when fileData.markdown
           button press=toggleFilePreview aria-label="Toggle Markdown preview" aria-pressed=filePreview
             t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-        button press=toggleFileWrap aria-label="Toggle line wrapping" aria-pressed=fileWrap
-          t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-      MobileFileView(data=fileData, colors=reviewLook, wrap=fileWrap, preview=filePreview, refresh=refreshFile)
+        button press=toggleFileWrap disabled=not settingsAppearance.ready aria-label=(settingsAppearance.codeWordBreak ? "Disable word wrap" : "Enable word wrap") aria-pressed=settingsAppearance.codeWordBreak
+          t3-symbol symbol-name="text.alignleft" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+      MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, preview=filePreview, refresh=refreshFile)
     else when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
       when focused
         when mediaData.ready
