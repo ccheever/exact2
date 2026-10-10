@@ -1,0 +1,35 @@
+settings-headings, review round 2: the Legacy features section (testId settings-section-legacy-features) in each build's
+AppKit accessibility tree (agent `tree --ax`), General scrolled to its bottom, window coordinates in points. The reference's
+nesting (button > heading) is in ref-legacy-aria.txt.
+
+before (evidence base c03d7e908), Legacy features closed:
+  AXButton "Legacy features"  at (344.5, 760) 848x32
+
+before (evidence base c03d7e908), Legacy features open:
+  AXButton "Legacy features" {'expanded': True} at (344.5, 548) 848x32
+  AXStaticText "Plan mode (legacy)"  at (361.5, 603) 127.25x20
+  AXStaticText "Restore Build/Plan, /plan, /default, and Shift+Tab. Off use  at (361.5, 627) 576x18
+  AXCheckBox "Plan mode (legacy)" {'checked': False} at (1145.5, 615) 30x18
+  AXStaticText "Context window indicator (legacy)"  at (361.5, 670) 225.67x20
+  AXStaticText "Shows context window usage as a circular indicator in the c  at (361.5, 694) 576x18
+  AXCheckBox "Context window indicator (legacy)" {'checked': False} at (1145.5, 682) 30x18
+  AXStaticText "Sidebar (legacy)"  at (361.5, 737) 108.77x20
+  AXStaticText "Restore per-project thread trees instead of the default fla  at (361.5, 761) 576x18
+  AXCheckBox "Sidebar (legacy)" {'checked': False} at (1145.5, 749) 30x18
+
+after (this PR), Legacy features closed:
+  AXHeading "Legacy features" {'level': 2} at (344.5, 760) 1x1
+  AXButton "Legacy features"  at (344.5, 760) 848x32
+
+after (this PR), Legacy features open:
+  AXHeading "Legacy features" {'level': 2} at (344.5, 548) 1x1
+  AXButton "Legacy features" {'expanded': True} at (344.5, 548) 848x32
+  AXHeading "Plan mode (legacy)" {'level': 3} at (361.5, 603) 127.25x20
+  AXStaticText "Restore Build/Plan, /plan, /default, and Shift+Tab. Off use  at (361.5, 627) 576x18
+  AXCheckBox "Plan mode (legacy)" {'checked': False} at (1145.5, 615) 30x18
+  AXHeading "Context window indicator (legacy)" {'level': 3} at (361.5, 670) 225.67x20
+  AXStaticText "Shows context window usage as a circular indicator in the c  at (361.5, 694) 576x18
+  AXCheckBox "Context window indicator (legacy)" {'checked': False} at (1145.5, 682) 30x18
+  AXHeading "Sidebar (legacy)" {'level': 3} at (361.5, 737) 108.77x20
+  AXStaticText "Restore per-project thread trees instead of the default fla  at (361.5, 761) 576x18
+  AXCheckBox "Sidebar (legacy)" {'checked': False} at (1145.5, 749) 30x18
