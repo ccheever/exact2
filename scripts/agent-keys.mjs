@@ -344,6 +344,8 @@ export function tapWords(args, held = false) {
   switch (form) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
     case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
+    // A press at a point in the target, from its top left: whatever a finger there reaches (LLP 1012 §1), never aimed.
+    case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
     case 'history': if (rest.length !== 1) refuse('history takes one step, as history -1'); return [first, { history: number(rest[0], 'history') }];
@@ -368,7 +370,7 @@ export function tapWords(args, held = false) {
     // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
     case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
     case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
-    default: refuse(`unknown word ${JSON.stringify(form)}; tap <target> [modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+    default: refuse(`unknown word ${JSON.stringify(form)}; tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
 }
 

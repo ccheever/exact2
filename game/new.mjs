@@ -384,9 +384,14 @@ The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), an
 \`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
 the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
-Read before writing code:
+Read before writing code: ${doc('start-here.md')}. It is the only required
+reading (LLP 1115 D7): the workflow, Contract in one pass, the native patterns as
+copyable snippets, the data module, tests, and the pitfalls that cost the most.
 
-- ${doc('contract-for-agents.md')}: the working guide. Start here.
+The rest is lookup only, by the section start-here's last table names, or by grep;
+do not read these front to back:
+
+- ${doc('contract-for-agents.md')}: the full working guide.
 - ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
 - ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
 - ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
@@ -420,34 +425,15 @@ host bundle and the iOS/tvOS bundles this Mac builds.
 \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
 names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
 
-Build it native. A hand-built lookalike of a system control is a bug; write the
-Contract form and each host draws its own (the agent guide's "Prefer native
-controls"): a \`button\` (native by default), \`list appearance="auto"\` with
-\`section\`s for a settings screen, \`input type="checkbox" switch\`, \`type="range"\`,
-date and time inputs, \`select\`, a \`popover="auto" role="menu"\`, a \`role="tablist"\`,
-and a route whose first child is a \`header\` holding one heading (the nav bar).
-A screen scrolls only inside a \`scroll\`, a \`list\` or an \`overflow-y="auto"\` box; right after the
-header and named by the route's \`navigationScroll\`, it also collapses a large
-title. A sheet swipes down, and a pushed screen swipes back, only when the route
-has an enabled control whose \`id\` is the root's \`navigationBack\`.
-
-Drive it by \`testId\`, never by screen coordinates: give every control a \`testId\`,
-find targets with \`tree\` (\`tree --ax\` for the platform's accessibility tree), and
-\`tap\`/\`type\` them with \`agent ios\` as with \`agent web\`. Under the agent the
-authored header and tablist stand in for the native bars and take the same taps.
-
-Write less style (LLP 1115). What you leave unsaid is the platform's: text
-colour, tint, backgrounds, body and heading type and control sizes come out as
-a hand-built native app has them, and what you write wins. So
-omit colours, \`font-size\`, \`font-family\` and control metrics; say what a
-thing is instead (a \`header\` with its heading and buttons, \`role="heading"
-aria-level=1\` rather than a big \`font-size\`, a \`tablist\`). When you must colour
-something, name a role (\`CanvasText\`, \`AccentColor\`, \`-exact-secondary-label\`,
-\`-exact-separator\`, \`-exact-system-red\`; the agent guide lists them), never a hex.
-
-Match a reference's structure, controls and hierarchy, not its pixels: native
-controls set their own metrics. Don't measure sub-point positions; stop when it
-reads as the same app.
+Build it native and write less style (LLP 1115): say what a thing is (a \`header\`
+with its heading and buttons, a \`tablist\`, a \`dialog role="alertdialog"\`) and leave
+colours, fonts and control metrics to the platform; a hand-built lookalike of a
+system control is a bug. start-here has the forms; the recipe app to copy from is
+${pathFrom(dir, resolve(ROOT, 'apps/shelf/app.contract'))} (and its \`app.ts\`,
+\`app.test.contract\`). \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/no-tells.mjs'))} .\`
+lists every literal colour, font size and weight the app's \`.contract\` files
+still write. Drive by \`testId\`, never by screen coordinates. Match a reference's
+structure, controls and hierarchy, not its pixels.
 
 Access hatches, for what only the platform's own object can do: mark a node
 \`hatch="word"\` and the app's native code (Swift in \`modules/apple\`, the page

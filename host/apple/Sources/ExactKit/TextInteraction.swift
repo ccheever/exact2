@@ -45,12 +45,19 @@ extension NodeView {
         guard !inlineText.isEmpty else { return paragraphText }
         return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map(\.text).joined()
     }
+    /// A heading's level, 1–6: its `aria-level`, else ARIA's default 2 for
+    /// `role="heading"` alone (LLP 1115 D3 styles it as level 2 too); nil
+    /// for any other text.
+    var headingLevel: Int? {
+        if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { return level }
+        return props["accessibilityRole"] == "heading" ? 2 : nil
+    }
     func updateTextAccessibility() {
         guard isParagraph else { return }
         let label = props["accessibilityLabel"] ?? visibleParagraphText
         #if os(macOS)
         setAccessibilityElement(true)
-        if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) {
+        if let level = headingLevel {
             // The heading role WebKit exposes (AppKit's constant from macOS
             // 26), its level the value, as a `<h1>`–`<h6>` has on the web.
             setAccessibilityRole(NSAccessibility.Role(rawValue: "AXHeading"))
@@ -66,7 +73,7 @@ extension NodeView {
         isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
         // `aria-level` is a heading, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
-        if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
+        if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
         accessibilityLabel = label
         #endif
     }

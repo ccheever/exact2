@@ -553,6 +553,21 @@ impl<D: DataSource> Host<D> {
         self.collection_feedback_filled(feedback, exact_runner::CollectionFill::default())
     }
 
+    /// [`exact_runner::Runner::collection_shown`]; whether it committed.
+    #[cfg(target_os = "android")]
+    pub(crate) fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<bool, String> {
+        match self.runner.collection_shown(view, offset) {
+            Ok(mut result) if !result.receipts.is_empty() => {
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                self.commit(&result.receipts, None).map_or(Ok(true), Err)
+            }
+            Ok(_) => Ok(false),
+            Err(error) => Err(format!("collection shown: {error:?}")),
+        }
+    }
+
     /// [`Host::collection_feedback`] with a fill: the list's velocity and a
     /// slice's limit (LLP 1050.000 §6).
     pub fn collection_feedback_filled(

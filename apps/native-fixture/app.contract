@@ -121,6 +121,18 @@ component NativeFixture
   state armed = false
   state looping = false
   state hatchPresses = 0
+  // A post that opens with a card at its middle, and a box with no press
+  // with Like at its middle, on Detail (LLP 1012 §1: a tap that names a
+  // node presses that node, never a control inside it).
+  state postOpens = 0
+  state cardOpens = 0
+  state likes = 0
+  action openPost
+    postOpens = postOpens + 1
+  action openCard
+    cardOpens = cardOpens + 1
+  action like
+    likes = likes + 1
   action setFed(v: string)
     fed = v
   action feed
@@ -533,6 +545,12 @@ component NativeFixture
                       text "Clock"
                     button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
                       text "Halt"
+                when e.name == "detail"
+                  row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0
+                    row testId="post-row" press=openPost flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6 background-color="#f3f4f6"
+                      column testId="post-card" press=openCard flex=1 height=24 background-color="#dbeafe"
+                    row testId="post-actions" flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6
+                      column testId="post-like" press=like flex=1 height=24 background-color="#fee2e2"
                 when e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8

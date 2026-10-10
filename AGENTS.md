@@ -1,8 +1,11 @@
 # Agent instructions
 
 **Building an app with Exact rather than working on it?** Make it with `bun scripts/exact.mjs
-new <path>`. Its own `AGENTS.md` has the commands. Read `docs/contract-for-agents.md` first,
-then `docs/agent-pitfalls.md`; `contract vocab` lists every tag and property Contract accepts.
+new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
+rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+`docs/reference.md`) is lookup only, by the section its table names: do not read the long
+guides front to back. `contract vocab <name>` answers for any tag or property, and
+`apps/shelf` is the recipe app to grep.
 
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified

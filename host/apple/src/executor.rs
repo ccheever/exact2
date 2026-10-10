@@ -1,5 +1,5 @@
 //! Bounded native I/O (LLP 1016 / 1041). Unannotated requests and native
-//! continuations share one FIFO. Explicit independent HTTP uses two workers
+//! continuations share one FIFO. Explicit independent HTTP uses six workers
 //! with separate transports; their held sockets cannot occupy the ordered lane.
 use exact_runner::{Outcome, RequestOut, Work};
 use std::ffi::c_void;
@@ -17,7 +17,7 @@ pub struct Executor {
     core: core::Core,
 }
 impl Executor {
-    /// Start one ordered owner and two independent HTTP owners. Bindings are
+    /// Start one ordered owner and six independent HTTP owners. Bindings are
     /// never shared between owners. Retired but unfinished workers remain
     /// charged against a process limit; exhaustion refuses new work.
     pub fn start(
