@@ -1,0 +1,14 @@
+1791621024.479568 down at=1083,643 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791621024.5459728 up at=1083,643 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621025.654753 key chars=, ignoring=, code=43 chord=, responder=ExactWindow composerFocused=false marked=false source=-
+1791621027.6967468 down at=128,616 clicks=1 hit=NodeView:settings-snap-shot responder=ExactWindow marked=false source=- key=true
+1791621027.763373 up at=128,616 clicks=1 hit=NodeView:settings-snap-shot responder=NodeView marked=false source=- key=true
+1791621029.6797981 down at=1160,681 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621029.746057 up at=1160,681 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621036.95071 down at=866,397 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621037.017185 up at=866,397 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791621049.300538 down at=237,49 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=false
+1791621049.376337 up at=237,49 clicks=0 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=true
+1791621121.547678 down at=237,49 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=false
+1791621125.056026 down at=174,37 clicks=1 hit=T3PermissionHelperAppRow: responder=T3PermissionHelperClose marked=false source=- key=true
+1791621125.6561189 up at=196,302 clicks=0 hit=nil: responder=T3PermissionHelperClose marked=false source=- key=false
