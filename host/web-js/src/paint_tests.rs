@@ -752,6 +752,7 @@ try{
  assert.deepEqual(Object.values(hidden).map(v=>v.children),Object.values(rust).map(v=>v.children),'separator updates add no child boxes');
  await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());await page.evaluate(()=>{getComputedStyle(document.querySelector('[data-testid="middle"]')).borderBottomColor;for(const a of document.querySelector('[data-testid="middle"]').getAnimations())a.finish()});assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');
  const animated=await page.evaluate(()=>{const s=getComputedStyle(document.querySelector('[data-testid="covered"]'));return[s.borderBottomColor,s.getPropertyValue('--exact-grouped-separator').trim()]});assert.deepEqual(animated,['rgb(128, 0, 128)','rgb(128, 0, 128)'],'compiled keyframes animate separator ink with the border');
+ const fallback=await page.evaluate(()=>{const e=document.querySelector('[data-testid="middle"]');e.style.transition='none';e.style.colorScheme='dark';e.style.removeProperty('--exact-grouped-separator');return getComputedStyle(e).getPropertyValue('--exact-grouped-separator').trim()});assert.equal(fallback,'rgba(84, 84, 88, 0.5)','removing an authored ink restores the dark system separator');
  await page.close();
 }finally{await browser.close();server.stop(true)}
 "#;
