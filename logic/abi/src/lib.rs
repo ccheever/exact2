@@ -6,8 +6,8 @@ use exact_plan::{
     Plan, Value,
 };
 use exact_runner::{
-    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Request, Response, Store,
-    SurfaceOutcome, SurfaceRequest,
+    Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Overlaid, Request,
+    Response, Store, SurfaceOutcome, SurfaceRequest, Write,
 };
 
 pub mod draw;
@@ -106,6 +106,64 @@ pub fn call_request(
         encode_outcome(&mut w, outcome);
     }
     finish(w)
+}
+
+/// Encode an overlay operation (additive, as later outcome tags were): the
+/// resource's answer and the writes laid over it. No store crosses it.
+pub fn overlay_request(
+    source: &str,
+    args: &[Value],
+    answer: &Value,
+    writes: &[Write<'_>],
+) -> Result<Vec<u8>, String> {
+    let mut w = header(5);
+    w.string(source);
+    Value::list(args.to_vec()).encode(&mut w);
+    answer.encode(&mut w);
+    w.u32(writes.len() as u32);
+    for write in writes {
+        w.u64(write.id);
+        w.string(write.mutation);
+        w.string(write.source);
+        Value::list(write.args.to_vec()).encode(&mut w);
+        match write.reply {
+            Some(reply) => {
+                w.u8(1);
+                reply.encode(&mut w);
+            }
+            None => w.u8(0),
+        }
+        w.u8(u8::from(write.answered));
+    }
+    finish(w)
+}
+
+/// Decode an overlay reply: the value shown and the answered writes it
+/// keeps, or none (the answer shows).
+pub fn overlay_reply(data: &[u8]) -> Result<Option<Overlaid>, DataError> {
+    let decode = || -> Result<Result<Option<Overlaid>, DataError>, String> {
+        let mut r = reader(data)?;
+        if r.u8().map_err(error)? != 3 {
+            return Err("expected overlay reply".into());
+        }
+        let result = match r.u8().map_err(error)? {
+            0 => Ok(None),
+            1 => {
+                let value = Value::decode(&mut r).map_err(error)?;
+                let count = r.count().map_err(error)?;
+                let keep = (0..count)
+                    .map(|_| r.u64().map_err(error))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Some(Overlaid { value, keep }))
+            }
+            2 => Err(DataError::Unavailable(r.string().map_err(error)?)),
+            3 => Err(DataError::UnknownSource(r.string().map_err(error)?)),
+            _ => return Err("invalid overlay tag".into()),
+        };
+        end(&r)?;
+        Ok(result)
+    };
+    decode().map_err(DataError::Interface)?
 }
 
 fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
@@ -209,6 +267,13 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 "a request timeout cannot cross the Rust module seam".into(),
             )),
         ),
+        // Nor has it a file body (LLP 1108 D6 R2): refused, never sent empty.
+        Ok(Answer::Later(r)) if r.body_from.is_some() => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "exactBodyFrom cannot cross the Rust module seam".into(),
+            )),
+        ),
         Ok(Answer::Now(v)) => {
             w.u8(0);
             v.encode(w);
@@ -283,9 +348,12 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             let (tag, message) = match e {
                 DataError::UnknownSource(s) => (2, s),
                 DataError::BadArguments(s) => (3, s),
+                // A coded failure's class is the TypeScript seam's and the
+                // runner's (LLP 1109 D3): a Rust source's own is `error`.
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
-                | DataError::DeferredAtBake(s) => (4, s),
+                | DataError::DeferredAtBake(s)
+                | DataError::Failed(_, s) => (4, s),
             };
             w.u8(tag);
             w.string(&message);
@@ -299,6 +367,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
         1 | 6 | 9 => Ok(Answer::Later(Request {
             stream: tag == 9,
             timeout_ms: None,
+            body_from: None,
             http: if tag != 1 {
                 let limit = r.u32().map_err(error)?;
                 if limit == 0 || limit > 64 << 20 {
@@ -457,6 +526,7 @@ impl<D: DataSource> Session<D> {
             0 => 0,
             1 | 2 => 1,
             3 | 4 => 2,
+            5 => 3,
             _ => return Err("unknown logic operation".into()),
         });
         match op {
@@ -506,6 +576,63 @@ impl<D: DataSource> Session<D> {
                     }
                 }
                 encode_result(&mut w, result);
+            }
+            5 => {
+                let source = r.string().map_err(error)?;
+                let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
+                    return Err("arguments must be a list".into());
+                };
+                let answer = Value::decode(&mut r).map_err(error)?;
+                let count = r.count().map_err(error)?;
+                let mut decoded = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let id = r.u64().map_err(error)?;
+                    let mutation = r.string().map_err(error)?;
+                    let source = r.string().map_err(error)?;
+                    let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
+                        return Err("arguments must be a list".into());
+                    };
+                    let reply = match r.u8().map_err(error)? {
+                        0 => None,
+                        1 => Some(Value::decode(&mut r).map_err(error)?),
+                        _ => return Err("invalid reply tag".into()),
+                    };
+                    let answered = r.u8().map_err(error)? == 1;
+                    decoded.push((id, mutation, source, args, reply, answered));
+                }
+                end(&r)?;
+                let writes: Vec<Write<'_>> = decoded
+                    .iter()
+                    .map(|(id, mutation, source, args, reply, answered)| Write {
+                        id: *id,
+                        mutation,
+                        source,
+                        args,
+                        reply: reply.as_ref(),
+                        answered: *answered,
+                    })
+                    .collect();
+                match self.data.overlay(&source, &args, &answer, &writes) {
+                    Ok(None) => w.u8(0),
+                    Ok(Some(o)) => {
+                        w.u8(1);
+                        o.value.encode(&mut w);
+                        w.u32(o.keep.len() as u32);
+                        for id in o.keep {
+                            w.u64(id);
+                        }
+                    }
+                    // A source this module does not answer: a mixed app's
+                    // other half may overlay it.
+                    Err(DataError::UnknownSource(name)) => {
+                        w.u8(3);
+                        w.string(&name);
+                    }
+                    Err(e) => {
+                        w.u8(2);
+                        w.string(&format!("{e:?}"));
+                    }
+                }
             }
             _ => unreachable!(),
         }

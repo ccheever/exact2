@@ -5,7 +5,7 @@ component App
   state last = -1
   action tick
     frames = frames + 1
-    last = now()
+    last = performanceNow()
   task f mount
     every(frame, tick)
   view

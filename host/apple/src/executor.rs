@@ -38,22 +38,36 @@ impl Executor {
             ),
         }
     }
+    /// Where the app's files are, for a request whose body is one of them
+    /// (LLP 1108 D6 R2): set before the first request.
+    pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        self.core.set_app_roots(roots);
+    }
     /// Earlier admitted ordered outcomes have all reached the UI pump.
     pub fn ordered_idle(&self) -> bool {
         self.core.ordered_idle()
     }
     /// Called only after the runner has no retained ordered admission refusals.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Admits the ordered requests held behind them; returns any of those
+    /// refused at a limit, for the host to record on their tickets.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);
     }
-    /// Admit or return a terminal refusal without allocating a failure queue.
+    /// Admit, hold behind an earlier ordered refusal until it settles, or
+    /// return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
+    }
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
     }
     /// Acknowledge the coalesced wake before choosing a completion or refusal.
     pub fn begin_pump(&self) {
@@ -77,14 +91,18 @@ impl Executor {
 /// own methods, behind a trait so that an archive that links no I/O names
 /// none of them, nor the transports and stores they reach.
 pub trait Io {
+    /// [`Executor::set_app_roots`].
+    fn set_app_roots(&self, roots: [std::path::PathBuf; 3]);
     /// [`Executor::ordered_idle`].
     fn ordered_idle(&self) -> bool;
     /// [`Executor::resume_ordered`].
-    fn resume_ordered(&self);
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)>;
     /// [`Executor::forget`].
     fn forget(&self, held: &dyn Fn(u64) -> bool);
     /// [`Executor::run`].
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str>;
+    /// [`Executor::again`].
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str>;
     /// [`Executor::begin_pump`].
     fn begin_pump(&self);
     /// [`Executor::drain`].
@@ -96,10 +114,13 @@ pub trait Io {
 }
 
 impl Io for Executor {
+    fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        Executor::set_app_roots(self, roots)
+    }
     fn ordered_idle(&self) -> bool {
         Executor::ordered_idle(self)
     }
-    fn resume_ordered(&self) {
+    fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
         Executor::resume_ordered(self)
     }
     fn forget(&self, held: &dyn Fn(u64) -> bool) {
@@ -107,6 +128,9 @@ impl Io for Executor {
     }
     fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         Executor::run(self, request, work)
+    }
+    fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        Executor::again(self, request)
     }
     fn begin_pump(&self) {
         Executor::begin_pump(self)

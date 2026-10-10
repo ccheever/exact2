@@ -175,15 +175,24 @@ impl<D: DataSource> Runner<D> {
     /// the first pixel (LLP 1027 D4): every deferred resource shown
     /// from a placeholder is asked again, and every send made before now
     /// is sent, in one commit. `None` when nothing was waiting, or when the
-    /// source is still not ready.
+    /// source is still not ready. Hosts call it once, so a stand-in's
+    /// resource is asked here or not at all: that ask never refuses the
+    /// commit, and a refusal fails the resource, which `refresh` asks again,
+    /// as after a failed reply.
     pub fn data_ready(&mut self) -> Result<Option<CommitReceipt>, RunnerError> {
         if !self.data.ready() {
             self.log("data_ready: the data source is not ready");
             return Ok(None);
         }
         let stale: Vec<usize> = (0..self.stale.len()).filter(|i| self.stale[*i]).collect();
+        // Writes made before the source was ready are overlaid from here
+        self.overlays.iter_mut().for_each(|o| *o = None);
         if self.unsent.is_empty() {
-            return self.recommit(stale, "data_ready");
+            if stale.is_empty() && self.writes.records.is_empty() {
+                return Ok(None);
+            }
+            self.owe(&stale);
+            return self.commit_again(stale, "data_ready").map(Some);
         }
         let what = format!(
             "data_ready ({} asked again, {} sent)",
@@ -192,7 +201,8 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
-        self.refresh_next.extend(stale);
+        self.refresh_next.extend(&stale);
+        self.owe(&stale);
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
@@ -218,9 +228,33 @@ impl<D: DataSource> Runner<D> {
             }
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        let dropped = result.is_err() && !self.poisoned;
+        // Refused, the sends it asked are not asked again (a host makes one
+        // `data_ready`): they are dropped, said in the journal, and their
+        // writes end.
+        if dropped {
+            for (m, ..) in std::mem::take(&mut self.unsent) {
+                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+                self.log(super::lines::unsent_refused(
+                    &name,
+                    "data_ready was refused",
+                ));
+                self.end_write(m, None);
+            }
+            self.sync_pending_flags();
+        }
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
+        // The refusal is in the journal; the commit that ends them, and asks
+        // what `data_ready` owed, is the host's to apply, as after a failed
+        // reply.
+        if dropped {
+            self.owe(&stale);
+            return self
+                .commit_again(stale, "the sends a refused data_ready dropped")
+                .map(Some);
+        }
         result.map(Some)
     }
 
@@ -245,6 +279,8 @@ impl<D: DataSource> Runner<D> {
                 {
                     match self.mutation_slot(m) {
                         Ok(slot) => {
+                            self.forget_ticket(super::Target::Mutation(m));
+                            self.land_write(m, None, &value);
                             self.slots[slot] = Value::some(value);
                             self.landed.push(m);
                             for r in self.declared_refreshes(m) {
@@ -259,7 +295,6 @@ impl<D: DataSource> Runner<D> {
                     Some("its answer does not fit the mutation's shape".to_string())
                 }
                 Ok(super::Answer::Later(request)) => {
-                    self.reread_next.extend(self.declared_refreshes(m));
                     later.push((m, source, args, request));
                     None
                 }
@@ -267,6 +302,11 @@ impl<D: DataSource> Runner<D> {
             };
             if let Some(why) = refused {
                 self.log(super::lines::unsent_refused(&name, &why));
+                // Its write ends; the resources it showed in drop it in
+                // this commit, and a refusal of the commit does not bring
+                // it back.
+                self.refused_unsent.push((m, self.asked_write(m)));
+                self.end_write(m, None);
             }
         }
         self.sync_pending_flags();

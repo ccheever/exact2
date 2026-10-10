@@ -25,6 +25,11 @@ use std::path::{Path, PathBuf};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
 
+// Exact patch 9: `fs.compressImage`, over the embedder's image codec.
+pub use super::fs_image::{
+    compress_image, Abandoned, CommitGate, CompressedImage, ImageCodec, ImageFile, TRIAL_BUDGET,
+};
+
 /// The operations, each one a distinct host op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FsOp {
@@ -351,12 +356,16 @@ pub const DOCUMENT_PREFIX: &str = "doc:/";
 
 /// Where a `doc:` path leads, as the embedder's table of chosen documents
 /// resolves it (Exact patch 5; exact2 LLP 1069.010 D1).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Document {
     /// `doc:/<n>`: the handle's own directory, holding only its entry.
     Root(String),
-    /// The chosen file or folder, or a path beneath a chosen folder.
-    Real(PathBuf),
+    /// The selected directory (or selected file's parent) and relative name;
+    /// an empty name addresses the retained directory itself.
+    Real {
+        directory: std::sync::Arc<std::fs::File>,
+        path: String,
+    },
 }
 
 /// The embedder's table: a `doc:` path to where it leads, or why not.
@@ -406,7 +415,7 @@ pub fn run_document(
     }
     let documents = documents
         .ok_or_else(|| HostError::Failed(format!("{path}: this host keeps no documents")))?;
-    let real = match documents(path).map_err(HostError::Failed)? {
+    let (directory, relative) = match documents(path).map_err(HostError::Failed)? {
         Document::Root(entry) => {
             return match op {
                 FsOp::ReadDir => Ok(FsResult::Names(vec![entry])),
@@ -422,7 +431,7 @@ pub fn run_document(
                 ))),
             }
         }
-        Document::Real(real) => real,
+        Document::Real { directory, path } => (directory, path),
     };
     let failed = |e: std::io::Error| HostError::Failed(format!("fs.{} {path}: {e}", name(op)));
     let chosen = path[DOCUMENT_PREFIX.len()..]
@@ -431,57 +440,17 @@ pub fn run_document(
         .count()
         == 2;
     match op {
-        #[cfg(windows)]
-        FsOp::ReadFile => read_document_file(&real)
-            .map(FsResult::Bytes)
-            .map_err(failed),
         FsOp::Remove if chosen => Err(HostError::Failed(format!(
             "fs.rm {path}: the document itself is the person's; remove what is in it"
         ))),
-        FsOp::Remove => if real.is_dir() {
-            std::fs::remove_dir(&real)
-        } else {
-            std::fs::remove_file(&real)
-        }
-        .map(|_| FsResult::Done)
-        .map_err(failed),
-        _ => match perform(op, &real, None, data) {
+        _ => match super::app_fs::document(&directory, &relative, op, data).map_err(failed) {
             Ok(FsResult::Stat(stat)) if stat.is_directory => {
                 Ok(FsResult::Stat(Stat { size: 0, ..stat }))
             }
             Ok(result) => Ok(result),
-            Err(HostError::Failed(detail)) => {
-                let shown = format!("{}: ", real.display());
-                let detail = detail.strip_prefix(&shown).unwrap_or(&detail);
-                Err(HostError::Failed(format!(
-                    "fs.{} {path}: {detail}",
-                    name(op)
-                )))
-            }
             Err(other) => Err(other),
         },
     }
-}
-
-/// Windows reports access-denied for both a directory read and an unreadable
-/// file. Inspect the same successfully opened handle, never a path precheck.
-#[cfg(windows)]
-fn read_document_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    use std::io::Read;
-    use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)?;
-    if file.metadata()?.is_dir() {
-        return Err(std::io::Error::other(
-            "cannot read a directory (filesystem code EISDIR)",
-        ));
-    }
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
 }
 
 #[cfg(test)]

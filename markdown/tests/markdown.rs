@@ -655,68 +655,76 @@ fn this_repositorys_own_documents_hold_the_invariants() {
             .filter(|p| p.extension().is_some_and(|x| x == "md")),
     );
     assert!(files.len() > 50);
-    for file in files {
-        let source = std::fs::read_to_string(&file).unwrap();
-        let units = source.encode_utf16().count() as u32;
-        let styled = style(&source, None);
-        let name = file.display();
-        assert!(
-            styled
-                .spans
-                .windows(2)
-                .all(|w| w[0].range.end <= w[1].range.start),
-            "{name}: spans overlap"
-        );
-        assert!(
-            styled.hidden.windows(2).all(|w| w[0].end < w[1].start),
-            "{name}: hidden ranges overlap"
-        );
-        assert!(
-            styled
-                .paragraphs
-                .windows(2)
-                .all(|w| w[0].range.end <= w[1].range.start),
-            "{name}: paragraphs overlap"
-        );
-        for range in styled
-            .spans
-            .iter()
-            .map(|s| s.range)
-            .chain(styled.hidden.iter().copied())
-            .chain(styled.replaced.iter().map(|r| r.range))
-        {
-            assert!(
-                range.start < range.end && range.end <= units,
-                "{name}: {range:?}"
-            );
+    // The documents are independent: check them on every core.
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for chunk in files.chunks(files.len().div_ceil(threads)) {
+            scope.spawn(move || chunk.iter().for_each(|f| document_holds_the_invariants(f)));
         }
-        let text: usize = segments(&source, 4096)
-            .iter()
-            .map(|s| if let Segment::Text(t) = s { t.len() } else { 0 })
-            .sum();
-        assert!(text <= source.len(), "{name}");
+    });
+}
+
+fn document_holds_the_invariants(file: &std::path::Path) {
+    let source = std::fs::read_to_string(file).unwrap();
+    let units = source.encode_utf16().count() as u32;
+    let styled = style(&source, None);
+    let name = file.display();
+    assert!(
+        styled
+            .spans
+            .windows(2)
+            .all(|w| w[0].range.end <= w[1].range.start),
+        "{name}: spans overlap"
+    );
+    assert!(
+        styled.hidden.windows(2).all(|w| w[0].end < w[1].start),
+        "{name}: hidden ranges overlap"
+    );
+    assert!(
+        styled
+            .paragraphs
+            .windows(2)
+            .all(|w| w[0].range.end <= w[1].range.start),
+        "{name}: paragraphs overlap"
+    );
+    for range in styled
+        .spans
+        .iter()
+        .map(|s| s.range)
+        .chain(styled.hidden.iter().copied())
+        .chain(styled.replaced.iter().map(|r| r.range))
+    {
         assert!(
-            plain(&source).len() <= source.len() + styled.replaced.len() * 3,
-            "{name}"
+            range.start < range.end && range.end <= units,
+            "{name}: {range:?}"
         );
-        // Commands reanalyze the whole source; the short documents are enough.
-        for at in [units / 3, units].into_iter().filter(|_| units < 12_000) {
-            for command in [
-                Command::Bold,
-                Command::Newline,
-                Command::Bullet,
-                Command::CodeBlock,
-                Command::Quote,
-                Command::Footnote,
-            ] {
-                let done = edit(&source, Range::caret(at), command);
-                let after = done.apply(&source);
-                assert!(
-                    done.selection.end <= after.encode_utf16().count() as u32,
-                    "{name}"
-                );
-                style(&after, Some(done.selection));
-            }
+    }
+    let text: usize = segments(&source, 4096)
+        .iter()
+        .map(|s| if let Segment::Text(t) = s { t.len() } else { 0 })
+        .sum();
+    assert!(text <= source.len(), "{name}");
+    assert!(
+        plain(&source).len() <= source.len() + styled.replaced.len() * 3,
+        "{name}"
+    );
+    // Commands reanalyze the whole source; the short documents are enough.
+    for at in [units / 3, units].into_iter().filter(|_| units < 12_000) {
+        for command in [
+            Command::Bold,
+            Command::Newline,
+            Command::Bullet,
+            Command::CodeBlock,
+            Command::Quote,
+            Command::Footnote,
+        ] {
+            let done = edit(&source, Range::caret(at), command);
+            let after = done.apply(&source);
+            assert!(
+                done.selection.end <= after.encode_utf16().count() as u32,
+                "{name}"
+            );
+            style(&after, Some(done.selection));
         }
     }
 }

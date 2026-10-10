@@ -331,7 +331,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     .unwrap();
     let key = r.kernel().find_by_test_id("post")[0];
     let button = r.kernel().node_by_key(key).unwrap();
-    assert_eq!(button.node_type, NodeType::Pressable);
+    assert_eq!(button.node_type, NodeType::Control);
     assert_eq!(button.props.str(PropId::AccessibilityRole), Some("button"));
     let children = button.children();
     assert_eq!(children.len(), 1);
@@ -347,7 +347,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
 /// author's own row wins, as on any tag.
 #[test]
 fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
-    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump height=40 testId=\"save\"\n      button press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
+    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" appearance=\"none\" press=bump height=40 testId=\"save\"\n      button appearance=\"none\" press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,

@@ -248,6 +248,13 @@ fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     assert_eq!(call(&mut m, &mut s, "add", "remember"), "remember");
     assert_eq!(call(&mut m, &mut s, "rollback", "discard"), "remember");
     assert_eq!(call(&mut m, &mut s, "refused", ""), "denied");
+    // A refused open names the file it wanted and the grant lines that admit it.
+    let refused = call(&mut m, &mut s, "sqlite-refused", "");
+    assert!(
+        refused.starts_with("denied denied: sqlite.open app:/data/notes-bob.db: ")
+            && refused.contains("`sqlite.open app:/data/notes-bob.db`, or `sqlite.open app:/data`"),
+        "{refused}"
+    );
     assert_eq!(
         call(&mut m, &mut s, "types", ""),
         "9223372036854775807/-9223372036854775808/1.25/0,255"
@@ -407,7 +414,7 @@ component App
     for _ in 0..200 {
         for request in runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match runner.dispatch_work(token) {
+            match crate::runnable(runner.dispatch_work(token)) {
                 exact_runner::Dispatch::Run(w) => work.push((request.ticket, w)),
                 exact_runner::Dispatch::Held => {
                     ever_held = true;
@@ -429,7 +436,7 @@ component App
         let outcome = std::thread::spawn(w).join().unwrap();
         runner.fulfill(ticket, outcome).unwrap();
         for (token, dispatch) in runner.release_work() {
-            let exact_runner::Dispatch::Run(w) = dispatch else {
+            let exact_runner::Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             let ticket = held.remove(&token).expect("released work was held");
@@ -835,7 +842,7 @@ component App
     ) {
         for request in runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match runner.dispatch_work(token) {
+            match crate::runnable(runner.dispatch_work(token)) {
                 exact_runner::Dispatch::Run(w) => work.push_back((request.ticket, w)),
                 exact_runner::Dispatch::Held => {
                     held.insert(token, request.ticket);
@@ -844,7 +851,7 @@ component App
             }
         }
         for (token, dispatch) in runner.release_work() {
-            let exact_runner::Dispatch::Run(w) = dispatch else {
+            let exact_runner::Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             if let Some(ticket) = held.remove(&token) {
@@ -1015,7 +1022,7 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
                 // waits and is asked again once that step is delivered
                 // (LLP 1097 D3). `continuation` of that wait is the worker
                 // refusal; a host dispatches it.
-                answer = match m.dispatch(token, &s) {
+                answer = match crate::runnable(m.dispatch(token, &s)) {
                     Dispatch::Run(Work::Now(work)) => {
                         let outcome = std::thread::spawn(work).join().unwrap();
                         m.parse_for(target, &mut s, "work", &a, outcome).unwrap()
@@ -1028,7 +1035,8 @@ fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
                                 if released != token {
                                     panic!("only the walk is waiting");
                                 }
-                                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                                let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch)
+                                else {
                                     panic!("released work runs");
                                 };
                                 let outcome = std::thread::spawn(work).join().unwrap();
@@ -1104,6 +1112,40 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     );
     assert!(!folder.join("new.txt").exists());
     exact_data::documents::forget(9101);
+}
+
+#[test]
+#[cfg(unix)]
+fn typescript_document_operations_refuse_descendant_symlinks() {
+    use std::os::unix::fs::symlink;
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside").unwrap();
+    symlink(outside.join("secret"), folder.join("link")).unwrap();
+    symlink(&outside, folder.join("dir-link")).unwrap();
+    let doc = exact_data::documents::mint(&folder, 9102).unwrap();
+    let mut module = root.module();
+    module.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, String)>::new());
+    for leaf in ["link", "dir-link/secret"] {
+        assert_eq!(
+            call(
+                &mut module,
+                &mut store,
+                "doc-link",
+                &format!("{doc}/{leaf}")
+            ),
+            ["refused"; 8].join(" ")
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret")).unwrap(),
+        "outside"
+    );
+    exact_data::documents::forget(9102);
 }
 
 /// No later UI request is needed to finish writes these answers already
@@ -1203,7 +1245,7 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
                 let Some((target, args)) = held.remove(&token) else {
                     continue;
                 };
-                let Dispatch::Run(Work::Now(work)) = dispatch else {
+                let Dispatch::Run(Work::Now(work)) = crate::runnable(dispatch) else {
                     panic!("released work runs");
                 };
                 let outcome = work();
@@ -1229,7 +1271,7 @@ fn retired_writes_keep_submission_order_beside_live_targets_and_do_not_cross_unl
                 }
                 Answer::Later(request) => {
                     let token = request.continuation.expect("continuation");
-                    match m.dispatch(token, s) {
+                    match crate::runnable(m.dispatch(token, s)) {
                         Dispatch::Run(Work::Now(work)) => {
                             let outcome = work();
                             let next = m.parse_for(target, s, "work", &args, outcome).unwrap();

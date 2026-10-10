@@ -11,7 +11,7 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + now()\n  view\n    text `${date}/${time.utcOffset}` testId=\"date\"\n";
+const APP: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  view\n    text `${date}/${time.utcOffset}` testId=\"date\"\n";
 
 fn text(r: &Runner<NoData>) -> String {
     let key = r.kernel().find_by_test_id("date")[0];
@@ -328,9 +328,9 @@ fn an_after_fires_at_its_deadline_so_a_strict_retest_does_nothing() {
   state until = 0
   action show
     toast = \"hi\"
-    until = now() + 5000
+    until = performanceNow() + 5000
   action expire
-    if now() > until
+    if performanceNow() > until
       toast = \"\"
   task hide when toast != \"\" key=until
     after(5000, expire)
@@ -343,7 +343,7 @@ fn an_after_fires_at_its_deadline_so_a_strict_retest_does_nothing() {
     assert_eq!(r.slot("toast"), Some(&Value::str("hi")), "up forever");
     let mut r = gated(
         &src.replace(
-            "    if now() > until\n      toast = \"\"\n",
+            "    if performanceNow() > until\n      toast = \"\"\n",
             "    toast = \"\"\n",
         ),
         Gated::default(),
@@ -609,7 +609,7 @@ fn a_task_gate_parses_in_three_forms_and_lowers_to_plan_code() {
 #[test]
 fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
     let src = |gate: &str| {
-        format!("shape P\n  x: number\nfn late(t: number): bool = now() > t\ncomponent App\n  state toast = \"\"\n  state p = P(x=1)\n  state n = 0\n  derive clock = now() > 5\n  action tick\n    n = n + 1\n  task hide {gate}\n    after(5000, tick)\n  view\n    text toast\n")
+        format!("shape P\n  x: number\nfn late(t: number): bool = performanceNow() > t\ncomponent App\n  state toast = \"\"\n  state p = P(x=1)\n  state n = 0\n  derive clock = performanceNow() > 5\n  action tick\n    n = n + 1\n  task hide {gate}\n    after(5000, tick)\n  view\n    text toast\n")
     };
     let says = |gate: &str, id: &str, message: &str| {
         let e = contract::compile(&src(gate)).unwrap_err();
@@ -625,21 +625,77 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
         "type-task-key",
         "a task's `key=` is a string, number or bool, as an `each` key is; this one is P",
     );
-    let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `now()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
+    let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
     says(
-        "when now() > 100",
+        "when performanceNow() > 100",
         "analyze-task-gate-clock",
-        &format!("`task hide`'s gate reads `now()`. {clock}"),
+        &format!("`task hide`'s gate reads `performanceNow()`. {clock}"),
     );
     says(
         "when clock",
         "analyze-task-gate-clock",
-        &format!("`task hide`'s gate reads `now()` through `clock`. {clock}"),
+        &format!("`task hide`'s gate reads `performanceNow()` through `clock`. {clock}"),
     );
     says(
         "when toast != \"\" key=late(3)",
         "analyze-task-gate-clock",
-        &format!("`task hide`'s key reads `now()` through `fn late`. {clock}"),
+        &format!("`task hide`'s key reads `performanceNow()` through `fn late`. {clock}"),
     );
     contract::compile(&src("when toast != \"\" key=n")).unwrap();
+}
+
+/// @ref LLP 1109 D1 — `now()` is deleted, not deprecated: wherever an
+/// expression may call it, it is refused at its own span with both repairs
+/// in one sentence, and an app's `fn now` still shadows nothing away.
+#[test]
+fn now_is_refused_with_both_repairs_at_its_span() {
+    let cases = [
+        ("  derive d = 1 + now()\n  view\n    text toString(d)\n", 4, 18),
+        ("  view\n    text `${now()}`\n", 5, 13),
+        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text toString(at)\n", 6, 10),
+        ("  state at = 0\n  action set(t: number)\n    at = t\n  view\n    button \"s\" press=set(now())\n", 8, 26),
+    ];
+    for (body, line, col) in cases {
+        let src = format!("shape Clock\n  epochAtZero: number\ncomponent App\n{body}");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, "type-now-renamed", "{body}: {e}");
+        assert_eq!(
+            (e.span.line, e.span.col, e.span.end_col),
+            (line, col, col + 3),
+            "{body}: {e}"
+        );
+        for repair in [
+            "`performanceNow()` for durations and timers",
+            "`time.epochAtZero + performanceNow()` for the date",
+            "`resource time = exactTime() as shape Clock`",
+        ] {
+            assert!(e.message.contains(repair), "{body}: {}", e.message);
+        }
+        assert_eq!(
+            e.message.matches(". ").count(),
+            0,
+            "one sentence: {}",
+            e.message
+        );
+    }
+    let e = contract::compile(
+        "fn f(): number = now()\ncomponent App\n  view\n    text toString(f())\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-now-renamed", "{e}");
+    // An app's own `fn now` shadows the refusal as it would a roster name.
+    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text toString(now())\n")
+        .unwrap();
+    // The web's spellings meet the same repairs.
+    for web in ["Date.now()", "performance.now()"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    text toString({web})\n"
+        ))
+        .unwrap_err();
+        assert!(
+            e.message
+                .contains("`performanceNow()` for durations and timers"),
+            "{web}: {e}"
+        );
+    }
 }

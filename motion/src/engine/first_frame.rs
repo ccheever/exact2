@@ -104,21 +104,17 @@ impl Engine {
             let mut any = false;
             for play in plays.iter_mut() {
                 if let Some((begin, t)) = play.pending.and_then(|b| Some((b, at(b)?))) {
-                    // A clock's member takes its phase at the frame, from
-                    // the origin that frame started (D8).
-                    play.start = match clock_origin {
+                    // A member that joined a waiting clock origin takes its
+                    // phase at the frame, from the origin that frame started
+                    // (D8); any other play starts at its own frame.
+                    play.start = match clock_origin.filter(|_| play.clock_wait) {
                         Some(origin) => super::clock::boundary(&play.animation, t, origin),
                         None => play.start + (t - begin),
                     };
                     play.pending = None;
+                    play.clock_wait = false;
                     any = true;
                 }
-            }
-            // Another play of the node still waits with the clock: keep its
-            // place for the origin's phase at its own frame.
-            if clock_origin.is_some() && self.animations[&node].iter().any(|p| p.pending.is_some())
-            {
-                self.clocks_wait(node);
             }
             if any {
                 for play in self.animations[&node].iter() {

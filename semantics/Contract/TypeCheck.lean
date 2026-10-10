@@ -166,7 +166,7 @@ def infer (p : Program) (G : Scope) : Scope → Expr → Option Ty
     | .none => .none
 
 /-- A call, given its arguments' types (`ts?`): a `fn`, `map`/`filter`
-with a callback, `pending`/`failed` of a name, or a roster entry. -/
+with a callback, `pending`/`failed`/`failure` of a name, or a roster entry. -/
 def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Option (List Ty) → Option Ty
   | Γ, name, [l, .arrow ps body], ts? =>
     match p.fns.find? (·.name == name) with
@@ -208,6 +208,9 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
            then .some .bool else .none)
         else if name = "failed" then
           (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
+        else if name = "failure" then
+          (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome
+           then .some (.option (.record "Failure")) else .none)
         else
           match ts? with
           | .some ts => boundedTy p (rosterTy name ts)
@@ -408,8 +411,8 @@ def checkFailure (p : Program) : Option String := ((checkParts p).find? (!·.2))
 
 /-! ## Soundness of the checker -/
 
-/-- A call whose arguments are not `(list, callback)`: a `fn`, `pending` or
-`failed` of a name, or a roster entry. -/
+/-- A call whose arguments are not `(list, callback)`: a `fn`, `pending`,
+`failed` or `failure` of a name, or a roster entry. -/
 theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List Expr}
     {ts? : Option (List Ty)} {t : Ty} (hne : ∀ l ps body, args ≠ [l, .arrow ps body])
     (hts : ∀ ts, ts? = .some ts → ListTy p G Γ args ts) (h : inferCall p G Γ name args ts? = .some t) :
@@ -445,8 +448,16 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
               simp at h; subst h; exact .failed hfd hr.1.1 hr.1.2 hr.2
             · simp at h
           · split at h
-            · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
-            · simp at h
+            · next hn =>
+              subst hn
+              split at h
+              · next hr =>
+                simp only [Bool.and_eq_true, Option.isNone_iff_eq_none] at hr
+                simp at h; subst h; exact .failure hfd hr.1.1 hr.1.2 hr.2
+              · simp at h
+            · split at h
+              · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
+              · simp at h
       · split at h
         · next hn =>
           subst hn

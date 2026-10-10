@@ -269,6 +269,15 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.source.native()
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        self.source.overlay(source, args, answer, writes)
+    }
     /// Continuation tokens are this source's own: each goes back to its
     /// child's where the child handed one out (a storage request's never
     /// did, and one already dispatched can't be told any more), and an entry

@@ -83,6 +83,8 @@ mod typing;
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
 #[path = "presenter/swipe_tests.rs"]
@@ -102,6 +104,9 @@ pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
+    /// Scrolled lists whose collection turn waits for the frame (see
+    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
+    deferred_collections: Option<Vec<ViewId>>,
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
@@ -402,6 +407,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: Vec::new(),
             boxes_serial: 0,
             dirty: true,
+            deferred_collections: None,
             scheme: (None, false),
             segments: Vec::new(),
             surfaces: Default::default(),
@@ -598,6 +604,11 @@ impl<D: DataSource> Presenter<D> {
         self.focus
     }
 
+    /// Paint again at the next frame (a host whose surface came back).
+    pub fn repaint(&mut self) {
+        self.dirty = true;
+    }
+
     /// Whether the picture is stale.
     pub fn dirty(&self) -> bool {
         self.dirty
@@ -681,7 +692,10 @@ impl<D: DataSource> Presenter<D> {
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
@@ -793,6 +807,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -1214,7 +1230,7 @@ impl<D: DataSource> Presenter<D> {
                     self.scroll.insert(id, (nx, ny));
                     self.last_wheel = Some(id);
                     self.dirty = true;
-                    self.collection_scrolled(id);
+                    self.collection_scrolled_or_deferred(id);
                     if let Some(error) = self.refresh_transform_geometry() {
                         self.host.log(error);
                     }

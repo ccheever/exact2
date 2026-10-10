@@ -386,8 +386,8 @@ fn imported_routes_cannot_claim_a_root_and_root_routes_survive_component_lifting
     let child = "component Screen\n  props\n    entry: Entry\n  state draft = entry.url\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft change=edit testId=`draft-${entry.id}`\n";
     std::fs::write(dir.join("shared.contract"), child).unwrap();
     let source = SOURCE.replace(
-        "          button id=\"back\" press=back",
-        "          Screen(entry=e)\n          button id=\"back\" press=back",
+        "          button appearance=\"none\" id=\"back\" press=back",
+        "          Screen(entry=e)\n          button appearance=\"none\" id=\"back\" press=back",
     );
     std::fs::write(
         &app,
@@ -651,7 +651,10 @@ fn navigate_delivers_one_location_or_lets_the_action_ignore_it() {
         SOURCE.replace("navigate=followLink", "navigate=followLink(\"/\")"),
         SOURCE
             .replace("navigate=followLink", "navigate=home")
-            .replace("button id=\"back\"", "button navigate=home id=\"back\""),
+            .replace(
+                "button appearance=\"none\" id=\"back\"",
+                "button appearance=\"none\" navigate=home id=\"back\"",
+            ),
     ] {
         assert!(contract::compile(&source).is_err());
     }

@@ -1,8 +1,11 @@
 //! LLP 1054.000.000: a mutation's declared `refreshes`, and a re-ask that
-//! keeps the identical request already in flight.
+//! keeps the identical request already in flight. A send asks nothing; its
+//! write shows through the source's overlay (`overlay.rs`).
 
 use exact_kernel::{Kernel, PropId};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Response, Runner, Value};
+use exact_runner::{
+    Answer, DataError, DataSource, Outcome, Overlaid, Request, Response, Runner, Value, Write,
+};
 
 const SRC: &str = r#"
 shape Msg
@@ -39,12 +42,11 @@ component App
       text `${length(feed)}` testId="feed"
 "#;
 
-/// A chat whose sent messages show at once (the source's own overlay) and a
-/// feed whose request names neither its page nor anything but the token.
+/// A chat whose sent messages show at once (its overlay) and a feed whose
+/// request names neither its page nor anything but the token.
 #[derive(Default)]
 struct Chat {
     live: bool,
-    pending: Vec<String>,
     sent: Vec<String>,
     chat_asks: usize,
     feed_parsed_with: Vec<Vec<Value>>,
@@ -59,7 +61,7 @@ impl DataSource for Chat {
         match source {
             "chats" => {
                 self.chat_asks += 1;
-                Ok(msgs(self.sent.iter().chain(&self.pending).cloned()))
+                Ok(msgs(self.sent.iter().cloned()))
             }
             "feed" => Ok(Value::list(vec![])),
             other => Err(DataError::UnknownSource(other.into())),
@@ -72,14 +74,10 @@ impl DataSource for Chat {
         args: &[Value],
     ) -> Result<Answer, DataError> {
         match source {
-            "say" => {
-                self.pending
-                    .push(args[0].as_str().unwrap_or("").to_string());
-                Ok(Answer::Later(Request::post_json(
-                    "https://chat.test/say",
-                    "{}",
-                )))
-            }
+            "say" => Ok(Answer::Later(Request::post_json(
+                "https://chat.test/say",
+                "{}",
+            ))),
             // Answered at once: the write has happened when it returns.
             "star" => Ok(Answer::Now(Value::record(vec![Value::str("")]))),
             "like" => Ok(Answer::Later(Request::post_json(
@@ -102,7 +100,7 @@ impl DataSource for Chat {
     ) -> Result<Answer, DataError> {
         match source {
             "say" => {
-                let t = self.pending.remove(0);
+                let t = args[0].as_str().unwrap_or("").to_string();
                 self.sent.push(t.clone());
                 Ok(Answer::Now(Value::record(vec![Value::str(&t)])))
             }
@@ -113,6 +111,35 @@ impl DataSource for Chat {
             }
             other => Err(DataError::UnknownSource(other.into())),
         }
+    }
+    /// A sent message shows until an answer has it; the feed has no overlay.
+    fn overlay(
+        &mut self,
+        source: &str,
+        _: &[Value],
+        answer: &Value,
+        writes: &[Write<'_>],
+    ) -> Result<Option<Overlaid>, DataError> {
+        if source != "chats" {
+            return Ok(None);
+        }
+        let mut texts: Vec<String> = match answer {
+            Value::List(items) => items
+                .iter()
+                .map(|i| match i {
+                    Value::Record(f) => f[0].as_str().unwrap_or("").to_string(),
+                    _ => String::new(),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        for w in writes.iter().filter(|w| !w.answered) {
+            texts.push(w.args[0].as_str().unwrap_or("").to_string());
+        }
+        Ok(Some(Overlaid {
+            value: msgs(texts.into_iter()),
+            keep: vec![],
+        }))
     }
 }
 
@@ -156,23 +183,23 @@ fn journal_has(r: &Runner<Chat>, needle: &str) -> bool {
 }
 
 #[test]
-fn a_send_refreshes_what_its_mutation_declares_when_sent_and_when_answered() {
+fn a_send_shows_through_the_overlay_and_refreshes_what_it_declares_when_answered() {
     let mut r = boot();
     let asks = r.data().chat_asks;
     r.act("say", vec![Value::str("hi")]).unwrap();
-    // Asked again in the sending commit: the source's overlay shows.
-    assert_eq!(r.data().chat_asks, asks + 1);
+    // Nothing is asked at the send: the source's overlay shows the write.
+    assert_eq!(r.data().chat_asks, asks);
     assert_eq!(text(&r, "chats"), "1");
     let ticket = r.take_requests()[0].ticket;
     r.fulfill(ticket, ok()).unwrap();
-    // And again when the reply landed, in that commit.
-    assert_eq!(r.data().chat_asks, asks + 2);
+    // Asked again when the reply landed, in that commit.
+    assert_eq!(r.data().chat_asks, asks + 1);
     assert_eq!(text(&r, "chats"), "1");
     // A mutation that declares nothing refreshes nothing.
     r.act("tap", vec![]).unwrap();
     let ticket = r.take_requests()[0].ticket;
     r.fulfill(ticket, ok()).unwrap();
-    assert_eq!(r.data().chat_asks, asks + 2);
+    assert_eq!(r.data().chat_asks, asks + 1);
 }
 
 #[test]
@@ -251,9 +278,8 @@ fn a_network_resource_is_asked_the_host_only_when_the_reply_lands() {
     let mut r = boot();
     r.act("next", vec![]).unwrap();
     let loading = r.take_requests()[0].ticket;
-    // At the send the source is asked again, but a request it hands back
-    // would read the server before the write: nothing is sent, and the load
-    // in flight stays.
+    // Nothing is asked at the send (a request would read the server before
+    // the write), and the load in flight stays.
     r.act("favor", vec![]).unwrap();
     let sent = r.take_requests();
     assert_eq!(sent.len(), 1);
@@ -268,10 +294,8 @@ fn a_network_resource_is_asked_the_host_only_when_the_reply_lands() {
 }
 
 /// A mutation answered at once has landed in the sending commit: what it
-/// declares is forced then, as a reply's landing forces it. A re-read there
-/// dropped the feed's request and no reply came to ask again, so the feed
-/// kept its old value (found by the x2apps data6 lane on the web build and
-/// macOS alike).
+/// declares is forced then, as a reply's landing forces it, and no reply
+/// will come to ask again.
 #[test]
 fn a_mutation_answered_at_once_forces_its_network_resource_in_that_commit() {
     let mut r = boot();

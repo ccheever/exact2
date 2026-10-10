@@ -529,6 +529,7 @@ enum GlyphIter<'a> {
 impl Iterator for GlyphIter<'_> {
     type Item = Glyph;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Single(glyph) => glyph.take(),

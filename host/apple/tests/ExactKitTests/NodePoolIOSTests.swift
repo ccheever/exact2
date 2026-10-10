@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// A virtualized list's retired row lends its views to the next row of its
 /// shape (`NodePool`): the views stay in the list, parked, and come back
@@ -9,6 +10,7 @@ import XCTest
 /// presentation. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class NodePoolIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     private func collections(_ rows: [(view: Int, root: Int)]) -> [String: Any] {
@@ -636,7 +638,7 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(live.activationQueued)
         XCTAssertEqual(FakeModule.made.count, 0, "nothing is made inside activation's turn")
         let deadline = Date(timeIntervalSinceNow: 2)
-        while live.activationQueued || stale.activationQueued, Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while live.activationQueued || stale.activationQueued, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         XCTAssertFalse(live.activationQueued)
         XCTAssertFalse(stale.activationQueued)
         XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")

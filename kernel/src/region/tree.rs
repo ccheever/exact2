@@ -107,7 +107,7 @@ impl Derived {
         offer: Offer,
     ) -> Result<(), LayoutError> {
         self.tree
-            .compute_mapped(self.root, offer, arena, m, |s| self.nodes.get(&s).copied())
+            .compute_mapped(self.root, offer, arena, m, &|s| self.nodes.get(&s).copied())
     }
     pub fn provisional_chrome(&self) -> bool {
         self.tree.provisional_chrome()

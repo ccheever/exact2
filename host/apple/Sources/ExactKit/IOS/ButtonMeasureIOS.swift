@@ -70,12 +70,31 @@ final class ButtonMeasureCache: @unchecked Sendable {
             ButtonConfigurationIOS.apply(face, to: button, traits: traits, accent: nil)
             // Auto Layout fitting returns a single-line height even for a wrapped
             // configured title. sizeThatFits matches required-width window layout.
-            let offeredWidth = widthKind == 0 ? max(0, width)
-                : widthKind == 1 ? 0 : CGFloat.greatestFiniteMagnitude
+            var minimumWidth: CGFloat?
+            if widthKind == 1 {
+                // sizeThatFits(0) returns the unwrapped title, not min-content.
+                // Ask the same configured control for its widest unbreakable
+                // title/subtitle, including the native insets, symbol and gap.
+                var minimum = face
+                minimum.title = TextEngine.widestButtonRun(face.title, whiteSpace: face.rows.title["white_space"]?.string) { run in
+                    var candidate = face; candidate.title = run; candidate.subtitle = nil
+                    ButtonConfigurationIOS.apply(candidate, to: button, traits: traits, accent: nil)
+                    return button.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width
+                }
+                minimum.subtitle = TextEngine.widestButtonRun(face.subtitle, whiteSpace: face.rows.subtitle["white_space"]?.string) { run in
+                    var candidate = face; candidate.title = nil; candidate.subtitle = run
+                    ButtonConfigurationIOS.apply(candidate, to: button, traits: traits, accent: nil)
+                    return button.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width
+                }
+                ButtonConfigurationIOS.apply(minimum, to: button, traits: traits, accent: nil)
+                minimumWidth = button.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width
+                ButtonConfigurationIOS.apply(face, to: button, traits: traits, accent: nil)
+            }
+            let offeredWidth = widthKind == 0 ? max(0, width) : minimumWidth ?? CGFloat.greatestFiniteMagnitude
             button.layoutIfNeeded()
             let size = button.sizeThatFits(CGSize(width: offeredWidth, height: .greatestFiniteMagnitude))
             let scale = max(1, traits.displayScale)
-            result = ExactButtonMeasure(width: Float(ceil(max(0, size.width) * scale) / scale),
+            result = ExactButtonMeasure(width: Float(ceil(max(0, minimumWidth ?? size.width) * scale) / scale),
                 height: Float(ceil(max(0, size.height) * scale) / scale), provisional: 0)
         }
         return result

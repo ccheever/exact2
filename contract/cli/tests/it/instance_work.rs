@@ -117,7 +117,7 @@ component Counter
 fn clock_and_inactive_branch_dependencies_are_not_lost() {
     let source=APP.replace("  action rename", "  task producer mount\n    every(10, revise)\n  action rename")
         .replace("        text `${r.label} ${suffix}` testId=`row-${r.id}`",
-        "        when revision == 0\n          text `${now()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
+        "        when revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
     let mut r = boot(&source);
     assert_eq!(text(&r, "row-0"), "0");
     r.advance(10.0).unwrap();
@@ -133,7 +133,7 @@ fn clock_changes_in_an_otherwise_unchanged_list_update_the_rows() {
             "  action rename",
             "  task producer mount\n    every(10, rename)\n  action rename",
         )
-        .replace("`${r.label} ${suffix}`", "`${now()}`");
+        .replace("`${r.label} ${suffix}`", "`${performanceNow()}`");
     let mut r = boot(&source);
     r.advance(10.0).unwrap();
     assert_eq!(text(&r, "row-500"), "10");

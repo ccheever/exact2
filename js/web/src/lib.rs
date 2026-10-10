@@ -137,6 +137,10 @@ pub struct Module {
     canvas_surfaces: Vec<(String, usize)>,
     /// A background round is out: the host holds its ticket (LLP 1097 D5).
     background_out: bool,
+    /// The sources whose worker realm can't overlay synchronously, each
+    /// said once in the journal, and what is still to say.
+    told_overlay: Vec<String>,
+    overlay_notes: Vec<String>,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -154,6 +158,8 @@ impl Module {
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
             background_out: false,
+            told_overlay: Vec::new(),
+            overlay_notes: Vec::new(),
         }
     }
 
@@ -323,58 +329,68 @@ impl Module {
             return Err(match response["kind"].as_str() {
                 Some("UnknownSource") => DataError::UnknownSource(message),
                 Some("BadArguments") => DataError::BadArguments(message),
-                _ => unavailable(message),
+                // Its class, as js/src/lib.rs reads it (LLP 1109 D3).
+                _ => exact_runner::failure::FailureCode::seam_error(
+                    response["failure"].as_str(),
+                    message,
+                ),
             });
         }
-        let answer =
-            if response["tag"] == 1 {
-                let r = &response["request"];
-                let mut request = Request::get(
-                    r["url"]
-                        .as_str()
-                        .ok_or_else(|| unavailable("fetch has no URL"))?,
-                );
-                request.method = r["method"]
+        let answer = if response["tag"] == 1 {
+            let r = &response["request"];
+            let mut request = Request::get(
+                r["url"]
                     .as_str()
-                    .ok_or_else(|| unavailable("fetch has no method"))?
-                    .into();
-                request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
-                    unavailable("fetch headers are not an array of [name, value] strings")
-                })?;
-                // A BufferSource body travels as base64 beside the text one.
-                request.body = match r["body_base64"].as_str() {
-                    Some(b64) => exact_runner::agent::unbase64(b64)
-                        .ok_or_else(|| unavailable("fetch body is not base64"))?,
-                    None => r["body"].as_str().unwrap_or("").as_bytes().to_vec(),
-                };
-                // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
-                if let Some(ms) = r["timeout_ms"].as_u64() {
-                    request.timeout_ms =
-                        Some(u32::try_from(ms).map_err(|_| {
-                            unavailable("a request timeout must be 1 to 3600000 ms")
-                        })?);
-                }
-                if r["stream"] == true {
-                    // The page opens it; its events come back as messages.
-                    request = match Answer::stream(request) {
-                        Answer::Later(request) => request,
-                        Answer::Now(_) => unreachable!("a stream is a request"),
-                    };
-                    self.streams.insert(key, ());
-                } else {
-                    self.waiting.insert(key, false);
-                }
-                Answer::Later(request)
-            } else if response["tag"] == 0 {
-                let value = reply
-                    .value
-                    .unwrap_or_else(|| json::decode(&Json::Null, result));
-                Answer::Now(value.map_err(|e| {
-                    unavailable(format!("`{source}` answered outside its shape: {e}"))
-                })?)
-            } else {
-                return Err(unavailable("browser module returned no answer tag"));
+                    .ok_or_else(|| unavailable("fetch has no URL"))?,
+            );
+            request.method = r["method"]
+                .as_str()
+                .ok_or_else(|| unavailable("fetch has no method"))?
+                .into();
+            request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
+                unavailable("fetch headers are not an array of [name, value] strings")
+            })?;
+            // A BufferSource body travels as base64 beside the text one.
+            request.body = match r["body_base64"].as_str() {
+                Some(b64) => exact_runner::agent::unbase64(b64)
+                    .ok_or_else(|| unavailable("fetch body is not base64"))?,
+                None => r["body"].as_str().unwrap_or("").as_bytes().to_vec(),
             };
+            // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
+            if let Some(ms) = r["timeout_ms"].as_u64() {
+                request.timeout_ms = Some(
+                    u32::try_from(ms)
+                        .map_err(|_| unavailable("a request timeout must be 1 to 3600000 ms"))?,
+                );
+            }
+            // `exactBodyFrom`: the page reads the file into the body.
+            match &r["body_from"] {
+                Json::Null => {}
+                Json::String(path) => request.body_from = Some(path.clone()),
+                _ => return Err(unavailable("exactBodyFrom must be an app:/ path")),
+            }
+            if r["stream"] == true {
+                // The page opens it; its events come back as messages.
+                request = match Answer::stream(request) {
+                    Answer::Later(request) => request,
+                    Answer::Now(_) => unreachable!("a stream is a request"),
+                };
+                self.streams.insert(key, ());
+            } else {
+                self.waiting.insert(key, false);
+            }
+            Answer::Later(request)
+        } else if response["tag"] == 0 {
+            let value = reply
+                .value
+                .unwrap_or_else(|| json::decode(&Json::Null, result));
+            Answer::Now(value.map_err(|e| {
+                let why = format!("`{source}` answered outside its shape: {e}");
+                DataError::Failed(exact_runner::failure::FailureCode::Shape, why)
+            })?)
+        } else {
+            return Err(unavailable("browser module returned no answer tag"));
+        };
         Ok(answer)
     }
 }
@@ -446,12 +462,102 @@ impl DataSource for Module {
                 | DataError::BadArguments(e)
                 | DataError::UnknownSource(e)
                 | DataError::Interface(e)
-                | DataError::DeferredAtBake(e),
+                | DataError::DeferredAtBake(e)
+                | DataError::Failed(_, e),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
             },
         })
+    }
+    /// The module's `overlay` in its realm, in this turn: an overlay awaits
+    /// nothing. A worker realm can't run one synchronously, so its answer shows.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if !self.ready {
+            return Ok(None);
+        }
+        let Some((params, result)) = self.signatures.get(source) else {
+            return Err(DataError::UnknownSource(source.into()));
+        };
+        let encode = |v: &Value, s: &Shape| json::encode(v, s).map_err(unavailable);
+        let args = args
+            .iter()
+            .zip(params)
+            .map(|(v, s)| encode(v, s))
+            .collect::<Result<Vec<_>, _>>()?;
+        let answer = encode(answer, result)?;
+        let mut list = Vec::with_capacity(writes.len());
+        for w in writes {
+            let Some((wparams, wresult)) = self.signatures.get(w.source) else {
+                return Err(DataError::UnknownSource(w.source.into()));
+            };
+            let wargs = w
+                .args
+                .iter()
+                .zip(wparams)
+                .map(|(v, s)| encode(v, s))
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut entry: json::Object = [
+                ("id".to_string(), Json::from(w.id)),
+                ("mutation".to_string(), Json::from(w.mutation)),
+                ("source".to_string(), Json::from(w.source)),
+                ("args".to_string(), Json::Array(wargs)),
+                ("answered".to_string(), Json::from(w.answered)),
+            ]
+            .into_iter()
+            .collect();
+            if let Some(reply) = w.reply {
+                entry.insert("reply".into(), encode(reply, wresult)?);
+            }
+            list.push(Json::Object(entry));
+        }
+        let bytes = call(object([
+            ("op", "overlay".into()),
+            ("id", self.id.into()),
+            ("source", source.into()),
+            ("args", Json::Array(args)),
+            ("answer", answer),
+            ("writes", Json::Array(list)),
+        ]))?;
+        let reply = json::reply(&bytes, result).map_err(|e| unavailable(e.to_string()))?;
+        let fields = reply.fields;
+        match fields["tag"].as_u64() {
+            Some(0) => {
+                let value = reply
+                    .value
+                    .unwrap_or_else(|| json::decode(&Json::Null, result))
+                    .map_err(|e| {
+                        DataError::Failed(
+                            exact_runner::failure::FailureCode::Shape,
+                            format!("`{source}`'s overlay is outside its shape: {e}"),
+                        )
+                    })?;
+                let keep = fields["keep"]
+                    .as_array()
+                    .map(|ids| ids.iter().filter_map(Json::as_u64).collect())
+                    .unwrap_or_default();
+                Ok(Some(exact_runner::Overlaid { value, keep }))
+            }
+            Some(4) => {
+                if fields["worker"] == true && !self.told_overlay.iter().any(|s| s == source) {
+                    self.told_overlay.push(source.to_string());
+                    self.overlay_notes.push(format!(
+                        "overlay: {source} runs in a worker, so its writes show when answered"
+                    ));
+                }
+                Ok(None)
+            }
+            _ => Err(unavailable(format!(
+                "`{source}`'s overlay failed: {}",
+                fields["message"].as_str().unwrap_or("")
+            ))),
+        }
     }
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
         let mut json = String::from("[");
@@ -611,18 +717,13 @@ impl DataSource for Module {
         if !self.ready {
             return Vec::new();
         }
-        let Ok(reply) = self.realm("journal") else {
-            return Vec::new();
-        };
-        reply["lines"]
-            .as_array()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .filter_map(|l| l.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
+        let mut lines = std::mem::take(&mut self.overlay_notes);
+        if let Ok(reply) = self.realm("journal") {
+            if let Some(more) = reply["lines"].as_array() {
+                lines.extend(more.iter().filter_map(|l| l.as_str().map(str::to_string)));
+            }
+        }
+        lines
     }
 
     fn discard(&mut self, token: u64) {
@@ -954,8 +1055,9 @@ mod tests {
             (Shape::Unit, Ok(Answer::Now(Value::Unit))),
             (
                 Shape::Number,
-                Err(unavailable(
-                    "`source` answered outside its shape: expected a number, got null",
+                Err(DataError::Failed(
+                    exact_runner::failure::FailureCode::Shape,
+                    "`source` answered outside its shape: expected a number, got null".into(),
                 )),
             ),
         ] {

@@ -82,8 +82,10 @@ component Expose
   derive replyDone = match reply { case some(r) => r.done, case none => false }
   derive clearedRevision = match cleared { case some(r) => r.revision, case none => 0 }
   derive savedRevision = match saved { case some(r) => r.revision, case none => 0 }
-  resource inbox = inbox(replyRevision + clearedRevision) as shape Inbox
-  derive liveKey = pending(reply) ? floor(nowMs / 1000) : 0
+  // `ask` records the turn when it is sent: the inbox and the conversation are read again from the send, and
+  // each second while the reply is pending (`+ 1` keeps the key off 0, so the send's own commit changes it)
+  derive liveKey = pending(reply) ? floor(nowMs / 1000) + 1 : 0
+  resource inbox = inbox(replyRevision + clearedRevision, liveKey) as shape Inbox
   resource chat = conversation(thread, replyRevision + clearedRevision, liveKey) as shape Conversation
   resource intelligence = intelligence(savedRevision) as shape Intelligence
   derive inThread = screen == "messages" and thread == "expose"
@@ -92,7 +94,7 @@ component Expose
   action tick
     if nowMs == 0
       setScheme(appearance)
-    nowMs = now()
+    nowMs = performanceNow()
     if replyDone and replyRevision != bannerSeen
       bannerSeen = replyRevision
       if not inThread
@@ -163,7 +165,7 @@ component Expose
     dismissed = "all"
   action nope(name: string)
     toast = `${name} isn’t in this demo yet`
-    toastAt = now()
+    toastAt = performanceNow()
   action setScale(value: number)
     scale = value
   action setAirplane(on: bool)
@@ -295,7 +297,7 @@ component Expose
           column testId="inbox-screen" class=Page flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
             StatusBar(time=clock.time, tone="light-dark(#0b0b0c, #ffffff)", wifi=wifi, airplane=airplane, press=lock)
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
-              button press=go("home") testId="inbox-home" height=44 display="flex" flex-direction="row" align-items="center"
+              button appearance="none" press=go("home") testId="inbox-home" height=44 display="flex" flex-direction="row" align-items="center"
                 text "Edit" font-size=17 color="light-dark(#0b0b0c, #f5f5f7)"
               button press=openThread("expose") testId="inbox-compose" aria-label="Ask Expose" -exact-press-scale=0.92 width=36 height=36 border-radius=18 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 svg viewBox="0 0 24 24" width=18 height=18
@@ -496,7 +498,7 @@ component Expose
                     when keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="#ff6a2b"
                     when intelligence.keySource == "settings"
-                      button press=forgetKey testId="forget-key" height=32 display="flex" flex-direction="row" align-items="center"
+                      button appearance="none" press=forgetKey testId="forget-key" height=32 display="flex" flex-direction="row" align-items="center"
                         text "Forget the saved key" font-size=14 class=Muted
                   column class=Card padding=16 gap=12
                     text "MODEL" font-size=13 class=Muted

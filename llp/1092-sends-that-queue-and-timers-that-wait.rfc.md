@@ -150,15 +150,15 @@ A send to a queue mutation `m` is **asked** in the sending commit only when
 `m` is **free** (D3) and no earlier send of `m` was made in this commit.
 Otherwise it joins `m`'s queue as its source and argument values, evaluated
 where the send stands (LLP 1005 §6): kanban's tap sends the label it was
-tapped for. Only an asked send calls the source, re-reads `refreshes` and
-hands out a request. The queue is in the commit's `Checkpoint`
+tapped for. Only an asked send calls the source and hands out a
+request. The queue is in the commit's `Checkpoint`
 (`commit.rs:18–30`), so a refused action adds nothing to it.
 
 ### D3 — When a mutation is free; the `next` commit
 
 **In flight.** A send of `m` is in flight from its ask until its source
-answers `Now`, or its request ends with no answer (`release_failed`, or
-`release_refused`, `admission.rs:67–107`). A further `Later` round
+answers `Now`, or its request ends with no answer (`release_failed` in
+`admission.rs`, including admission refusals since issue #286). A further `Later` round
 (`commit.rs:1036–1042`, "one more round") is not a reply: the send stays in
 flight and runs no `then`. A storage step and its continuation therefore
 finish before the next send is asked.
@@ -166,11 +166,9 @@ finish before the next send is asked.
 **Free.** `m` is free when no request of `m` is in flight, its `then_due`
 is not armed, its `next_due` is not armed, and it is not stalled (below).
 The runner checks this from state, not from the kind of commit
-(`queue.rs`, `arm_next`):
-
-- after every commit concludes, whether it stood or was refused;
-- on `release_refused`'s early return, which makes no commit
-  (`admission.rs:67–68`).
+(`queue.rs`, `arm_next`), after every commit concludes, whether it stood or
+was refused. Admission failure now also commits the release of its ticket
+(issue #286, 2026-10-08); it has no separate early-return path.
 
 When `m` is free and a send waits, `next_due[m] = now`. A `then` is checked
 only after its commit concludes, so `then_due` being cleared before the
@@ -232,6 +230,10 @@ at once would land in one commit, and `then` would see only the second.
 
 ### D4 — What each part of the model does with a queue
 
+- **A waiting send's write** shows from its send, as a send in flight does,
+  when `m` declares `refreshes` (LLP 1054.000.000 D1);
+  one whose ask is refused at its `next` ends, stops showing in that commit,
+  and the resources it showed in are asked again.
 - **`pending(m)`** is true while a send of `m` is in flight or waits. It is
   false once a reply has landed and nothing waits, even while that reply's
   `then` is armed. Sending while `pending` is how a queue is fed: `not
@@ -241,9 +243,10 @@ at once would land in one commit, and `then` would see only the second.
   reply set it. The 2026-09-27 ruling (once per advance, the latest) agrees,
   because no second reply can land before the `then` runs.
   `analyze-then-self-send` stays (§8).
-- **`refreshes`** re-reads when a send is asked, with the resources'
-  arguments in that commit, not the queued body's; it forces again at each
-  reply. A send that only joins the queue reads nothing.
+- **`refreshes`** asks nothing at a send, asked or waiting: its write shows
+  through the data module's overlay (LLP 1054.000.000 D1). It forces the
+  resources at each reply, with their arguments in that commit, not the
+  queued body's.
 - **Assignment.** `m = none` writes the slot and forgets nothing. The reply
   in flight and every waiting send's reply still land and overwrite it.
   A mutation that must drop a late reply (a session) does not declare

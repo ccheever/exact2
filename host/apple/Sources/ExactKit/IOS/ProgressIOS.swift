@@ -1,9 +1,9 @@
 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate `progress` is
 // UIKit's activity indicator, centred in the node's box: `.medium`, or
-// `.large` where the box's shorter side holds its 37 points; `color` its
-// colour. It turns while it shows, and stops where it is hidden
-// (`display: none` on it or above it), removed, or under the agent's clock,
-// which shows one still frame. It is its own accessibility element (UIKit's
+// `.large` where the box's shorter side holds its 37 points; a `color` set
+// on it its colour (an inherited one leaves UIKit's, LLP 1115 D4). It turns
+// while it shows, and stops where it is hidden (`display: none` on it or
+// above it), removed, or under the agent's clock, which shows one still frame. It is its own accessibility element (UIKit's
 // "In progress"), named by the node's `aria-label`.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -12,6 +12,8 @@ extension ControlHost {
     /// The shorter side at which the large indicator replaces the medium
     /// one: the large one's own size.
     static let largeSide: CGFloat = 37
+    /// UIKit's own indicator colour, which an unsaid `color` leaves.
+    static let platformInk: UIColor = UIActivityIndicatorView(style: .medium).color
 
     func syncProgress() {
         let owners = presenter.carrying(ControlKinds.progress).filter { $0.kind == "control" }
@@ -34,7 +36,10 @@ extension ControlHost {
             if spinner.superview !== mount { mount.addSubview(spinner) }
             let box = owner.contentBox()
             assign(spinner, \.style, min(box.width, box.height) >= Self.largeSide ? .large : .medium)
-            if let ink = owner.channels("text_color").map({ TextEngine.color($0) }) { assign(spinner, \.color, ink) }
+            // UIKit's grey unless the spinner's own `color` says otherwise
+            // (LLP 1115 D4: an inherited colour is not the spinner's).
+            let ink = owner.ownColor("text_color") == nil ? nil : owner.channels("text_color").map { TextEngine.color($0) }
+            assign(spinner, \.color, ink ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
             // None restores UIKit's own ("In progress").

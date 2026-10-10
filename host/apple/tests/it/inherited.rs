@@ -39,7 +39,7 @@ const SRC: &str = r##"component Type
     big = not big
   view
     column font-size=(big ? 24 : 20) line-height="24px" testId="root"
-      button press=toggle testId="toggle"
+      button appearance="none" press=toggle testId="toggle"
         text "Toggle"
       text testId="paragraph"
         text "plain" testId="plain"

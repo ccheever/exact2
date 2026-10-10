@@ -229,7 +229,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "it opens")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.actions.map(\.title), ["Delete", "Cancel"])
-        XCTAssertNil(alert.title, "a confirmation has no title row; its label is not one")
+        XCTAssertNil(alert.title, "its popover has no label; the invoker's is not one")
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         guard scene != nil else { return }
         let settled = expectation(description: "presented")
@@ -352,10 +352,13 @@ final class NativeContextsIOSTests: XCTestCase {
     /// `position-area: center` on the sheet (LLP 1021 "Placement"): anchored
     /// at the whole invoker, no arrow, allowed over it; UIKit centres the
     /// sheet across the invoker and picks its vertical position itself.
+    /// Without a cancel, as a chooser with one is an unanchored sheet on a
+    /// compact screen (LLP 1115 D6, ConfirmationAlertIOSTests).
     func testACentredSheetSitsOverItsInvoker() throws {
         let (p, controller, scene) = chooser({ Self.providers })
         defer { p.menus.reset(); window.isHidden = true }
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "center"]],
+                           ["op": "children", "id": 2, "ids": [3, 4, 5]],
                            ["op": "frame", "id": 1, "x": 100.0, "y": 150.0, "w": 200.0, "h": 40.0]]))
         let source = try XCTUnwrap(p.views[1])
         XCTAssertEqual(p.menus.activate(source), true)

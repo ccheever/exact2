@@ -299,7 +299,7 @@ final class BoxLayerIOSTests: XCTestCase {
         let padded = image(2, ["object_fit": .string("cover"), "padding_left": 4, "border_radius_top_left": 20,
             "border_radius_top_right": 20, "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
         let end = Date(timeIntervalSinceNow: 5)
-        while (avatar.raster == nil || padded.raster == nil) && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while (avatar.raster == nil || padded.raster == nil) && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded()
 
         let sub = try XCTUnwrap(avatar.imageLayer)
@@ -347,7 +347,7 @@ final class BoxLayerIOSTests: XCTestCase {
         mark.loadGeneration = 1
         loader.load(mark, source: "mark.png", resolver: resolver)
         let end = Date(timeIntervalSinceNow: 5)
-        while mark.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while mark.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
         window.overrideUserInterfaceStyle = .light
         window.layoutIfNeeded(); mark.layer.displayIfNeeded()
 

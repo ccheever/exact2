@@ -452,3 +452,102 @@ fn the_engine_refuses_bad_input_by_name() {
         Err(EngineError::Transition(TransitionError::TooMany))
     );
 }
+
+/// Removing a node forgets every property it held, whichever they were: the
+/// engine removes the slots it knows the node has, not one probe a property.
+#[test]
+fn a_removed_node_holds_no_property_and_one_removed_property_leaves_the_rest() {
+    let mut engine = Engine::default();
+    let every = Property::ALL
+        .into_iter()
+        .chain([Property::Layout, Property::D]);
+    for (node, held) in [(1u64, 0..26usize), (2, 0..4), (3, 20..26)] {
+        for property in every.clone().skip(held.start).take(held.len()) {
+            let change = Change {
+                node,
+                property,
+                value: Value::scalar(0.5),
+                velocity: None,
+            };
+            engine.observe(change).expect("observed");
+        }
+    }
+    assert!(engine.remove_property(2, Property::Scale));
+    assert!(engine.target(2, Property::Scale).is_none());
+    assert!(engine.target(2, Property::Opacity).is_some());
+    for node in [1, 2] {
+        engine.remove(node);
+        for property in every.clone() {
+            assert!(
+                engine.target(node, property).is_none(),
+                "{node} {property:?}"
+            );
+        }
+    }
+    // Another node's are untouched, and a removed node observed again is new.
+    assert!(engine.target(3, Property::D).is_some());
+    assert!(engine.target(3, Property::Layout).is_some());
+    engine.observe(opacity(1.0)).expect("observed");
+    engine.remove(3);
+    assert!(engine.target(3, Property::Layout).is_none());
+}
+
+/// A node at rest holds settled values and nothing else; observing new
+/// values for it leaves what forgetting it first would, and presents only
+/// the values that changed.
+#[test]
+fn a_node_at_rest_observed_again_is_as_one_forgotten_first() {
+    let observe = |engine: &mut Engine, node: u64, opacity: f64, scale: f64| {
+        for (property, value) in [(Property::Opacity, opacity), (Property::Scale, scale)] {
+            let change = Change {
+                node,
+                property,
+                value: Value::scalar(value),
+                velocity: None,
+            };
+            engine.observe(change).expect("observed");
+        }
+    };
+    let (mut kept, mut forgotten) = (Engine::default(), Engine::default());
+    for engine in [&mut kept, &mut forgotten] {
+        observe(engine, NODE, 1.0, 1.0);
+        engine.frame();
+        assert!(engine.at_rest(NODE));
+        assert!(engine.at_rest(99), "a node never heard of is at rest");
+    }
+    forgotten.remove(NODE);
+    for engine in [&mut kept, &mut forgotten] {
+        observe(engine, NODE, 0.5, 1.0);
+    }
+    for property in [Property::Opacity, Property::Scale] {
+        assert_eq!(kept.value(NODE, property), forgotten.value(NODE, property));
+        assert_eq!(
+            kept.target(NODE, property),
+            forgotten.target(NODE, property)
+        );
+    }
+    let presented = |engine: &mut Engine| -> Vec<Property> {
+        engine.frame().into_iter().map(|p| p.property).collect()
+    };
+    assert_eq!(presented(&mut kept), [Property::Opacity], "what changed");
+    assert_eq!(
+        presented(&mut forgotten),
+        [Property::Scale, Property::Opacity]
+    );
+    assert!(kept.at_rest(NODE));
+
+    // A transition row, a running curve or a hold: not at rest.
+    let mut engine = Engine::default();
+    observe(&mut engine, NODE, 1.0, 1.0);
+    let row = Transitions(vec![ease(TransitionProperty::All, 0.2, Easing::Linear)]);
+    engine.set_transitions(NODE, row).expect("set");
+    assert!(!engine.at_rest(NODE), "a transition row");
+    observe(&mut engine, NODE, 0.0, 1.0);
+    engine
+        .set_transitions(NODE, Transitions::NONE)
+        .expect("set");
+    assert!(!engine.at_rest(NODE), "a curve still running");
+    engine.advance(1.0).expect("advanced");
+    engine.frame();
+    assert!(engine.at_rest(NODE), "settled again");
+}

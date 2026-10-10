@@ -149,14 +149,7 @@ package final class TextSelection {
         clear()
     }
 
-    private func selectable(_ node: NodeView) -> Bool {
-        var current: NSView? = node
-        while let view = current {
-            if (view as? NodeView)?.style["user_select"]?.string == "none" { return false }
-            current = view.superview
-        }
-        return true
-    }
+    private func selectable(_ node: NodeView) -> Bool { node.textSelectable }
     func begin(_ node: NodeView, event: NSEvent) {
         guard selectable(node) else { clear(); return }
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
@@ -382,6 +375,105 @@ package final class TextSelection {
         for rect in paragraph.selectionRects(selection, align: spec.align, in: node.paragraphBox(), dirty: dirty) {
             rect.fill()
         }
+    }
+}
+
+extension NodeView {
+    /// Whether this text takes part in selection: CSS `user-select`, with
+    /// `auto` resolved as AppKit resolves it (LLP 1115 D8). In a hand-built
+    /// Mac app a control's or the window chrome's label is not selectable
+    /// (an `NSTextField` label, an `NSButton` title, a toolbar, a tab, a
+    /// table row's cell) and a document's text is (an `NSTextView`). So,
+    /// walking up from the text:
+    /// 1. the nearest authored `user-select` decides: `none` no; `text`,
+    ///    `all`, `contain` yes;
+    /// 2. else the text is a control's label, and not selectable, inside a
+    ///    pressable (a button or link, a box with a press action, a `button`,
+    ///    `link`, `tab`, `menuitem`, `option`, `checkbox`, `radio` or
+    ///    `switch` role) or a native control;
+    /// 3. else it is selectable inside an `article` (its own header too);
+    /// 4. else it is chrome, not selectable, inside a `header`, `nav` or
+    ///    `footer`, or a `toolbar`, `tablist`, `menubar`, `menu`, `listbox`
+    ///    or `tree` role;
+    /// 5. else it is content and selectable, as a plain list's rows are (a
+    ///    transcript): a row that is pressable is a control by 2.
+    /// ⌘A selects what this admits. The web host keeps the browser's own.
+    var textSelectable: Bool {
+        var document = false, chrome = false
+        var current: NSView? = self
+        while let view = current {
+            current = view.superview
+            guard let node = view as? NodeView else { continue }
+            switch node.style["user_select"]?.string {
+            case "none": return false
+            case "text", "all", "contain": return true
+            default: break
+            }
+            let role = node.props["accessibilityRole"] ?? ""
+            if node.pressable || node.isButton || node.isSurfaceControl || node.kind == "control"
+                || Self.controlRoles.contains(role) { return false }
+            let tag = node.props["semanticTag"] ?? ""
+            if tag == "article" || role == "article" || role == "document" { document = true }
+            if ["header", "nav", "footer"].contains(tag) || Self.chromeRoles.contains(role) { chrome = true }
+        }
+        return document || !chrome
+    }
+    private static let controlRoles: Set<String> = ["button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
+                                                    "option", "checkbox", "radio", "switch", "treeitem"]
+    private static let chromeRoles: Set<String> = ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"]
+}
+
+/// A secondary click on selected text with no authored `contextmenu` is
+/// the menu an `NSTextView` shows for read-only text (LLP 1115 D8): Look Up
+/// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the Services that take text, which
+/// AppKit adds itself to a contextual menu whose responder can send them
+/// (`validRequestor`). Anywhere else there is no menu, as before.
+extension NodeView: NSServicesMenuRequestor {
+    package override func menu(for event: NSEvent) -> NSMenu? {
+        guard isParagraph, let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return super.menu(for: event) }
+        let text = selection.selectedText()
+        guard !text.isEmpty else { return super.menu(for: event) }
+        _ = Self.servicesRegistered
+        let menu = NSMenu()
+        let shown = text.count > 24 ? String(text.prefix(23)) + "…" : text
+        let lookUp = menu.addItem(withTitle: String(format: NSLocalizedString("Look Up “%@”", comment: ""), shown.replacingOccurrences(of: "\n", with: " ")),
+                                  action: #selector(lookUpSelection(_:)), keyEquivalent: "")
+        lookUp.target = self
+        menu.addItem(.separator())
+        let copy = menu.addItem(withTitle: NSLocalizedString("Copy", comment: ""), action: #selector(copy(_:)), keyEquivalent: "")
+        copy.target = self
+        menu.addItem(.separator())
+        let speech = NSMenu(title: NSLocalizedString("Speech", comment: ""))
+        speech.addItem(withTitle: NSLocalizedString("Start Speaking", comment: ""), action: Selector(("startSpeaking:")), keyEquivalent: "")
+        speech.addItem(withTitle: NSLocalizedString("Stop Speaking", comment: ""), action: Selector(("stopSpeaking:")), keyEquivalent: "")
+        menu.addItem(withTitle: speech.title, action: nil, keyEquivalent: "").submenu = speech
+        return menu
+    }
+    /// The dictionary's panel over the selection's first line, as a text
+    /// view shows it (the selection's own baseline, its own size).
+    @objc func lookUpSelection(_ sender: Any?) {
+        guard let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return }
+        let size = CGFloat(style["font_size"]?.number ?? NSFont.systemFontSize)
+        let font = NSFont.systemFont(ofSize: size)
+        let string = NSAttributedString(string: selection.selectedText(), attributes: [.font: font])
+        var origin = NSPoint(x: paragraphBox().minX, y: paragraphBox().minY + font.ascender)
+        if let paragraph = paragraphLayout(),
+           let first = paragraph.selectionRects(range, align: paragraphSpec().align, in: paragraphBox(), dirty: bounds).first {
+            origin = NSPoint(x: first.minX, y: first.maxY + font.descender)
+        }
+        showDefinition(for: string, at: origin)
+    }
+    private static let servicesRegistered: Void = {
+        NSApp.registerServicesMenuSendTypes([.string], returnTypes: [])
+    }()
+    package override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+        if isParagraph, returnType == nil, sendType == .string, presenter?.selection.selectedText().isEmpty == false { return self }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+    package func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard types.contains(.string), let text = presenter?.selection.selectedText(), !text.isEmpty else { return false }
+        pboard.clearContents()
+        return pboard.setString(text, forType: .string)
     }
 }
 
