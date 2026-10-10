@@ -4,7 +4,10 @@ import java.nio.ByteBuffer
 
 /** One JNI call per committed turn. Returned buffers are borrowed until the next call. */
 internal object Native {
-    init { System.loadLibrary("exact_app") }
+    init {
+        android.system.Os.setenv("MIMALLOC_PURGE_DELAY", "0", true)
+        System.loadLibrary("exact_app")
+    }
     @JvmStatic external fun create(text: TextEngine, reuseRows: Boolean): Long
     @JvmStatic external fun rowReuse(handle: Long, enabled: Boolean)
     @JvmStatic external fun boot(handle: Long, width: Float, height: Float, initialPress: ByteArray? = null): ByteBuffer

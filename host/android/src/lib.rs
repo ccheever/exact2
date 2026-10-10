@@ -33,3 +33,7 @@ pub use carrier::{baked_core_eligible, DataContract};
 
 #[cfg(test)]
 mod controls_tests;
+
+/// The allocator used by Android apps' Rust runtime.
+#[cfg(target_os = "android")]
+pub use mimalloc::MiMalloc;

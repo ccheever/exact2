@@ -1176,6 +1176,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "mimalloc",
  "serde_json",
 ]
 

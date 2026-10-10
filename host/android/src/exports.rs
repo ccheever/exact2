@@ -6,6 +6,10 @@ macro_rules! host {
         $crate::host!($data, $plan, $compat, $crate::General<$data>);
     };
     ($data:ty, $plan:expr, $compat:expr, $general:ty) => {
+        #[cfg(target_os = "android")]
+        #[global_allocator]
+        static EXACT_ANDROID_ALLOCATOR: $crate::MiMalloc = $crate::MiMalloc;
+
         thread_local! {
             static EXACT_ANDROID: ::std::cell::RefCell<$crate::session::Registry<$data, $general>> =
                 ::std::cell::RefCell::new($crate::session::Registry::default());

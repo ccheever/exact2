@@ -14,7 +14,10 @@ import org.json.JSONObject
 import kotlin.math.roundToInt
 
 internal object C9Config {
-    init { System.loadLibrary("exact_app") }
+    init {
+        android.system.Os.setenv("MIMALLOC_PURGE_DELAY", "0", true)
+        System.loadLibrary("exact_app")
+    }
     @JvmStatic external fun setLive(live: Boolean)
 }
 
