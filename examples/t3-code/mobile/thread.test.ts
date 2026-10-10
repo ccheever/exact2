@@ -1,4 +1,4 @@
-import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-state';
+import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { arr, type Obj } from './shared/domain';

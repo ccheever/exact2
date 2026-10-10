@@ -4,7 +4,7 @@ import { MobileDraftClient, mobileAdoptRecoveredDraft, mobileDraftRecoveryHandle
   mobileRecoveredMessageContext, mobileRetireRecoveredDraft } from './mobile-draft-recovery';
 import { obj, arr, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
-import type { MobileQueuedEditSession } from './queued-edit-state';
+import type { MobileQueuedEditSession } from './queued-edit-memory';
 import { draftFiles } from './shared/composer-editor-files';
 import { omitExpiredTerminalContexts } from './shared/terminal-integrations';
 import { queuedEditRefreshOrigin } from './queued-edit-origin';

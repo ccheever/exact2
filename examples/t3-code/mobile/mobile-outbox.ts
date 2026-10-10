@@ -413,12 +413,13 @@ function transferOutcome(raw: unknown, claim: TransferClaim): MobileOutboxOutcom
 /** Native deduplicates the full captured draft before accepting the requested IDs. */
 async function enqueueTransfer<C extends TransferClaim>(client: Client, native: Native | null | undefined,
   input: MobileOutboxRecord, captured:MobileOutboxTransferCapture|ThreadSendTransferCapture,
-  decode:(raw:unknown)=>C, ordinary:boolean):Promise<{disposition:MobileOutboxTransferResult['disposition'];claim:C|null;outcome:MobileOutboxOutcome|null}> {
+  decode:(raw:unknown)=>C, ordinary:boolean, beforeEnqueue?:()=>void):Promise<{disposition:MobileOutboxTransferResult['disposition'];claim:C|null;outcome:MobileOutboxOutcome|null}> {
   const { value, native: handle, epoch } = readyState(client, native);
   if (!value.complete) throw new ClientError('Resolve the incomplete pending-task inventory before submitting a draft.');
   const record = mobileOutboxEncode(input), capture = ordinary?threadSendTransferDecodeCapture(captured,record):mobileOutboxTransferDecodeCapture(captured, record);
   const target=ordinary?threadTarget({origin:capture.draft.origin,environmentId:capture.draft.environmentId,threadId:record.threadId,draftKey:capture.draft.key}):null;
   if (!Number.isSafeInteger(value.sequence + 1)) throw new ClientError('The pending task sequence is exhausted.');
+  beforeEnqueue?.();
   const mutationId = `${epoch}:${++value.sequence}`, ordinal = ++value.ordinal, messageId = record.messageId;
   const previous = value.rows[messageId];
   value.intents[mutationId] = { mutationId, messageId, ownerEpoch: epoch, operation: 'enqueue', ordinal, record: clone(record), expected: {}, status: 'submitted',
@@ -460,8 +461,8 @@ export const mobileOutboxEnqueueTransfer = (client:Client,native:Native|null|und
 export interface MobileOutboxThreadTransferResult {
   disposition:MobileOutboxTransferResult['disposition'];claim:ThreadSendTransferClaim|null;outcome:MobileOutboxOutcome|null;
 }
-export const mobileOutboxEnqueueThreadTransfer = (client:Client,native:Native|null|undefined,input:MobileOutboxRecord,captured:ThreadSendTransferCapture):Promise<MobileOutboxThreadTransferResult> =>
-  enqueueTransfer(client,native,input,captured,threadSendTransferDecodeClaim,true);
+export const mobileOutboxEnqueueThreadTransfer = (client:Client,native:Native|null|undefined,input:MobileOutboxRecord,captured:ThreadSendTransferCapture,beforeEnqueue?:()=>void):Promise<MobileOutboxThreadTransferResult> =>
+  enqueueTransfer(client,native,input,captured,threadSendTransferDecodeClaim,true,beforeEnqueue);
 export async function mobileOutboxTransferLookup(client: Client, native: Native | null | undefined, draftKey: string,
   captured?: MobileOutboxTransferCapture): Promise<{ complete: boolean; fingerprint: string | null; claims: MobileOutboxTransferClaim[] }> {
   if (!/^new-task:[\w-]{1,128}$/.test(draftKey)) throw new ClientError('Choose an independent draft.');

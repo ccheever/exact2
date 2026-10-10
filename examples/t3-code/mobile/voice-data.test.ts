@@ -6,7 +6,8 @@ import type { Native, Files } from './shared/protocol';
 import { mobileVoiceAction, mobileVoiceBlocksSubmission, mobileVoiceObserveDraft, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { resetVoiceInputGlobalsForTests } from './voice-controller';
 import { mobileComposerTarget } from './composer-target';
-import { queuedEditState, queuedEditThreadKey, queuedEditEndMemory, mobileQueuedEditLookup, mobileQueuedEditWriteText, type MobileQueuedEditSession } from './queued-edit-state';
+import { queuedEditThreadKey, queuedEditEndMemory, mobileQueuedEditLookup, mobileQueuedEditWriteText } from './queued-edit-state';
+import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-memory';
 
 beforeEach(resetVoiceInputGlobalsForTests);
 function fixture() {

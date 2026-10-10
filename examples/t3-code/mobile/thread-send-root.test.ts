@@ -7,7 +7,7 @@ import {mobileEditorSnapshot,mobileEditorAction,type EditorRouteInput} from './c
 import {mobileEditorFilesSnapshot} from './composer-file-runtime';
 import {mobileEditorOwner} from './composer-editor-owner';
 import {mobileThreadSendCaptureDraft} from './thread-send-handoff-draft';
-import {queuedEditState} from './queued-edit-state';
+import { queuedEditState, queuedEditSetNotice, queuedEditNoticeOwner, mobileQueuedEditNotice, queuedEditNoticeKey } from './queued-edit-memory';
 import {mobileComposerTarget} from './composer-target';
 import {mobileDraftChanged} from './draft';
 import {mobileOutboxSnapshot,type MobileOutboxThreadTarget} from './mobile-outbox';
@@ -91,6 +91,71 @@ function usage(f:Fixture){f.client.local.drafts[f.target.key]='/usage-limits';f.
  resetCredits:{availableCount:1},externalUsage:{label:'Usage',url:'https://example.com/usage'}}}];}
 function connected(f:Fixture){f.client.connection='connected';f.client.scopes=['orchestration:operate','providers:manage']}
 const id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+
+test('actual root ordinary Send clears captured thread error on synchronous enqueue, before native ACK, without clearing journal error',async()=>{
+ const f=await fixture();await prepared(f);const owner=queuedEditNoticeOwner(f.client)!;
+ queuedEditSetNotice(f.client,'Old queued failure',owner);queuedEditSetNotice(f.client,'Journal failure',null);
+ queuedEditSetNotice(f.client,'Other thread failure',{...owner,threadId:'other'});
+ const entered=gate(),release=gate();f.intercept(async r=>{if(r.action==='enqueueTransfer'){entered.resolve();await release.promise}});
+ const sending=run(f,'send');await entered.promise;
+ expect(queuedEditNoticeKey(f.client,owner)).toBe('');expect(mobileQueuedEditNotice(f.client)).toBe('Journal failure');
+ expect(mobileOutboxSnapshot(f.client).rows[0]?.status).toBe('optimistic');
+ expect(f.client.draft).toBe('  captured  ');expect(f.completed()).toBe(false);
+ release.resolve();expect((await sending).accepted).toBe(true);
+ expect([...queuedEditState(f.client).notices.values()].map(value=>value.message)).toEqual(['Other thread failure']);
+});
+
+test('root Send admission refusals keep the prior error through final storage, IDs and outbox sequence gates',async()=>{
+ for(const denied of ['import','inventory','persist','ids','sequence'] as const){
+  const f=await fixture();await prepared(f);queuedEditSetNotice(f.client,'Keep previous error',queuedEditNoticeOwner(f.client));
+  const key=queuedEditNoticeKey(f.client);
+  if(denied==='import')f.input.contextImporting=true;
+  if(denied==='inventory')f.setComplete(false);
+  if(denied==='persist')f.failSave();
+  const native=f.native.later;f.native.later=async raw=>{
+   const reply=await native(raw),r=obj(raw);
+   if(denied==='ids'&&r.op==='ids')return {...obj(reply),value:['same','same']};
+   if(denied==='sequence'&&r.action==='read')return {...obj(reply),value:{...obj(obj(reply).value),sequenceFloor:Number.MAX_SAFE_INTEGER}};
+   return reply;
+  };
+  expect((await run(f,'send')).accepted).toBe(false);expect(queuedEditNoticeKey(f.client)).toBe(key);
+  expect(f.requests.some(r=>r.action==='enqueueTransfer')).toBe(false);
+ }
+});
+
+test('source local usage and feedback commands preserve queued composer error even when admitted',async()=>{
+ for(const command of ['usage','feedback'] as const){const f=await fixture();connected(f);
+  if(command==='usage')usage(f);else f.client.local.drafts[f.target.key]='/feedback reason';
+  await prepared(f);queuedEditSetNotice(f.client,'Queued composer failure',queuedEditNoticeOwner(f.client));const key=queuedEditNoticeKey(f.client);
+  expect((await run(f,'send')).accepted).toBe(true);expect(queuedEditNoticeKey(f.client)).toBe(key);
+  expect(f.requests.some(r=>r.action==='enqueueTransfer')).toBe(false);
+ }
+});
+
+test('delayed root admission preserves a newer same-text notice and refuses stale thread ownership',async()=>{
+ for(const change of ['notice','thread'] as const){const f=await fixture();await prepared(f);const owner=queuedEditNoticeOwner(f.client)!;
+  queuedEditSetNotice(f.client,'Same failure',owner);const original=queuedEditNoticeKey(f.client);
+  const entered=gate(),release=gate();f.intercept(async r=>{if(r.op==='ids'){entered.resolve();await release.promise}});
+  const sending=run(f,'send');await entered.promise;
+  if(change==='thread'){f.client.threadId='other';f.client.local.drafts[f.client.draftKey]='Other draft';
+   Object.assign(f.input,{threadId:'other',url:`/threads/${f.client.environmentId}/other`,visit:'other'});view(f);
+  }
+  queuedEditSetNotice(f.client,'Same failure',queuedEditNoticeOwner(f.client));const newer=queuedEditNoticeKey(f.client);
+  expect(newer).not.toBe(original);release.resolve();
+  if(change==='thread')await expect(sending).rejects.toHaveProperty('kind','superseded');else expect((await sending).accepted).toBe(true);
+  expect(queuedEditNoticeKey(f.client)).toBe(newer);
+  if(change==='thread'){expect(f.requests.some(r=>r.action==='enqueueTransfer')).toBe(false);expect(f.client.draft).toBe('Other draft');expect(queuedEditNoticeKey(f.client,owner)).toBe(original)}
+ }
+});
+
+test('duplicate completion and explicit recovery keep notice because neither admits a fresh ordinary enqueue',async()=>{
+ const f=await fixture();await prepared(f);f.intercept(r=>{if(r.action==='enqueueTransfer')f.failSave()});
+ expect((await run(f,'send')).accepted).toBe(true);expect(f.claim()?.state).toBe('queued');f.intercept(undefined);
+ queuedEditSetNotice(f.client,'Retained message failure',queuedEditNoticeOwner(f.client));const key=queuedEditNoticeKey(f.client);
+ await run(f,'recovery-read',view(f).readKey);const recovery=view(f).recovery.actions.find(a=>a.label==='Finish saving message');
+ expect(recovery).toBeDefined();await run(f,'recovery-action',recovery!.key);expect(queuedEditNoticeKey(f.client)).toBe(key);
+ expect(f.requests.filter(r=>r.action==='enqueueTransfer')).toHaveLength(1);
+});
 
 test('unknown recovery gates initial Send; read key is stable through unrelated revisions and clock ticks',async()=>{
  const f=await fixture(),v=view(f);expect(v.ordinary).toBe(true);expect(v.canSend).toBe(false);expect(v.hasContent).toBe(true);expect(v.needsRead).toBe(true);

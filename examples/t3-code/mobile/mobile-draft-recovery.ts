@@ -27,8 +27,11 @@ import { ClientError, type Native, type Files } from './shared/protocol';
 import { contextId, contextReferences } from './shared/composer-editor-menu';
 import { adoptComposerFiles, draftFiles, setDraftFiles } from './shared/composer-editor-files';
 import { adoptTerminalContexts } from './shared/terminal-integrations';
-import type { MobileQueuedEditSession } from './queued-edit-state';
+import type { MobileQueuedEditSession } from './queued-edit-memory';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { mobileQueuedEditDismissNotice, queuedEditClearEnvironmentNotices } from './queued-edit-memory';
+import { bridgeReply } from './shared/protocol';
+import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 
 import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftBoundKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftHydrate, mobileNewTaskDraftPersisted, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchBeforeRequest, mobileNewTaskLaunchEnd, mobileNewTaskLaunchFinish, mobileNewTaskLaunchCanReconcile, mobileNewTaskLaunchProtectedImages, mobileNewTaskDraftFlushFiles, mobileNewTaskLaunchSlotEnvironment } from './mobile-new-task-launch';
@@ -248,7 +251,36 @@ export class MobileDraftClient extends T3Client {
     if (!mobileNewTaskDraftIsPendingKey(mobileNewTaskDraftCurrent(this)?.key ?? '') && !mobileNewTaskRestoredContext(this)) super.ensureSelection();
   }
   override async command(...args: Parameters<T3Client['command']>): ReturnType<T3Client['command']> {
-    const [op, id, value, n, native, storage] = args,
+    const [op, id, value, n, suppliedNative, storage] = args;
+    if (op === 'queued-edit-notice-dismiss') {
+      mobileQueuedEditDismissNotice(id, this); return { revision: this.revision, message: '' };
+    }
+    const removal = op === 'environment-forget' && id && value;
+    const catalog = removal ? mobileCacheCatalogIdentity(fleet.saved, value) : '';
+    let acceptedRemovalGeneration: number | null = null;
+    const base = removal && suppliedNative ? letGoAware(suppliedNative) : suppliedNative;
+    const native: Native | null | undefined = removal && base ? { available: base.available, watch: topic => base.watch(topic), later: async request => {
+      const input = obj(request);
+      if (input.op === 'forgetEnvironment' && input.origin === id && input.environmentId === value) {
+        const reply = await bridgeReply(base, request), status = obj(reply.value);
+        // Match shared T3Client.adoptStatus admission before retiring app-owned
+        // notices. That later call still owns status changes and protocol errors.
+        acceptedRemovalGeneration = reply.ok && reply.generation >= this.generation
+          && ['disconnected', 'connecting', 'connected', 'reconnecting', 'error'].includes(str(status.state))
+          && ['origin', 'environmentId', 'message'].every(field => typeof status[field] === 'string') ? reply.generation : null;
+        return reply;
+      }
+      // Shared connections reaches this only after its decoded successful reply
+      // and the command's ownedNative check. A let-go success cannot clear errors.
+      if (acceptedRemovalGeneration !== null && input.op === 'sshForget' && input.origin === id.trim().replace(/\/+$/, '')) {
+        const generation = acceptedRemovalGeneration;
+        acceptedRemovalGeneration = null;
+        const replacement = mobileCacheCatalogIdentity(fleet.saved, value);
+        if (generation >= this.generation) queuedEditClearEnvironmentNotices(this, value, replacement && replacement !== catalog ? str(JSON.parse(replacement)[1]) : '');
+      }
+      return base.later(request);
+    } } : base;
+    const
       handles = mobileDraftSettingsHandles(this, op, native ? pendingAttachmentHandle(this, native) : native, storage);
     if (op.startsWith('editorlocal:')) {
       const context = await mobileNewTaskContextCommand(this, op, id, value, handles.native, handles.storage);

@@ -78,7 +78,12 @@ component ThreadComposer
             button press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
               text "Cancel" font-size=12 font-weight=500 color=colors.primary
         when data.editNotice != ""
-          text data.editNotice padding-left=14 padding-right=14 padding-bottom=7 font-size=13 color=colors.muted
+          column padding-left=14 padding-right=14 padding-bottom=10.5
+            row align-items="start" gap=10.5 border-radius=20 corner-shape="-exact-continuous" background-color=colors.card padding=14
+              t3-symbol symbol-name="exclamationmark.circle" point-size=16 symbol-tint=colors.dangerForeground width=16 height=16
+              text data.editNotice aria-live="polite" flex=1 min-width=0 font-size=14 color=colors.foreground
+              when data.editNoticeDismissKey != ""
+                ThreadComposerNoticeDismiss(noticeKey=data.editNoticeDismissKey, icon=colors.iconMuted, action=action)
         when data.editPendingId != ""
           button press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
             text "Retry queued message save" font-size=13 color=colors.primary
@@ -153,6 +158,20 @@ component ThreadComposer
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
 
+component ThreadComposerNoticeDismiss
+  props
+    noticeKey: string
+    icon: string
+    action: action
+  state pressed = false
+  action noticePointerDown
+    pressed = true
+  action noticePointerUp
+    pressed = false
+  view
+    button press=action("queued-edit-notice-dismiss", noticeKey, "") pointerdown=noticePointerDown pointerup=noticePointerUp
+      padding=3.5 retainFocus=true aria-label="Dismiss error" opacity=(pressed ? 0.6 : 1)
+      t3-symbol symbol-name="xmark" point-size=14 symbol-tint=icon width=14 height=14
 component ThreadSendButton
   props
     sendLabel: string

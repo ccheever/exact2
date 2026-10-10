@@ -12,10 +12,8 @@ import { mobileSessionGrants } from './environment-detail';
 import { mobileQueueCurrent, mobileQueueOwner } from './queue';
 import { mobileAdoptRecoveredDraft, mobileRetireRecoveredDraft } from './mobile-draft-recovery';
 import { mobileQueuedEditUpload, queuedEditResolvePayload } from './queued-edit-upload';
-import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, queuedEditClone, queuedEditEndMemory,
-  queuedEditNative, queuedEditOperation, queuedEditRecord, queuedEditRefreshOrigin, mobileQueuedEditOrigin, queuedEditState, queuedEditThreadKey,
-  mobileQueuedEditNotice, queuedEditNoticeOwner, queuedEditSessionNoticeOwner, queuedEditOperationNoticeOwner, queuedEditSetNotice,
-  type MobileQueuedEditNoticeOwner, type MobileQueuedEditSession, type MobileQueuedEditOperation } from './queued-edit-state';
+import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, queuedEditClone, queuedEditEndMemory, queuedEditNative, queuedEditOperation, queuedEditRecord, queuedEditRefreshOrigin, mobileQueuedEditOrigin, queuedEditThreadKey } from './queued-edit-state';
+import { queuedEditState, mobileQueuedEditNotice, queuedEditNoticeOwner, queuedEditSessionNoticeOwner, queuedEditOperationNoticeOwner, queuedEditSetNotice, type MobileQueuedEditNoticeOwner, type MobileQueuedEditSession, type MobileQueuedEditOperation } from './queued-edit-memory';
 
 const busy = new WeakSet<T3Client>();
 const modelReady = (client: T3Client) => mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId });

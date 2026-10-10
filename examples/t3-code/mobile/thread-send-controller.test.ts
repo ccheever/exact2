@@ -7,7 +7,7 @@ import {mobileComposerTarget} from './composer-target';
 import {mobileDraftChanged} from './draft';
 import {mobileOutboxRead,mobileOutboxSnapshot,type MobileOutboxThreadTarget} from './mobile-outbox';
 import {mobileComposerContextsHydrate} from './composer-command-context';
-import {queuedEditState} from './queued-edit-state';
+import { queuedEditState } from './queued-edit-memory';
 import type {ThreadSendTransferClaim} from './thread-send-transfer-model';
 import type {ThreadSendRecord} from './thread-send-admission';
 import {mobileOutboxTransferCanonical as canonical} from './mobile-outbox-transfer-model';

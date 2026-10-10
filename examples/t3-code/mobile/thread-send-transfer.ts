@@ -4,6 +4,7 @@ import type { MobileDraftClient } from './mobile-draft-recovery';
 import type { MobileComposerTarget } from './composer-target';
 import { mobileEditorContextTargetCurrent } from './composer-editor-owner';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
+import { queuedEditNoticeOwner, queuedEditNoticeKey, queuedEditClearCapturedNotice } from './queued-edit-memory';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { fleet } from './shared/settings-b-fleet';
 import { ClientError, type Native, type Files } from './shared/protocol';
@@ -91,6 +92,7 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
   if(!Number.isFinite(input.now)||input.now<=0)return result('blocked','Wait for the app clock before queuing this message.');
   const target:MobileOutboxThreadTarget={origin:mobileQueuedEditOrigin(client),environmentId:input.target.environmentId,
     threadId:input.target.threadId,draftKey:input.target.key};
+  const noticeOwner=queuedEditNoticeOwner(client),noticeKey=queuedEditNoticeKey(client,noticeOwner);
   const release=acquire(client,target);if(!release)return result('busy','This draft is already being submitted.');
   try {
     const {native,check}=invocation(client,nativeInput,target);
@@ -130,7 +132,10 @@ export async function mobileThreadTransferSubmit(client:MobileDraftClient,native
     if(!messageId||!commandId||messageId===commandId)return result('blocked','Message identifiers were not unique.');
     const record=mobileOutboxEncode({...proposed,messageId,commandId,createdAt:new Date(input.now).toISOString()});
     const capture=threadSendTransferDecodeCapture(captured.capture,record);
-    const admitted=await mobileOutboxEnqueueThreadTransfer(client,native,record,capture);check();
+    // Pinned mobile clears immediately before a fresh synchronous enqueue. Our
+    // admission awaits must not erase a newer failure reported in the meantime.
+    const admitted=await mobileOutboxEnqueueThreadTransfer(client,native,record,capture,
+      ()=>queuedEditClearCapturedNotice(client,noticeOwner,noticeKey));check();
     if(!admitted.claim||admitted.disposition==='unknown')return result('recovery-required','The local save reply was interrupted. Recover this draft before retrying.');
     return await finish(client,native,storage,check,admitted.claim,input.editor);
   }catch(error){

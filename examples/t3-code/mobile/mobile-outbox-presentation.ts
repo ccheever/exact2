@@ -72,7 +72,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
       user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', intent: status,
       copied: false, expanded: false, toggleOp: '', toggleId: '', failed: false, live: false, activities: [],
       media: [], first: rows.length === 0, last: true, canFork: false, forkKey: '', forkBusy: false }])].map((row, index, all) => ({ ...row, first: index === 0, last: index === all.length - 1 })),
-    composer: { editing: false, saving: false, canCancel: false, editNotice: '', editPendingId: '', canRetryEdit: false,
+    composer: { editing: false, saving: false, canCancel: false, editNotice: '', editNoticeDismissKey: '', editPendingId: '', canRetryEdit: false,
       contentOwner: '', draft: '', placeholder: 'Waiting for this task to start…', canSend: false, canStop: false, showStop: false,
       canOperate: false, showReadOnlyNotice: false, sendLabel: 'Send', sendSymbol: 'arrow.up', blockedReason: status,
       modelLabel: record.modelSelection?.model ?? '', providerDriver: '', providerIconURL: '', modelUnavailable: false,

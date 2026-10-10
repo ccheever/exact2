@@ -8,8 +8,8 @@ import { bridgeReply, ClientError, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { fileStagingLimit } from './shared/composer-editor-files';
 import { contextLabel, contextLink } from './shared/composer-editor-menu';
-import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteContent,
-  queuedEditNative, queuedEditReplaceAttachments, queuedEditSessionNoticeOwner, queuedEditSetNotice, type MobileQueuedEditAttachment } from './queued-edit-state';
+import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteContent, queuedEditNative, queuedEditReplaceAttachments } from './queued-edit-state';
+import { queuedEditSessionNoticeOwner, queuedEditSetNotice, type MobileQueuedEditAttachment } from './queued-edit-memory';
 import { mobileComposerStageSelection } from './voice-data';
 import { mobileComposerTarget } from './composer-target';
 import { queuedEditImageMime } from './queued-edit-upload';

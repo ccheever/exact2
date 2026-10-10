@@ -155,7 +155,8 @@ describe('Review navigator selection and viewed state', () => {
 
 
 test('queued comment selection cannot retarget ordinary content after edit ends; diffs remain readable', async () => {
-  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditState } = await import('./queued-edit-memory');
   const f = fixture(); f.client.local.drafts[f.client.draftKey] = 'ordinary untouched';
   const edit = { owner: 'comment-edit', session: 'comment-session', draftKey: 'one:t~queued-edit~r', origin: f.client.origin,
     environmentId: 'one', threadId: 't', projectId: 'p', generation: 3, revision: 1, runId: 'r', messageId: 'm', text: 'queued',
@@ -174,7 +175,8 @@ test('queued comment selection cannot retarget ordinary content after edit ends;
 
 
 test('late queued comment persistence cannot clear a replacement composer selection', async () => {
-  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditState } = await import('./queued-edit-memory');
   const f = fixture(); const state = queuedEditState(f.client), key = queuedEditThreadKey('one', 't');
   const edit = { owner: 'prior-comment', session: 'prior-session', draftKey: 'one:t~queued-edit~r', origin: f.client.origin,
     environmentId: 'one', threadId: 't', projectId: 'p', generation: 3, revision: 1, runId: 'r', messageId: 'm', text: 'queued',

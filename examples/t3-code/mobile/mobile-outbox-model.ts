@@ -1,6 +1,6 @@
 // @ref llp/1109.005-composer-and-transcript.decision.md#local-outbox-storage
 // Pure policy port of pinned 365aa87982 apps/mobile/src/state/thread-outbox-model.ts.
-import type { MobileQueuedEditAttachment } from './queued-edit-state';
+import type { MobileQueuedEditAttachment } from './queued-edit-memory';
 import type { DraftFile } from './shared/composer-editor-files';
 import { MAX_FILE_BYTES } from './shared/composer-editor-files';
 import type { Obj } from './shared/domain';
