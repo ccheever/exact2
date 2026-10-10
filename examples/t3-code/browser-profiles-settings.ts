@@ -167,16 +167,41 @@ const listedProfiles = (client: T3Client) => resolveBrowserProfiles(browserProfi
 const targetProfiles = (client: T3Client) => listedProfiles(client).map(profile => ({ id: profile.id, name: profile.name }));
 const canCreateProfile = (client: T3Client) => hydrated(client) && browserProfilePrefs(client).browserProfiles.length < BROWSER_PROFILE_MAX_COUNT;
 
-// import-wizard-initial-focus: how many times the wizard's screen changed (a step of another kind), which the page's focus
-// follows (`focusKey`): each change removes the focused button, as React's swap of step components does, also when the
-// steps between came and went before the page was read again (blocked → importing → blocked). The same step set again
-// (Configure after a vanished target) keeps its screen, and the focus where it is.
-const screenChanges = new WeakMap<Pick<Wizard, 'step'>, number>();
+// import-wizard-initial-focus: when the wizard opened, when its screen last changed, and when each of its focusable
+// elements was last mounted, on one clock that every opening, change of screen (a step of another kind) and grant flip
+// ticks. React mounts a step's buttons and tiles with the step (a step of another kind swaps the step component), Allow
+// with the step or with a grant taken back (a grant replaces it with "Allowed"), and the close X whenever a step that can
+// close follows one that cannot (DialogPopup renders it after the step, so a change between two closable steps keeps it).
+// Base UI moves the focus to the popup only when the element that held it was removed (`restoreFocus`), so the root
+// (app.contract importWizardStepFocus) keeps the focus where it is when that element is mounted since the change it last
+// saw, also when the steps between came and went before the page was read again (Quit → Checking → Quit).
+let focusClock = 0;
+type Mounts = { opened: number; at: number; step: number; allow: number; x: number };
+const mounts = new WeakMap<object, Mounts>();
+export function wizardMounts(wizard: object): Mounts {
+  let marks = mounts.get(wizard);
+  if (!marks) { const now = ++focusClock; marks = { opened: now, at: now, step: now, allow: now, x: now }; mounts.set(wizard, marks); }
+  return marks;
+}
+/** Every place the wizard's step is set: a step of another kind is a new screen; the same step set again (Configure after
+ *  a vanished target) keeps its screen. */
 export function goTo(wizard: Pick<Wizard, 'step'>, step: WizardStep): void {
-  if (step.step !== wizard.step.step) screenChanges.set(wizard, (screenChanges.get(wizard) ?? 0) + 1);
+  if (step.step !== wizard.step.step) {
+    const marks = wizardMounts(wizard), now = ++focusClock;
+    marks.at = marks.step = marks.allow = now;
+    if (canCloseWizard(step) && !canCloseWizard(wizard.step)) marks.x = now;
+  }
   wizard.step = step;
 }
-export const wizardFocusKey = (wizard: Pick<Wizard, 'step' | 'fdaGranted'>) => `${screenChanges.get(wizard) ?? 0}|${wizard.fdaGranted ? 'granted' : ''}`;
+/** usePermissionStatus's answer on Full Disk Access: a grant replaces Allow, a grant taken back mounts it again. */
+export function setGranted(wizard: Pick<Wizard, 'fdaGranted'>, granted: boolean): void {
+  if (granted !== wizard.fdaGranted) {
+    const marks = wizardMounts(wizard), now = ++focusClock;
+    marks.at = now;
+    if (!granted) marks.allow = now;
+  }
+  wizard.fdaGranted = granted;
+}
 
 function openWizard(client: T3Client, sourceId: string): void {
   const state = ui(client), source = (state.sources ?? []).find(entry => entry.id === sourceId), primary = primaryEntry();
@@ -187,6 +212,7 @@ function openWizard(client: T3Client, sourceId: string): void {
     // Stable across retries, so a keychain re-approval lands in one profile, not a new one each time.
     newProfileId: `profile-${crypto.randomUUID()}`, opening: false, openingError: '', fdaGranted: false,
   };
+  wizardMounts(state.wizard);
 }
 
 /** runWizardImport: a new profile is registered only once something came over, so a blocked attempt leaves none behind. */
@@ -315,10 +341,12 @@ export type BrowserImportWizardView = {
   from: WizardTileView[]; into: WizardTileView[]; feedback: string; importDisabled: boolean;
   fdaGranted: boolean; fdaStillRequired: boolean; fdaBusy: boolean; fdaNote: string; fdaResume: string;
   doneTitle: string; doneDescription: string; skipped: string; blockedText: string; retry: boolean;
-  /** Where the focus goes as the wizard opens, the first and last Tab stops (Tab and Shift+Tab from the popup itself), and
-   *  what a step change is told by (app.contract importWizardStepFocus). */
-  openFocus: string; tabFirst: string; tabLast: string; focusKey: string;
+  /** Where the focus goes as the wizard opens and the first and last Tab stops (Tab and Shift+Tab from the popup itself);
+   *  when it opened and last changed screen, and since when each focusable element is mounted (app.contract
+   *  importWizardStepFocus; -1 and none while closed). */
+  openFocus: string; tabFirst: string; tabLast: string; openedAt: number; focusAt: number; mounted: WizardMount[];
 };
+export type WizardMount = { id: string; since: number };
 export type BrowserProfilesView = {
   hydrated: boolean; writesDisabled: boolean; importInFlight: boolean; atLimit: boolean; rows: BrowserProfileRowView[];
   sourcesState: string; sources: { id: string; name: string }[]; canImport: boolean; removalAvailable: boolean; removalNote: string;
@@ -328,29 +356,34 @@ export type BrowserProfilesView = {
 };
 const closedWizard = (): BrowserImportWizardView => ({ open: false, step: '', sourceName: '', environmentName: '', canClose: true, check: '', from: [], into: [], feedback: '', importDisabled: true,
   fdaGranted: false, fdaStillRequired: false, fdaBusy: false, fdaNote: '', fdaResume: '', doneTitle: '', doneDescription: '', skipped: '', blockedText: '', retry: false,
-  openFocus: '', tabFirst: '', tabLast: '', focusKey: '' });
+  openFocus: '', tabFirst: '', tabLast: '', openedAt: -1, focusAt: -1, mounted: [] });
 export const emptyBrowserProfilesView = (): BrowserProfilesView => ({ hydrated: false, writesDisabled: true, importInFlight: false, atLimit: false, rows: [], sourcesState: 'loading', sources: [],
   canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalId: '', removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
   defaults: browserDefaultsView({ local: {} }) });
 
-/** import-wizard-initial-focus: the wizard's Tab stops in order, as Base UI's focus trap walks them: the screen's enabled
- *  tiles and buttons, then the close X (ui/dialog DialogPopup renders it after the step). The first takes the focus as the
- *  wizard opens (initialFocus); from the popup itself, which a step change leaves focused (restoreFocus "popup"), Tab goes
- *  to the first and Shift+Tab (the trap's guard) to the last. The ids are browser-profiles.contract's. */
+/** import-wizard-initial-focus: the wizard's focusable elements in tree order, as Base UI's focus trap walks them: the
+ *  screen's tiles and buttons, then the close X (ui/dialog DialogPopup renders it after the step), each with whether it
+ *  is enabled (a Tab stop) and since when it is mounted (`wizardMounts`). The first stop takes the focus as the wizard
+ *  opens (initialFocus); from the popup itself, which a step change that removed the focused element leaves focused
+ *  (restoreFocus "popup"), Tab goes to the first and Shift+Tab (the trap's guard) to the last. The ids are
+ *  browser-profiles.contract's. */
 type TabStopFacts = Pick<BrowserImportWizardView, 'step' | 'canClose' | 'importDisabled' | 'fdaGranted' | 'fdaBusy' | 'retry'> & { from: unknown[]; into: unknown[] };
-export function wizardTabStops(view: TabStopFacts): string[] {
-  const close = view.canClose ? ['browser-import-x'] : [];
+type WizardElement = WizardMount & { enabled: boolean };
+export function wizardElements(view: TabStopFacts, marks: Pick<Mounts, 'step' | 'allow' | 'x'> = { step: 0, allow: 0, x: 0 }): WizardElement[] {
+  const of = (id: string, enabled = true): WizardElement => ({ id, since: marks.step, enabled });
+  const close = view.canClose ? [{ id: 'browser-import-x', since: marks.x, enabled: true }] : [];
   switch (view.step) {
-    case 'configure': return [...view.from.map((_, i) => `browser-import-from-${i}`), ...view.into.map((_, i) => `browser-import-into-${i}`), 'browser-import-cancel',
-      ...(view.importDisabled ? [] : ['browser-import-run']), ...close];
-    case 'quit': return ['browser-import-cancel', 'browser-import-quit', ...close];
-    case 'fullDiskAccess': return [...(view.fdaGranted || view.fdaBusy ? [] : ['browser-import-fda-allow']), 'browser-import-cancel',
-      ...(view.fdaGranted && !view.fdaBusy ? ['browser-import-fda-continue'] : []), ...close];
-    case 'done': return ['browser-import-done', ...close];
-    case 'blocked': return ['browser-import-close', ...(view.retry ? ['browser-import-retry'] : []), ...close];
+    case 'configure': return [...view.from.map((_, i) => of(`browser-import-from-${i}`)), ...view.into.map((_, i) => of(`browser-import-into-${i}`)), of('browser-import-cancel'),
+      of('browser-import-run', !view.importDisabled), ...close];
+    case 'quit': return [of('browser-import-cancel'), of('browser-import-quit'), ...close];
+    case 'fullDiskAccess': return [...(view.fdaGranted ? [] : [{ id: 'browser-import-fda-allow', since: marks.allow, enabled: !view.fdaBusy }]), of('browser-import-cancel'),
+      of('browser-import-fda-continue', view.fdaGranted && !view.fdaBusy), ...close];
+    case 'done': return [of('browser-import-done'), ...close];
+    case 'blocked': return [of('browser-import-close'), ...(view.retry ? [of('browser-import-retry')] : []), ...close];
     default: return close; // importing (no X) and checking: only the X
   }
 }
+export const wizardTabStops = (view: TabStopFacts): string[] => wizardElements(view).filter(element => element.enabled).map(element => element.id);
 /** As the wizard opens: its first Tab stop. On Full Disk Access already granted, the reference first focuses Allow, which
  *  the grant then replaces with "Allowed", so the popup itself ends with it. */
 export function wizardOpenFocus(view: TabStopFacts): string {
@@ -364,7 +397,7 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
     // 1.5 s and when the window takes the focus.
     const found = await importContext(client, native).catch(() => null);
     const granted = found ? await safariPermissionCheck(found.io, found.context)().catch(() => false) : false;
-    if (!found?.io.letGoSeen()) wizard.fdaGranted = granted;
+    if (!found?.io.letGoSeen()) setGranted(wizard, granted);
   }
   const targetMissing = wizard.target.kind === 'existing' && !profiles.some(profile => profile.id === (wizard.target as { profileId: string }).profileId);
   const targetUncreatable = wizard.target.kind === 'new' && !creatable;
@@ -384,10 +417,11 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
     fdaResume: step.step === 'fullDiskAccess' ? step.resume : '',
     doneTitle: done.title, doneDescription: done.description, skipped: step.step === 'done' ? formatSkippedDomains(step.skippedDomains) : '',
     blockedText: step.step === 'blocked' ? BROWSER_IMPORT_FAILURE_COPY[step.reason] : '', retry: step.step === 'blocked' && isRetryableReason(step.reason),
-    openFocus: '', tabFirst: '', tabLast: '', focusKey: wizardFocusKey(wizard),
+    openFocus: '', tabFirst: '', tabLast: '', openedAt: -1, focusAt: -1, mounted: [],
   };
-  const stops = wizardTabStops(view);
-  return { ...view, openFocus: wizardOpenFocus(view), tabFirst: stops[0] ?? '', tabLast: stops[stops.length - 1] ?? '' };
+  const marks = wizardMounts(wizard), elements = wizardElements(view, marks), stops = elements.filter(element => element.enabled);
+  return { ...view, openFocus: wizardOpenFocus(view), tabFirst: stops[0]?.id ?? '', tabLast: stops[stops.length - 1]?.id ?? '', openedAt: marks.opened, focusAt: marks.at,
+    mounted: elements.map(({ id, since }) => ({ id, since })) };
 }
 
 /** The Browser profiles row, its menus and dialogs, for the Integrations page (source-control-view.ts integrationsPage). */

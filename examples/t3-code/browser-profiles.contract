@@ -31,6 +31,9 @@ shape WizardTileView
   title: string
   subtitle: string
   selected: bool
+shape WizardMount
+  id: string
+  since: number
 shape BrowserImportWizardView
   open: bool
   step: string
@@ -55,7 +58,9 @@ shape BrowserImportWizardView
   openFocus: string
   tabFirst: string
   tabLast: string
-  focusKey: string
+  openedAt: number
+  focusAt: number
+  mounted: list<WizardMount>
 shape BrowserProfilesView
   hydrated: bool
   writesDisabled: bool
@@ -193,11 +198,13 @@ component BrowserProfileRow
 fn rowItems(row: BrowserProfileRowView, view: BrowserProfilesView): list<KmItem> = view.hydrated and view.removalAvailable ? (row.builtIn ? (row.isDefault ? [KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache")] : [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default"), KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache")]) : (row.isDefault ? [KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache"), KmItem(id=`browser-profile-remove-${row.id}`, label="Remove profile and data")] : [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default"), KmItem(id=`browser-profile-clear-${row.id}`, label="Clear cookies and cache"), KmItem(id=`browser-profile-remove-${row.id}`, label="Remove profile and data")])) : (view.hydrated and not row.isDefault ? [KmItem(id=`browser-profile-set-default-${row.id}`, label="Set as default")] : [])
 
 // "Remove “<name>”?" (AlertDialog, destructive), and the import wizard while one is open. The confirm's focus is
-// app.contract's (removalFocus): Cancel as it opens, the row's options button after Cancel or Escape.
+// app.contract's (removalFocus): Cancel as it opens, the row's options button after Cancel or Escape. `track` tells the
+// root which of the wizard's elements holds the focus (app.contract importWizardFocusMoved).
 component BrowserProfileDialogs
   props
     view: BrowserProfilesView
     local: action
+    track: action
     still: bool
   action cancelRemoval
     if not view.removalBusy
@@ -214,22 +221,25 @@ component BrowserProfileDialogs
             when not view.removalAvailable
               text "Connect to an environment to remove this profile and its data." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
           row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
-            BiButton(buttonId="browser-profile-remove-cancel", label="Cancel", tone="outline", disabled=view.removalBusy, keys="Escape", press=cancelRemoval)
-            BiButton(buttonId="browser-profile-remove-confirm", label=(view.removalBusy ? "Removing…" : "Remove profile"), tone="destructive", disabled=(view.removalBusy or not view.hydrated or not view.removalAvailable), keys="", press=local("browser-profiles-remove", ""))
+            BiButton(buttonId="browser-profile-remove-cancel", label="Cancel", tone="outline", disabled=view.removalBusy, keys="Escape", press=cancelRemoval, track=track)
+            BiButton(buttonId="browser-profile-remove-confirm", label=(view.removalBusy ? "Removing…" : "Remove profile"), tone="destructive", disabled=(view.removalBusy or not view.hydrated or not view.removalAvailable), keys="", press=local("browser-profiles-remove", ""), track=track)
     when view.wizard.open
-      BrowserImportWizard(wizard=view.wizard, local=local, still=still)
+      BrowserImportWizard(wizard=view.wizard, local=local, track=track, still=still)
 
 // BrowserImportWizard: one screen per step; every screen is a place the user can act from. The popup is focusable
 // (Base UI's popup is): app.contract importWizardStepFocus focuses the first tabbable element as it opens and the popup
-// itself after a step change, which removes the step's buttons (initialFocus, restoreFocus "popup"); no button autofocuses.
+// itself after a step change that removed the element holding the focus (initialFocus, restoreFocus "popup"); no button
+// autofocuses. Each focusable element and the popup tell the root when they take and lose the focus (`track`).
 component BrowserImportWizard
   props
     wizard: BrowserImportWizardView
     local: action
+    track: action
     still: bool
   state held = false
   action hold(on: bool)
     held = on
+    track("browser-import-popup", on)
   // From the popup itself the web's Tab goes on to its first Tab stop and Shift+Tab (the focus trap's guard) round to its
   // last; the Mac's key-view loop has no way on from a box that is no Tab stop (EXACT2-GAPS.md X76), so the popup's own
   // keys take it there. Only while the popup holds the focus: a `focus`/`blur` here hears the popup alone, not its buttons.
@@ -243,8 +253,8 @@ component BrowserImportWizard
         when wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()
-            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""))
-            BiButton(buttonId="browser-import-quit", label="I’ve quit it", tone="default", disabled=false, keys="", press=local("browser-import-quit", ""))
+            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""), track=track)
+            BiButton(buttonId="browser-import-quit", label="I’ve quit it", tone="default", disabled=false, keys="", press=local("browser-import-quit", ""), track=track)
         when wizard.step == "fullDiskAccess"
           BiHeader(title=`Let T3 Code read ${wizard.sourceName}’s cookies`, description=`To import cookies from ${wizard.sourceName}, T3 Code needs Full Disk Access. Turn it on in System Settings, then come back to finish the import — you can revoke it again once the import is done.`)
           column padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1rem" box-sizing="border-box"
@@ -259,13 +269,13 @@ component BrowserImportWizard
                   LucideCheck(size=16, color="light-dark(#008236, #05df72)")
                   text "Allowed" font-size="0.75rem" line-height="1rem" color="light-dark(#008236, #05df72)"
               else
-                button id="browser-import-fda-allow" press=local("browser-import-fda-allow", "") disabled=wizard.fdaBusy testId="browser-import-fda-allow" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(wizard.fdaBusy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+                button id="browser-import-fda-allow" press=local("browser-import-fda-allow", "") focus=track("browser-import-fda-allow", true) blur=track("browser-import-fda-allow", false) disabled=wizard.fdaBusy testId="browser-import-fda-allow" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(wizard.fdaBusy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
                   text "Allow" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
             when not wizard.fdaGranted
               text wizard.fdaNote margin-top="0.75rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="status" testId="browser-import-fda-note"
           BiFooter()
-            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""))
-            BiButton(buttonId="browser-import-fda-continue", label="Continue", tone="default", disabled=(not wizard.fdaGranted or wizard.fdaBusy), keys="", press=local("browser-import-fda-continue", ""))
+            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""), track=track)
+            BiButton(buttonId="browser-import-fda-continue", label="Continue", tone="default", disabled=(not wizard.fdaGranted or wizard.fdaBusy), keys="", press=local("browser-import-fda-continue", ""), track=track)
         when wizard.step == "configure"
           BiHeader(title=`Import from ${wizard.sourceName}`, description=`Choose which cookies to import for ${wizard.environmentName}.`)
           column padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1rem" box-sizing="border-box" gap="0.75rem"
@@ -273,19 +283,19 @@ component BrowserImportWizard
               column flex=1 min-width=0 gap="0.5rem" testId="browser-import-from"
                 text "FROM" font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.025rem" color="light-dark(#71717b, #818181)"
                 each tile, i in wizard.from key=tile.key
-                  BiTile(tileId=`browser-import-from-${i}`, tile=tile, press=local("browser-import-from", `directory=${encodeURIComponent(tile.key)}`))
+                  BiTile(tileId=`browser-import-from-${i}`, tile=tile, press=local("browser-import-from", `directory=${encodeURIComponent(tile.key)}`), track=track)
               box flex-shrink=0 display="flex" align-items="center" justify-content="center"
                 svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                   path d="M5 12h14M12 5l7 7-7 7"
               column flex=1 min-width=0 gap="0.5rem" testId="browser-import-into"
                 text "INTO" font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.025rem" color="light-dark(#71717b, #818181)"
                 each tile, i in wizard.into key=tile.key
-                  BiTile(tileId=`browser-import-into-${i}`, tile=tile, press=local("browser-import-into", `target=${encodeURIComponent(tile.key == "new" ? "new" : slice(tile.key, 9))}`))
+                  BiTile(tileId=`browser-import-into-${i}`, tile=tile, press=local("browser-import-into", `target=${encodeURIComponent(tile.key == "new" ? "new" : slice(tile.key, 9))}`), track=track)
             when wizard.feedback != ""
               text wizard.feedback font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="browser-import-feedback"
           BiFooter()
-            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""))
-            BiButton(buttonId="browser-import-run", label="Import", tone="default", disabled=wizard.importDisabled, keys="", press=local("browser-import-run", ""))
+            BiButton(buttonId="browser-import-cancel", label="Cancel", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""), track=track)
+            BiButton(buttonId="browser-import-run", label="Import", tone="default", disabled=wizard.importDisabled, keys="", press=local("browser-import-run", ""), track=track)
         when wizard.step == "importing" or wizard.step == "checking"
           BiHeader(title=(wizard.step == "importing" ? "Importing cookies" : `Checking ${wizard.sourceName}`), description=(wizard.step == "importing" ? "This may take a moment." : wizard.check == "fullDiskAccess" ? "Checking Full Disk Access." : "Checking whether the browser has closed."))
           row gap="0.75rem" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.5rem" padding-bottom="1.5rem" box-sizing="border-box"
@@ -299,15 +309,15 @@ component BrowserImportWizard
               text "SKIPPED" font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.025rem" color="light-dark(#71717b, #818181)"
               text wizard.skipped font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           BiFooter()
-            BiButton(buttonId="browser-import-done", label="Done", tone="default", disabled=false, keys="Escape", press=local("browser-import-close", ""))
+            BiButton(buttonId="browser-import-done", label="Done", tone="default", disabled=false, keys="Escape", press=local("browser-import-close", ""), track=track)
         when wizard.step == "blocked"
           BiHeader(title=`Couldn’t import from ${wizard.sourceName}`, description=wizard.blockedText)
           BiFooter()
-            BiButton(buttonId="browser-import-close", label="Close", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""))
+            BiButton(buttonId="browser-import-close", label="Close", tone="outline", disabled=false, keys="Escape", press=local("browser-import-close", ""), track=track)
             when wizard.retry
-              BiButton(buttonId="browser-import-retry", label="Try again", tone="default", disabled=false, keys="", press=local("browser-import-retry", ""))
+              BiButton(buttonId="browser-import-retry", label="Try again", tone="default", disabled=false, keys="", press=local("browser-import-retry", ""), track=track)
         when wizard.canClose
-          BiClose(press=local("browser-import-close", ""))
+          BiClose(press=local("browser-import-close", ""), track=track)
 
 component BiHeader
   props
@@ -333,16 +343,18 @@ component BiButton
     disabled: bool
     keys: string
     press: action
+    track: action
   view
-    button id=buttonId press=press disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
+    button id=buttonId press=press focus=track(buttonId, true) blur=track(buttonId, false) disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
 
 // DialogPopup's Close (ghost icon button, top right).
 component BiClose
   props
     press: action
+    track: action
   view
-    button id="browser-import-x" press=press aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
+    button id="browser-import-x" press=press focus=track("browser-import-x", true) blur=track("browser-import-x", false) aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
       LucideX(size=16, color="light-dark(#71717b, #818181)")
 
 // SelectableTile: a name, an optional detail line, and a check; the primary border and tint when selected.
@@ -351,11 +363,12 @@ component BiTile
     tileId: string
     tile: WizardTileView
     press: action
+    track: action
   state over = false
   action hover(on: bool)
     over = on
   view
-    button id=tileId press=press hover=hover aria-pressed=tile.selected testId=`browser-import-tile-${tile.key}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(tile.selected ? "light-dark(#1b4ed8, #346bf1)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0a)") background-color=(tile.selected ? "light-dark(#1b4ed814, #346bf114)" : over ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000")
+    button id=tileId press=press focus=track(tileId, true) blur=track(tileId, false) hover=hover aria-pressed=tile.selected testId=`browser-import-tile-${tile.key}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(tile.selected ? "light-dark(#1b4ed8, #346bf1)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0a)") background-color=(tile.selected ? "light-dark(#1b4ed814, #346bf114)" : over ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000")
       column flex=1 min-width=0 align-items="flex-start"
         text tile.title max-width="100%" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" color="light-dark(#27272a, #f5f5f5)"
         when tile.subtitle != ""

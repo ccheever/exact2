@@ -113,6 +113,7 @@ component SettingsWindow
     rest: action
     restInput: action
     restLocal: action
+    importWizardFocusMoved: action
     integrations: IntegrationsPage
     snapshotSettings: SnapshotSettings
     snapshotSetupOpen: bool
@@ -341,7 +342,7 @@ component SettingsWindow
       SettingsRestoreDialog(core=settingsCore, busy=commandPending, cancel=coreRestoreClose, confirm=coreRestoreConfirm)
     // browser-surface part 4: "Remove “<name>”?" and the cookie import wizard (browser-profiles.contract), over the window.
     when settingsOpen and settingsRoute == "integrations"
-      BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, still=viewport.prefersReducedMotion)
+      BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, track=importWizardFocusMoved, still=viewport.prefersReducedMotion)
 
 // Settings editors: the scheduled-task and project dialogs (settings-rest/settings-b).
 component ProjectDialogs
