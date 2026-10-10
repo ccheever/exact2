@@ -163,10 +163,14 @@ final class T3TextContextMenu: NSObject {
         return nil
     }
 
-    /// The image under the pointer: a layer of the node that holds a bitmap (ExactKit's image layer), and that bitmap.
+    /// The image under the pointer: an app view that draws one (`T3ShellImageView`), or a layer of the node that holds a
+    /// bitmap (ExactKit's image layer); and that bitmap.
     static func image(at event: NSEvent, in hit: NSView) -> CGImage? {
-        guard let layer = hit.layer else { return nil }
         let point = hit.convert(event.locationInWindow, from: nil)
+        for case let drawn as T3ShellImageView in hit.subviews where !drawn.isHidden && drawn.frame.contains(point) {
+            if let image = drawn.shellImage { return image }
+        }
+        guard let layer = hit.layer else { return nil }
         for candidate in [layer] + (layer.sublayers ?? []) {
             guard let contents = candidate.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID else { continue }
             let frame = candidate === layer ? hit.bounds : candidate.frame

@@ -26,6 +26,12 @@ struct T3ShellMenuParams: Equatable {
     var canSelectAll = true
 }
 
+/// An app view that draws an image (an `<img>` in the reference) under a node and lets presses through to it (its
+/// `hitTest` is nil), such as a tool's icon (T3ToolActivityIcon.swift): the shell's Copy Image copies its bitmap.
+protocol T3ShellImageView: NSView {
+    var shellImage: CGImage? { get }
+}
+
 /// What the items act on. The four editing roles go to `editTarget` (nil: the first responder), as Electron's roles go
 /// to the focused contents; a suggestion calls `replace`; Copy Link writes the link as text, Copy Image the image.
 struct T3ShellMenuActions {

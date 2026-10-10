@@ -42,6 +42,12 @@ private final class CountingTextView: NSTextView {
     override func rightMouseDown(with event: NSEvent) { ownMenus += 1 }
 }
 
+/// An app-drawn image under a node (T3ToolActivityIcon's IconView): presses go through it to the node.
+private final class DrawnIcon: NSView, T3ShellImageView {
+    var shellImage: CGImage?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private func pixel() -> CGImage {
     let context = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16, space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -144,6 +150,21 @@ final class ShellPageMenuTests: ShellMenuCase {
         menu.performActionForItem(at: 0)
         let copied = try XCTUnwrap(NSImage(pasteboard: clipboard))
         XCTAssertEqual(copied.size, NSSize(width: 4, height: 4), "the image's own bitmap, not the 80 pt view")
+    }
+
+    func testAnAppDrawnIconUnderANodeGetsCopyImage() throws {
+        let host = NSView(frame: NSRect(x: 20, y: 200, width: 16, height: 16))
+        let icon = DrawnIcon(frame: host.bounds)
+        icon.shellImage = pixel()
+        host.addSubview(icon)
+        page.addSubview(host)
+        rightClick(at: at(host, NSPoint(x: 8, y: 8)))
+        XCTAssertEqual(popped.first?.titles.first, "Copy Image", "the work group's tool icon (an <img> in the reference)")
+        XCTAssertTrue(popped.first?.view === host, "the click is the node's: the icon lets it through")
+        icon.shellImage = nil
+        popped = []
+        rightClick(at: at(host, NSPoint(x: 8, y: 8)))
+        XCTAssertEqual(popped.first?.titles.first, "Cut (disabled)", "an icon not loaded yet (the fallback glyph): no image")
     }
 
     func testSelectedTextKeepsRD4sMenuThroughTheSameTemplate() {
