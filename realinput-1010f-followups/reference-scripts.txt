@@ -1,0 +1,174 @@
+// ===== ref-lib.mjs
+// Shared helpers for the reference's Code tab gutter (realinput-1010f-followups).
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+export const { chromium } = require('playwright-core');
+export async function open(port) {
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+  await page.setViewportSize({ width: 1280, height: 840 });
+  return page;
+}
+export const log = (o) => console.log(JSON.stringify(o));
+/** Every visible gutter number in the diffs' shadow roots: {n, type, index, x, y, w, h, selected}. */
+export const gutter = (page) => page.evaluate(() => {
+  const out = [];
+  for (const c of document.querySelectorAll('diffs-container')) {
+    const root = c.shadowRoot; if (!root) continue;
+    for (const el of root.querySelectorAll('[data-column-number]')) { const r = el.getBoundingClientRect(); if (r.width > 0 && r.y > 0 && r.y < 840) out.push({ n: el.getAttribute('data-column-number'), type: el.getAttribute('data-line-type'), index: el.getAttribute('data-line-index'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), selected: el.getAttribute('data-selected-line') }); }
+  }
+  return out;
+});
+/** The open draft's label, the pending cards and other comment text in light and shadow DOM. */
+export const texts = (page, re) => page.evaluate((source) => {
+  const re = new RegExp(source); const hits = [];
+  const walk = (root) => { for (const el of root.querySelectorAll('*')) { if (el.children.length === 0 && re.test(el.textContent || '')) { const r = el.getBoundingClientRect(); if (r.width > 0) hits.push({ text: (el.textContent || '').trim().slice(0, 80), x: Math.round(r.x), y: Math.round(r.y) }); } if (el.shadowRoot) walk(el.shadowRoot); } };
+  walk(document); return hits;
+}, re);
+export async function scrollToUsage(page) {
+  const find = () => page.evaluate(() => { const hits = []; const walk = (root) => { for (const el of root.querySelectorAll('*')) { if (el.children.length === 0 && (el.textContent || '').trim() === 'docs/usage.md') { const r = el.getBoundingClientRect(); if (r.width > 0) hits.push({ x: r.x, y: r.y }); } if (el.shadowRoot) walk(el.shadowRoot); } }; walk(document); return hits[0]; });
+  const scroller = await page.evaluateHandle(() => { for (const start of document.querySelectorAll('diffs-container')) { let el = start; while (el && !(el.scrollHeight > el.clientHeight + 10 && /(auto|scroll)/.test(getComputedStyle(el).overflowY))) el = el.parentElement; if (el) return el; } return document.scrollingElement; });
+  let hit = await find();
+  for (let i = 0; i < 80 && !hit; i++) { await scroller.evaluate(el => { el.scrollTop += 400; }); await page.waitForTimeout(250); hit = await find(); }
+  if (hit) { await scroller.evaluate((el, y) => { el.scrollTop += y - 240; }, hit.y); await page.waitForTimeout(800); }
+  return find();
+}
+
+// ===== ref-goto.mjs
+// Open #168's Code tab and bring docs/usage.md (expanded) into view. Usage: node ref-goto.mjs <cdpPort> <shot>
+import { open, log, gutter, scrollToUsage } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+if (!/number=168/.test(page.url())) {
+  await page.evaluate(() => { location.hash = '#/pull-requests'; });
+  await page.waitForTimeout(4000);
+  const search = page.getByRole('textbox').or(page.getByPlaceholder(/Search/)).first();
+  await search.click(); await page.keyboard.press('Meta+A'); await page.keyboard.insertText('#168');
+  await page.waitForTimeout(4000);
+  await page.getByText('Build the catalog').first().click();
+  await page.waitForTimeout(4000);
+}
+await page.getByRole('tab', { name: 'Code' }).or(page.getByRole('radio', { name: 'Code' })).or(page.getByRole('button', { name: 'Code' })).first().click();
+await page.waitForTimeout(6000);
+const header = await scrollToUsage(page);
+log({ header });
+if ((await gutter(page)).length === 0 && header) { await page.mouse.click(header.x - 40, header.y + 7); await page.waitForTimeout(2000); await scrollToUsage(page); }
+log({ gutter: (await gutter(page)).map(e => [e.n, e.type, e.y]) });
+if (shot) await page.screenshot({ path: shot });
+process.exit(0);
+
+// ===== ref-click.mjs
+// (a) A single click on line 3's number. Usage: node ref-click.mjs <cdpPort> <shot>
+import { open, log, gutter, texts } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+const g = await gutter(page);
+const three = g.find(e => e.n === '3');
+await page.mouse.move(three.x + 20, three.y + 10, { steps: 4 });
+await page.waitForTimeout(300);
+await page.mouse.down(); await page.waitForTimeout(80); await page.mouse.up();
+await page.waitForTimeout(1200);
+log({ afterClick: (await gutter(page)).filter(e => e.selected).map(e => [e.n, e.type, e.selected]), texts: await texts(page, '^(Comment on|Add to review|Cancel|docs/usage\\.md:)') });
+const editors = await page.evaluate(() => [...document.querySelectorAll('textarea, [contenteditable="true"]')].map(e => { const r = e.getBoundingClientRect(); return [e.tagName, e.getAttribute('placeholder') || e.getAttribute('aria-label'), Math.round(r.y), document.activeElement === e]; }).filter(x => x[2] > 0));
+log({ editors });
+await page.screenshot({ path: shot });
+process.exit(0);
+
+// ===== ref-drag.mjs
+// (b) Cancel any draft, then a drag on the numbers or from the "+" (mode: number|plus) from line 3 to a line. Usage:
+// node ref-drag.mjs <cdpPort> <shot> <mode> <toN> <toType>
+import { open, log, gutter, texts, scrollToUsage } from './ref-lib.mjs';
+const [port, shot, mode, toN, toType] = process.argv.slice(2);
+const page = await open(port);
+const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(800); }
+
+await scrollToUsage(page);
+let g = await gutter(page);
+const from = g.find(e => e.n === '3'), to = g.find(e => e.n === toN && e.type === toType);
+log({ from, to });
+await page.mouse.move(from.x + 20, from.y + 10, { steps: 4 });
+await page.waitForTimeout(400);
+let downAt = [from.x + 20, from.y + 10];
+if (mode === 'plus') {
+  // The gutter utility shows on the hovered line; press on it.
+  const plus = await page.evaluate(() => { for (const c of document.querySelectorAll('diffs-container')) { const b = c.shadowRoot?.querySelector('[data-utility-button], [data-gutter-utility-slot] button, button[data-utility]'); if (b) { const r = b.getBoundingClientRect(); if (r.width > 0) return { x: r.x, y: r.y, w: r.width, h: r.height, html: b.outerHTML.slice(0, 160) }; } } return null; });
+  log({ plus });
+  if (plus) downAt = [plus.x + plus.w / 2, plus.y + plus.h / 2];
+}
+await page.mouse.move(downAt[0], downAt[1], { steps: 2 });
+await page.mouse.down();
+const steps = 8;
+for (let i = 1; i <= steps; i++) { await page.mouse.move(downAt[0], downAt[1] + (to.y + 10 - downAt[1]) * i / steps); await page.waitForTimeout(40); }
+await page.waitForTimeout(200);
+log({ during: (await gutter(page)).filter(e => e.selected).map(e => [e.n, e.type, e.selected]) });
+await page.screenshot({ path: shot.replace('.png', '-during.png') });
+await page.mouse.up();
+await page.waitForTimeout(1200);
+g = await gutter(page);
+log({ after: g.filter(e => e.selected).map(e => [e.n, e.type, e.selected]), texts: await texts(page, '^(Comment on|Add to review|docs/usage\\.md:)') });
+await page.screenshot({ path: shot });
+process.exit(0);
+
+// ===== ref-pending.mjs
+// RF-4: add the open draft to the review (⌘↵), then discard the pending card with a click. Usage: node ref-pending.mjs <cdpPort> <shotPrefix>
+import { open, log, texts } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+const box = page.getByPlaceholder('Add a comment…').first();
+await box.click(); await page.keyboard.insertText('lane check'); await page.keyboard.press('Meta+Enter');
+await page.waitForTimeout(1200);
+const discard = page.getByRole('button', { name: /Discard/ });
+const labels = await discard.evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return [e.getAttribute('aria-label'), Math.round(r.x), Math.round(r.y), Math.round(r.width)]; }));
+log({ pending: await texts(page, '^Pending'), discardButtons: labels });
+const card = labels.find(l => /this comment/.test(l[0] || ''));
+if (card) await discard.filter({ hasText: '' }).nth(labels.indexOf(card)).scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${shot}-1-pending.png` });
+const fresh = await discard.evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return [e.getAttribute('aria-label'), r.x, r.y, r.width, r.height]; }));
+const target = fresh.find(l => /this comment/.test(l[0] || ''));
+if (target) { await page.mouse.move(target[1] + target[3] / 2, target[2] + target[4] / 2, { steps: 3 }); await page.waitForTimeout(200); await page.mouse.down(); await page.mouse.up(); }
+await page.waitForTimeout(1000);
+log({ afterDiscard: await texts(page, '^Pending'), discardButtons: await discard.count() });
+await page.screenshot({ path: `${shot}-2-discarded.png` });
+process.exit(0);
+
+// ===== ref-float.mjs
+// RF-2: set the tab's viewport to 1280 x 800, float it over chat, and read the player. Usage: node ref-float.mjs <cdpPort> <shot>
+import { open, log } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+for (const [label, value] of [['Viewport width', '1280'], ['Viewport height', '800']]) {
+  const input = page.getByLabel(label); await input.click(); await page.keyboard.press('Meta+A'); await page.keyboard.insertText(value); await page.keyboard.press('Enter'); await page.waitForTimeout(500);
+}
+await page.getByRole('button', { name: 'Float preview over chat' }).click();
+await page.waitForTimeout(2500);
+const player = await page.evaluate(() => [...document.querySelectorAll('*')].filter(e => /mini|float|picture/i.test(e.getAttribute('data-slot') || '') || /floating|mini/i.test(e.getAttribute('aria-label') || '')).map(e => { const r = e.getBoundingClientRect(); return [e.tagName, e.getAttribute('data-slot'), e.getAttribute('aria-label'), Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]; }));
+log({ player });
+await page.screenshot({ path: shot });
+process.exit(0);
+
+// ===== ref-pilldrag.mjs
+// RF-2: drag the pill's padding by (dx, dy) in 12 steps and read the player's frame before and after.
+// Usage: node ref-pilldrag.mjs <cdpPort> <shot> <dx> <dy>
+import { open, log } from './ref-lib.mjs';
+const [port, shot, dx, dy] = process.argv.slice(2);
+const page = await open(port);
+const frame = () => page.locator('section[aria-label="Floating browser preview"]').first().boundingBox();
+const before = await frame();
+const container = await page.evaluate(() => { const s = document.querySelector('section[aria-label="Floating browser preview"]'); const p = s.offsetParent; const r = p.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+await page.mouse.move(before.x + before.width - 12, before.y + 11, { steps: 6 });
+await page.waitForTimeout(800);
+const pill = await page.evaluate(() => { const b = document.querySelector('[aria-label="Open preview in right panel"]'); const p = b.parentElement; const r = p.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, events: getComputedStyle(p).pointerEvents }; });
+const start = { x: pill.x + 1.5, y: pill.y + pill.height / 2 };
+const hit = await page.evaluate(({ x, y }) => { const e = document.elementFromPoint(x, y); return e ? [e.tagName, String(e.className).slice(0, 60), e.getAttribute('aria-label')] : null; }, start);
+await page.mouse.move(start.x, start.y, { steps: 2 });
+await page.waitForTimeout(300);
+await page.mouse.down();
+for (let i = 1; i <= 12; i++) { await page.mouse.move(start.x + Number(dx) * i / 12, start.y + Number(dy) * i / 12); await page.waitForTimeout(30); }
+await page.mouse.up();
+await page.waitForTimeout(800);
+const after = await frame();
+log({ container, before, pill, start, hit, after, moved: { x: Math.round(after.x - before.x), y: Math.round(after.y - before.y) } });
+await page.screenshot({ path: shot });
+process.exit(0);
+
