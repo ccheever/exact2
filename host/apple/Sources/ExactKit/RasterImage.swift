@@ -5,7 +5,7 @@ import ObjectiveC
 
 enum RasterFailure: Error, CustomStringConvertible {
     case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
-    case svgModule, invalidSvgDocument, svgDocumentLimit, unsupportedSvgFeature
+    case svgModule, invalidSvgDocument, svgDocumentLimit, unsupportedSvgFeature, unsupportedSvgIntrinsicSize
     /// Bytes no decoder here reads (text served as `image/png`).
     case format
     /// A source that names nothing: another scheme, an asset that is not there.
@@ -26,6 +26,7 @@ enum RasterFailure: Error, CustomStringConvertible {
         case .invalidSvgDocument: return "invalid SVG document"
         case .svgDocumentLimit: return "SVG document exceeds limit"
         case .unsupportedSvgFeature: return "unsupported SVG image feature"
+        case .unsupportedSvgIntrinsicSize: return "unsupported SVG image intrinsic sizing"
         case .unresolved: return "the source names no file this host loads"
         }
     }
@@ -547,6 +548,7 @@ private func svgResult(_ result: Int32) throws {
     case 2: throw RasterFailure.svgDocumentLimit
     case 3: throw RasterFailure.unsupportedSvgFeature
     case 4: throw RasterFailure.reservation
+    case 5: throw RasterFailure.unsupportedSvgIntrinsicSize
     default: throw RasterFailure.invalidSvgDocument
     }
 }

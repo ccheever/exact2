@@ -10,7 +10,7 @@
 
 /// The ABI this module speaks. A host that expects another refuses the
 /// module by name, as a missing symbol is refused.
-pub const ABI: u32 = 3;
+pub const ABI: u32 = 4;
 
 /// CoreText's selected file path and PostScript name, written as two UTF-8
 /// NUL-terminated fields. A zero return means the host cannot select a font.

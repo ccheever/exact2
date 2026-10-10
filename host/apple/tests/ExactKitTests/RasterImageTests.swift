@@ -2,6 +2,10 @@ import XCTest
 import ImageIO
 import CoreGraphics
 @testable import ExactKit
+#if os(iOS)
+import UIKit
+import WebKit
+#endif
 
 final class RasterImageTests: XCTestCase {
     func testSVGImageKeepsNaturalSizeAndPaintsNegativeViewBox() throws {
@@ -79,8 +83,6 @@ final class RasterImageTests: XCTestCase {
             ("<svg width='100' height='100' style='width:10px;height:20px'/>", CGSize(width: 100, height: 100)),
             ("<svg viewBox='0 0 100 100' style='width:10px;height:20px'/>", CGSize(width: 150, height: 150)),
             ("<svg class='art' viewBox='0 0 100 100'><style>.art {width:10px;height:20px}</style></svg>", CGSize(width: 150, height: 150)),
-            ("<svg width='200' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 300, height: 150)),
-            ("<svg height='100' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 300, height: 150)),
             ("<svg width='80' height='250' viewBox='0 0 200 200' preserveAspectRatio='none'/>", CGSize(width: 80, height: 250)),
         ]
         for (source, expected) in cases {
@@ -90,6 +92,61 @@ final class RasterImageTests: XCTestCase {
             XCTAssertEqual(metadata.naturalSize, expected, source)
         }
     }
+
+    func testSVGWithoutIntrinsicRatioHasANamedRefusal() {
+        for attrs in ["", "width='100%' height='50%'", "width='80'", "height='100'", "viewBox='0 0 200 200' preserveAspectRatio='none'"] {
+            let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' \(attrs)/>".utf8)
+            XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count), attrs) { error in
+                XCTAssertEqual(error as? RasterFailure, .unsupportedSvgIntrinsicSize)
+                XCTAssertEqual(String(describing: error), "unsupported SVG image intrinsic sizing")
+            }
+        }
+    }
+
+    #if os(iOS)
+    func testSVGWithoutRatioWithOnlyCSSWidthUsesBrowserFallbackAndNativeRefusal() throws {
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='50%'><rect width='100%' height='100%' fill='red'/></svg>"
+        let url = "data:image/svg+xml;base64," + Data(svg.utf8).base64EncodedString()
+        let browser = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        browser.loadHTMLString("<meta name='viewport' content='width=device-width'><img id='art' style='width:120px;height:auto' src='\(url)'><script>art.onload=()=>{window.geometry=[art.width,art.height]}</script>", baseURL: nil)
+        var geometry: [Double]?
+        let deadline = Date(timeIntervalSinceNow: 10)
+        repeat {
+            let read = expectation(description: "browser geometry")
+            browser.evaluateJavaScript("window.geometry") { value, error in
+                XCTAssertNil(error)
+                geometry = value as? [Double]
+                read.fulfill()
+            }
+            wait(for: [read], timeout: 2)
+            if geometry == nil { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        } while geometry == nil && Date() < deadline
+        XCTAssertEqual(geometry, [120, 150], "the fallback 300x150 does not imply a 2:1 intrinsic ratio")
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("svg-no-ratio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try Data(svg.utf8).write(to: root.appendingPathComponent("art.svg"))
+        let resolver = AssetResolver(root: root), presenter = Presenter(), loader = RasterLoader()
+        let node = NodeView(id: 1, kind: "image", presenter: presenter)
+        presenter.views[node.id] = node; presenter.viewport.addSubview(node)
+        node.style = ["width": 120]; node.frame = CGRect(x: 0, y: 0, width: 120, height: 0)
+        node.loadGeneration = 1
+        var intrinsic: [CGSize] = []
+        presenter.onIntrinsic = { sizes in intrinsic += sizes.compactMap { $0.1 } }
+        defer { loader.shutdown(); node.raster = nil; try? FileManager.default.removeItem(at: root) }
+        XCTAssertTrue(loader.load(node, source: "art.svg", resolver: resolver))
+        func failure() -> String? { (loader.diagnostics["images"] as? [[String: Any]])?.first?["failure"] as? String }
+        let nativeDeadline = Date(timeIntervalSinceNow: 5)
+        while failure()?.isEmpty != false && Date() < nativeDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertEqual(failure(), "unsupported SVG image intrinsic sizing")
+        XCTAssertTrue(intrinsic.isEmpty, "no fallback pair may reach the kernel and imply a ratio")
+        XCTAssertNil(node.raster)
+        XCTAssertEqual(node.frame.size, CGSize(width: 120, height: 0))
+        XCTAssertEqual(loader.diagnostics["decoded"] as? Int, 0)
+    }
+    #endif
 
     func testSVGClippedGroupsPaintAtLargeDecodeScalesWithinReservation() throws {
         let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><defs><clipPath id='c'><circle cx='32' cy='32' r='24'/></clipPath></defs><g clip-path='url(#c)'><rect width='64' height='32' fill='red'/><rect y='32' width='64' height='32' fill='blue'/></g></svg>".utf8)

@@ -922,7 +922,10 @@ On Apple, an `image` can also load a self-contained SVG document (up to 256 KiB
 and 10,000 XML nodes). It keeps its natural viewport and is decoded at the size
 the image pipeline admits; `object-fit` and `-exact-tint-color` work as for raster images.
 SVG documents containing `image`, `filter`, or `foreignObject` fire `error` with
-`unsupported SVG image feature`; inline Contract SVG keeps its existing renderer.
+`unsupported SVG image feature`. A document without both absolute root dimensions
+needs a valid `viewBox` and must not set `preserveAspectRatio="none"`; otherwise it
+is refused as `unsupported SVG image intrinsic sizing`. Inline Contract SVG keeps
+its existing renderer.
 
 A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the

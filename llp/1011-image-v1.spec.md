@@ -300,13 +300,13 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `preserveAspectRatio`, directly into reserved, premultiplied BGRA8 pixels
   with the host's row stride. Root percentage/missing dimensions use the
   `viewBox` ratio and default 300×150 sizing fallback, as an HTML image does.
-  Root CSS sizing does not supply intrinsic image dimensions. A document with
-  `preserveAspectRatio="none"` and fewer than two absolute root dimensions
-  uses the 300×150 fallback without taking a ratio from its `viewBox`.
-  The intrinsic seam still publishes one width/height pair rather than independent
-  dimensions and an optional ratio. For an SVG without an intrinsic ratio, setting
-  only one CSS axis can therefore size the other differently from the browser
-  (`QUEUE.md` records the percentage-root, no-`viewBox` case).
+  Root CSS sizing does not supply intrinsic image dimensions. Documents without
+  both absolute root dimensions must have a valid `viewBox` and must not use
+  `preserveAspectRatio="none"`; otherwise they are refused as `unsupported SVG
+  image intrinsic sizing`. This includes percentage-only roots without a
+  `viewBox`. The intrinsic seam cannot publish independent dimensions without
+  a ratio, so the decoder refuses this subset instead of inventing a ratio
+  from the default 300×150 object size (`QUEUE.md` records the remaining work).
   Embedded or external `image` elements, `foreignObject`, and filters
   (including CSS filter functions) are refused as `unsupported SVG image
   feature`; the decoder performs no secondary image or document fetch.

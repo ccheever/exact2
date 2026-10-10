@@ -27,7 +27,7 @@ final class SvgRasterModule {
     typealias DocumentFonts = @convention(c) (FontCallback) -> Int32
     typealias DocumentFontBudget = @convention(c) (UnsafePointer<UInt8>?, Int) -> Int
     /// The ABI this host speaks (`exact_svg_raster_abi`).
-    static let abi: UInt32 = 3
+    static let abi: UInt32 = 4
     let mask: Mask
     let filter: Filter
     let documentSize: DocumentSize

@@ -19,6 +19,8 @@ pub enum Error {
     Unsupported = 3,
     /// Source dimensions changed since worker admission.
     Changed = 4,
+    /// The intrinsic-size seam cannot publish dimensions without a ratio.
+    UnsupportedIntrinsicSize = 5,
 }
 
 fn xml(bytes: &[u8]) -> Result<roxmltree::Document<'_>, Error> {
@@ -195,7 +197,7 @@ fn natural_size(xml: &roxmltree::Document<'_>) -> Result<(f32, f32), Error> {
         .and_then(|v| v.split_whitespace().next())
         == Some("none");
     if no_ratio {
-        return dimensions(300.0, 150.0);
+        return Err(Error::UnsupportedIntrinsicSize);
     }
     let viewbox = root
         .attribute("viewBox")
@@ -203,19 +205,19 @@ fn natural_size(xml: &roxmltree::Document<'_>) -> Result<(f32, f32), Error> {
     let ratio = viewbox
         .filter(|v| v.w.is_finite() && v.h.is_finite() && v.w > 0.0 && v.h > 0.0)
         .map(|v| (v.w / v.h) as f32);
-    let size = match (width, height, ratio) {
-        (true, false, Some(r)) => (actual.width(), actual.width() / r),
-        (false, true, Some(r)) => (actual.height() * r, actual.height()),
-        (true, false, None) => (actual.width(), 150.0),
-        (false, true, None) => (300.0, actual.height()),
-        (false, false, Some(r)) => {
-            if r >= 2.0 {
-                (300.0, 300.0 / r)
+    // A fallback object size is not an intrinsic ratio. Refuse it until
+    // the host can publish independent dimensions and an optional ratio.
+    let ratio = ratio.ok_or(Error::UnsupportedIntrinsicSize)?;
+    let size = match (width, height) {
+        (true, false) => (actual.width(), actual.width() / ratio),
+        (false, true) => (actual.height() * ratio, actual.height()),
+        (false, false) => {
+            if ratio >= 2.0 {
+                (300.0, 300.0 / ratio)
             } else {
-                (150.0 * r, 150.0)
+                (150.0 * ratio, 150.0)
             }
         }
-        (false, false, None) => (300.0, 150.0),
         _ => unreachable!(),
     };
     dimensions(size.0, size.1)
@@ -346,11 +348,11 @@ mod tests {
         );
         assert_eq!(
             size(b"<svg width='100%' height='50%'/>"),
-            Ok((300.0, 150.0))
+            Err(Error::UnsupportedIntrinsicSize)
         );
         assert_eq!(
             size(b"<svg viewBox='0 0 200 200' preserveAspectRatio='none'/>"),
-            Ok((300.0, 150.0))
+            Err(Error::UnsupportedIntrinsicSize)
         );
         assert_eq!(
             size(b"<svg width='100' height='50%' viewBox='0 0 200 200'/>"),
@@ -386,7 +388,7 @@ mod tests {
             "width='80'",
         ] {
             let svg = format!("<svg {attrs} preserveAspectRatio='none'/>");
-            assert_eq!(size(svg.as_bytes()), Ok((300.0, 150.0)));
+            assert_eq!(size(svg.as_bytes()), Err(Error::UnsupportedIntrinsicSize));
         }
         assert_eq!(
             size(
@@ -394,8 +396,43 @@ mod tests {
             ),
             Ok((80.0, 250.0))
         );
-        // Omitting `none` retains an authored single dimension.
-        assert_eq!(size(b"<svg width='80'/>"), Ok((80.0, 150.0)));
+        // A single dimension without a viewBox also supplies no ratio.
+        assert_eq!(
+            size(b"<svg width='80'/>"),
+            Err(Error::UnsupportedIntrinsicSize)
+        );
+    }
+
+    #[test]
+    fn absent_intrinsic_ratio_is_refused_before_publishing_size_or_pixels() {
+        for attrs in [
+            "",
+            "width='100%' height='50%'",
+            "width='120'",
+            "height='80'",
+            "viewBox='0 0 100 100' preserveAspectRatio='none'",
+        ] {
+            let svg = format!("<svg {attrs}><rect width='100%' height='100%' fill='red'/></svg>");
+            assert_eq!(
+                size(svg.as_bytes()),
+                Err(Error::UnsupportedIntrinsicSize),
+                "{attrs}"
+            );
+            let mut pixels = vec![17; 120 * 150 * 4];
+            assert_eq!(
+                render(
+                    svg.as_bytes(),
+                    &mut pixels,
+                    120,
+                    150,
+                    480,
+                    (300.0, 150.0),
+                    (120.0, 150.0)
+                ),
+                Err(Error::UnsupportedIntrinsicSize)
+            );
+            assert!(pixels.iter().all(|v| *v == 17));
+        }
     }
 
     fn pixel(pixels: &[u8], width: usize, x: usize, y: usize) -> &[u8] {
