@@ -4,13 +4,19 @@ import { obj, type Obj } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuedEditBegin, mobileQueuedEditCancel, mobileQueuedEditSave, mobileQueuedEditRetry, mobileQueuedEditRefresh, mobileQueuedEditPresentation } from './queued-edit';
-import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteText, queuedEditState, queuedEditReplaceAttachments } from './queued-edit-state';
+import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, mobileQueuedEditWriteText, queuedEditState, queuedEditReplaceAttachments,
+  queuedEditSetNotice, queuedEditNoticeOwner } from './queued-edit-state';
 import { queuedEditResolvePayload } from './queued-edit-upload';
 import { queuedEditRefreshOrigin, mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileQueuedEditAttachmentAction } from './queued-edit-attachments';
+import { MobileDraftClient } from './mobile-draft-recovery';
+import { mobileThreadComposer } from './thread';
+import { mobileDraftChanged } from './draft';
+import { nativeFiles } from './shared/protocol';
+import { mobileComposerTarget } from './composer-target';
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-function fixture() {
-  const client = new T3Client(), records = new Map<string, Obj>(), operations = new Map<string, Obj>(), calls: Obj[] = [], sent: Obj[] = [];
+function fixture(client: T3Client = new T3Client()) {
+  const records = new Map<string, Obj>(), operations = new Map<string, Obj>(), calls: Obj[] = [], sent: Obj[] = [];
   let counter = 0, hook: ((input: Obj) => Promise<void> | void) | undefined, uncertain = false, rejected = false, grants = true, failPersist = false, picked: Obj[] = [], home = 'https://example.test', saved = '';
   Object.assign(client, { origin: 'https://example.test', environmentId: 'e', projectId: 'p', threadId: 't', generation: 9, providerId: 'provider', modelId: 'model',
     connection: 'connected', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'], loaded: true });
@@ -34,7 +40,7 @@ function fixture() {
         return ok({ applied: true, record: records.get(owner), revision: records.get(owner)?.revision });
       }
       if (request.action === 'reserve') {
-        if (client.pending) return { ok: false, error: { kind: 'busy', message: 'Another write owns this environment.' } };
+        if (client.pending) return { ok: false, generation: client.generation, error: { kind: 'busy', message: 'Another write owns this environment.' } };
         const record = records.get(owner)!;
         const operation = { operationId, owner, editorRevision: request.editorRevision, revision: 1, origin: home, environmentId: record.environmentId,
           state: 'reserved', method: request.method, payload: clone(request.payload) };
@@ -44,11 +50,11 @@ function fixture() {
         const operation = operations.get(operationId)!;
         operation.state = 'issued'; operation.revision = Number(operation.revision) + 1; sent.push(clone(obj(operation.payload)));
         operation.state = uncertain ? 'uncertain' : rejected ? 'rejected' : 'acknowledged'; operation.revision = Number(operation.revision) + 1;
-        if (uncertain || rejected) return { ok: false, error: { kind: 'server', message: uncertain ? 'lost reply' : 'run changed', uncertain } };
+        if (uncertain || rejected) return { ok: false, generation: client.generation, error: { kind: 'server', message: uncertain ? 'lost reply' : 'run changed', uncertain } };
         return ok({ operation, result: {} });
       }
       if (request.action === 'retire') { const op = operations.get(operationId)!; if (['issued', 'uncertain'].includes(String(op.state))) throw new Error('unresolved'); operations.delete(operationId); return ok({ removed: true }); }
-      if (request.action === 'cleanup') { if (!records.has(owner) || records.get(owner)?.revision !== request.editorRevision) return { ok: false, error: { kind: 'stale', message: 'The editor changed before cleanup.' } }; records.delete(owner); for (const [id, op] of operations) if (op.owner === owner) operations.delete(id); return ok({}); }
+      if (request.action === 'cleanup') { if (!records.has(owner) || records.get(owner)?.revision !== request.editorRevision) return { ok: false, generation: client.generation, error: { kind: 'stale', message: 'The editor changed before cleanup.' } }; records.delete(owner); for (const [id, op] of operations) if (op.owner === owner) operations.delete(id); return ok({}); }
       if (request.action === 'release') return ok({});
     }
     if (request.op === 'mobileVoice' && request.action === 'selection') return ok({ start: String(request.text).length, end: String(request.text).length });
@@ -66,6 +72,220 @@ function fixture() {
   return { client, native, records, operations, calls, sent, begin, hook(value: typeof hook) { hook = value; }, uncertain(value: boolean) { uncertain = value; },
     home(value: string) { home = value; }, picked(value: Obj[]) { picked = value; }, rejected(value: boolean) { rejected = value; }, grants(value: boolean) { grants = value; }, failPersist(value: boolean) { failPersist = value; }, saved: () => saved };
 }
+
+function mobileFixture() {
+  const f = fixture(new MobileDraftClient()), projection = clone(f.client.projection);
+  for (const key of ['attempts', 'nodes', 'subagents', 'providerSessions', 'providerThreads', 'providerTurns', 'runtimeRequests',
+    'plans', 'turnItems', 'checkpointScopes', 'checkpoints', 'contextHandoffs', 'contextTransfers', 'visibleTurnItems']) projection[key] = [];
+  projection.messages = (projection.messages as Obj[]).map(message => ({ ...message, role: 'user' }));
+  f.client.shell = { ...f.client.shell, projects: [{ id: 'p', title: 'Project' }], threads: ['t', 'other'].map(id => ({ id, projectId: 'p' })) };
+  const original = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input), id = String(request.path ?? '').match(/^\/api\/orchestration\/threads\/([^/]+)\/bounded$/)?.[1];
+    if (id) return { ok: true, generation: f.client.generation, value: { snapshotSequence: 1, projection: {
+      ...clone(projection), thread: { id, projectId: 'p', modelSelection: { instanceId: 'provider', model: 'model' } },
+    } } };
+    return original(input);
+  };
+  return { ...f, async select(id: string) {
+    expect((await f.client.command('select-thread', id, '', 0, f.native, nativeFiles(f.native))).message).toBe('');
+    expect(f.client.threadId).toBe(id);
+  } };
+}
+
+test('actual mobile client keeps a failed Begin notice on its thread through selection and fresh typing', async () => {
+  const f = mobileFixture();
+  f.client.local.drafts['e:t'] = 'Original ordinary draft';
+  f.hook(request => { if (request.op === 'mobileQueuedEdit' && request.action === 'cas') throw new Error('Queued editor could not be saved.'); });
+  const row = mobileQueueSnapshot('visit', true, 0, f.client).rows[0]!;
+  expect((await mobileQueuedEditBegin(row.actionId, f.native, f.client)).message).toBe('Queued editor could not be saved.');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Queued editor could not be saved.');
+  await f.select('other');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  expect((await mobileDraftChanged(f.client, 'Fresh other draft', f.native, nativeFiles(f.native), mobileComposerTarget(f.client).owner)).message).toBe('');
+  expect(f.client.draft).toBe('Fresh other draft');
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Queued editor could not be saved.');
+  expect(f.client.draft).toBe('Original ordinary draft');
+  expect(f.sent).toHaveLength(0);
+});
+
+test('thread notices survive reconnect but do not follow a project draft or an equal thread ID in another environment', async () => {
+  const f = mobileFixture();
+  queuedEditSetNotice(f.client, 'The queued edit remains unconfirmed.', queuedEditNoticeOwner(f.client, 'm'));
+  await f.client.openProjectDraft(f.native, 'p');
+  expect(f.client.draftKey).toBe('e:new:p');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t');
+  const config = f.client.config, shell = f.client.shell;
+  f.client.adoptStatus({ state: 'connected', origin: f.client.origin, environmentId: 'second', message: '' }, 10);
+  f.client.config = config; f.client.shell = shell;
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  f.client.adoptStatus({ state: 'connected', origin: f.client.origin, environmentId: 'e', message: '' }, 11);
+  f.client.config = config; f.client.shell = shell;
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('The queued edit remains unconfirmed.');
+});
+
+test('a failed awaited Begin stays on its captured thread without clobbering another composer', async () => {
+  const f = mobileFixture(); let release!: () => void, entered!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  f.hook(async request => { if (request.op === 'mobileQueuedEdit' && request.action === 'cas') {
+    entered(); await wait; throw new Error('The original queued editor failed.');
+  } });
+  const row = mobileQueueSnapshot('visit', true, 0, f.client).rows[0]!;
+  const pending = mobileQueuedEditBegin(row.actionId, f.native, f.client); await started;
+  await f.select('other');
+  await mobileDraftChanged(f.client, 'New text while the original save waits', f.native, nativeFiles(f.native), mobileComposerTarget(f.client).owner);
+  release(); expect((await pending).message).toBe('The original queued editor failed.');
+  expect(mobileThreadComposer(f.client)).toMatchObject({ editNotice: '', draft: 'New text while the original save waits' });
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('The original queued editor failed.');
+  expect(mobileQueuedEditCurrent(f.client)).toBeNull(); expect(f.sent).toHaveLength(0);
+});
+
+test('awaited Begin supersession preserves prior notices without creating a notice on the destination', async () => {
+  const f = mobileFixture(); let release!: () => void, entered!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  queuedEditSetNotice(f.client, 'Earlier message error', queuedEditNoticeOwner(f.client, 'earlier'));
+  f.hook(async request => { if (request.op === 'ids') { entered(); await wait; } });
+  const row = mobileQueueSnapshot('visit', true, 0, f.client).rows[0]!;
+  const pending = mobileQueuedEditBegin(row.actionId, f.native, f.client); await started;
+  await f.select('other'); release();
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Earlier message error');
+  expect(f.records.size).toBe(0); expect(f.sent).toHaveLength(0);
+});
+
+for (const action of ['save', 'cancel', 'attachment'] as const) test(`${action} failures belong to the captured queued editor`, async () => {
+  const f = mobileFixture(), edit = await f.begin();
+  f.client.local.drafts['e:t'] = 'Ordinary text';
+  f.hook(request => {
+    if (action === 'save' && request.op === 'mobileQueuedEdit' && request.action === 'cas'
+      || action === 'cancel' && request.op === 'mobileQueuedEdit' && request.action === 'cleanup'
+      || action === 'attachment' && request.op === 'composerAttachPick') throw new Error(`${action} could not finish.`);
+  });
+  const reply = action === 'save' ? await mobileQueuedEditSave(edit.owner, f.native, f.client)
+    : action === 'cancel' ? await mobileQueuedEditCancel(edit.owner, f.native, f.client)
+      : await mobileQueuedEditAttachmentAction('photos', '', edit.owner, f.native, f.client);
+  expect(reply.message).toBe(`${action} could not finish.`);
+  expect(mobileThreadComposer(f.client).editNotice).toBe(reply.message);
+  await f.select('other'); expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t'); expect(mobileThreadComposer(f.client).editNotice).toBe(reply.message);
+  expect(mobileQueuedEditCurrent(f.client)?.owner).toBe(edit.owner);
+  expect(f.client.draft).toBe('Ordinary text'); expect(f.sent).toHaveLength(0);
+});
+
+test('opening and cancelling a different queued message cannot clear the original message notice', async () => {
+  const f = mobileFixture();
+  f.hook(request => { if (request.op === 'mobileQueuedEdit' && request.action === 'cas') throw new Error('First queued message failed.'); });
+  const row = mobileQueueSnapshot('visit', true, 0, f.client).rows[0]!;
+  await mobileQueuedEditBegin(row.actionId, f.native, f.client); f.hook(undefined);
+  (f.client.projection.runs as Obj[]).push({ id: 'q2', status: 'queued', ordinal: 2, queuePosition: 2, userMessageId: 'm2' });
+  (f.client.projection.messages as Obj[]).push({ id: 'm2', role: 'user', text: 'Other message' });
+  const other = mobileQueueSnapshot('visit', true, 0, f.client).rows.find(row => JSON.parse(row.actionId).runId === 'q2')!;
+  expect((await mobileQueuedEditBegin(other.actionId, f.native, f.client)).message).toBe('');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('First queued message failed.');
+  expect((await mobileQueuedEditCancel(mobileQueuedEditCurrent(f.client)!.owner, f.native, f.client)).cancelled).toBe(true);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('First queued message failed.');
+  expect((await mobileQueuedEditBegin(row.actionId, f.native, f.client)).message).toBe('');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+});
+
+for (const newer of [false, true]) for (const memory of [false, true]) test(`background acknowledgment clears only its own message notice, newer=${newer}, memory=${memory}`, async () => {
+  const f = mobileFixture(), edit = await f.begin(); f.uncertain(true);
+  expect((await mobileQueuedEditSave(edit.owner, f.native, f.client)).message).toBe('lost reply');
+  const operation = [...f.operations.values()][0]!; operation.state = 'acknowledged';
+  if (newer) queuedEditSetNotice(f.client, 'A newer queued message failed.', queuedEditNoticeOwner(f.client, 'm2'));
+  if (!memory) { queuedEditState(f.client).sessions.clear(); queuedEditState(f.client).active.clear(); }
+  await f.select('other'); await mobileQueuedEditRefresh(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe(newer ? 'A newer queued message failed.' : '');
+  expect(f.operations.size).toBe(0); expect(f.records.size).toBe(0); expect(f.sent).toHaveLength(1);
+});
+
+test('an explicit Retry failure stays with its queued operation and preserves its uncertain ownership', async () => {
+  const f = mobileFixture(), edit = await f.begin(); f.uncertain(true);
+  await mobileQueuedEditSave(edit.owner, f.native, f.client);
+  const operation = mobileQueuedEditPresentation(f.client).pendingId; f.grants(false);
+  expect((await mobileQueuedEditRetry(operation, f.native, f.client)).message).toBe('This connection cannot save queued messages.');
+  await f.select('other'); expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t'); expect(mobileThreadComposer(f.client).editNotice).toBe('This connection cannot save queued messages.');
+  expect(mobileQueuedEditPresentation(f.client)).toMatchObject({ pendingId: operation, uncertain: true });
+  expect(f.operations.size).toBe(1); expect(f.sent).toHaveLength(1);
+});
+
+test('global journal failure remains visible on another thread and after a successful scoped Begin', async () => {
+  const f = mobileFixture();
+  f.hook(request => { if (request.op === 'mobileQueuedEdit' && request.action === 'read') throw new Error('The queued journal could not be read.'); });
+  expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe('The queued journal could not be read.');
+  await f.select('other');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('The queued journal could not be read.');
+  f.hook(undefined); await f.begin();
+  expect(mobileThreadComposer(f.client).editNotice).toBe('The queued journal could not be read.');
+  await f.select('t'); expect(mobileThreadComposer(f.client).editNotice).toBe('The queued journal could not be read.');
+});
+
+for (const phase of ['read', 'release'] as const) test(`a healthy full Refresh retires its transient global ${phase} error and preserves scoped notices`, async () => {
+  const f = mobileFixture(), original = f.native.later;
+  f.native.later = async input => {
+    const reply = await original(input), request = obj(input);
+    return phase === 'release' && request.op === 'mobileQueuedEdit' && request.action === 'read'
+      ? { ...obj(reply), value: { ...obj(obj(reply).value), releases: [{ kind: 'image', id: 'pending-release' }] } } : reply;
+  };
+  f.hook(request => { if (request.op === 'mobileQueuedEdit' && request.action === phase) throw new Error(`Transient journal ${phase} failure`); });
+  expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe(`Transient journal ${phase} failure`);
+  queuedEditSetNotice(f.client, 'An unrelated thread message remains unconfirmed.', queuedEditNoticeOwner(f.client, 'm'));
+  expect(mobileThreadComposer(f.client).editNotice).toBe(`Transient journal ${phase} failure`);
+  await f.select('other'); expect(mobileThreadComposer(f.client).editNotice).toBe(`Transient journal ${phase} failure`);
+  f.hook(undefined); await f.begin();
+  expect(mobileThreadComposer(f.client).editNotice).toBe(`Transient journal ${phase} failure`);
+  expect((await mobileQueuedEditRefresh(f.native, f.client)).message).toBe('');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('t');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('An unrelated thread message remains unconfirmed.');
+  expect(f.sent).toHaveLength(0);
+});
+
+test('an awaited healthy Refresh cannot clear a newer global report with identical text', async () => {
+  const f = mobileFixture(); let release!: () => void, entered!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  queuedEditSetNotice(f.client, 'Journal is unavailable', null);
+  f.hook(async request => { if (request.op === 'mobileQueuedEdit' && request.action === 'read') { entered(); await wait; } });
+  const pending = mobileQueuedEditRefresh(f.native, f.client); await started;
+  queuedEditSetNotice(f.client, 'Journal is unavailable', null);
+  release(); expect((await pending).message).toBe('');
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Journal is unavailable');
+  f.hook(undefined); await mobileQueuedEditRefresh(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+});
+
+test('a known orphan cleanup failure follows its saved thread rather than the current thread', async () => {
+  const f = mobileFixture();
+  f.records.set('orphan', { owner: 'orphan', revision: 1, origin: f.client.origin, environmentId: 'e', threadId: 'other', messageId: 'm-other' });
+  f.hook(request => { if (request.op === 'mobileQueuedEdit' && request.action === 'cleanup') throw new Error('The other thread could not be cleaned.'); });
+  await mobileQueuedEditRefresh(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  await f.select('other'); expect(mobileThreadComposer(f.client).editNotice).toBe('The other thread could not be cleaned.');
+  await f.select('t'); expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  expect(f.records.has('orphan')).toBe(true);
+});
+
+test('a confirmed same-home route failover retains notices and an unrelated canonical server does not', async () => {
+  const f = mobileFixture(); f.home('https://canonical.test'); await queuedEditRefreshOrigin(f.native, f.client);
+  queuedEditSetNotice(f.client, 'Keep this queued message error.', queuedEditNoticeOwner(f.client, 'm'));
+  f.client.origin = 'https://alternate-route.test'; f.client.generation++;
+  await queuedEditRefreshOrigin(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Keep this queued message error.');
+  f.home('https://unrelated.test'); await queuedEditRefreshOrigin(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('');
+  f.home('https://canonical.test'); await queuedEditRefreshOrigin(f.native, f.client);
+  expect(mobileThreadComposer(f.client).editNotice).toBe('Keep this queued message error.');
+});
 
 test('Begin/Edit/Cancel use unique dedicated sessions and leave ordinary content unchanged', async () => {
   const f = fixture(); f.client.local.drafts['e:t'] = 'Ordinary'; f.client.local.snapshotDrafts['e:t'] = [{ id: 'ordinary-image' }];
@@ -256,7 +476,7 @@ test('a newer native status during startup hydration is superseded without a com
 
 test('superseded origin reads and later healthy hydration preserve a prior queued-write notice', async () => {
   const f = fixture(), original = f.native.later;
-  queuedEditState(f.client).notice = 'The server has not confirmed the queued edit.';
+  queuedEditSetNotice(f.client, 'The server has not confirmed the queued edit.', queuedEditNoticeOwner(f.client, 'm'));
   f.native.later = async input => obj(input).op === 'status'
     ? { ok: true, generation: f.client.generation + 1, value: { origin: f.client.origin, environmentId: f.client.environmentId } }
     : original(input);

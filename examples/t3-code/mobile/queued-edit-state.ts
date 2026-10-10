@@ -23,17 +23,21 @@ export interface MobileQueuedEditOperation {
   operationId: string; owner: string; revision: number; state: string; environmentId: string; origin: string;
   method: string; payload: Obj; editorRevision: number; error?: unknown;
 }
+export interface MobileQueuedEditNoticeOwner {
+  origin: string; environmentId: string; threadId: string; messageId: string | null;
+}
 export interface QueuedEditState {
   sessions: Map<string, MobileQueuedEditSession>; active: Map<string, string>;
   recoveries: Map<string, MobileQueuedEditSession>; operationEpoch: number; readSerial: number;
-  operations: Map<string, MobileQueuedEditOperation>; notice: string; hydrated: boolean;
+  operations: Map<string, MobileQueuedEditOperation>; globalNotice: { readonly message: string } | null;
+  notices: Map<string, { message: string; messageId: string | null }>; hydrated: boolean;
 }
 export const queuedEditClone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const states = new WeakMap<T3Client, QueuedEditState>();
 export const queuedEditThreadKey = (environmentId: string, threadId: string) => `${environmentId}:${threadId}`;
 export function queuedEditState(client: T3Client): QueuedEditState {
   let state = states.get(client);
-  if (!state) { state = { sessions: new Map(), active: new Map(), recoveries: new Map(), operationEpoch: 0, readSerial: 0, operations: new Map(), notice: '', hydrated: false }; states.set(client, state); }
+  if (!state) { state = { sessions: new Map(), active: new Map(), recoveries: new Map(), operationEpoch: 0, readSerial: 0, operations: new Map(), globalNotice: null, notices: new Map(), hydrated: false }; states.set(client, state); }
   return state;
 }
 export function mobileQueuedEditLookup(owner: string, client: T3Client = mobileClient): MobileQueuedEditSession | null {
@@ -45,7 +49,38 @@ export function mobileQueuedEditCurrent(client: T3Client = mobileClient): Mobile
   return session?.origin === mobileQueuedEditOrigin(client) ? session : null;
 }
 export const mobileQueuedEditRecovery = (key: string, client: T3Client = mobileClient) => queuedEditState(client).recoveries.get(key) ?? null;
-export const mobileQueuedEditNotice = (client: T3Client = mobileClient) => queuedEditState(client).notice;
+const noticeKey = (owner: MobileQueuedEditNoticeOwner) => JSON.stringify([owner.origin, owner.environmentId, owner.threadId]);
+/** Pinned thread-composer-error keeps errors on their thread through navigation
+ * and typing. The optional message identity prevents an older acknowledgment
+ * from clearing a newer message's error. Journal-wide failures have no thread. */
+export function queuedEditNoticeOwner(client: T3Client, messageId: string | null = null): MobileQueuedEditNoticeOwner | null {
+  return client.environmentId && client.threadId ? { origin: mobileQueuedEditOrigin(client), environmentId: client.environmentId,
+    threadId: client.threadId, messageId } : null;
+}
+export function queuedEditSessionNoticeOwner(edit: MobileQueuedEditSession, messageId: string | null = edit.messageId): MobileQueuedEditNoticeOwner {
+  return { origin: edit.origin, environmentId: edit.environmentId, threadId: edit.threadId, messageId };
+}
+export function queuedEditOperationNoticeOwner(operation: MobileQueuedEditOperation, client: T3Client, records: Obj[] = []): MobileQueuedEditNoticeOwner | null {
+  const edit = mobileQueuedEditLookup(operation.owner, client) ?? obj(records.find(record => record.owner === operation.owner)?.record);
+  const threadId = str(operation.payload.threadId);
+  if (!operation.origin || !operation.environmentId || !threadId) return null;
+  return { origin: operation.origin, environmentId: operation.environmentId, threadId,
+    messageId: edit.origin === operation.origin && edit.environmentId === operation.environmentId && edit.threadId === threadId ? str(edit.messageId) || null : null };
+}
+export function queuedEditSetNotice(client: T3Client, message: string, owner: MobileQueuedEditNoticeOwner | null): void {
+  const state = queuedEditState(client);
+  if (!owner) state.globalNotice = message ? { message } : null;
+  else {
+    const key = noticeKey(owner);
+    if (message) state.notices.set(key, { message, messageId: owner.messageId });
+    else if (state.notices.get(key)?.messageId === owner.messageId) state.notices.delete(key);
+  }
+  client.revision++;
+}
+export function mobileQueuedEditNotice(client: T3Client = mobileClient): string {
+  const state = queuedEditState(client), owner = queuedEditNoticeOwner(client);
+  return state.globalNotice?.message || (owner ? state.notices.get(noticeKey(owner))?.message : '') || '';
+}
 export function mobileQueuedEditWriteContent(owner: string, content: { text: string; context?: Obj }, client: T3Client = mobileClient): boolean {
   const prior = mobileQueuedEditLookup(owner, client);
   if (!prior || prior.saving || [...queuedEditState(client).operations.values()].some(op => op.owner === owner && ['reserved', 'issued', 'uncertain'].includes(op.state))) return false;

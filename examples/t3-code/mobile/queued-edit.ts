@@ -13,13 +13,14 @@ import { mobileQueueCurrent, mobileQueueOwner } from './queue';
 import { mobileAdoptRecoveredDraft, mobileRetireRecoveredDraft } from './mobile-draft-recovery';
 import { mobileQueuedEditUpload, queuedEditResolvePayload } from './queued-edit-upload';
 import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersist, queuedEditClone, queuedEditEndMemory,
-  queuedEditNative, queuedEditOperation, queuedEditRecord, queuedEditRefreshOrigin, mobileQueuedEditOrigin, queuedEditState, queuedEditThreadKey, type MobileQueuedEditSession, type MobileQueuedEditOperation } from './queued-edit-state';
+  queuedEditNative, queuedEditOperation, queuedEditRecord, queuedEditRefreshOrigin, mobileQueuedEditOrigin, queuedEditState, queuedEditThreadKey,
+  mobileQueuedEditNotice, queuedEditNoticeOwner, queuedEditSessionNoticeOwner, queuedEditOperationNoticeOwner, queuedEditSetNotice,
+  type MobileQueuedEditNoticeOwner, type MobileQueuedEditSession, type MobileQueuedEditOperation } from './queued-edit-state';
 
 const busy = new WeakSet<T3Client>();
 const modelReady = (client: T3Client) => mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId });
 const unresolved = (operation: MobileQueuedEditOperation) => ['reserved', 'issued', 'uncertain'].includes(operation.state);
 const forSession = (owner: string, client: T3Client) => [...queuedEditState(client).operations.values()].find(op => op.owner === owner);
-function notice(client: T3Client, message: string) { queuedEditState(client).notice = message; client.revision++; }
 function nativeHandle(input: Native | null | undefined): Native {
   if (!input?.available) throw new ClientError('Open T3 Code on your iPhone or iPad to edit queued messages.');
   return letGoAware(mobileNative(input));
@@ -41,7 +42,7 @@ export function mobileQueuedEditPresentation(client: T3Client = mobileClient) {
   return { editing: !!edit, saving, owner: edit?.owner ?? '', runId: edit?.runId ?? '', text: edit?.text ?? '',
     canSave: !!edit && !saving && !pending && client.writable && !client.pending && !client.busy
       && !!edit.text.trim() && modelReady(client),
-    canCancel: !!edit && !saving && !pending, error: state.notice, uncertain: !!pending,
+    canCancel: !!edit && !saving && !pending, error: mobileQueuedEditNotice(client), uncertain: !!pending,
     canRetry: !!pending && !running && client.writable && !client.pending && !client.busy, pendingId: pending?.operationId ?? '' };
 }
 /** Queue tickets bind the actual selected visit/run. Begin stores a new unique
@@ -56,6 +57,7 @@ export async function mobileQueuedEditBegin(ticketJSON: string, nativeInput: Nat
   const current = () => mobileQueueOwner(client) === owner && mobileQueueCurrent(str(ticket.owner), str(ticket.visit), client)
     && queueState(client.projection).queued.some(row => row.run.id === runId && row.run.userMessageId === message?.id);
   if (!entry || !message || ticket.owner !== owner || !current()) return result('That queued message already started or was removed.');
+  let noticeOwner = queuedEditNoticeOwner(client, str(message.id));
   const prior = mobileQueuedEditCurrent(client);
   if (prior?.runId === runId) return result('', true);
   if (prior?.saving || prior && forSession(prior.owner, client) && unresolved(forSession(prior.owner, client)!)) return result('Resolve the queued edit before opening another.');
@@ -63,15 +65,18 @@ export async function mobileQueuedEditBegin(ticketJSON: string, nativeInput: Nat
   try {
     await queuedEditRefreshOrigin(native, client);
     if (!current()) throw new ClientError('The selected queue changed.', 'superseded');
+    noticeOwner = queuedEditNoticeOwner(client, str(message.id));
     const [session] = await client.ids(native, 1);
     if (!current()) throw new ClientError('The selected queue changed.', 'superseded');
     if (prior) {
+      noticeOwner = queuedEditSessionNoticeOwner(prior);
       await mobileQueuedEditPersist(prior.owner, native, client);
       for (const operation of [...queuedEditState(client).operations.values()]) if (operation.owner === prior.owner) await retireOperation(operation, native, client);
       await queuedEditNative(native, { action: 'cleanup', owner: prior.owner, editorRevision: prior.revision });
       queuedEditEndMemory(prior.owner, client);
       if (!current()) throw new ClientError('The selected queue changed.', 'superseded');
     }
+    noticeOwner = queuedEditNoticeOwner(client, str(message.id));
     const record: MobileQueuedEditSession = { owner: JSON.stringify([mobileQueuedEditOrigin(client), client.environmentId, client.threadId, session]),
       draftKey: `${client.environmentId}:${client.threadId}~queued-edit~${runId}`, origin: mobileQueuedEditOrigin(client),
       environmentId: client.environmentId, threadId: client.threadId, projectId: client.projectId, generation, session: session!, revision: 1,
@@ -81,9 +86,9 @@ export async function mobileQueuedEditBegin(ticketJSON: string, nativeInput: Nat
     try { await mobileQueuedEditPersist(record.owner, native, client); }
     catch (error) { state.sessions.delete(record.owner); throw error; }
     if (!current()) { state.sessions.delete(record.owner); throw new ClientError('The selected queue changed.', 'superseded'); }
-    state.active.set(queuedEditThreadKey(record.environmentId, record.threadId), record.owner); notice(client, '');
+    state.active.set(queuedEditThreadKey(record.environmentId, record.threadId), record.owner); queuedEditSetNotice(client, '', noticeOwner);
     return result('', true);
-  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); notice(client, message); return result(message); }
+  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); queuedEditSetNotice(client, message, noticeOwner); return result(message); }
   finally { if (prior) { const live = mobileQueuedEditLookup(prior.owner, client); if (live) queuedEditState(client).sessions.set(prior.owner, { ...live, saving: false }); } busy.delete(client); client.revision++; }
 }
 export async function mobileQueuedEditCancel(owner: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
@@ -97,8 +102,8 @@ export async function mobileQueuedEditCancel(owner: string, nativeInput: Native 
       ...(operation ? { operationId: operation.operationId, operationRevision: operation.revision } : {}) });
     if (mobileQueuedEditLookup(owner, client)?.revision !== edit.revision) throw new ClientError('The queued edit changed.', 'superseded');
     queuedEditEndMemory(owner, client); if (operation) forgetOperation(operation.operationId, client);
-    notice(client, ''); return result('', true);
-  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); notice(client, message); return result(message); }
+    queuedEditSetNotice(client, '', queuedEditSessionNoticeOwner(edit)); return result('', true);
+  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); queuedEditSetNotice(client, message, queuedEditSessionNoticeOwner(edit)); return result(message); }
   finally { const live = mobileQueuedEditLookup(owner, client); if (live) queuedEditState(client).sessions.set(owner, { ...live, saving: false }); busy.delete(client); client.revision++; }
 }
 /** Admission permits only the captured editor and exact current queued message.
@@ -149,7 +154,7 @@ export async function mobileQueuedEditSave(owner: string, nativeInput: Native | 
       expectedEnvironmentId: captured.environmentId, generation: scope.generation });
     operation = adopted(sent.operation, client) ?? operation;
     if (operation.state !== 'acknowledged') throw new ClientError('The server has not confirmed the queued edit.', 'QueuedEdit', true);
-    await finishAcknowledged(operation, base, client); notice(client, ''); return result('', true);
+    await finishAcknowledged(operation, base, client); queuedEditSetNotice(client, '', queuedEditSessionNoticeOwner(edit)); return result('', true);
   } catch (error) {
     // Read only; never send automatically. Native owns outcome after wire entry.
     try { await readOperations(base, client); } catch { /* The existing reservation remains the visible recovery owner. */ }
@@ -157,7 +162,7 @@ export async function mobileQueuedEditSave(owner: string, nativeInput: Native | 
       try { await retireOperation(prior, base, client); } catch { /* Retain a visible reservation if local retirement fails. */ }
     }
     if (letGo(error)) throw error;
-    const message = errorMessage(error); notice(client, message); return result(message, false, 'Could not save the queued message');
+    const message = errorMessage(error); queuedEditSetNotice(client, message, queuedEditSessionNoticeOwner(edit)); return result(message, false, 'Could not save the queued message');
   } finally {
     const live = mobileQueuedEditLookup(owner, client); if (live) state.sessions.set(owner, { ...live, saving: false });
     busy.delete(client); client.revision++;
@@ -192,33 +197,40 @@ export async function mobileQueuedEditRetry(operationId: string, nativeInput: Na
   const result = (message = '', saved = false) => ({ revision: client.revision, message, saved });
   if (busy.has(client) || client.pending || client.busy) return result('Wait for the current operation before retrying.');
   const base = nativeHandle(nativeInput); busy.add(client);
+  const pendingOperation = queuedEditState(client).operations.get(operationId);
+  let errorOwner = pendingOperation ? queuedEditOperationNoticeOwner(pendingOperation, client) : queuedEditNoticeOwner(client);
   try {
     await queuedEditRefreshOrigin(base, client);
     await readOperations(base, client);
     const operation = queuedEditState(client).operations.get(operationId), generation = client.generation, environmentId = client.environmentId, threadId = client.threadId, origin = client.origin;
     if (!operation || !unresolved(operation) || operation.environmentId !== environmentId || operation.origin !== mobileQueuedEditOrigin(client) || operation.payload.threadId !== client.threadId) throw new ClientError('That queued edit is not selected.', 'superseded');
+    errorOwner = queuedEditOperationNoticeOwner(operation, client);
     const session = await client.http(base, '/api/auth/session');
     if (!mobileSessionGrants(session, 'orchestration:operate') || !client.writable) throw new ClientError('This connection cannot save queued messages.');
     if (client.generation !== generation || client.environmentId !== environmentId || client.threadId !== threadId || client.origin !== origin || client.pending || client.busy) throw new ClientError('The connection changed.', 'superseded');
     const sent = await queuedEditNative(base, { action: 'send', operationId, revision: operation.revision, generation, expectedEnvironmentId: environmentId });
     const acknowledged = adopted(sent.operation, client);
     if (!acknowledged || acknowledged.state !== 'acknowledged') throw new ClientError('The server has not confirmed the queued edit.');
-    await finishAcknowledged(acknowledged, base, client); notice(client, ''); return result('', true);
+    await finishAcknowledged(acknowledged, base, client); queuedEditSetNotice(client, '', errorOwner); return result('', true);
   } catch (error) {
     try { await readOperations(base, client); } catch { /* Keep current pending identity. */ }
-    if (letGo(error)) throw error; const message = errorMessage(error); notice(client, message); return result(message);
+    if (letGo(error)) throw error; const message = errorMessage(error); queuedEditSetNotice(client, message, errorOwner); return result(message);
   } finally { busy.delete(client); client.revision++; }
 }
 /** Hydration never reopens a persisted editor or starts a server command. */
 export async function mobileQueuedEditRefresh(nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   if (!nativeInput?.available || busy.has(client)) return { revision: client.revision, message: '' };
   const native = nativeHandle(nativeInput), state = queuedEditState(client); busy.add(client);
+  const globalNotice = state.globalNotice;
+  let noticeOwner: MobileQueuedEditNoticeOwner | null = null;
   try {
     await queuedEditRefreshOrigin(native, client);
     const reply = await readOperations(native, client);
     const completed = new Set<string>();
     for (const operation of [...state.operations.values()]) if (operation.state === 'acknowledged') {
+      noticeOwner = queuedEditOperationNoticeOwner(operation, client, arr(reply.records));
       await finishAcknowledged(operation, native, client);
+      if (noticeOwner) queuedEditSetNotice(client, '', noticeOwner);
       if (!state.sessions.has(operation.owner)) completed.add(operation.owner);
     }
     // Orphan records are from a previous process/abandoned Begin. Never reactivate them.
@@ -228,19 +240,31 @@ export async function mobileQueuedEditRefresh(nativeInput: Native | null | undef
       if (str(record.recoveryKey)) {
         const recovery = { ...record, saving: false } as unknown as MobileQueuedEditSession;
         state.recoveries.set(recovery.recoveryKey!, recovery);
-        if (recovery.origin === mobileQueuedEditOrigin(client) && recovery.environmentId === client.environmentId) await adoptRecovery(recovery, native, client);
+        if (recovery.origin === mobileQueuedEditOrigin(client) && recovery.environmentId === client.environmentId) {
+          noticeOwner = queuedEditSessionNoticeOwner(recovery); await adoptRecovery(recovery, native, client);
+        }
         continue;
       }
       if (state.sessions.has(owner) || [...state.operations.values()].some(op => op.owner === owner)) continue;
+      noticeOwner = str(record.origin) && str(record.environmentId) && str(record.threadId)
+        ? { origin: str(record.origin), environmentId: str(record.environmentId), threadId: str(record.threadId), messageId: str(record.messageId) || null } : null;
       await queuedEditNative(native, { action: 'cleanup', owner, editorRevision: Number(wrapper.revision ?? record.revision) });
     }
-    for (const operation of [...state.operations.values()]) if (operation.state === 'rejected') await retireOperation(operation, native, client);
+    for (const operation of [...state.operations.values()]) if (operation.state === 'rejected') {
+      noticeOwner = queuedEditOperationNoticeOwner(operation, client, arr(reply.records)); await retireOperation(operation, native, client);
+    }
+    noticeOwner = null;
     if (arr(reply.releases).length) await queuedEditNative(native, { action: 'release' });
     const edit = mobileQueuedEditCurrent(client);
     if (edit && !edit.saving && !forSession(edit.owner, client) && client.ready
-      && !queueState(client.projection).queued.some(row => row.run.id === edit.runId)) await recoverLostRun(edit, native, client);
+      && !queueState(client.projection).queued.some(row => row.run.id === edit.runId)) {
+      noticeOwner = queuedEditSessionNoticeOwner(edit); await recoverLostRun(edit, native, client);
+    }
+    // Only a complete journal pass proves its prior global failure resolved.
+    // An awaited older pass cannot dismiss a newer report, even with the same text.
+    if (globalNotice && state.globalNotice === globalNotice) { state.globalNotice = null; client.revision++; }
     return { revision: client.revision, message: '' };
-  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); notice(client, message); return { revision: client.revision, message }; }
+  } catch (error) { if (letGo(error)) throw error; const message = errorMessage(error); queuedEditSetNotice(client, message, noticeOwner); return { revision: client.revision, message }; }
   finally { busy.delete(client); }
 }
 async function recoverLostRun(edit: MobileQueuedEditSession, native: Native, client: T3Client) {
@@ -262,5 +286,5 @@ async function adoptRecovery(edit: MobileQueuedEditSession, native: Native, clie
   await queuedEditNative(native, { action: 'cleanup', owner: edit.owner, editorRevision: edit.revision });
   if (outcome !== 'blocked') { mobileRetireRecoveredDraft(client, edit.owner); await client.persist(nativeFiles(native)); }
   queuedEditEndMemory(edit.owner, client); queuedEditState(client).recoveries.delete(edit.recoveryKey!);
-  notice(client, outcome !== 'blocked' ? 'That message already started. Your edit is back in the composer.' : 'That message already started, so the edit was discarded.');
+  queuedEditSetNotice(client, outcome !== 'blocked' ? 'That message already started. Your edit is back in the composer.' : 'That message already started, so the edit was discarded.', queuedEditSessionNoticeOwner(edit, null));
 }
