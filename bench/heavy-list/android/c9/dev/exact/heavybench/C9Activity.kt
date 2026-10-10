@@ -37,6 +37,7 @@ class C9Activity : Activity() {
             Log.i("HeavyBench", InlineTextPaintTest.run(this))
             Log.i("HeavyBench", NativeBorderTest.run())
             Log.i("HeavyBench", PendingIntrinsicsTest.run())
+            Log.i("HeavyBench", com.exact.android.NativeRenewalTest.runEmptyCollectionBatch(this))
         }
         val view = ExactView(this)
         exact = view
@@ -67,6 +68,9 @@ class C9Activity : Activity() {
         }
         val probe = HeavyBenchHarness(this, "c9", created)
         harness = probe
+        if (HeavyOptions.boolean(intent, "BENCH_VERIFY")) view.post {
+            com.exact.android.NativeCollectionCoverageTest.runAsync(this) { Log.i("HeavyBench", it) }
+        }
         probe.attach(view, target, { view.startupReady && view.creationToFirstHostDrawNs != null && target.visibleRows() > 0 }, {
             JSONObject().put("retained_nodes", view.retainedNodes).put("materialized_nodes", view.materializedNodes)
                 .put("bridge_stats", JSONArray(view.bridgeStats().toList()))

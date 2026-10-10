@@ -92,6 +92,7 @@ internal class Presenter(
         NativeCollections.RowBox(n.logicalHeight.toDouble(), n.logicalWidth.toDouble(),
             n.frame.top / scale.toDouble(), n.nativeBox())
     } }, collectionReport)
+    fun flushCollectionScroll() = collections.flushDeferredScroll()
     fun begin() = collections.beginBatch()
     fun abort() = collections.abortBatch()
     fun controlsChanged() {

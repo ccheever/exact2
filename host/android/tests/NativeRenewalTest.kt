@@ -126,6 +126,46 @@ internal object NativeRenewalTest {
     private fun fails(message: String, action: () -> Unit) {
         check(runCatching(action).exceptionOrNull() is IllegalArgumentException) { message }
     }
+    fun runEmptyCollectionBatch(context: Context): String {
+        fun packet(flags: Int = 64, metadata: String = "", invalidate: Boolean = false): ByteBuffer {
+            val bytes = metadata.toByteArray(Charsets.UTF_8)
+            return ByteBuffer.allocate(32 + (if (invalidate) 9 else 0) + bytes.size).order(ByteOrder.LITTLE_ENDIAN).apply {
+                putInt(0x31415845); putShort(1); putShort(flags.toShort()); putInt(if (invalidate) 1 else 0)
+                putDouble(123.0); putDouble(456.0); putInt(bytes.size)
+                if (invalidate) { put(6); putInt(4); putInt(2) }
+                put(bytes); flip()
+            }
+        }
+        val fixture = Fixture(context)
+        try {
+            fixture.populate()
+            val before = fixture.pixels()
+            val source = fixture.source()
+            for (flags in listOf(0, 64, 64 or 1 or 128, 64 or 2 or 4 or 16)) {
+                val result = BatchReader.apply(packet(flags, "{\"seq\":[1,2]}"), fixture.presenter, skipEmpty = true)
+                check(!result.presented && result.flags == flags && result.clock == 123.0 && result.due == 456.0)
+                check(result.metadata!!.getJSONArray("seq").length() == 2)
+                check(fixture.source() === source && before.contentEquals(fixture.pixels()))
+            }
+            // Ordinary event replies must still reconcile SDK control state.
+            check(BatchReader.apply(packet(), fixture.presenter).presented)
+            fixture.presenter.resolveControls { _, _ -> JSONObject() }
+            check(BatchReader.apply(packet(invalidate = true), fixture.presenter, skipEmpty = true).presented)
+            fixture.presenter.resolveControls { _, _ -> JSONObject() }
+            check(before.contentEquals(fixture.pixels()))
+            val empty = Fixture(context)
+            try {
+                check(BatchReader.apply(packet(flags = 256), empty.presenter, skipEmpty = true).presented)
+                empty.presenter.resolveControls { _, _ -> JSONObject() }
+            } finally { empty.close() }
+            fails("truncated reply escaped empty handling") { BatchReader.apply(packet().apply { limit(31) }, fixture.presenter, true) }
+            fails("trailing bytes escaped empty handling") { BatchReader.apply(ByteBuffer.allocate(33).put(packet()).put(0).apply { flip() }, fixture.presenter, true) }
+            check(runCatching { BatchReader.apply(packet(metadata = "{\"error\":\"expected rejection\"}"), fixture.presenter, true) }.isFailure)
+            check(runCatching { BatchReader.apply(packet(flags = 8), fixture.presenter, true) }.isFailure)
+            check(fixture.source() === source && before.contentEquals(fixture.pixels()))
+            return "EmptyCollectionBatchTest: PASS (schedule and metadata, untouched pixels/owners, ordinary events, control updates, operations, malformed/error/canvas rejection)"
+        } finally { fixture.close() }
+    }
     fun run(context: Context): String {
         check(Looper.myLooper() == Looper.getMainLooper())
         val renewed = Fixture(context); val fresh = Fixture(context); val flat = Fixture(context)

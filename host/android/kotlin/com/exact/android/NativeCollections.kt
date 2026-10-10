@@ -117,11 +117,12 @@ internal class NativeCollections(
         val paddingBottom: Double = 0.0
     )
     data class RowBox(val main: Double, val cross: Double, val start: Double, val view: View? = null)
-    internal data class Row(val view: Int, val root: Int, val epoch: ULong)
+    internal data class Row(val view: Int, val root: Int, val epoch: ULong, val index: ULong)
     internal data class Correction(val sequence: ULong, val offset: Double, val from: Double?, val smooth: Boolean)
     internal data class Snapshot(
         val view: Int, val revision: ULong, val sequence: ULong, val extent: Double,
-        val rows: List<Row>, val correction: Correction?, val pending: Boolean, val parent: Int?
+        val rows: List<Row>, val correction: Correction?, val pending: Boolean, val parent: Int?,
+        val count: ULong, val seeking: Boolean
     )
     internal data class Measurement(val view: Int, val epoch: ULong, val size: Double)
     internal data class Facts(
@@ -165,6 +166,8 @@ internal class NativeCollections(
         val cursor = Cursor()
         var facts: Facts? = null
         var lastSequence: ULong? = null
+        var reportedRevision: ULong? = null
+        var deferredScroll = false
         var dimensions: List<Double>? = null
         var batchStart: Double? = null
         var scroll: ScrollView? = null
@@ -261,6 +264,12 @@ internal class NativeCollections(
         if (closed || correcting || !entries.containsKey(id)) return
         val entry = entries.getValue(id)
         if (user && depth == 0 && (geometry(id)?.scroll as? NativeCollectionScrollView)?.correctingMotion != true) entry.cursor.advance()
+        // The ScrollView already moved the retained rows. A pixel-only
+        // change inside the same fully covered visible window needs no
+        // runner measurement/publication. Authored turns still flush the
+        // latest native scroll coordinates before querying layout.
+        if (user && depth == 0 && (geometry(id)?.scroll as? NativeCollectionScrollView)?.correctingMotion != true &&
+            unchangedWindow(id, entry)) { entry.deferredScroll = true; return }
         dirty.add(id)
         if (depth == 0) schedule()
     }
@@ -367,6 +376,43 @@ internal class NativeCollections(
         return Facts(offset, main, portCross, cross, measurements,
             focus?.takeIf { owner(it) == id }, interaction?.takeIf { owner(it) == id })
     }
+    private fun unchangedWindow(id: Int, entry: Entry): Boolean {
+        // shortcut: multiple collections keep per-scroll feedback until
+        // deferred positions can precede another list's edge action atomically.
+        if (entries.size != 1) return false
+        val previous = entry.facts ?: return false
+        // The runner fires reachstart/reachend from its overscan, before
+        // the edge row becomes visible. Preserve every report near an edge.
+        if (entry.snapshot.pending || entry.snapshot.seeking || entry.snapshot.rows.any {
+                it.index == 0uL || it.index + 1uL == entry.snapshot.count
+            } || entry.reportedRevision != entry.snapshot.revision ||
+            entry.cursor.jumpedAt > (entry.lastSequence ?: 0uL)) return false
+        val next = facts(id, entry) ?: return false
+        if (next.main != previous.main || next.portCross != previous.portCross || next.cross != previous.cross ||
+            next.measurements != previous.measurements || next.focus != previous.focus || next.interaction != previous.interaction) return false
+        val window = visibleWindow(id, entry, previous) ?: return false
+        return window == visibleWindow(id, entry, next)
+    }
+    /** Both the first/last visible wrapper and continuous coverage must stay. */
+    private fun visibleWindow(id: Int, entry: Entry, facts: Facts): Long? {
+        val padding = geometry(id)?.paddingTop ?: return null
+        val end = facts.offset + facts.main
+        var reached = facts.offset
+        var first = 0
+        var last = 0
+        for (row in entry.snapshot.rows) {
+            val box = rowGeometry(row.view) ?: return null
+            val start = box.start - padding
+            val bottom = start + box.main
+            if (bottom <= facts.offset || start >= end) continue
+            if (start > reached + 0.5 / density) return null
+            if (first == 0) first = row.view
+            last = row.view
+            reached = maxOf(reached, bottom)
+        }
+        if (first == 0 || reached < end) return null
+        return (first.toLong() shl 32) or (last.toLong() and 0xffff_ffffL)
+    }
     private fun owner(descendant: Int): Int? {
         for ((id, entry) in entries) if (entry.snapshot.rows.any { it.view == descendant || it.root == descendant }) return id
         var native = rowGeometry(descendant)?.view
@@ -381,13 +427,20 @@ internal class NativeCollections(
         queued = true
         if (!host.post(continuation)) queued = false
     }
-    private fun flush() {
+    /** Before an authored turn, publish deferred positions for anchors and
+     * saved list positions, just as native frame()/measure() facts are flushed. */
+    fun flushDeferredScroll() {
+        if (entries.values.none { it.deferredScroll }) return
+        for ((id, entry) in entries) if (entry.deferredScroll) dirty.add(id)
+        flush(entries.size)
+    }
+    private fun flush(reportLimit: Int = 2) {
         if (closed || busy || depth != 0) return
         busy = true
         var reports = 0
         var visits = entries.size
         try {
-            while (dirty.isNotEmpty() && reports < 2 && visits-- > 0) {
+            while (dirty.isNotEmpty() && reports < reportLimit && visits-- > 0) {
                 // Release an old pin before another collection acquires it.
                 val focusOwner = focus?.let(::owner)
                 val interactionOwner = interaction?.let(::owner)
@@ -399,6 +452,7 @@ internal class NativeCollections(
                 lastVisited = id
                 dirty.remove(id)
                 val entry = entries[id] ?: continue
+                entry.deferredScroll = false
                 // A hidden former owner still has to release its pin before
                 // another collection acquires it. Cached port geometry is only
                 // used for retirement, with no hidden-row measurements.
@@ -413,6 +467,7 @@ internal class NativeCollections(
                 if (next != entry.facts || entry.lastSequence != entry.cursor.sequence || entry.snapshot.pending) {
                     entry.facts = next
                     entry.lastSequence = entry.cursor.sequence
+                    entry.reportedRevision = entry.snapshot.revision
                     val scroll = geometry(id)?.scroll as? NativeCollectionScrollView
                     val velocity = scroll?.velocity?.toDouble()?.div(density) ?: 0.0
                     val ancestorMoving = entry.snapshot.parent?.let { (geometry(it)?.scroll as? NativeCollectionScrollView)?.moving } == true
@@ -462,7 +517,8 @@ internal class NativeCollections(
             val sequence = requireNotNull(uint(value.get("scrollSequence"))) { "invalid Android collection sequence" }
             val raw = value.getJSONArray("rows")
             val rows = (0 until raw.length()).map { index -> raw.getJSONObject(index).let {
-                Row(id(it.get("view")), id(it.get("root")), requireNotNull(uint(it.get("epoch"))) { "invalid Android row epoch" })
+                Row(id(it.get("view")), id(it.get("root")), requireNotNull(uint(it.get("epoch"))) { "invalid Android row epoch" },
+                    requireNotNull(uint(it.get("index"))) { "invalid Android row index" })
             } }
             require(rows.map { it.view }.toSet().size == rows.size) { "duplicate Android collection wrapper" }
             val correction = value.optJSONObject("correction")?.let {
@@ -471,7 +527,8 @@ internal class NativeCollections(
             }
             require(!value.has("correction") || value.isNull("correction") || correction != null) { "invalid Android collection correction" }
             return Snapshot(view, revision, sequence, number(value.get("totalExtent")), rows, correction,
-                value.optBoolean("pending"), if (value.has("parent") && !value.isNull("parent")) id(value.get("parent")) else null)
+                value.optBoolean("pending"), if (value.has("parent") && !value.isNull("parent")) id(value.get("parent")) else null,
+                requireNotNull(uint(value.get("count"))) { "invalid Android collection count" }, value.optBoolean("seeking"))
         }
     }
 }

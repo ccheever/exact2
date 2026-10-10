@@ -10,7 +10,7 @@ import org.json.JSONTokener
 internal object BatchReader {
     private const val STYLE_SLOTS = 128
     private const val STYLE_BYTES = 64 * 1024
-    data class Schedule(val flags: Int, val clock: Double, val due: Double, val metadata: JSONObject?)
+    data class Schedule(val flags: Int, val clock: Double, val due: Double, val metadata: JSONObject?, val presented: Boolean = true)
     private fun ByteBuffer.utf8(length: Int): String {
         require(length in 0..remaining()) { "truncated Android batch" }
         val bytes = ByteArray(length)
@@ -18,7 +18,7 @@ internal object BatchReader {
         return bytes.toString(Charsets.UTF_8)
     }
 
-    fun apply(buffer: ByteBuffer, target: Presenter): Schedule {
+    fun apply(buffer: ByteBuffer, target: Presenter, skipEmpty: Boolean = false): Schedule {
         buffer.order(ByteOrder.LITTLE_ENDIAN).position(0)
         require(buffer.remaining() >= 32 && buffer.int == 0x31415845) { "invalid Android batch magic" }
         require(buffer.short.toInt() == 1) { "unsupported Android batch version" }
@@ -91,6 +91,9 @@ internal object BatchReader {
         val metadata = if (metadataLength == 0) null else JSONObject(buffer.utf8(metadataLength))
         if (metadata != null && !metadata.isNull("error")) error(metadata.getString("error"))
         require(flags and (8 or 32) == 0) { "Android canvas executor is not implemented" }
+        // As in the iOS fill path, an empty collection reply changes only
+        // scheduling. Geometry facts already reached the runner.
+        if (skipEmpty && count == 0 && flags and 256 == 0) return Schedule(flags, clock, due, metadata, false)
         buffer.position(start)
         target.begin()
         try {

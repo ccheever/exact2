@@ -119,7 +119,7 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
     }
     private fun collectionFeedback(bytes: ByteArray) {
         if (closed || !booted) return
-        val deliver = { if (!closed) apply { Native.collectionFeedback(handle, bytes, now()) } }
+        val deliver = { if (!closed) apply(refreshCollections = false, skipEmpty = true) { Native.collectionFeedback(handle, bytes, now()) } }
         if (applying) pending.add(deliver) else deliver()
     }
     private fun queueIntrinsic(id: Int, width: Float, height: Float) {
@@ -132,9 +132,15 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
         // borrowed native output must be fully consumed before either happens.
         if (applying) pending.add(notify) else notify()
     }
-    private fun apply(call: () -> ByteBuffer) {
+    private var refreshingCollections = false
+    private fun apply(refreshCollections: Boolean = true, skipEmpty: Boolean = false, call: () -> ByteBuffer) {
         check(Looper.myLooper() == Looper.getMainLooper())
         check(!applying && !closed) { "reentrant or closed Android owner" }
+        if (refreshCollections) {
+            refreshingCollections = true
+            try { presenter.flushCollectionScroll() } finally { refreshingCollections = false }
+        }
+        if (closed) return
         applying = true
         try {
             // The direct buffer lease ends at the next native call. All callbacks
@@ -151,10 +157,10 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
             }
             val buffer = call()
             val committed = if (observer != null) System.nanoTime() else 0L
-            schedule = BatchReader.apply(buffer, presenter)
+            schedule = BatchReader.apply(buffer, presenter, skipEmpty)
             // Queries may overwrite the native output, so read faces only after
             // BatchReader has finished consuming the entire direct-buffer lease.
-            presenter.resolveControls { id, kind ->
+            if (schedule!!.presented) presenter.resolveControls { id, kind ->
                 val response = Native.controlQuery(handle, id, kind)
                 val bytes = ByteArray(response.remaining()); response.get(bytes)
                 org.json.JSONObject(String(bytes, Charsets.UTF_8))
@@ -167,6 +173,9 @@ class ExactView(context: Context, initialPress: String? = null, nativeFactory: N
             throw error
         } finally { applying = false }
         arm()
+        // Finish refreshing all lists before draining callbacks that can
+        // read their saved positions or publish another authored turn.
+        if (refreshingCollections) return
         // A preceding native turn may have unmounted an owner after its image,
         // control or native component queued a size. Recheck the current owner
         // after consuming that turn, including same-id replacement, before JNI.
