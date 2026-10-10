@@ -11,6 +11,7 @@ shape FileSnapshot
   loading: bool
   error: string
   contents: string
+  copyContents: string
   rows: list<ReviewRow>
   truncated: bool
   notice: string

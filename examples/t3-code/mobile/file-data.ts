@@ -16,7 +16,7 @@ export interface FileTreeItem { id: string; path: string; name: string; director
 export interface FileTreeSnapshot { owner: string; revision: number; title: string; query: string; selectedPath: string;
   rows: FileTreeItem[]; loading: boolean; error: string; truncated: boolean; emptyTitle: string; emptyDetail: string }
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
-  loading: boolean; error: string; contents: string; rows: ReviewRow[]; truncated: boolean; notice: string;
+  loading: boolean; error: string; contents: string; copyContents: string; rows: ReviewRow[]; truncated: boolean; notice: string;
   markdown: boolean; initialRowId: string }
 type ReadLane = 'tree' | 'file';
 interface Access { owner: string; allowed: boolean; permissionError: string; revocation: number;
@@ -150,11 +150,23 @@ export function mobileFilePresentation(input: { owner: string; revision: number;
   const absolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
   return { owner: input.owner, revision: input.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
     subtitle: absolute ? parent : [input.projectName, parent].filter(Boolean).join(' · '),
-    loading: input.loading, error: input.error || read?.error || '', contents,
+    loading: input.loading, error: input.error || read?.error || '', contents, copyContents: read?.error || input.error ? '' : read?.contents ?? '',
     rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
       oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
     markdown: /\.(md|mdx)$/i.test(path), initialRowId: target >= 0 ? `source-line:${target}` : '' };
+}
+/** Pinned ThreadFilesRouteScreen: modes belong to one path; clipboard keeps raw host text. */
+export function mobileFileMenu(data: FileSnapshot, preview: boolean, wrap: boolean, routeId: string, preferenceReady: boolean) {
+  const actions: { id: string; title: string; icon: string; selected?: boolean; inline?: boolean; disabled?: boolean; eventValue?: string; copyValue?: string }[] = [];
+  if (!data.path || !data.owner) return { configuration: JSON.stringify({ identifier: '', actions }) };
+  if (data.markdown) actions.push(
+    { id: 'preview', title: 'Preview', icon: 'eye', inline: true, selected: preview, eventValue: 'preview' },
+    { id: 'source', title: 'Source', icon: 'doc.text', inline: true, selected: !preview, eventValue: 'source' });
+  if (!data.markdown || !preview) actions.push({ id: 'word-wrap', title: wrap ? 'Disable word wrap' : 'Enable word wrap', icon: 'text.alignleft', eventValue: 'word-wrap', disabled: !preferenceReady });
+  actions.push({ id: 'copy-path', title: 'Copy path', icon: 'doc.on.doc', copyValue: data.path });
+  if (!data.loading && !data.error && data.rows.length) actions.push({ id: 'copy-contents', title: data.truncated ? 'Copy preview' : 'Copy contents', icon: 'doc.on.doc', copyValue: data.copyContents });
+  return { configuration: JSON.stringify({ identifier: JSON.stringify([data.owner, routeId, data.path]), title: 'File actions', actions }) };
 }
 export async function mobileFileRead(path: string, nativeInput: Native | null | undefined, dark = false, initialLine = 0, refresh = false,
   client: T3Client = mobileClient) {

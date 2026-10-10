@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
-import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFilesSnapshot } from './file-data';
+import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFilesSnapshot, mobileFileMenu, mobileFilePresentation } from './file-data';
 import { buildFileTree, flattenFileTree } from './file-tree-model';
 
 function fixture() {
@@ -40,6 +40,8 @@ describe('mobile workspace files', () => {
   test('source normalizes CR/LF, expands tabs, preserves trailing line and clamps requested line', async () => {
     const f = fixture(), view = await mobileFileRead('src/a.ts', f.native, false, 99, false, f.client);
     expect(view.contents).toBe('const a = 1;\n\tvalue\n'); expect(view.rows.map(row => row.text)).toEqual(['const a = 1;', '    value', '']);
+    expect(view.copyContents).toBe('const a = 1;\r\n\tvalue\r\n');
+    expect(JSON.parse(mobileFileMenu(view, false, false, 'file-visit', true).configuration).actions.find((row: Obj) => row.id === 'copy-contents').copyValue).toBe(view.copyContents);
     expect(view.initialRowId).toBe('source-line:2'); expect(view.rows[2]?.selected).toBe(true);
     expect(view.subtitle).toBe('Project · src'); expect(f.calls.find(call => call.method === 'projects.readFile')?.payload).toEqual({ cwd: '/repo', relativePath: 'src/a.ts' });
     expect(f.calls.some(call => call.method === 'projects.writeFile')).toBe(false);
@@ -50,6 +52,8 @@ describe('mobile workspace files', () => {
     f.calls.length = 0;
     const denied = await mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
     expect(denied.contents).toBe(''); expect(denied.rows).toEqual([]); expect(denied.error).toContain('cannot read host files');
+    expect(denied.copyContents).toBe('');
+    expect(JSON.parse(mobileFileMenu(denied, false, false, 'file-visit', true).configuration).actions.some((row: Obj) => row.id === 'copy-contents')).toBe(false);
     expect(mobileFilesSnapshot('', f.client).rows).toEqual([]); expect(f.calls.some(call => call.method)).toBe(false);
   });
   test('workspace switch while authorizing issues no old-workspace read', async () => {
@@ -136,4 +140,41 @@ test('a file deep link loads its selected ancestry in the inspector tree', async
   expect(view.rows.find(row => row.path === 'src')).toMatchObject({ expanded: true, loaded: true });
   expect(view.rows.find(row => row.path === 'src/a.ts')).toMatchObject({ selected: true });
   expect(f.calls.filter(call => call.method === 'projects.listEntries').map(call => obj(call.payload).directoryPath)).toEqual(['', 'src']);
+});
+
+test('file actions preserve escaped paths, empty contents and bounded preview; unavailable text cannot be copied', () => {
+  const path = 'src/"quoted"\\file.ts';
+  const present = (read?: { contents: string; truncated?: boolean; error?: string }, loading = false, error = '') =>
+    mobileFilePresentation({ owner: 'owner', revision: 1, projectName: 'Project', loading, error, read }, path);
+  const actions = (data: ReturnType<typeof present>) => JSON.parse(mobileFileMenu(data, false, false, 'file-visit', false).configuration).actions as Obj[];
+  const empty = actions(present({ contents: '' }));
+  expect(empty.map(row => row.title)).toEqual(['Enable word wrap', 'Copy path', 'Copy contents']);
+  expect(empty[0].disabled).toBe(true); expect(empty[1].copyValue).toBe(path); expect(empty[2].copyValue).toBe('');
+  const raw = '\tquoted "value"\r\n\u0000end\r';
+  const truncated = actions(present({ contents: raw, truncated: true }));
+  expect(truncated[2]).toMatchObject({ title: 'Copy preview', copyValue: raw });
+  for (const data of [present(), present({ contents: raw }, true), present({ contents: raw, error: 'read failed' }), present({ contents: raw }, false, 'permission denied')])
+    expect(actions(data).some(row => row.id === 'copy-contents')).toBe(false);
+});
+
+test('Markdown file actions keep source default and omit wrapping only for the selected preview', () => {
+  const data = mobileFilePresentation({ owner: 'owner', revision: 1, projectName: 'Project', loading: false, error: '', read: { contents: '# Heading\n' } }, 'README.md');
+  const actions = (preview: boolean) => JSON.parse(mobileFileMenu(data, preview, true, 'file-visit', true).configuration).actions as Obj[];
+  expect(actions(false).map(row => row.id)).toEqual(['preview', 'source', 'word-wrap', 'copy-path', 'copy-contents']);
+  expect(actions(false).slice(0, 2).map(row => [row.title, row.selected, row.inline])).toEqual([['Preview', false, true], ['Source', true, true]]);
+  expect(actions(false)[2].title).toBe('Disable word wrap');
+  expect(actions(true).map(row => row.id)).toEqual(['preview', 'source', 'copy-path', 'copy-contents']);
+  expect(actions(true)[0].selected).toBe(true); expect(actions(true)[1].selected).toBe(false);
+});
+
+test('an unrelated tree refresh preserves the captured file menu while a changed file or visit retires it', async () => {
+  const f = fixture(); await mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
+  const menu = (visit = 'file-visit') => mobileFileMenu(mobileFileSnapshot('src/a.ts', false, 0, f.client), false, false, visit, true).configuration;
+  const before = menu();
+  await mobileFilesRead('', '', f.native, f.client);
+  await mobileFilesAction(mobileFilesSnapshot('', f.client).owner, 'refresh', '', '', f.native, f.client);
+  expect(menu()).toBe(before); expect(menu('new-file-visit')).not.toBe(before);
+  f.hook(request => request.method === 'projects.readFile' ? { ok: true, generation: 1, value: { contents: 'changed bytes', byteLength: 13, truncated: false } } : undefined);
+  await mobileFileRead('src/a.ts', f.native, false, 0, true, f.client);
+  expect(menu()).not.toBe(before);
 });
