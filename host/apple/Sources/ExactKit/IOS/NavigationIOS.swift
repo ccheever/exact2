@@ -229,6 +229,20 @@ final class RouteController: UIViewController {
                 bar.layoutIfNeeded()
             }
         }
+        if let scroll { measureScrollBarAgain(scroll) }
+    }
+    /// UIKit sizes a scroller's scroll bar from insets it caches when the
+    /// scroller's safe area changes, the large title it holds left out. A
+    /// scroller given its bar after its last change kept a bar that counts
+    /// the title: listed to VoiceOver 52 points below UIKit's at rest
+    /// (iPad, iOS 26.5), until a scroll changed the safe area. A changed
+    /// indicator inset has UIKit compute them again; it is set back at once.
+    private func measureScrollBarAgain(_ scroll: UIScrollView) {
+        let insets = scroll.verticalScrollIndicatorInsets
+        var changed = insets
+        changed.top += 1
+        scroll.verticalScrollIndicatorInsets = changed
+        scroll.verticalScrollIndicatorInsets = insets
     }
     #endif
     override func loadView() {

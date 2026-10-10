@@ -1043,10 +1043,9 @@ final class NavigationCollapseIOSTests: XCTestCase {
     }
 
     /// A tab selected again over its scrolled list: on the 26.5 and 27.2
-    /// simulators a UIKit app's bar over a plain scroll view comes back as
-    /// tall as a large title, with no title in it and the reader 52 points
-    /// lower; over a collection view, inline with its title (LLP 1084 §6.5).
-    /// Exact keeps the reader's place and shows a title over both.
+    /// simulators a UIKit app's bar comes back inline with its title and the
+    /// reader where it was, over a plain scroll view as over a collection
+    /// view (LLP 1084 §6.5). Exact does the same over both.
     func testATabSelectedAgainOverItsScrolledListKeepsItsReaderAndShowsATitle() throws {
         let p = try lifecycle()
         let (nav, route) = try select(p, tab: 1)
@@ -1072,6 +1071,44 @@ final class NavigationCollapseIOSTests: XCTestCase {
             XCTAssertEqual(nav.navigationBar.frame.maxY, bar.maxY, accuracy: 0.5, "the bar over \(testId) keeps its collapsed height")
             XCTAssertGreaterThan(shownTitle(nav, route), 0, "a title shows over \(testId)")
         }
+    }
+
+    /// UIKit sizes a scroller's scroll bar from insets it caches when the
+    /// scroller's safe area changes, the large title it holds left out. A
+    /// list given its bar after its last change kept a bar that counted the
+    /// title: listed to VoiceOver 52 points below UIKit's at rest (iOS 26.5).
+    /// The cached insets (`_effectiveVerticalScrollIndicatorInsets`, read by
+    /// key) are the ones UIKit computes again when an indicator inset changes.
+    func testAListAtRestUnderItsBarHasItsScrollBarMeasuredForItsTitle() throws {
+        let p = try lifecycle()
+        let nav = try shownStack(p)
+        let root = try XCTUnwrap(nav.topViewController as? RouteController)
+        try followed("cold-native-list", by: root, in: nav, p)
+        let scroll = try XCTUnwrap(node(p, "cold-native-list")?.scrollView)
+        guard scroll.responds(to: Selector(("_effectiveVerticalScrollIndicatorInsets"))) else { throw XCTSkip("no cached indicator insets in this UIKit") }
+        func effective() -> UIEdgeInsets { (scroll.value(forKey: "effectiveVerticalScrollIndicatorInsets") as? NSValue)?.uiEdgeInsetsValue ?? .zero }
+        func measureAgain() {
+            let insets = scroll.verticalScrollIndicatorInsets
+            var changed = insets
+            changed.top += 1
+            scroll.verticalScrollIndicatorInsets = changed
+            scroll.verticalScrollIndicatorInsets = insets
+        }
+        let followedTop = effective().top
+        // The bar stops following the list and the bar is measured then, as
+        // it is before a route first gives its list (the title not in it).
+        root.track(nil)
+        nav.navigationBar.layoutIfNeeded()
+        spin(0.3)
+        measureAgain()
+        // The list given back: UIKit moves the title into it, its safe area unchanged.
+        root.track(scroll)
+        until("the bar follows the list again") { root.contentScrollView(for: .top) === scroll }
+        spin(0.3)
+        let cached = effective().top
+        measureAgain()
+        XCTAssertEqual(effective().top, followedTop, accuracy: 0.5)
+        XCTAssertEqual(cached, effective().top, accuracy: 0.5, "the scroll bar at rest is measured for the title the list holds")
     }
 
     /// UIKit infers a view's content margins, which an inset-grouped list's
