@@ -445,7 +445,7 @@ component CoreField
   action edit(next: string)
     draft = next
   view
-    input autocorrect="off" value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}`
+    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off"
 
 // The .settings-slider track is drawn here (NSSlider ignores accent-color): a 6-point rounded
 // track in muted 22% with a 55% border ring, the primary fill to the thumb's centre

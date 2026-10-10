@@ -393,7 +393,7 @@ component AcpProviderEditor
       row width="100%" gap="0.5rem" flex-direction=(wide ? "row" : "column") align-items=(wide ? "center" : "stretch")
         UpkeepSelect(selectId=`acp-provider-protocol-${provider.providerId}`, label=`${provider.providerId} protocol`, valueLabel=provider.apiType, width="9rem", small=false, disabled=provider.fieldsDisabled, options=provider.protocols, choose=pickProtocol)
         input value=(urlEdited ? url : provider.baseUrl) input=editUrl type="url" placeholder="https://api.example.com" aria-label=`${provider.providerId} base URL` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-url-${provider.providerId}`
-      input autocorrect="off" value=(headersEdited ? headers : provider.headers) input=editHeaders type="password" autocomplete="off" placeholder="Write-only headers JSON, e.g. {\"Authorization\":\"Bearer …\"}" aria-label=`${provider.providerId} write-only headers JSON` class=PvField width="100%" min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-headers-${provider.providerId}`
+      input value=(headersEdited ? headers : provider.headers) input=editHeaders type="password" autocomplete="off" placeholder="Write-only headers JSON, e.g. {\"Authorization\":\"Bearer …\"}" aria-label=`${provider.providerId} write-only headers JSON` class=PvField width="100%" min-width=0 disabled=provider.fieldsDisabled testId=`acp-provider-headers-${provider.providerId}` autocorrect="off"
 
 // The ACP Delete and Disable confirmations (dialogs.confirm, variant destructive): the
 // question is the title; Cancel and Escape send nothing and return focus to the button.
@@ -491,7 +491,7 @@ component CustomModelOption
           UpkeepSelect(selectId=`custom-model-option-id-${descriptor.ref}`, label="Option id", valueLabel=descriptor.idSelectLabel, width="10rem", small=true, disabled=false, options=descriptor.idOptions, choose=pickId)
         when descriptor.customId
           input value=(idEdited ? id : descriptor.id) input=editId placeholder="optionId" aria-label="Option id" spellcheck="false" autocorrect="off" class=PvField width="9rem" height="1.75rem" font-family="ui-monospace" font-size="0.75rem" testId=`custom-model-option-id-input-${descriptor.index}`
-        input autocorrect="off" value=(labelEdited ? label : descriptor.label) input=editLabel placeholder="Label" aria-label="Option label" class=PvField flex=1 min-width="6rem" font-size="0.75rem" testId=`custom-model-option-label-${descriptor.index}`
+        input value=(labelEdited ? label : descriptor.label) input=editLabel placeholder="Label" aria-label="Option label" class=PvField flex=1 min-width="6rem" font-size="0.75rem" testId=`custom-model-option-label-${descriptor.index}` autocorrect="off"
         UpkeepSelect(selectId=`custom-model-option-type-${descriptor.ref}`, label="Option type", valueLabel=descriptor.typeLabel, width="6rem", small=true, disabled=false, options=descriptor.typeOptions, choose=pickType)
         button press=op("upkeep:cm-remove-option", instanceId, descriptor.ref, "", true) class=PvMicro aria-label=`Remove option ${descriptor.index + 1}` testId=`custom-model-remove-option-${descriptor.index}` title=""
           PvIcon(name="x", size=12, color="light-dark(#71717b, #818181)")
@@ -523,7 +523,7 @@ component CustomModelChoice
   view
     row gap="0.5rem" align-items="center" testId=`custom-model-choice-${choice.ref}`
       input value=(idEdited ? id : choice.id) input=editId placeholder="value" aria-label="Choice value" spellcheck="false" autocorrect="off" class=PvField width="7rem" font-family="ui-monospace" font-size="0.75rem"
-      input autocorrect="off" value=(labelEdited ? label : choice.label) input=editLabel placeholder="Label" aria-label="Choice label" class=PvField flex=1 min-width=0 font-size="0.75rem"
+      input value=(labelEdited ? label : choice.label) input=editLabel placeholder="Label" aria-label="Choice label" class=PvField flex=1 min-width=0 font-size="0.75rem" autocorrect="off"
       row gap="0.375rem" align-items="center" flex-shrink=0
         button press=op("upkeep:cm-default", instanceId, choice.ref, (choice.isDefault ? "false" : "true"), true) role="switch" aria-checked=choice.isDefault aria-label="Default choice" width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(choice.isDefault ? "flex-end" : "flex-start") flex-shrink=0 background-color=(choice.isDefault ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
           box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"

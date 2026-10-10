@@ -252,7 +252,7 @@ component ProvidersPanel
                 row width="8rem" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center" role="group"
                   button press=op("provider-health", "", "", page.healthDown, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Decrease provider health check interval" disabled=(busy or not page.writable) testId="health-decrease" title=""
                     PvIcon(name="minus", size=14, color="light-dark(#71717b, #818181)")
-                  input autocorrect="off" value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.writable) testId="health-interval" flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                  input value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.writable) testId="health-interval" flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
                   button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Increase provider health check interval" disabled=(busy or not page.writable) testId="health-increase" title=""
                     PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
                 text "seconds" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
@@ -389,7 +389,7 @@ component ProviderNameRow
               ProviderUrlAuth(auth=auth, instanceId=editor.id, op=op)
           row gap="0.5rem" align-items="center" justify-content="flex-end" width=(rowWide ? "auto" : "100%") opacity=(writable ? 1 : 0.5)
             ProviderAccentPicker(editorId=editor.id, title=editor.title, accent=editor.accent, h0=editor.accentH, s0=editor.accentS, v0=editor.accentV, writable=writable, busy=busy, op=op, release=accent)
-            input autocorrect="off" value=name input=editName blur=op("provider-display", editor.id, "", name, nameEdited) submit=op("provider-display", editor.id, "", name, nameEdited) placeholder=editor.placeholder aria-label="Display name" class=PvField width=(rowWide ? "14rem" : "auto") flex-grow=(rowWide ? 0 : 1) flex-shrink=(rowWide ? 0 : 1) min-width=0 disabled=(not writable) testId="provider-display-name"
+            input value=name input=editName blur=op("provider-display", editor.id, "", name, nameEdited) submit=op("provider-display", editor.id, "", name, nameEdited) placeholder=editor.placeholder aria-label="Display name" class=PvField width=(rowWide ? "14rem" : "auto") flex-grow=(rowWide ? 0 : 1) flex-shrink=(rowWide ? 0 : 1) min-width=0 disabled=(not writable) testId="provider-display-name" autocorrect="off"
 
 // One driver setting (ProviderSettingsForm): commits on blur or Return.
 component ProviderConfigField
@@ -434,7 +434,7 @@ component ProviderSecretField
   view
     PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=divided)
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
-        input autocorrect="off" value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}`
+        input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off"
         when field.clearable
           button press=op("provider-env-field", instance, field.key, "", true) class=PvIconButton width="1.75rem" height="1.75rem" aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-env-${field.key}` title=""
             PvIcon(name="x", size=14, color="light-dark(#e7000b, #ff6467)")
