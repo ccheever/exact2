@@ -1,0 +1,36 @@
+realinput-1010g-followups RG-1: the work group's tool icon (the blue square left of "Ran 2 commands, read 1 file, and performed 8 other actions")
+
+== Reference (T3 Code 1e2ecbd975, Electron, lane base 16720; CDP document.elementFromPoint(290, 82))
+{"op":"size","w":1280,"h":840}
+{"op":"eval","value":{"tag":"IMG","src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAA","alt":"","ariaHidden":"true","pointerEvents":"auto","rect":[282,74,16,16],"parent":"SPAN.size-4 shrink-0 stroke-2 text-icon-muted inline-block overflow-hidden rounded-xs"}}
+
+An <img> with pointer-events auto: DesktopWindow.ts installContextMenu gets mediaType "image" and leads with Copy Image.
+Its menu, read from the main process by #407 (shell-context-menu, lane 16660, per-case file): Copy Image, a separator, then
+the four roles with Copy disabled (Cut and Paste are off outside an editable field, Select All on).
+
+== Clone, agent drive (tap t3-code contextmenu at <x> <y>; agent mode logs the shell's menu instead of popping it)
+-- before: evidence worktree c03d7e908 (no shell menu in that build: nothing is logged)
+(no t3.textmenu line for the three right-clicks at 289,90 / 286,86 / 293,93)
+-- after, first drive (bundle of 09ea1c785: Copy Image looked below the hit, but the hit was the header's invisible timestamp)
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+-- after, final drive (bundle with the header's timestamp pointer-events none while hidden)
+t3.textmenu: Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+t3.textmenu: Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+t3.textmenu: Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+
+Causes: (1) the group header's TimelineRowTimestamp box is position absolute, opacity 0 until hover, and had no
+pointer-events none (the reference: 'pointer-events-none absolute ... opacity-0 group-hover:pointer-events-auto'), so it
+sat at the row's start over the icon and took a right-click there; (2) the shell looked for an app-drawn image only among
+the hit view's own subviews, and the icon is two views down (ToolActivityIcon's box > its pointer-events none hook box >
+T3ToolActivityIcon's view). Under real input the pointer hovers the row, so the timestamp moves away and (2) alone
+dropped Copy Image (the session's hit: a NodeView with no id, the outer box).
+
+== AppKit test (macos/tests/contextmenu/realinput-1010g.swift testTheToolIconUnderItsPassThroughHookGetsCopyImage)
+-- before (the feature tip's T3TextContextMenu.swift):
+   target/rg/before/tests/realinput-1010g.swift:85: error: -[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage] : XCTAssertEqual failed: ("[["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]]") is not equal to ("[["Copy Image", "—", "Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]]") - the reference's menu on the work group's tool icon
+   target/rg/before/tests/realinput-1010g.swift:92: error: -[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage] : XCTUnwrap failed: expected non-nil value of type "NSImage"
+   Test Case '-[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage]' failed (0.034 seconds).
+-- after (this branch, final head; contextmenu 53 run, 0 failed):
+   Test Case '-[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage]' passed (0.041 seconds).
