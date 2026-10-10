@@ -30,9 +30,10 @@ import {
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
 import { FLUSH_DELAY_MS, FilesViewedStore } from './pages-pr-viewed';
-import { startDetached } from './composer-replies';
+import { startDetached, type DetachedReply } from './composer-replies';
 import { startFleetDetached } from './usage-replies';
-import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest } from './pages-pr-environments';
+import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest, routerHost } from './pages-pr-environments';
+import { pullRequestRouter } from './pages-pr-routing';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
 
 /** Commits per press of "Show more" in the scope menu. */
@@ -104,6 +105,7 @@ function signature(code: CodeState): string {
 export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number }): Promise<'wake' | 'done'> {
   const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference), listedOn = ctx.environmentId ?? '';
   const code = codeState(client, `${client.environmentId}|${key}`);
+  await tellReaders(client, native);
   if (ctx.tab === 'code') code.mounted = true;
   if (!code.mounted || obj(detail.capabilities).diff !== true) return 'done';
   // The panel's Refresh goes around the host's cache: the diff from its first page, and the ticks.
@@ -391,21 +393,54 @@ function beginComment(client: T3Client, code: CodeState, detail: Obj | null, val
   void client;
   return '';
 }
+const SET_FILES_VIEWED = 'pullRequests.setFilesViewed';
+/** Viewed writes the host accepted whose readers are not told yet: the router's `afterWrite`, run by the panel's next answer. */
+const accepted = new WeakMap<object, { origin: string; payload: Obj }[]>();
+/**
+ * The reference's `finish` for each accepted Viewed write (pullRequestRouting.ts): the servers read through for the pull
+ * request get `filesViewedOnly` invalidations, before the read that follows the write. One the answer let go stays for the next.
+ */
+async function tellReaders(client: T3Client, native: Native): Promise<void> {
+  const pending = accepted.get(client);
+  while (pending && pending.length > 0) {
+    const write = pending[0]!;
+    await pullRequestRouter.afterWrite(routerHost(client, native, write.origin), SET_FILES_VIEWED, write.payload);
+    pending.shift();
+  }
+}
 /**
  * The flush: one `setFilesViewed` of the gathered presses, sent detached (its reply lands with the
  * next snapshot's drain, composer-replies.ts), so no answer waits on it and none can lose it. A
  * write that never left (its answer let go first) is put back for the next flush: the write is
  * idempotent, so sending it again is safe.
+ *
+ * realinput-1010e-followups: it is routed from the pull request's own server, as the reference's
+ * command is (`routedRequest`, pullRequestRouting.ts lists it in `writes`): the identity probes,
+ * then the first server in the reference's order that shares the GitHub account and is trusted to
+ * write, a server that cannot take it now passing it to the next (`dispatch`). No server that can
+ * take it now (the pull request's own not connected and no other trusted): the batch waits for the
+ * next flush. A refusal that comes back in the reply (a guard that saw another account after the
+ * probe) fails the batch, as any failed write does: the route is behind the answer that sent it.
  */
 async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference, listedOn: string): Promise<void> {
   const taken = code.viewed.takeBatch();
   if (!taken) return;
-  const key = code.key, payload = { ...host(reference), files: taken.batch };
-  // On the pull request's own server (RE-5); one that is not connected now takes the batch at the next flush.
-  const server = pullRequestServer(client, listedOn, payload), remote = environmentTarget(client, server);
-  if (server && server !== client.environmentId && !remote) { code.viewed.requeue(taken); return; }
-  const { reply } = remote ? await startFleetDetached(native, remote, 'pullRequests.setFilesViewed', payload) : await startDetached(client, native, 'pullRequests.setFilesViewed', payload);
-  void reply.then(answer => {
+  const key = code.key, payload = { ...host(reference), files: taken.batch }, origin = pullRequestServer(client, listedOn, payload);
+  const out: { sent?: { reply: Promise<DetachedReply> } } = {};
+  const send = async (environmentId: string, routed: Obj): Promise<Obj> => {
+    const remote = environmentTarget(client, environmentId);
+    if (environmentId && environmentId !== client.environmentId && !remote) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+    out.sent = remote ? await startFleetDetached(native, remote, SET_FILES_VIEWED, routed) : await startDetached(client, native, SET_FILES_VIEWED, routed);
+    return {};
+  };
+  try { await pullRequestRouter.dispatch(routerHost(client, native, origin), SET_FILES_VIEWED, payload, send); }
+  catch (error) {
+    if (!out.sent) code.viewed.requeue(taken);
+    if (letGo(error)) throw error;
+  }
+  if (!out.sent) return;
+  void out.sent.reply.then(answer => {
+    if (answer.ok) { const pending = accepted.get(client) ?? []; pending.push({ origin, payload }); accepted.set(client, pending); }
     // The reader has moved on: what is on screen has nothing to do with this answer.
     if (peekCode(client)?.key !== key) return;
     if (answer.ok) { code.viewed.landed(taken, 'ok'); return; }
