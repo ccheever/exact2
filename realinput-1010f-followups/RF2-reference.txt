@@ -1,0 +1,15 @@
+realinput-1010f-followups RF-2: the floating player's pill-padding drag, reference vs clone.
+Reference (T3 Code 1e2ecbd975 desktop over CDP, lane realinput-1010f-followups): a thread's Browser tab on a lane fixture page
+(127.0.0.1:16704), device toolbar Responsive 1280 x 800 (the session's landscape player), Float preview over chat.
+  chat container (offsetParent of the player): x 256, y 52, 1024 x 788
+  floated:  (948, 628) 320 x 200
+  pointer on the dot (the pill shows: Open in right panel, Pop out, Close), press on the pill's padding (1179.5, 652, the
+  pill's left edge, not a button), 12 moves by (-300, -200), release:
+  after:    (928, 428) 320 x 200  -> moved (-20, -200)
+  928 - 256 = 672 = padding 20 + minChatWidth 640 + gap 12: chatCanvasLayout.ts's minimumPreviewX ("Dragging stops at a
+  readable chat lane on the left"), clampPreviewMiniPlayerPosition's minimumX.
+Clone (real input, realinput-1010f, the bundle of d057787cb): start (984, 666) 320 x 200, the same drag -> (964, 466): moved
+  (-20, -200). The clone's chat-canvas-layout.ts ports the same rule (minimumPreviewX = padding + minChatWidth + GAP).
+  Earlier agent/CDP comparison in portrait (realinput-1010d-followups rd2-frames): both (1028, 495) -> (863, 204) after the
+  drag and the NW grip.
+Verdict: matches the reference; no change.
