@@ -1,0 +1,194 @@
+diff-gutter-selection-followups: the reference over CDP (T3 Code 1e2ecbd975 desktop, Electron, lane diff-gutter-selection-followups:
+backend 16780, CDP 16781; paired with the GitHub lane's primary server on 16783 for #168, no GitHub write). Playwright mouse
+drags over CDP; window.getSelection() and the diffs' shadow root's getSelection() read while the drag was held and after it.
+
+=== GS-1, the thread's Diff panel (Cargo.lock, numbers 4727 -> 4730): gutter drag, code drag, number press (ref-textsel.mjs)
+{"from":{"n":"4727","type":"context","index":"2,2","x":741,"y":188,"w":57,"h":20,"selected":null},"to":{"n":"4730","type":"change-addition","index":"5,5","x":741,"y":248,"w":57,"h":20,"selected":null}}
+{"step":"gutter drag held","document":{"type":"None","rangeCount":0,"text":""},"shadow":[],"userSelect":{"number":"none","numberContent":"none","line":"auto"}}
+{"step":"gutter drag released","document":{"type":"Caret","rangeCount":1,"text":""},"shadow":[],"userSelect":{"number":"none","numberContent":"none","line":"auto"}}
+{"step":"code drag","document":{"type":"Range","rangeCount":1,"text":"\n[[package]]\nname = \"t3-code-macos\"\nversion = \"0.1.0\""},"shadow":[{"type":"Range","text":"\n[[package]]\nname = \"t3-code-macos\"\nversion = \"0.1.0\""}],"userSelect":{"number":"none","numberContent":"none","line":"auto"},"gutterSelected":[]}
+{"step":"number press after code selection","document":{"type":"Caret","rangeCount":1,"text":""},"shadow":[],"userSelect":{"number":"none","numberContent":"none","line":"auto"},"gutterSelected":["4730"]}
+
+=== GS-1, #168's Code tab (docs/usage.md, numbers 2 -> 4): the gutter drag (the code drag of this run landed on file headers
+after the draft's Cancel moved the list, so it was repeated alone: ref-codedrag.mjs)
+{"from":{"n":"2","type":"context","index":"0,0","x":641,"y":287,"w":41,"h":20,"selected":null},"to":{"n":"4","type":"context","index":"2,2","x":641,"y":327,"w":41,"h":20,"selected":null}}
+{"step":"gutter drag held","document":{"type":"None","rangeCount":0,"text":""},"shadow":[],"userSelect":{"number":null,"numberContent":null,"line":null}}
+{"step":"gutter drag released","document":{"type":"Caret","rangeCount":1,"text":""},"shadow":[],"userSelect":{"number":null,"numberContent":null,"line":null}}
+{"step":"code drag, alone (ref-codedrag.mjs 2 -> 4)","text":"\n## Install\n","selectedLines":[]}
+
+Reading: the number cells ([data-column-number] and [data-line-number-content]) are user-select: none, the code rows
+([data-line]) auto. A drag that starts on a number selects lines and no text (held: type None; released: a collapsed caret,
+empty). A drag in the code selects the code's text only, no numbers. A press on a number clears a code text selection.
+
+=== GS-2, the Files surface (FilePreviewPanel's File over @pierre/diffs), fixture.txt, numbers 1 -> 2 dragged
+Every element of the shadow root with a background, light (ref-files-sel2.mjs) and dark (ref-files-sel3.mjs, dark from the start):
+-- held light selected [('1', 'first'), ('2', 'last')]
+   pre data-file= data-overflow=wrap data-interactive-line-numbers= style=--diffs-min-n x 741 y 92 w 283 h 56 bg #ffffff color #27272a
+   code data-code= x 741 y 92 w 283 h 56 bg #ffffff color #27272a
+   div data-gutter= style=grid-row: span 2; x 741 y 100 w 33.3 h 40 bg #ffffff color #27272a
+   div data-line-type=context data-column-number=1 data-line-index=0 data-selected-line x 741 y 100 w 33.3 h 20 bg #d5e6ff color #20649e
+   div data-line-type=context data-column-number=2 data-line-index=1 data-selected-line x 741 y 120 w 33.3 h 20 bg #d5e6ff color #20649e
+   button data-utility-button= type=button x 764.5 y 120 w 20 h 20 bg #009fff color #ffffff
+-- released light selected [('1', 'first'), ('2', 'last')]
+   pre data-file= data-overflow=wrap style=--diffs-min-number-column-width-default: 1ch x 741 y 92 w 283 h 182 bg #ffffff color #27272a
+   code data-code= x 741 y 92 w 283 h 182 bg #ffffff color #27272a
+   div data-gutter= style=grid-row: span 3; x 741 y 100 w 33.3 h 166 bg #ffffff color #27272a
+   div data-line-type=context data-column-number=1 data-line-index=0 data-selected-line x 741 y 100 w 33.3 h 20 bg #d5e6ff color #20649e
+   div data-line-type=context data-column-number=2 data-line-index=1 data-selected-line x 741 y 120 w 33.3 h 20 bg #d5e6ff color #20649e
+   div data-gutter-buffer=annotation data-buffer-size=1 style=grid-row: span 1; x 741 y 140 w 33.3 h 126 bg #fbfbfb color #0a0a0a
+   div data-line-annotation=0,2 contenteditable=false x 774.3 y 140 w 249.7 h 126 bg #fafafa color #0a0a0a
+-- held dark selected [('1', 'first'), ('2', 'last')]
+   pre data-file= data-overflow=wrap data-interactive-line-numbers= style=--diffs-min-n x 741 y 92 w 283 h 56 bg #111111 color #f5f5f5
+   code data-code= x 741 y 92 w 283 h 56 bg #111111 color #f5f5f5
+   div data-gutter= style=grid-row: span 2; x 741 y 100 w 33.3 h 40 bg #111111 color #f5f5f5
+   div data-line-type=context data-column-number=1 data-line-index=0 data-selected-line x 741 y 100 w 33.3 h 20 bg #254566 color #72b6ff
+   div data-line-type=context data-column-number=2 data-line-index=1 data-selected-line x 741 y 120 w 33.3 h 20 bg #254566 color #72b6ff
+   button data-utility-button= type=button x 764.5 y 120 w 20 h 20 bg #009fff color #111111
+-- released dark selected [('1', 'first'), ('2', 'last')]
+   pre data-file= data-overflow=wrap style=--diffs-min-number-column-width-default: 1ch x 741 y 92 w 283 h 182 bg #111111 color #f5f5f5
+   code data-code= x 741 y 92 w 283 h 182 bg #111111 color #f5f5f5
+   div data-gutter= style=grid-row: span 3; x 741 y 100 w 33.3 h 166 bg #111111 color #f5f5f5
+   div data-line-type=context data-column-number=1 data-line-index=0 data-selected-line x 741 y 100 w 33.3 h 20 bg #254566 color #72b6ff
+   div data-line-type=context data-column-number=2 data-line-index=1 data-selected-line x 741 y 120 w 33.3 h 20 bg #254566 color #72b6ff
+   div data-gutter-buffer=annotation data-buffer-size=1 style=grid-row: span 1; x 741 y 140 w 33.3 h 126 bg #181818 color #fafafa
+   div data-line-annotation=0,2 contenteditable=false x 774.3 y 140 w 249.7 h 126 bg #202020 color #fafafa
+
+Reading: a selected line paints its number cell (#d5e6ff light, #254566 dark) and its number (#20649e, #72b6ff: the diff's,
+diff-gutter-visuals); the code row ([data-line]) stays transparent over the surface (#ffffff / #111111), there is no bar, and the
+comment card under the selection is not tinted (#fafafa / #202020). The '+' ([data-utility-button]) is #009fff with the plus in
+the surface colour (#ffffff / #111111), 20x20 at the number's right edge (cell left + 23.5).
+
+=== scripts (lane dir target/t3-audit/lanes/diff-gutter-selection-followups)
+--- ref-textsel.mjs
+// diff-gutter-selection-followups GS-1: in the reference's open diff, (1) a gutter drag over line numbers, (2) a drag inside
+// the code, (3) a press on a number while code text is selected; after each, what the document's and the diff's shadow
+// root's text selection hold. Usage: node ref-textsel.mjs <cdpPort> <fromN> <toN> <shotPrefix>
+import { open, log, gutter } from './ref-lib.mjs';
+const [port, fromN, toN, shot] = process.argv.slice(2);
+const page = await open(port);
+const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+const sel = () => page.evaluate(() => {
+  const doc = window.getSelection();
+  const out = { document: { type: doc.type, rangeCount: doc.rangeCount, text: doc.toString() }, shadow: [] };
+  for (const c of document.querySelectorAll('diffs-container')) {
+    const root = c.shadowRoot; if (!root || typeof root.getSelection !== 'function') continue;
+    const s = root.getSelection(); if (s && s.rangeCount) out.shadow.push({ type: s.type, text: s.toString() });
+  }
+  // The column-number cells' user-select, and the code's.
+  const c = document.querySelector('diffs-container')?.shadowRoot;
+  const num = c?.querySelector('[data-column-number]'), line = c?.querySelector('[data-line]');
+  out.userSelect = { number: num ? getComputedStyle(num).userSelect : null, numberContent: num?.querySelector('[data-line-number-content]') ? getComputedStyle(num.querySelector('[data-line-number-content]')).userSelect : null, line: line ? getComputedStyle(line).userSelect : null };
+  return out;
+});
+const clear = () => page.evaluate(() => { window.getSelection().removeAllRanges(); for (const c of document.querySelectorAll('diffs-container')) c.shadowRoot?.getSelection?.()?.removeAllRanges(); });
+const g = await gutter(page);
+const from = g.find(e => e.n === fromN), to = g.find(e => e.n === toN);
+log({ from, to });
+await clear();
+// (1) The gutter drag: press on the number, move down to the other number, release.
+await page.mouse.move(from.x + from.w - 8, from.y + 10); await page.waitForTimeout(200);
+await page.mouse.down();
+for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x + from.w - 8, from.y + 10 + (to.y - from.y) * i / 8); await page.waitForTimeout(40); }
+await page.waitForTimeout(300);
+log({ step: 'gutter drag held', ...(await sel()) });
+await page.screenshot({ path: `${shot}-1-gutter-held.png` });
+await page.mouse.up(); await page.waitForTimeout(600);
+log({ step: 'gutter drag released', ...(await sel()) });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+// (2) A drag inside the code: from 60pt into the code of the first line to 160pt into the code of the last.
+const codeX = from.x + from.w + 60;
+await page.mouse.move(codeX, from.y + 10); await page.waitForTimeout(200);
+await page.mouse.down();
+for (let i = 1; i <= 8; i++) { await page.mouse.move(codeX + 100 * i / 8, from.y + 10 + (to.y - from.y) * i / 8); await page.waitForTimeout(40); }
+await page.mouse.up(); await page.waitForTimeout(600);
+log({ step: 'code drag', ...(await sel()), gutterSelected: (await gutter(page)).filter(e => e.selected).map(e => e.n) });
+await page.screenshot({ path: `${shot}-2-code-drag.png` });
+// (3) A press on a number while that code selection stands.
+await page.mouse.click(from.x + from.w - 8, to.y + 10); await page.waitForTimeout(600);
+log({ step: 'number press after code selection', ...(await sel()), gutterSelected: (await gutter(page)).filter(e => e.selected).map(e => e.n) });
+await page.screenshot({ path: `${shot}-3-number-press.png` });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+process.exit(0);
+--- ref-codedrag.mjs
+// GS-1: a drag inside the code from line <fromN> to <toN> (the open diff), then what the selection holds.
+// Usage: node ref-codedrag.mjs <cdpPort> <fromN> <toN> <shot>
+import { open, log, gutter } from './ref-lib.mjs';
+const [port, fromN, toN, shot] = process.argv.slice(2);
+const page = await open(port);
+await page.evaluate(() => { window.getSelection().removeAllRanges(); });
+const g = await gutter(page);
+const from = g.find(e => e.n === fromN), to = g.find(e => e.n === toN);
+log({ from, to });
+const x = from.x + from.w + 60;
+await page.mouse.move(x, from.y + 10); await page.waitForTimeout(200);
+await page.mouse.down();
+for (let i = 1; i <= 8; i++) { await page.mouse.move(x + 100 * i / 8, from.y + 10 + (to.y - from.y) * i / 8); await page.waitForTimeout(40); }
+await page.mouse.up(); await page.waitForTimeout(600);
+log({ text: await page.evaluate(() => window.getSelection().toString()), selectedLines: (await gutter(page)).filter(e => e.selected !== null).map(e => e.n) });
+await page.screenshot({ path: shot });
+process.exit(0);
+--- ref-files-sel2.mjs
+// GS-2: the Files surface's committed selection (after the release), light and dark: every painted element in the
+// selected rows' band (any non-transparent background in the shadow root), the number cells, and the draft.
+// Usage: node ref-files-sel2.mjs <cdpPort> <fromN> <toN> <shotPrefix>
+import { open, log } from './ref-lib.mjs';
+const [port, fromN, toN, shot] = process.argv.slice(2);
+const page = await open(port);
+const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(800);
+const files = () => page.evaluate(() => { const out = []; for (const c of document.querySelectorAll('diffs-container')) { const root = c.shadowRoot; if (!root) continue; for (const el of root.querySelectorAll('[data-column-number]')) { const r = el.getBoundingClientRect(); if (r.width > 0) out.push({ n: el.getAttribute('data-column-number'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), sel: el.getAttribute('data-selected-line') }); } } return out; });
+const painted = () => page.evaluate(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const hex = (c) => { if (!c || c === 'rgba(0, 0, 0, 0)') return c; cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('') + (d[3] < 255 ? d[3].toString(16).padStart(2, '0') : ''); };
+  const out = [];
+  for (const c of document.querySelectorAll('diffs-container')) {
+    const root = c.shadowRoot; if (!root) continue;
+    for (const el of root.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect(); if (r.width === 0 || r.height === 0 || r.y > 200) continue;
+      for (const pseudo of [null, '::before', '::after']) {
+        const s = getComputedStyle(el, pseudo);
+        const bg = s.backgroundColor, img = s.backgroundImage, shadow = s.boxShadow;
+        if ((bg && bg !== 'rgba(0, 0, 0, 0)') || (img && img !== 'none') || (shadow && shadow !== 'none')) {
+          if (pseudo && s.content === 'none') continue;
+          out.push({ tag: el.tagName.toLowerCase(), pseudo, attrs: [...el.attributes].map(a => `${a.name}=${a.value}`).join(' ').slice(0, 140), x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), bg: hex(bg), img: img === 'none' ? undefined : img.slice(0, 120), shadow: shadow === 'none' ? undefined : shadow, color: hex(s.color), pw: pseudo ? s.width : undefined, pleft: pseudo ? s.left : undefined, pos: pseudo ? s.position : undefined });
+        }
+      }
+    }
+  }
+  return out;
+});
+const g = await files();
+const from = g.find(e => e.n === fromN), to = g.find(e => e.n === toN);
+await page.mouse.move(from.x + from.w - 8, from.y + 10); await page.waitForTimeout(300);
+await page.mouse.down();
+for (let i = 1; i <= 6; i++) { await page.mouse.move(from.x + from.w - 8, from.y + 10 + (to.y - from.y) * i / 6); await page.waitForTimeout(40); }
+await page.waitForTimeout(200);
+log({ phase: 'held', scheme: 'light', gutter: await files(), painted: await painted() });
+await page.mouse.up(); await page.waitForTimeout(1500);
+for (const scheme of ['light', 'dark']) {
+  await page.emulateMedia({ colorScheme: scheme }); await page.waitForTimeout(1500);
+  log({ phase: 'released', scheme, gutter: await files(), painted: await painted(), text: await page.evaluate(() => getSelection().toString()) });
+  await page.screenshot({ path: `${shot}-${scheme}.png` });
+}
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(500);
+process.exit(0);
+--- ref-files-held.mjs
+// GS-2: the Files surface's lines <fromN>..<toN> selected by a held number drag, one scheme. Usage: node ref-files-held.mjs <cdpPort> <scheme> <fromN> <toN> <shot>
+import { open, log } from './ref-lib.mjs';
+const [port, scheme, fromN, toN, shot] = process.argv.slice(2);
+const page = await open(port);
+const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+await page.emulateMedia({ colorScheme: scheme }); await page.waitForTimeout(1500);
+const files = () => page.evaluate(() => { const out = []; for (const c of document.querySelectorAll('diffs-container')) { const root = c.shadowRoot; if (!root) continue; for (const el of root.querySelectorAll('[data-column-number]')) { const r = el.getBoundingClientRect(); if (r.width > 0) out.push({ n: el.getAttribute('data-column-number'), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), sel: el.getAttribute('data-selected-line'), bg: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color }); } } return out; });
+const g = await files(); const from = g.find(e => e.n === fromN), to = g.find(e => e.n === toN);
+await page.mouse.move(from.x + from.w - 8, from.y + 10); await page.waitForTimeout(300); await page.mouse.down();
+for (let i = 1; i <= 6; i++) { await page.mouse.move(from.x + from.w - 8, from.y + 10 + (to.y - from.y) * i / 6); await page.waitForTimeout(40); }
+await page.waitForTimeout(300);
+log({ scheme, held: await files() });
+await page.screenshot({ path: shot });
+await page.mouse.up(); await page.waitForTimeout(800);
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(500);
+process.exit(0);
