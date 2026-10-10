@@ -180,10 +180,27 @@ fn every_split_app_in_the_guides_compiles_assembled() {
         for b in list.iter().filter(|b| b.check.as_deref() == Some("app")) {
             app.push_str(&b.body);
         }
+        let mut filled = std::collections::HashSet::new();
         for b in list {
             let check = b.check.as_deref().unwrap_or("");
+            let known = check == "app"
+                || check == "file"
+                || check
+                    .strip_prefix("route ")
+                    .is_some_and(|n| !n.trim().is_empty());
+            if !known {
+                failures.push(format!(
+                    "{}: unknown check marker `{check}` (use `app`, `file` or `route <name>`)",
+                    b.at()
+                ));
+                continue;
+            }
             if let Some(name) = check.strip_prefix("route ") {
                 let name = name.trim();
+                if !filled.insert(name.to_string()) {
+                    failures.push(format!("{}: route `{name}` is filled twice", b.at()));
+                    continue;
+                }
                 match fill_route(&app, name, &b.body) {
                     Some(filled) => app = filled,
                     None => failures.push(format!(
