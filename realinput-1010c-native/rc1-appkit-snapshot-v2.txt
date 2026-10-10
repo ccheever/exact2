@@ -1,0 +1,23 @@
+AppKit macos/tests/snapshot at 5aba0e1fb (realinput-1010c-native, review round 1, after merging feat(example)/t3-code 7195f10b6), README recipe:
+5 selected-window identity checks passed
+12 capture lifetime/budget checks passed
+6 native draft-file persistence/cleanup checks passed
+3 image validation/cancellation checks passed
+2 oversized-image resize checks passed
+20 shortcut normalization/layout/transaction/recorder checks passed
+5 physical modifier and timeout checks passed
+1 capture animation screen-geometry check passed (no OS capture)
+20 capture flight lifetime/deadline/identity checks passed (synthetic image, no OS capture)
+13 composer-owner focus, setup-guard and thumbnail checks passed
+57 permission helper placement, tracking, drag, reveal and close checks passed (no grant requested)
+20 snapshot permission request checks passed (fake grants, no TCC prompt)
+exit 0
+
+Permission helper checks of this round (examples/t3-code/macos/tests/snapshot/permission-helper.swift:75-81):
+    // realinput-1010c RC-1: the panel is an activating window, as the reference's ordinary BrowserWindow is, so a click
+    // in it activates T3 Code; the non-activating panel left T3 Code inactive and its reveal behind System Settings.
+    expect(!panel.styleMask.contains(.nonactivatingPanel), "a click in the panel activates T3 Code (no .nonactivatingPanel), as the reference's window is activating")
+    // Declared difference (RC-1): the reference's window keeps Electron's macOS default acceptFirstMouse false, so its
+    // first click from System Settings only activates T3 Code and a second press reveals or drags; the row accepts the
+    // first mouse (since #359), so the activating click also reveals or drags, as RC-1 asks.
+    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.content.appRow.acceptsFirstMouse(for: nil), "the click that activates T3 Code makes the panel key and also reaches the row (the reference's first click only activates)")
