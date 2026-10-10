@@ -13,6 +13,13 @@ import AppKit
 /// its chip, Escape, a press elsewhere in the text, an edit that takes the chip away, and the
 /// editor leaving the window; a press outside the text is the app's (its window counts it).
 /// While it is open the frame follows the chip through scrolling and layout.
+///
+/// realinput-1010e-followups RE-3: the press is the editor's, not the text's. In T3 Code the chip is
+/// a selectable atom (`atom: true, selectable: true`), so ProseMirror answers a press on it with a
+/// NodeSelection of the chip; the popover then takes the focus, Escape gives it back to the chip, and
+/// typing replaces the chip (`$frontend-design now`, caret after "now", press the chip, Escape, "x":
+/// "x now", over CDP). Here the chip is its hidden source text, so a press selects that text and the
+/// text view never places a caret for it (it put one before the chip, and "x" went in front of it).
 final class T3ComposerChipPress {
     /// Newer presses win across editors.
     private static var lastSeq = 0
@@ -38,20 +45,33 @@ final class T3ComposerChipPress {
     func attach() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            self?.mouseDown(event)
-            return event
+            self?.mouseDown(event) == true ? nil : event
         }
     }
 
-    /// A primary press that lands on the text view: on a skill chip it opens (or closes) its details;
-    /// anywhere else in the text it closes them (Base UI's outside press). A press the window gives to
-    /// another view (the popover drawn over the text included) is not the text's.
-    func mouseDown(_ event: NSEvent) {
+    /// A primary press that lands on the text view: on a skill chip it selects the chip and opens (or
+    /// closes) its details, and the text view does not see it (true: the press is taken); anywhere else
+    /// in the text it closes them (Base UI's outside press). A press the window gives to another view
+    /// (the popover drawn over the text included) is not the text's.
+    @discardableResult func mouseDown(_ event: NSEvent) -> Bool {
         guard let styler, let view = styler.view, let window = view.window, event.window === window,
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               let root = window.contentView?.superview ?? window.contentView,
-              root.hitTest(root.convert(event.locationInWindow, from: nil))?.isDescendant(of: view) == true else { return }
-        if let chip = styler.skillChip(at: view.convert(event.locationInWindow, from: nil)) { press(chip) } else { close() }
+              root.hitTest(root.convert(event.locationInWindow, from: nil))?.isDescendant(of: view) == true else { return false }
+        guard let chip = styler.skillChip(at: view.convert(event.locationInWindow, from: nil)) else { close(); return false }
+        // A composition still open is the text view's to commit (it does so on any press).
+        let taken = !view.hasMarkedText()
+        if taken { select(chip, in: view, window: window) }
+        press(chip)
+        return taken
+    }
+
+    /// ProseMirror's NodeSelection of the pressed chip: its whole source, in the editor that has the focus.
+    private func select(_ chip: T3ComposerChip, in view: NSTextView, window: NSWindow) {
+        if window.firstResponder !== view { window.makeFirstResponder(view) }
+        guard NSMaxRange(chip.range) <= (view.string as NSString).length else { return }
+        view.setSelectedRange(chip.range)
+        styler?.noteSelection()
     }
 
     var isOpen: Bool { chip != nil }

@@ -773,3 +773,15 @@ author wrote the heading (LLP 1115: author > platform). Main PR [#405](https://g
 filed it as `issues/20261010-macos-a-heading-inside-a-button.md`; the plan record is
 `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x74-macos-heading-inside-button.md`. The
 sibling heading stays until main fixes the host.
+
+## Pull request Code tab: a Viewed write refused in its reply (X19, [#124](https://github.com/ccheever/exact2/issues/124))
+
+Task `20261010-realinput-1010e-followups` (review of #406). The Viewed ticks' `setFilesViewed` is routed as the
+reference routes it (`pullRequestRouting.ts` lists it in `writes`: the identity probes, the candidate order, a server
+that cannot take it before it leaves passing it to the next, the readers' `filesViewedOnly` invalidations once GitHub took
+it). The write itself is sent detached (`pages-pr-code.ts` `flushViewed`, `PullRequestRouter.dispatch`): the 400 ms
+flush is the panel resource's wait because a data module holds no timer (X19), and a resource that waited on the reply
+would be let go, and the write sent again, by any press in the panel. So a refusal that comes back in the reply, an
+alternate server's guard that saw another account after its probe said the same one, fails the batch (the ticks go back,
+"Could not update viewed files") where the reference passes the write to the next server. The invalidations run in the
+panel's next answer (`afterWrite`) instead of before the command returns.

@@ -50,6 +50,9 @@ enum T3SettingsWindow {
 
 /// Reference watchMacSettingsWindow: one poll reporting only changes (the first
 /// reading always), every 0.5 s while Settings is frontmost and every 1 s otherwise.
+/// The reference polls in its own process (one `osascript`), so a drag from the helper
+/// or a menu's tracking loop never pauses it; the timer runs in the common modes for the
+/// same reason (realinput-1010e-followups RE-2), not only in the default one.
 final class T3SettingsWindowWatcher {
     private let read: () -> T3SettingsReading
     private let changed: (T3SettingsReading) -> Void
@@ -65,14 +68,16 @@ final class T3SettingsWindowWatcher {
         if reading != previous { previous = reading; changed(reading) }
         guard !stopped else { return }
         let frontmost: Bool = { if case .window(_, true) = reading { return true }; return false }()
-        timer = Timer.scheduledTimer(withTimeInterval: frontmost ? 0.5 : 1, repeats: false) { [weak self] _ in self?.tick() }
+        let next = Timer(timeInterval: frontmost ? 0.5 : 1, repeats: false) { [weak self] _ in self?.tick() }
+        RunLoop.main.add(next, forMode: .common)
+        timer = next
     }
 }
 
 /// Reference shell.showItemInFolder, asked by the active app: the reference's helper is an ordinary window, so the click
-/// that reveals finds T3 Code active (the window server activates an app on a click in its window; there the first
-/// click only activates), and a reveal asked by the active app brings Finder's window to the front (the helper then
-/// hides, System Settings being covered). The panel activates too (T3PermissionPanel), so a click reaches here with
+/// that reveals finds T3 Code active (the window server activates an app on a click in its window, and the same click
+/// reaches the page: see T3PermissionHelperAppRow.acceptsFirstMouse), and a reveal asked by the active app brings
+/// Finder's window to the front (the helper then hides, System Settings being covered). The panel activates too (T3PermissionPanel), so a click reaches here with
 /// T3 Code active, and T3 Code yields activation to Finder, asks for the reveal and asks Finder to activate. A request
 /// to activate itself from an inactive app is refused under real input (realinput-1010c RC-1: two clicks left Finder
 /// behind System Settings with T3 Code inactive), so it is only a fallback for a press that is no click (VoiceOver's
@@ -91,6 +96,18 @@ struct T3FinderReveal {
         yield(Self.finder)
         select(url)
         activate(Self.finder)
+    }
+}
+
+/// realinput-1010e-followups RE-2: with R9_INPUT_LOG set (the real-input sessions' log, R9Input.swift), each System
+/// Settings reading and each show, hide and close of the helper, and why: a session can tell a hidden helper (it comes
+/// back with the next reading) from a closed one, which no screenshot can.
+enum T3PermissionHelperLog {
+    static let path = ProcessInfo.processInfo.environment["R9_INPUT_LOG"].flatMap { $0.isEmpty ? nil : $0 }
+    static func note(_ line: @autoclosure () -> String) {
+        guard let path, let data = "\(Date().timeIntervalSince1970) helper \(line())\n".data(using: .utf8) else { return }
+        if let handle = FileHandle(forWritingAtPath: path) { handle.seekToEndOfFile(); handle.write(data); handle.closeFile() }
+        else { FileManager.default.createFile(atPath: path, contents: data) }
     }
 }
 
@@ -141,19 +158,23 @@ final class T3PermissionHelper {
         // Reference nativeTheme.themeSource: the helper takes the app's chosen appearance.
         panel.appearance = owner?.appearance
         self.panel = panel; self.permission = permission; self.owner = owner
-        panel.content.onClose = { [weak self] in self?.finish() }
-        panel.content.onReveal = { [weak self] in self?.reveal(bundle) }
-        panel.onEscape = { [weak self] in self?.finish() }
-        panel.onBlur = { [weak self] in self?.sync() }
+        panel.content.onClose = { [weak self] in self?.finish("close button") }
+        panel.content.onReveal = { [weak self] in T3PermissionHelperLog.note("reveal (active \(NSApp.isActive))"); self?.reveal(bundle) }
+        panel.onEscape = { [weak self] in self?.finish("Escape") }
+        panel.onBlur = { [weak self] in T3PermissionHelperLog.note("blur"); self?.sync() }
         if let owner {
-            ownerObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: owner, queue: .main) { [weak self] _ in self?.close(); self?.finished() }
+            ownerObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: owner, queue: .main) { [weak self] _ in
+                T3PermissionHelperLog.note("closed with its owner window"); self?.close(); self?.finished()
+            }
         }
+        T3PermissionHelperLog.note("open \(permission.rawValue)")
         // Reference: TCC is polled once a second only while the helper is open.
         grantTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.check(isGranted) }
         stopTracking = watch { [weak self] reading in self?.settingsChanged(reading) }
     }
-    func check(_ isGranted: () -> Bool) { if panel != nil, isGranted() { finish() } }
+    func check(_ isGranted: () -> Bool) { if panel != nil, isGranted() { finish("granted") } }
     func settingsChanged(_ reading: T3SettingsReading) {
+        T3PermissionHelperLog.note("reading \(reading)")
         settings = reading
         if case .window = reading { foundSettings = true }
         sync()
@@ -161,17 +182,23 @@ final class T3PermissionHelper {
     private func sync() {
         guard let panel else { return }
         switch settings {
-        case .unavailable: panel.orderOut(nil)
-        case .absent: if foundSettings { finish() } else { panel.orderOut(nil) }
+        case .unavailable: hide("Settings unreadable")
+        case .absent: if foundSettings { finish("Settings closed") } else { hide("no Settings window yet") }
         case let .window(frame, frontmost):
-            guard frontmost || panel.isKeyWindow else { panel.orderOut(nil); return }
+            guard frontmost || panel.isKeyWindow else { hide("Settings covered, helper not key"); return }
             let target = T3SnapshotFeedback.screenFrame(T3SettingsWindow.helperBounds(frame), screenHeight: primaryScreenHeight())
             if panel.frame != target { panel.setFrame(target, display: true) }
-            if !panel.isVisible { panel.orderFrontRegardless() }
+            if !panel.isVisible { T3PermissionHelperLog.note("show at \(target) (frontmost \(frontmost), key \(panel.isKeyWindow))"); panel.orderFrontRegardless() }
         }
     }
+    private func hide(_ why: String) {
+        guard let panel, panel.isVisible else { return }
+        T3PermissionHelperLog.note("hide: \(why)")
+        panel.orderOut(nil)
+    }
     /// Reference finish: the helper closes and onboarding's window comes back.
-    private func finish() {
+    private func finish(_ why: String) {
+        T3PermissionHelperLog.note("finish: \(why)")
         let owner = self.owner
         close()
         if let owner { returnTo(owner) }
@@ -183,10 +210,10 @@ final class T3PermissionHelper {
 /// shadowless, always on top, out of the window cycle. Showing it never activates T3 Code
 /// (orderFrontRegardless, the reference's showInactive); a click in it does, as in any
 /// window without .nonactivatingPanel. The row takes that activating click (acceptsFirstMouse,
-/// a declared difference: the reference's first click only activates), so a click on the
-/// row reveals the app from the active app (T3FinderReveal) and a press that starts a drag
-/// makes the panel key, which keeps it shown while System Settings is not frontmost (sync,
-/// the reference's `!frontmost && !isFocused`).
+/// as the reference's always-on-top page does), so a click on the row reveals the app from
+/// the active app (T3FinderReveal) and a press that starts a drag makes the panel key, which
+/// keeps it shown while System Settings is not frontmost (sync, the reference's
+/// `!frontmost && !isFocused`).
 final class T3PermissionPanel: NSPanel {
     let content: T3PermissionHelperView
     var onEscape: () -> Void = {}
@@ -210,6 +237,7 @@ final class T3PermissionPanel: NSPanel {
     // Reference preload: Escape anywhere in the panel closes it.
     override func cancelOperation(_ sender: Any?) { onEscape() }
     override func keyDown(with event: NSEvent) { if event.keyCode == 53 { onEscape() } else { super.keyDown(with: event) } }
+    override func becomeKey() { super.becomeKey(); T3PermissionHelperLog.note("key (active \(NSApp.isActive))") }
     override func resignKey() { super.resignKey(); onBlur() }
 }
 
@@ -315,9 +343,12 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         icon.draw(in: NSRect(x: 12, y: (bounds.height - 32) / 2, width: 32, height: 32), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
     }
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
-    // Declared difference (realinput-1010c RC-1): the reference's window keeps Electron's macOS default
-    // acceptFirstMouse false, so its first click from System Settings only activates T3 Code; here the activating
-    // click also reaches the row (a click reveals, a press drags), as RC-1 asks. The close button does the same.
+    // The click that activates T3 Code also reaches the row (a click reveals, a press drags), as in the reference
+    // (realinput-1010e-followups RE-1): its window leaves Electron's acceptFirstMouse at false, but it is always on top,
+    // and Chromium's page view accepts every press in a window above the normal level (render_widget_host_view_cocoa.mm
+    // acceptsMouseEventsOption, kAlways), so AppKit gives it the first click. Asked inside the reference's Electron
+    // 44.4.2, the view under its "T3 Code" row answers acceptsFirstMouse: true, and false at the normal level. The close
+    // button does the same.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -333,6 +364,7 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
         let from = pressed.locationInWindow, to = event.locationInWindow
         guard hypot(to.x - from.x, to.y - from.y) >= 3 else { return }
         dragging = true
+        T3PermissionHelperLog.note("drag starts (active \(NSApp.isActive), key \(window?.isKeyWindow ?? false))")
         if !startDrag(event) { onReveal() }
     }
     override func mouseUp(with event: NSEvent) {
@@ -355,6 +387,7 @@ final class T3PermissionHelperAppRow: NSView, NSDraggingSource {
     /// whether the drop was taken, refused or made elsewhere.
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) { dragEnded(at: screenPoint) }
     func dragEnded(at screenPoint: NSPoint) {
+        T3PermissionHelperLog.note("drag ends (active \(NSApp.isActive), key \(window?.isKeyWindow ?? false))")
         pressed = nil; dragging = false
         guard let window, window.isVisible else { return }
         (bounds.contains(convert(window.convertPoint(fromScreen: screenPoint), from: nil)) ? NSCursor.openHand : NSCursor.arrow).set()

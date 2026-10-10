@@ -469,6 +469,15 @@ component T3Code
     after(1, fdaTick)
   action fdaTick
     fdaPoll = fdaPoll + 1
+  // realinput-1010e-followups RE-4: however the import wizard closes (Cancel, Escape, Close, its X), Base UI's Dialog gives
+  // the focus back to Add profile, whose menu opened it (the reference over CDP: Cancel by mouse leaves BUTTON "Add profile").
+  state importWizardShown = false
+  task importWizardFocus when integrations.browserProfiles.wizard.open != importWizardShown
+    after(1, importWizardFlip)
+  action importWizardFlip
+    if importWizardShown and not integrations.browserProfiles.wizard.open
+      focus("browser-profiles-add")
+    importWizardShown = integrations.browserProfiles.wizard.open
   resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings

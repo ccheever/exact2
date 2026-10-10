@@ -30,7 +30,10 @@ import {
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
 import { FLUSH_DELAY_MS, FilesViewedStore } from './pages-pr-viewed';
-import { startDetached } from './composer-replies';
+import { startDetached, type DetachedReply } from './composer-replies';
+import { startFleetDetached } from './usage-replies';
+import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest, routerHost } from './pages-pr-environments';
+import { pullRequestRouter } from './pages-pr-routing';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
 
 /** Commits per press of "Show more" in the scope menu. */
@@ -77,7 +80,13 @@ function scope(code: CodeState, commit: string | null): void {
   restart(code);
 }
 
-export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null };
+/**
+ * `environmentId`: the server the pull request was listed on ('' for the focused one). realinput-1010e-followups RE-5: the
+ * tab's reads and its Viewed writes go to that server, as the reference's do (pullRequests.ts: the diff is the pull request
+ * environment's own HTTP read, filesViewed, setFilesViewed and diffFileContents its routed requests); sent to the focused
+ * server instead, a pull request listed on a paired server answered HTTP 503 (provider-unsupported) from the embedded one.
+ */
+export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string };
 const host = (reference: WriteReference) => ({ projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number });
 const commitsOf = (activity: Obj | null) => arr(activity?.commits).slice().sort((left, right) => Date.parse(str(right.committedDate)) - Date.parse(str(left.committedDate)));
 const contentsKeyOf = (code: CodeState, path: string) => `${scopeKey(code)}::${path}`;
@@ -94,8 +103,9 @@ function signature(code: CodeState): string {
  * asks again); the reads run otherwise.
  */
 export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number }): Promise<'wake' | 'done'> {
-  const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference);
+  const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference), listedOn = ctx.environmentId ?? '';
   const code = codeState(client, `${client.environmentId}|${key}`);
+  await tellReaders(client, native);
   if (ctx.tab === 'code') code.mounted = true;
   if (!code.mounted || obj(detail.capabilities).diff !== true) return 'done';
   // The panel's Refresh goes around the host's cache: the diff from its first page, and the ticks.
@@ -109,16 +119,17 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   if (code.viewed.flushable()) {
     const presses = code.viewed.key();
     await sleep(native, FLUSH_DELAY_MS);
-    if (code.viewed.key() === presses) await flushViewed(client, native, code, reference);
+    if (code.viewed.key() === presses) await flushViewed(client, native, code, reference, listedOn);
   }
   if (viewedOn && code.viewed.due) {
-    try { code.viewed.adopt(obj(await client.call(native, { op: 'request', method: 'pullRequests.filesViewed', payload: host(reference), share: true })) as never); }
+    try { code.viewed.adopt(obj(await routedPullRequestRequest(client, native, 'pullRequests.filesViewed', { ...host(reference), environmentId: listedOn }, false, true)) as never); }
     catch (error) { if (letGo(error)) throw error; code.viewed.failed(error instanceof Error && error.message ? error.message : 'The host did not answer.'); }
   }
   if (code.diffDue) {
     const asked = scopeKey(code), cursor = code.cursor;
     try {
-      const answer = obj(await client.call(native, { op: 'prDiff', payload: { ...host(reference), ...(cursor === null ? {} : { cursor }), ...(code.commit === null ? {} : { commit: code.commit }) } }));
+      const payload = { ...host(reference), ...(cursor === null ? {} : { cursor }), ...(code.commit === null ? {} : { commit: code.commit }) };
+      const answer = obj(await environmentCall(client, native, pullRequestServer(client, listedOn, payload), { op: 'prDiff', payload }));
       if (scopeKey(code) === asked && code.cursor === cursor) {
         code.slices = adoptDiffSlice(code.slices, { cursor, patch: str(answer.patch), truncated: answer.truncated === true, nextCursor: str(answer.nextCursor) || null,
           omittedFileStats: arr(answer.omittedFileStats).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) });
@@ -134,7 +145,7 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
     code.contentsDue.delete(contentsKey);
     if (!file) continue;
     try {
-      const answer = obj(await client.call(native, { op: 'request', method: 'pullRequests.diffFileContents', share: true, payload: diffFileContentsInput(reference, code.commit, file) }));
+      const answer = obj(await routedPullRequestRequest(client, native, 'pullRequests.diffFileContents', { ...diffFileContentsInput(reference, code.commit, file), environmentId: listedOn }, false, true));
       code.contents[contentsKey] = { state: 'loaded', oldContents: str(answer.oldContents), newContents: str(answer.newContents), error: '' };
       const gapKey = `${contentsKey}::${want.gap}`;
       code.expansions[gapKey] = expandRange(code.expansions[gapKey], hiddenCount(file, want.gap, code.contents[contentsKey]));
@@ -382,18 +393,54 @@ function beginComment(client: T3Client, code: CodeState, detail: Obj | null, val
   void client;
   return '';
 }
+const SET_FILES_VIEWED = 'pullRequests.setFilesViewed';
+/** Viewed writes the host accepted whose readers are not told yet: the router's `afterWrite`, run by the panel's next answer. */
+const accepted = new WeakMap<object, { origin: string; payload: Obj }[]>();
+/**
+ * The reference's `finish` for each accepted Viewed write (pullRequestRouting.ts): the servers read through for the pull
+ * request get `filesViewedOnly` invalidations, before the read that follows the write. One the answer let go stays for the next.
+ */
+async function tellReaders(client: T3Client, native: Native): Promise<void> {
+  const pending = accepted.get(client);
+  while (pending && pending.length > 0) {
+    const write = pending[0]!;
+    await pullRequestRouter.afterWrite(routerHost(client, native, write.origin), SET_FILES_VIEWED, write.payload);
+    pending.shift();
+  }
+}
 /**
  * The flush: one `setFilesViewed` of the gathered presses, sent detached (its reply lands with the
  * next snapshot's drain, composer-replies.ts), so no answer waits on it and none can lose it. A
  * write that never left (its answer let go first) is put back for the next flush: the write is
  * idempotent, so sending it again is safe.
+ *
+ * realinput-1010e-followups: it is routed from the pull request's own server, as the reference's
+ * command is (`routedRequest`, pullRequestRouting.ts lists it in `writes`): the identity probes,
+ * then the first server in the reference's order that shares the GitHub account and is trusted to
+ * write, a server that cannot take it now passing it to the next (`dispatch`). No server that can
+ * take it now (the pull request's own not connected and no other trusted): the batch waits for the
+ * next flush. A refusal that comes back in the reply (a guard that saw another account after the
+ * probe) fails the batch, as any failed write does: the route is behind the answer that sent it.
  */
-async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference): Promise<void> {
+async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference, listedOn: string): Promise<void> {
   const taken = code.viewed.takeBatch();
   if (!taken) return;
-  const key = code.key;
-  const { reply } = await startDetached(client, native, 'pullRequests.setFilesViewed', { ...host(reference), files: taken.batch });
-  void reply.then(answer => {
+  const key = code.key, payload = { ...host(reference), files: taken.batch }, origin = pullRequestServer(client, listedOn, payload);
+  const out: { sent?: { reply: Promise<DetachedReply> } } = {};
+  const send = async (environmentId: string, routed: Obj): Promise<Obj> => {
+    const remote = environmentTarget(client, environmentId);
+    if (environmentId && environmentId !== client.environmentId && !remote) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+    out.sent = remote ? await startFleetDetached(native, remote, SET_FILES_VIEWED, routed) : await startDetached(client, native, SET_FILES_VIEWED, routed);
+    return {};
+  };
+  try { await pullRequestRouter.dispatch(routerHost(client, native, origin), SET_FILES_VIEWED, payload, send); }
+  catch (error) {
+    if (!out.sent) code.viewed.requeue(taken);
+    if (letGo(error)) throw error;
+  }
+  if (!out.sent) return;
+  void out.sent.reply.then(answer => {
+    if (answer.ok) { const pending = accepted.get(client) ?? []; pending.push({ origin, payload }); accepted.set(client, pending); }
     // The reader has moved on: what is on screen has nothing to do with this answer.
     if (peekCode(client)?.key !== key) return;
     if (answer.ok) { code.viewed.landed(taken, 'ok'); return; }

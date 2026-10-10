@@ -25,6 +25,7 @@ import AppKit
 ///   File › Close Window route a keystroke to the window's command first.
 final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
+    private var saveTrace: NSMenuItem?
     private weak var reloadTarget: AnyObject?
     private weak var file: NSMenu?
     private weak var edit: NSMenu?
@@ -38,7 +39,19 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 reloadAction = reload.action
                 reloadTarget = reload.target as AnyObject?
             }
+            // A development build keeps the host's Save Trace (⌥⌘T, LLP 1079 D5) as a hidden key equivalent: the reference has
+            // no Develop menu, but a real-input session's trace has no other way out of a macOS window (realinput-1010e RE-6:
+            // ⌥⌘T reached the view as a key; the macOS host handles no SIGUSR1, whose default ends the process).
+            if let trace = develop.submenu?.items.first(where: { $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == [.command, .option] }) {
+                develop.submenu?.removeItem(trace)
+                saveTrace = trace
+            }
             bar.removeItem(develop)
+        }
+        if let trace = saveTrace, trace.menu == nil, let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu {
+            trace.isHidden = true
+            trace.allowsKeyEquivalentWhenHidden = true
+            view.addItem(trace)
         }
         if let go = bar.items.first(where: { $0.submenu?.title == "Go" }) { bar.removeItem(go) }
         // One window, no window tabs: AppKit's Show Tab Bar / Show All Tabs are not in the reference View menu.
