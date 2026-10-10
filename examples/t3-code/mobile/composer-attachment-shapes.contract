@@ -9,6 +9,7 @@ shape ComposerAttachment
   removeOperation: string
   disabled: bool
 shape ComposerAttachmentsSnapshot
+  menuConfiguration: string
   previewRequest: string
   contentOwner: string
   items: list<ComposerAttachment>

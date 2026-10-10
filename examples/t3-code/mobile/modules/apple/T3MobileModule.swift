@@ -49,6 +49,7 @@ final class T3MobileModule: ExactModule {
         "t3-layout-facts": T3LayoutFacts.factory,
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-composer-material": T3MobileComposerMaterial.factory,
+        "t3-composer-attachment-button": T3MobileAttachmentButton.factory,
         "t3-composer-editor": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             let instance = T3MobileComposerEditor(voice: module.voice.editor, operations: module.composerOperations, fileHolds: module.composerFileHolds, paste: module.composerPaste, events: events)
             try instance.setProps(props); return instance
@@ -433,7 +434,7 @@ final class T3MobileModule: ExactModule {
             audio.perform(request) { reply.send($0) }
         case "mobileMediaShare":
             media.perform(request) { reply.send($0) }
-        case "mobileAttachmentSource", "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
+        case "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
             attachments.perform(request) { reply.send($0) }
         case "uploadAttachment":
             guard let normalized = T3MobileAttachments.uploadRequest(request) else {
@@ -605,6 +606,7 @@ final class T3MobileModule: ExactModule {
          "t3-mobile-browser": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-mobile-devices": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-preview-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-composer-attachment-button": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-terminal-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-document-audio": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-document-html": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

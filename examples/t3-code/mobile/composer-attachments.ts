@@ -9,7 +9,7 @@ import { mobileQueuedEditPresentation } from './queued-edit';
 import { composerAttachmentPreview, composerAttachmentPreviewRequest, prepareComposerAttachmentPreviews } from './composer-attachment-previews';
 import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTargetCurrent } from './composer-target';
 import { mobileQueuedEditCurrent } from './queued-edit-state';
-import { mobileQueuedEditAttachmentAction } from './queued-edit-attachments';
+import { mobileQueuedEditAttachmentAction, mobileQueuedEditAttachmentPicking } from './queued-edit-attachments';
 // Photo Library / Choose Files at upstream365aa87982, over shared draft/file/upload ownership.
 // @ref llp/1109.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileCommand, mobileNative } from './client';
@@ -33,7 +33,7 @@ const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'
 export function mobileComposerAttachments(client: T3Client = mobileClient, now = 0): ComposerAttachmentsSnapshot {
   const target = mobileComposerTarget(client), edit = mobileQueuedEditCurrent(client);
   if (edit) {
-    const disabled = !mobileQueuedEditPresentation(client).canCancel || client.busy || !!client.pending || picking.has(client);
+    const disabled = !mobileQueuedEditPresentation(client).canCancel || client.busy || !!client.pending || mobileQueuedEditAttachmentPicking(client);
     const remaining = Math.max(0, MAX_ATTACHMENTS - edit.existingAttachments.length - edit.attachments.length);
     const items = [...edit.existingAttachments.map(file => ({ id: str(file.id), name: str(file.name),
       kind: str(file.mimeType).startsWith('image/') ? 'image' : str(file.mimeType).startsWith('video/') ? 'video' : 'file',
@@ -122,12 +122,6 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
     if (activeInput(client)) throw new ClientError('Answer the pending question before attaching files here.');
     const remaining = Math.max(0, MAX_ATTACHMENTS - reservedAttachments(client));
     if (!remaining) throw new ClientError('You can attach up to 100 attachments per message.');
-    if (source === 'menu') {
-      const response = await bridgeReply(native, { op: 'mobileAttachmentSource', supportsFiles: attachStagingLimit(client) > 0 });
-      if (!response.ok) throw new ClientError(response.error!.message);
-      const value = obj(response.value); if (str(value.error)) throw new ClientError(str(value.error));
-      source = str(value.source); if (!source) return result();
-    }
     if (!['photos', 'files'].includes(source)) throw new ClientError('Choose Photo Library or Choose Files.');
     if (!current()) throw new ClientError('The draft changed while files were being chosen.');
     let pickError = '';

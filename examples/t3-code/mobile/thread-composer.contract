@@ -1,4 +1,5 @@
 use ComposerRootView from "./composer-root.contract"
+use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use ComposerCommandPopover from "./composer-command-popover.contract"
 use ThreadSubmission from "./thread-send-root.contract"
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
@@ -21,6 +22,8 @@ component ThreadComposer
     showQueue: bool
     showBackdrop: bool
     data: ThreadComposerState
+    attachments: ComposerAttachmentsSnapshot
+    attachmentBusy: bool
     expanded: bool
     enterBehavior: string
     dark: bool
@@ -90,9 +93,8 @@ component ThreadComposer
             material-surface=colors.composerSurface material-border=colors.composerBorder
           row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
             when not expanded and not voicePresented
-              button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
-                column width=44 height=44 align-items="center" justify-content="center"
-                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+              t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=colors.iconSubtle
+                button-disabled=(attachmentBusy or (data.editing and not data.canCancel)) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
             // Keep the native editor at one plan site while the compact toolbar covers it.
             when richHere
               t3-composer-editor id=editorId configuration=rich.configuration change=richEvent message=richMessage
@@ -114,9 +116,8 @@ component ThreadComposer
               view height=3.5
               when not voicePresented
                 row align-items="center" gap=0 retainFocus=true
-                  button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
-                    column width=44 height=44 align-items="center" justify-content="center"
-                      t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+                  t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=colors.iconSubtle
+                    button-disabled=(attachmentBusy or (data.editing and not data.canCancel)) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
                   button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
                     row min-width=0 align-items="center" gap=7 justify-content="flex-end"
                       ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)

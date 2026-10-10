@@ -38,7 +38,7 @@ final class T3SymbolView: ExactNativeInstance {
         image.tintColor = try Self.color(props["symbol-tint"] ?? "#27272a")
     }
 
-    private static func color(_ text: String) throws -> UIColor {
+    static func color(_ text: String) throws -> UIColor {
         if text.hasPrefix("#") {
             let hex = String(text.dropFirst())
             if let value = UInt64(hex, radix: 16), hex.count == 6 || hex.count == 8 {
