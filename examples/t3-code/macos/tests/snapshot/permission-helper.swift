@@ -72,7 +72,11 @@ func runPermissionHelperChecks() {
     guard let panel = helper.panel else { fatalError("helper panel opens") }
     expect(!panel.isVisible, "the panel waits for the Settings window before it shows")
     expect(panel.title == "Set up Screen Recording" && panel.level == .floating && !panel.hidesOnDeactivate && !panel.hasShadow && !panel.isOpaque, "a frameless, always-on-top panel titled for its permission")
-    expect(panel.styleMask.contains(.nonactivatingPanel), "using the panel never activates T3 Code over System Settings")
+    // realinput-1010c RC-1: the reference's helper is an ordinary window, so a click in it activates T3 Code (the
+    // window server's own activation, which no app can refuse); a non-activating panel left T3 Code inactive and its
+    // reveal behind System Settings. AppKit's activation flag for the window is what the window server reads on the click.
+    expect(!panel.styleMask.contains(.nonactivatingPanel) && panel.value(forKey: "preventsActivation") as? Bool == false, "a click in the panel activates T3 Code, as a click in the reference's window does")
+    expect(panel.canBecomeKey && !panel.canBecomeMain && panel.content.appRow.acceptsFirstMouse(for: nil), "the click that activates T3 Code makes the panel key and also reaches the row")
     let content = panel.content
     content.pointer = { NSPoint(x: -10_000, y: -10_000) } // the real pointer may rest where the panel docks
     expect(content.title.stringValue == "↑ Drag T3 Code into the list above" && content.appRow.label.stringValue == "T3 Code", "reference header and app row text")
@@ -110,19 +114,29 @@ func runPermissionHelperChecks() {
     expect(row.grabbing, "pressing the row grabs (closed hand)")
     row.dragEnded(at: NSPoint(x: 10, y: 10))
     expect(!row.grabbing && !row.dragging && helper.panel === panel && revealed.isEmpty, "a drag that ends without a grant releases the press (open hand over the row again) and reveals nothing")
-    expect(content.appRow.accessibilityPerformPress() && revealed == [bundle], "a click on T3 Code reveals the running app bundle in Finder")
+    let inRow = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let event = NSEvent.mouseEvent(with: type, location: inRow, modifierFlags: [], timestamp: 0, windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        if type == .leftMouseDown { row.mouseDown(with: event) } else { row.mouseUp(with: event) }
+    }
+    expect(revealed == [bundle] && !row.grabbing, "a click on the T3 Code row reveals the running app bundle in Finder")
+    expect(content.appRow.accessibilityPerformPress() && revealed == [bundle, bundle], "VoiceOver's press on the row reveals it too")
     expect(helper.panel === panel, "revealing in Finder keeps the helper open")
-    // realinput-1010-fixes RI-2: the reveal runs as the reference's does, from the active app (its helper's click
-    // activates T3 Code): the non-activating panel's click activates T3 Code, which yields activation to Finder, asks
-    // for the reveal, then asks Finder to activate. The order only; Finder coming front is a real-input batch row.
-    var steps: [String] = []
-    var finderReveal = T3FinderReveal()
-    finderReveal.activateSelf = { steps.append("activate T3 Code") }
-    finderReveal.yield = { steps.append("yield \($0)") }
-    finderReveal.select = { steps.append("select \($0.path)") }
-    finderReveal.activate = { steps.append("activate \($0)") }
-    finderReveal.reveal(bundle)
-    expect(steps == ["activate T3 Code", "yield com.apple.finder", "select /Applications/T3 Code (Exact).app", "activate com.apple.finder"], "a reveal activates T3 Code, yields to Finder, selects the bundle, then asks Finder to activate: \(steps)")
+    // The reveal (RI-2, RC-1): asked by the active app, as the reference's shell.showItemInFolder after its window's
+    // click. T3 Code yields activation to Finder, asks for the reveal, then asks Finder to activate; it asks to activate
+    // itself only when no click activated it (a VoiceOver press). Finder coming front is a real-input batch row.
+    for active in [true, false] {
+        var steps: [String] = []
+        var finderReveal = T3FinderReveal()
+        finderReveal.isActive = { active }
+        finderReveal.activateSelf = { steps.append("activate T3 Code") }
+        finderReveal.yield = { steps.append("yield \($0)") }
+        finderReveal.select = { steps.append("select \($0.path)") }
+        finderReveal.activate = { steps.append("activate \($0)") }
+        finderReveal.reveal(bundle)
+        let reveal = ["yield com.apple.finder", "select /Applications/T3 Code (Exact).app", "activate com.apple.finder"]
+        expect(steps == (active ? reveal : ["activate T3 Code"] + reveal), "from \(active ? "the click-activated" : "an inactive") app, the reveal yields to Finder, selects the bundle, then asks Finder to activate: \(steps)")
+    }
     let mask = T3PermissionHelperAppRow.operations(.outsideApplication)
     expect(mask.contains(.copy) && !mask.contains(.move) && !mask.contains(.delete) && T3PermissionHelperAppRow.operations(.withinApplication).isEmpty, "the drag offers the bundle to copy or link, never to move or trash")
     expect((bundle as NSURL).writableTypes(for: NSPasteboard(name: .drag)).contains(.fileURL), "the drag carries the bundle as a file URL")
