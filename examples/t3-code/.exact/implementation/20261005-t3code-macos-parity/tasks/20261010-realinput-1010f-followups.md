@@ -3,7 +3,7 @@ name: 20261010-realinput-1010f-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010f-followups
@@ -217,6 +217,14 @@ t3-code-macos --lib` and the AppKit binaries were not run again. The bundle for 
 - Observations for the coordinator, not findings of this record: the clone paints selected lines amber
   (`light-dark(#fef3c7, …)`), the reference blue; the reference draws the gutter's "+" at the right of the line number, the
   clone over the change bar at its left (the RF-3 image shows both).
+
+## Delivery
+
+Merged on 2026-10-11 as `1d620b880` (#413, squash) after an independent review and its repair round (two should-fix
+items: the '+' press on the drag's queued send with the same range; Pierre's `placeUtility` /
+`placeUtilityFromSelection` ported, so the '+' sits on the selection's bottom line). RF-2 matched the reference (no
+change). X80 (hover during a drag, main #414) stays a host gap, but no longer shows in the clone: the '+' follows the
+selection, not hover. The record stays open for real-input steps 1–4.
 
 ## Next action
 

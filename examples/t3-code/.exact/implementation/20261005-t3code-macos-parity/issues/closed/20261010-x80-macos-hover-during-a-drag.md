@@ -35,9 +35,10 @@ the host's source and did not file it.
 
 ## Clone workaround
 
-None. During a drag, the gutter's "+" stays on the pressed line, where the reference's follows the pointer. The
-selection, which is what the drag is for, paints correctly. When main fixes the host, re-drive the gutter's drag under
-a real pointer: the "+" should follow with no clone change.
+None needed in the clone since #413's review round (`1d620b880`): the gutter's "+" is placed from the selection
+(Pierre's `placeUtility` / `placeUtilityFromSelection`, ported), not from hover, so during a drag it sits on the
+selection's bottom line as in the reference. The host gap stays: any other `hover=` surface still keeps the pressed
+node's hover during a drag. When main fixes it, nothing in the clone changes.
 
 ## Evidence and history
 
