@@ -1,0 +1,36 @@
+#!/bin/zsh
+# Reference T3 Code desktop (Electron, pinned source 1e2ecbd975) for the 2026-10-09 audit. Not committed.
+# Usage: ref-app.sh <lane> <basePort>   backend on basePort, CDP on basePort+1. Prints the pid.
+# Isolation: lane HOME, T3CODE_HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*; bundle id com.t3tools.t3code.auditref; no URL schemes.
+set -e
+ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code
+A=$ROOT/target/t3-audit
+SRC=$ROOT/target/t3-ref/src-1e2ecbd975
+LANE=$A/lanes/$1; PORT=$2; CDP=$((PORT+1))
+APP="$A/ref/T3 Code (Alpha).app"
+if [ ! -d "$APP" ]; then
+  mkdir -p $A/ref
+  cp -R "$SRC/apps/desktop/node_modules/electron/dist/Electron.app" "$APP"
+  P="$APP/Contents/Info.plist"; PB=/usr/libexec/PlistBuddy
+  $PB -c "Set :CFBundleIdentifier com.t3tools.t3code.auditref" "$P"
+  $PB -c "Set :CFBundleName T3 Code (Alpha)" "$P"
+  $PB -c "Delete :CFBundleDisplayName" "$P" 2>/dev/null || true
+  $PB -c "Add :CFBundleDisplayName string T3 Code (Alpha)" "$P"
+  $PB -c "Delete :CFBundleURLTypes" "$P" 2>/dev/null || true
+  if [ -f "$SRC/assets/prod/black-macos-1024.png" ]; then
+    I=$A/ref/icon.iconset; rm -rf $I; mkdir -p $I
+    for s in 16 32 128 256 512; do sips -z $s $s "$SRC/assets/prod/black-macos-1024.png" --out $I/icon_${s}x${s}.png >/dev/null; sips -z $((s*2)) $((s*2)) "$SRC/assets/prod/black-macos-1024.png" --out $I/icon_${s}x${s}@2x.png >/dev/null; done
+    iconutil -c icns $I -o "$APP/Contents/Resources/electron.icns" || true
+  fi
+  codesign --force --deep -s - "$APP" >/dev/null 2>&1
+fi
+$A/lane-init.sh $1
+cd $SRC/apps/desktop
+env -i HOME=$LANE/home USER=$USER LOGNAME=$USER TMPDIR="$TMPDIR" LANG=en_US.UTF-8 SHELL=/bin/zsh \
+  PATH=$A/runtime/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin \
+  T3CODE_HOME=$LANE/ref-t3-home T3CODE_PORT=$PORT T3CODE_DISABLE_AUTO_UPDATE=1 T3CODE_TELEMETRY_ENABLED=false \
+  CODEX_HOME=$LANE/codex CLAUDE_CONFIG_DIR=$LANE/claude \
+  XDG_CONFIG_HOME=$LANE/xdg/config XDG_DATA_HOME=$LANE/xdg/data XDG_STATE_HOME=$LANE/xdg/state XDG_CACHE_HOME=$LANE/xdg/cache \
+  "$APP/Contents/MacOS/Electron" $SRC/apps/desktop/dist-electron/main.cjs --inspect=127.0.0.1:$((PORT+3)) --remote-debugging-port=$CDP --remote-allow-origins='*' --use-mock-keychain \
+  > $LANE/logs/ref-app.log 2>&1 &
+echo $! | tee $LANE/ref.pid
