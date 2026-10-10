@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
-import { initialShell, obj, type Obj } from './shared/domain';
+import { applyShell, initialShell, obj, type Obj } from './shared/domain';
 import { EnvironmentFleet, environmentKey, type FleetEntry, type FocusedHost } from './shared/settings-b-fleet';
-import type { Native } from './shared/protocol';
+import { applyConfig, type Native } from './shared/protocol';
 import { mobileCacheClear } from './mobile-client-cache';
 import { encodeMobileShellCache as shellPayload, encodeMobileConfigCache as configPayload } from './mobile-client-cache-codec';
 import { mobileCacheFleetDisplays, mobileCacheFleetSync } from './mobile-client-cache-fleet';
@@ -242,4 +242,71 @@ test.each(['other identity', 'unwrapped'])('cold fleet restore refuses %s disk p
   await f.sync(); expect(f.display()).toEqual([]);
   expect(f.payloads.has(`${f.environmentId}:shell`)).toBe(false);
   expect(f.calls.filter(call => call.action === 'remove').map(call => call.kind)).toEqual(['shell']);
+});
+
+
+const writtenKinds = (calls: Obj[]) => calls.filter(call => call.action === 'write').map(call => call.kind);
+
+test('unchanged fleet snapshots only reread tickets and changed kinds persist independently', async () => {
+  const f = fixture(); let reads = 0;
+  Object.defineProperty(f.shell.projects[0], 'title', { enumerable: true, get() { reads++; return 'Saved project'; } });
+  f.connect(); await f.sync(); const before = f.calls.length, serializedReads = reads;
+  expect(serializedReads).toBeGreaterThan(0);
+  f.fleet.revision++; await f.sync();
+  expect(f.calls.slice(before).map(call => [call.action, call.kind])).toEqual([['ticket', 'shell'], ['ticket', 'server-config']]);
+  expect(reads).toBe(serializedReads);
+  f.entry.shell = applyShell(f.shell, { kind: 'project.updated', sequence: 11, project: { ...f.shell.projects[0], title: 'Updated project' } });
+  expect(f.entry.shell).not.toBe(f.shell); expect(f.shell.projects[0]!.title).toBe('Saved project'); await f.sync();
+  f.entry.config = applyConfig(f.config, { type: 'settingsUpdated', payload: { settings: { defaultRuntimeMode: 'full-access' } } });
+  expect(f.entry.config).not.toBe(f.config); await f.sync();
+  expect(writtenKinds(f.calls)).toEqual(['shell', 'server-config', 'shell', 'server-config']);
+  f.entry.shell = f.shell; await f.sync();
+  expect(writtenKinds(f.calls)).toEqual(['shell', 'server-config', 'shell', 'server-config', 'shell']);
+});
+
+test.each(['rejected', 'stale', 'lost answer'])('a %s fleet write remains retryable', async failure => {
+  const f = fixture(); f.connect(); const original = f.native.later; let refuse = true;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.action === 'write' && request.kind === 'server-config' && refuse) {
+      f.calls.push(request);
+      if (failure === 'rejected') throw new Error('Disk unavailable');
+      if (failure === 'lost answer') throw { name: 'FetchError', kind: 'Aborted' };
+      return { ok: true, generation: 1, value: { written: false, stale: true } };
+    }
+    return original(input);
+  };
+  if (failure === 'lost answer') await expect(f.sync()).rejects.toMatchObject({ kind: 'superseded' });
+  else await f.sync();
+  refuse = false; await f.sync(); await f.sync();
+  expect(writtenKinds(f.calls)).toEqual(['shell', 'server-config', 'server-config']);
+});
+
+test.each(['native profile', 'generation', 'entry', 'clear'])('fleet %s changes preserve objects and persist them under the new owner', async change => {
+  const f = fixture(); f.connect(); const original = f.native.later; let profile = 'first';
+  f.native.later = async input => obj(input).action === 'ticket'
+    ? (f.calls.push(obj(input)), { ok: true, generation: 1, value: { ticket: profile } })
+    : obj(input).action === 'write'
+      ? (f.calls.push(obj(input)), { ok: true, generation: 1, value: { written: true, stale: false } }) : original(input);
+  await f.sync();
+  if (change === 'native profile') profile = 'second';
+  if (change === 'generation') { f.entry.generation++; f.entry.synchronized = f.entry.generation; }
+  if (change === 'entry') f.fleet.entries.set(f.entry.key, { ...f.entry });
+  if (change === 'clear') await mobileCacheClear(f.native, { environmentId: f.environmentId });
+  await f.sync();
+  expect(writtenKinds(f.calls)).toEqual(['shell', 'server-config', 'shell', 'server-config']);
+  expect(f.fleet.entries.get(f.entry.key)!.shell).toBe(f.shell);
+  expect(f.fleet.entries.get(f.entry.key)!.config).toBe(f.config);
+  expect(f.calls.filter(call => call.action === 'clear')).toHaveLength(change === 'clear' ? 1 : 0);
+});
+
+test('a late superseded fleet write leaves the latest snapshot retryable until disk is repaired', async () => {
+  const f = fixture(); f.connect(); const held = delay(f, 'write', 'shell'), old = f.sync(); await held.entered;
+  f.entry.shell = { ...f.shell, sequence: 22 }; f.fleet.revision++;
+  await f.sync(); held.resolve(); await old;
+  const before = f.calls.filter(call => call.action === 'write').length; await f.sync();
+  expect(writtenKinds(f.calls).slice(before)).toEqual(['shell']);
+  expect(JSON.parse(JSON.parse(f.payloads.get(`${f.environmentId}:shell`)!).payload).snapshot.snapshotSequence).toBe(22);
+  const repaired = f.calls.length; await f.sync();
+  expect(f.calls.slice(repaired).every(call => call.action === 'ticket')).toBe(true);
 });

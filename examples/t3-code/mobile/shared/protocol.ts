@@ -1,5 +1,7 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/protocol.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/protocol.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile: release the fully assembled native value and fragment references before JSON decoding.
+// @ref llp/1109.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10
 // T3 protocol 2, inspected at 4f7760e6. The backend remains the wire authority.
 import { obj, str, num, arr, type Obj } from './domain';
 
@@ -53,6 +55,7 @@ export async function bridgeReply(native: Native, request: unknown): Promise<Bri
   const id = str(transfer.id), parts = num(transfer.parts), generation = response.generation;
   if (!Number.isInteger(parts) || parts < 1 || parts > 4096) throw new ClientError('T3 returned an invalid transfer.', 'protocol');
   const fragments: string[] = [];
+  let text = '';
   try {
     for (let index = 0; index < parts; index++) {
       const chunk = reply(await native.later({ op: 'readChunk', id, index, generation }));
@@ -61,10 +64,12 @@ export async function bridgeReply(native: Native, request: unknown): Promise<Bri
       }
       fragments.push(str(obj(chunk.value).text));
     }
-    return { ...response, value: JSON.parse(fragments.join('')) as unknown };
+    text = fragments.join('');
   } finally {
+    fragments.length = 0;
     await native.later({ op: 'releaseChunk', id, generation }).catch(() => {});
   }
+  return { ...response, value: JSON.parse(text) as unknown };
 }
 
 // Keep the versioned preference file under Exact's app-scoped native data root.
