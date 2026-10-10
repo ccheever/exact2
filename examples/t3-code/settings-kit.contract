@@ -125,7 +125,7 @@ component SettingsSelect
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
       SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=0, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         each option in options key=option.value
-          SkMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=(value == "" ? option.selected : option.value == value), check=true, destructive=false, disabled=false, choose=choose(option.value))
+          SkMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=(value == "" ? option.selected : option.value == value), check=true, destructive=false, disabled=false, choose=choose(option.value))
 
 // The reference's Select/Menu popup (rounded-lg border bg-popover p-1
 // shadow-lg), painted by the kernel so every host shows the same surface,
@@ -154,6 +154,8 @@ component SkPopup
 
 component SkMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     menuId: string
     itemId: string
@@ -162,16 +164,18 @@ component SkMenuItem
     destructive: bool
     disabled: bool
     choose: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${itemId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   // check: a SelectItem (ui/select.tsx), an option whose selected row keeps the
   // foreground/8% wash (data-selected) and no indicator; else a MenuItem.
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(check and selected ? "light-dark(#27272a14, #f5f5f514)" : hovered or lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(check and selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
 
 // "Off" beside a retention switch, or the description of a disabled row.
