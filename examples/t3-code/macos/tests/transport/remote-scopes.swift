@@ -101,5 +101,10 @@ final class RemoteScopeTests: XCTestCase {
         XCTAssertEqual(T3RemoteAuth.failureMessage(["reason": "invalid_scope"], status: 400), "The environment rejected the authentication request.")
         XCTAssertEqual(T3RemoteAuth.failureMessage(["reason": "invalid_history_cursor"], status: 400), "The server returned HTTP 400.")
         XCTAssertEqual(T3RemoteAuth.failureMessage(nil, status: 502), "The server returned HTTP 502.")
+        // realinput-1010e-followups RE-5: a pull request diff's 503 and 502 say what the reference says (the error's message getter).
+        XCTAssertEqual(T3RemoteAuth.failureMessage(["_tag": "PullRequestUnavailableError", "reason": "provider-unsupported"], status: 503), "Change requests cannot be browsed for this project's host yet.")
+        XCTAssertEqual(T3RemoteAuth.failureMessage(["_tag": "PullRequestUnavailableError", "reason": "cli-unauthenticated", "provider": "github"], status: 503), "GitHub CLI is not authenticated. Run `gh auth login` and retry.")
+        XCTAssertEqual(T3RemoteAuth.failureMessage(["_tag": "PullRequestOperationError", "operation": "diff", "detail": "HTTP 404"], status: 502), "Pull request operation diff failed: HTTP 404")
+        XCTAssertEqual(T3RemoteAuth.failureMessage(["_tag": "PullRequestUnavailableError", "reason": "something-new"], status: 503), "The server returned HTTP 503.")
     }
 }
