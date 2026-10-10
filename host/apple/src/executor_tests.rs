@@ -135,7 +135,7 @@ fn collect(core: &Core, woke: &Receiver<()>, count: usize) -> Vec<(u64, Outcome)
 #[test]
 fn held_independent_http_does_not_block_the_ordered_releaser() {
     let (core, fixture, woke) = setup();
-    for ticket in 1..=2 {
+    for ticket in 1..=INDEPENDENT as u64 {
         core.run(
             job(
                 ticket,
@@ -145,13 +145,16 @@ fn held_independent_http_does_not_block_the_ordered_releaser() {
         )
         .unwrap();
     }
-    fixture.wait_held(2);
+    fixture.wait_held(INDEPENDENT);
     core.run(
-        job(3, Request::post_json("https://example.test/release", "{}")),
+        job(
+            100,
+            Request::post_json("https://example.test/release", "{}"),
+        ),
         None,
     )
     .unwrap();
-    let outcomes = collect(&core, &woke, 3);
+    let outcomes = collect(&core, &woke, INDEPENDENT + 1);
     assert!(outcomes
         .iter()
         .all(|(_, o)| matches!(o, Outcome::Response(Response { status: 200, .. }))));
@@ -220,7 +223,10 @@ fn independent_reads_overlap_up_to_the_lanes_workers() {
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(fixture.state.lock().unwrap().0, INDEPENDENT);
     fixture.release();
-    assert_eq!(collect(&core, &woke, INDEPENDENT + 1).len(), INDEPENDENT + 1);
+    assert_eq!(
+        collect(&core, &woke, INDEPENDENT + 1).len(),
+        INDEPENDENT + 1
+    );
     assert!(settled(&core));
 }
 
