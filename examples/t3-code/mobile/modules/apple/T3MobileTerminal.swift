@@ -100,7 +100,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
             accessory = next
         }
         accessory?.colors(background: source["background"] as? String ?? "#0a0a0a", foreground: source["foreground"] as? String ?? "#adadb1", border: source["border"] as? String ?? "#2e2e30")
-        surface.setKeyboardAccessory(surface.readOnly ? nil : accessory)
+        chrome.setAccessory(surface.readOnly ? nil : accessory)
         if let session { sessionChanged(session) }
     }
     func sessionChanged(_ session: T3MobileTerminalSession) {
@@ -111,7 +111,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
     }
     func permissions(environment: String, read: Bool, operate: Bool) {
         guard let parts = (try? JSONSerialization.jsonObject(with: Data(key.utf8))) as? [String], parts.first == environment else { return }
-        if !operate { writes.removeAll(); modifier = ""; accessory?.selectModifier(""); surface.readOnly = true; chrome.readOnly = true; surface.setKeyboardAccessory(nil) }
+        if !operate { writes.removeAll(); modifier = ""; accessory?.selectModifier(""); surface.readOnly = true; chrome.readOnly = true; chrome.setAccessory(nil) }
         if !read {
             surface.initialBuffer = ""
             if let session { owner?.sessions.unbind(self, from: session) }

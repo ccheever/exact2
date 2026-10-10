@@ -182,9 +182,12 @@ final class T3MobileTerminalMenu: ExactNativeInstance {
     override func destroy() { alive = false; configuration = ""; button.menu = nil; detach(); owner?.unbind(self, key: routeKey) }
 }
 
-/// Native keyboard visibility keeps the floating button out of the input accessory.
+/// The source's keyboard toolbar belongs to the terminal pane, including in split view.
 final class T3MobileTerminalChrome: UIView {
     private let keyboard = UIButton(type: .system), capture = UIButton(type: .system)
+    private let accessoryContainer = UIView()
+    private var accessoryHeight: NSLayoutConstraint!
+    private weak var accessory: T3MobileTerminalAccessory?
     private var observers: [NSObjectProtocol] = []
     private var keyboardFrame: CGRect = .null
     var readOnly = true { didSet { updateKeyboard() } }
@@ -197,6 +200,8 @@ final class T3MobileTerminalChrome: UIView {
         capture.accessibilityLabel = "Attach visible output"; capture.accessibilityIdentifier = "terminal-capture"
         capture.addAction(UIAction { _ in action("capture") }, for: .touchUpInside)
         capture.translatesAutoresizingMaskIntoConstraints = false; addSubview(capture)
+        accessoryContainer.translatesAutoresizingMaskIntoConstraints = false; addSubview(accessoryContainer)
+        accessoryHeight = accessoryContainer.heightAnchor.constraint(equalToConstant: 0)
         let effect: UIVisualEffect
         if #available(iOS 26.0, *) { effect = UIGlassEffect(style: .regular) }
         else { effect = UIBlurEffect(style: .systemMaterial) }
@@ -213,7 +218,9 @@ final class T3MobileTerminalChrome: UIView {
         NSLayoutConstraint.activate([
             surface.topAnchor.constraint(equalTo: topAnchor), surface.leadingAnchor.constraint(equalTo: leadingAnchor), surface.trailingAnchor.constraint(equalTo: trailingAnchor),
             surface.bottomAnchor.constraint(equalTo: capture.topAnchor), capture.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            capture.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), capture.bottomAnchor.constraint(equalTo: bottomAnchor), capture.heightAnchor.constraint(equalToConstant: 34),
+            capture.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), capture.bottomAnchor.constraint(equalTo: accessoryContainer.topAnchor), capture.heightAnchor.constraint(equalToConstant: 34),
+            accessoryContainer.leadingAnchor.constraint(equalTo: leadingAnchor), accessoryContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            accessoryContainer.bottomAnchor.constraint(equalTo: bottomAnchor), accessoryHeight,
             keyboard.widthAnchor.constraint(equalToConstant: 48), keyboard.heightAnchor.constraint(equalToConstant: 48),
             keyboard.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16), keyboard.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
             glass.leadingAnchor.constraint(equalTo: keyboard.leadingAnchor), glass.trailingAnchor.constraint(equalTo: keyboard.trailingAnchor),
@@ -229,10 +236,24 @@ final class T3MobileTerminalChrome: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func didMoveToWindow() { super.didMoveToWindow(); updateKeyboard() }
     override func layoutSubviews() { super.layoutSubviews(); updateKeyboard() }
+    func setAccessory(_ next: T3MobileTerminalAccessory?) {
+        guard accessory !== next else { return }
+        accessory?.removeFromSuperview(); accessory = next
+        if let next {
+            next.translatesAutoresizingMaskIntoConstraints = false; accessoryContainer.addSubview(next)
+            NSLayoutConstraint.activate([
+                next.leadingAnchor.constraint(equalTo: accessoryContainer.leadingAnchor), next.trailingAnchor.constraint(equalTo: accessoryContainer.trailingAnchor),
+                next.topAnchor.constraint(equalTo: accessoryContainer.topAnchor), next.heightAnchor.constraint(equalToConstant: next.intrinsicContentSize.height)])
+        }
+        updateKeyboard()
+    }
     private func updateKeyboard() {
-        guard let window else { keyboard.isHidden = true; return }
-        let visible = !keyboardFrame.isNull && window.convert(keyboardFrame, from: window.screen.coordinateSpace).intersects(window.bounds)
-        keyboard.isHidden = readOnly || visible
+        let visible = window.map { !keyboardFrame.isNull && $0.convert(keyboardFrame, from: $0.screen.coordinateSpace).intersects($0.bounds) } ?? false
+        keyboard.isHidden = window == nil || readOnly || visible
+        let showAccessory = !readOnly && visible && accessory != nil
+        accessoryContainer.isHidden = !showAccessory
+        let height: CGFloat = showAccessory ? 52 : 0
+        if accessoryHeight.constant != height { accessoryHeight.constant = height; setNeedsLayout() }
     }
     func colors(background: String, foreground: String) {
         backgroundColor = T3MobileTerminalAccessory.color(background)

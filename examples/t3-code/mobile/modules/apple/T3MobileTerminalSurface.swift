@@ -387,7 +387,6 @@ public final class T3MobileTerminalSurface: UIView, UITextFieldDelegate {
   public required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
   func dispose() { inputField.resignFirstResponder(); destroySurface() }
-  func setKeyboardAccessory(_ accessory: UIView?) { guard inputField.inputAccessoryView !== accessory else { return }; inputField.inputAccessoryView = accessory; inputField.reloadInputViews() }
   func dismissKeyboard() { inputField.resignFirstResponder() }
 
   deinit { destroySurface() }
