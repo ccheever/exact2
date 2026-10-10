@@ -1,0 +1,36 @@
+realinput-1010d-followups review round: the RD-1 Bun row evaluates bcPlayerZone (contractFn) at each edge of the 12 pt
+handle and the pill's box. Before this round the row matched the function's text, so a wrong inequality or inset
+passed it unless the literal text changed. Each mutation below is applied to browser-capture.contract line 32 alone,
+the row run (bun test examples/t3-code/browser-capture.test.ts -t RD-1), and the file restored from git.
+
+== unmutated (head 275e7849e)
+ 1 pass
+ 0 fail
+
+== mutation: sed 's/x > width - inset or/x >= width - inset or/'
+-fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= 
++fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x >= width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <=
+error: dot at 232,8
+ 0 pass
+ 1 fail
+
+== mutation: sed 's/y <= inset + 0.75 \* rem/y < inset + 0.75 * rem/'
+-fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= 
++fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y < i
+error: dot at 220,20
+ 0 pass
+ 1 fail
+
+== mutation: sed 's/(y < inset or y > inset + 2 \* rem/(y < 0 or y > 2 * rem/'
+-fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= 
++fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < 0 or y > 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= inset + 0.75
+error: pill at 150,40
+ 0 pass
+ 1 fail
+
+== mutation: sed 's/x < width - inset - pill)/x < width - pill)/'
+-fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= 
++fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= inset + 
+error: pill at 150,8
+ 0 pass
+ 1 fail
