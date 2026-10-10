@@ -1,0 +1,34 @@
+Backdrop case B record: macOS backdrop-filter does not blur what lies outside the parent's subtree
+exact2 main abc1eadff885e203b68021df6dea76c3d48faf20; PR #327 head 14493d25343529c47938085263935d5b30535071 (it changes no backdrop code)
+macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39 (the web agent's)
+
+== app.contract (bun scripts/exact.mjs new <dir>; app.ts exports an empty sources) ==
+component X11app
+  view
+    main testId="root" position="relative" width="100%" height="100%" background-color="#ffffff"
+      row position="absolute" left=0 top=0 width=400 height=180
+        box width=40 background-color="#e53935"
+        box width=40 background-color="#1e88e5"
+        box width=40 background-color="#e53935"
+        box width=40 background-color="#1e88e5"
+        box width=40 background-color="#e53935"
+        box width=40 background-color="#1e88e5"
+        box width=40 background-color="#e53935"
+        box width=40 background-color="#1e88e5"
+        box width=40 background-color="#e53935"
+        box width=40 background-color="#1e88e5"
+      // A: the glass is a sibling of the stripes
+      box testId="sibling" position="absolute" left=20 top=40 width=160 height=100 background-color="#ffffff33" backdrop-filter="blur(8px)"
+      // B: the same glass one wrapper deeper
+      box testId="wrapper" position="absolute" left=220 top=40 width=160 height=100
+        box testId="nested" width="100%" height="100%" background-color="#ffffff33" backdrop-filter="blur(8px)"
+
+== commands ==
+bun exact.mjs mac; bun exact.mjs agent macos --size 400x180 "screenshot x11b-macos.png window"
+bun exact.mjs agent web --size 400x180 "screenshot x11b-web.png"
+
+== pixels across a red/blue stripe edge at y=90 (CSS px; A's edge at x=120, B's at x=320), read from the screenshots ==
+x:             A 112 116 120 124 128            | B 312 316 320 324 328
+web, main      #ce6c76 #b5758c #9781a7 #798dc1 #6297d5 | #6795d1 #808bbc #9e7fa0 #bd7386 #d36972
+macOS, main    #d16c75 #b97589 #9980a6 #7b8dc0 #6596d5 | #56a0eb #56a0eb #ec6560 #ec6560 #ec6560
+macOS, #327    #d16c75 #b97589 #9980a6 #7b8dc0 #6596d5 | #56a0eb #56a0eb #ec6560 #ec6560 #ec6560
