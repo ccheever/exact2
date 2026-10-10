@@ -2,7 +2,7 @@ X77 record: an inline run's contextmenu is never dispatched on macOS
 main 42fd5d99e4c884a366483aecd226f08442dee793 (origin/main, 2026-10-10); macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39
 App: bun scripts/exact.mjs new <dir>; app.ts exports empty sources. Built with 'bun exact.mjs mac'; driven with
 'bun exact.mjs agent <web|macos> --size 520x420 ...' (the web is the JS target in Chrome). The compiler accepts
-contextmenu= on the run (contract build: 4 slots, 5 actions, 18 nodes, no warning).
+contextmenu= on the run (contract build: 5 slots, 5 actions, 18 nodes, no warning).
 
 == app.contract ==
 // T3 clone S1-S3 repro: a secondary click on unselected text, an inline
