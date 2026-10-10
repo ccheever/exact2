@@ -539,8 +539,8 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
-        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
+        var p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
@@ -650,6 +650,18 @@ extension Agent {
             session.presenter.settlePump()
             return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
         }
+        // Named, a plain click presses what it names (`AgentAddressedTap.swift`):
+        // its own press, never a control inside it that its middle reaches.
+        var avoided: PressReach?
+        if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
+           (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            let window = { (q: CGPoint) in clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil) }
+            switch Agent.addressedAim(v, middle: center, area: b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle { avoided = middle; p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)] }
+            }
+        }
         // The modifiers held through the click (gallery F20: shift-click).
         guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         // A right click (minesweeper F8), or the middle button's (`auxclick`,
@@ -691,7 +703,10 @@ extension Agent {
                 NSApp.sendEvent(up)
             }
         }
-        return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        // Its middle reaches a control inside it: the click landed beside it.
+        if let avoided { reply["avoided"] = ["middle": [Agent.r2(center.x), Agent.r2(center.y)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        return reply
     }
 
     private func nativeType(_ v: NodeView, _ req: [String: Any], token: UInt32? = nil) -> [String: Any] {

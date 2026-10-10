@@ -675,6 +675,25 @@ guide's rules don't make obvious.
   "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
   accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
 
+- **`build.mjs --ios … --phone <udid>` installed onto someone else's simulator.**
+  Cause: a simulator build reads `--sim` (or `EXACT_SIM`); `--phone` is the
+  device's, so it fell back to a booted iPhone, another drive's
+  (2026-10-09). `agent ios` and `smoke.mjs ios` choose the same way. Now a
+  choice among several booted iPhones is refused; fix: always pass
+  `--sim <udid>` to `build.mjs` and set `EXACT_SIM=<udid>` for the agent and
+  the smokes.
+
+- **`tap <row>` pressed a link card, Like or Repost inside the row.** Cause: a
+  plain tap aimed at the row's middle, and a finger there presses the deepest
+  control (the Bluesky clone liked and reposted real people's posts,
+  2026-10-09). Now a tap that names a node presses that node: one with its own
+  `press` is pressed beside the control its middle holds (the reply's `avoided`
+  says so, `at` where it landed), or refused when no point of it reaches it; one
+  without a `press` refuses rather than press a control inside it
+  (`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+  Fix: tap the control by its own `testId`, or `tap <row> at <x> <y>` (a point
+  from its top left) for whatever a finger there reaches. Every host (LLP 1012 §1).
+
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test

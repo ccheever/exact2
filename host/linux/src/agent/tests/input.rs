@@ -479,3 +479,96 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
          u:w:KeyW:false:true;u:Meta:MetaLeft:false:false;"
     );
 }
+
+/// A tap addressed by id presses what it names (LLP 1012 §1): a row with a
+/// press of its own is pressed beside the card at its center, never the card;
+/// a box without one never presses the Like inside it; a row its child
+/// covers is refused; `at` keeps a point's semantics (the Bluesky clone's
+/// likes on real people's posts, 2026-10-09).
+#[test]
+fn a_named_tap_presses_what_it_names_never_a_control_inside_it() {
+    let plan = contract::compile(concat!(
+        "component App\n  state log = \"\"\n",
+        "  action hit(what: string)\n    log = `${log}${what};`\n",
+        "  view\n    column width=300\n",
+        "      column testId=\"post-0\" press=hit(\"post\") padding-left=70 padding-right=70 padding-top=30 padding-bottom=30\n",
+        "        column testId=\"card-0\" press=hit(\"card\") width=160 height=60\n",
+        "      column testId=\"wrap-0\" padding-left=100 padding-right=100 padding-top=20 padding-bottom=20\n",
+        "        column testId=\"like-0\" press=hit(\"like\") width=100 height=40\n",
+        "      column testId=\"post-1\" press=hit(\"post1\")\n",
+        "        column testId=\"cover-1\" press=hit(\"cover\") width=300 height=60\n",
+        "      text log testId=\"log\" height=20\n",
+    ))
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 400.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let log = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let log = k.find_by_test_id("log")[0];
+        k.node_by_key(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let (post, card, wrap, like, post1, cover) = (
+        id(&p, "post-0"),
+        id(&p, "card-0"),
+        id(&p, "wrap-0"),
+        id(&p, "like-0"),
+        id(&p, "post-1"),
+        id(&p, "cover-1"),
+    );
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{post}}}"#));
+    assert!(
+        reply.contains(&format!("\"avoided\":{{\"pressing\":{card}")),
+        "{reply}"
+    );
+    assert_eq!(log(&p), "post;", "the row, beside the card: {reply}");
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{wrap}}}"#));
+    assert!(
+        reply.contains(&format!("tap #{wrap} would press #{like} inside it")),
+        "{reply}"
+    );
+    let reply = handle(&mut p, &format!(r#"{{"op":"tap","id":{post1}}}"#));
+    assert!(
+        reply.contains(&format!(
+            "tap #{post1} would press #{cover} inside it, at its middle; no point of #{post1}"
+        )),
+        "{reply}"
+    );
+    assert_eq!(log(&p), "post;", "nothing more is pressed");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{post},"at":[150,60]}}"#),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{wrap},"at":[150,40]}}"#),
+    );
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{card}}}"#));
+    assert_eq!(
+        log(&p),
+        "post;card;like;card;",
+        "a point presses what is there; the card, named, is the card"
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{post},"at":[400,60]}}"#),
+    );
+    assert!(reply.contains("outside its"), "{reply}");
+}

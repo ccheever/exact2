@@ -158,7 +158,16 @@ extension Agent {
                 guard let n = offset[k] as? Double, n.isFinite else { return ["error": "tap #\(v.id): the aim's \(k) must be a finite number"] }
             }
             at["x"] = offset["x"]; at["y"] = offset["y"]
+            // A point in the target (`tap <target> at <x> <y>`), from its top left.
+            if let point = offset["at"] {
+                guard let pair = point as? [Double], pair.count == 2, pair.allSatisfy(\.isFinite) else { return ["error": "tap #\(v.id): the aim's at must be two finite numbers"] }
+                let whole = box(v)
+                guard pair[0] >= 0, pair[1] >= 0, pair[0] < whole.width, pair[1] < whole.height else { return ["error": "tap #\(v.id) at: (\(pair[0]), \(pair[1])) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
+                at["at"] = pair
+            }
         }
+        // A plain tap's aim: the target's own press (`AgentAddressedTap.swift`).
+        let press = (req["aim"] as? [String: Any])?["press"] as? Bool == true
         // A row a grouped list draws, or its toggle's or detail button's
         // control (LLP 1084 D5): the finger aims at UIKit's cell or
         // accessory, never the hidden authored node beneath it.
@@ -169,16 +178,30 @@ extension Agent {
         case nil: break
         }
         let drawnBox = target === v ? nil : box(target)
-        guard let local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
+        guard var local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
             return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
         }
         let vp = presenter.viewport
-        let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
-        let seen = win.hitTest(p, with: nil)
+        var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
+        var seen = win.hitTest(p, with: nil)
         if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        // Named, it presses what it names, as the activation's tap does.
+        var avoided: PressReach?
+        if press, target === v, at["at"] == nil, (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            switch addressedPoint(v, box: v.tapBox(box(v)), in: win) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle {
+                    avoided = middle
+                    local = q
+                    p = vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil)
+                    seen = win.hitTest(p, with: nil)
+                }
+            }
+        }
         // What a list draws is hit itself, in the list's port: never an
         // ancestor beside a clipped cell, which the landing check would pass.
         if let port {
@@ -212,6 +235,8 @@ extension Agent {
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
             // In a grouped list, the row and part it must land on too.
             "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
+            // Its middle reaches a control inside it: aimed beside it.
+            "avoided": avoided.map { ["pressing": $0.pressing ?? NSNull(), "what": $0.described] as [String: Any] } ?? NSNull(),
         ] as [String: Any]]
     }
 }

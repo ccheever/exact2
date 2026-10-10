@@ -36,7 +36,7 @@ export function simulators() {
   return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state, type: d.deviceTypeIdentifier?.split('.').pop() ?? '' })));
 }
 
-/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone (refused when several are), else the iPhone Pro on the newest iOS — booted and waited for. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 export function simulator(pick = process.env.EXACT_SIM, { tv = false } = {}) {
   const all = simulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
@@ -44,7 +44,11 @@ export function simulator(pick = process.env.EXACT_SIM, { tv = false } = {}) {
   const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
   let dev = pick ? all.find((d) => d.udid === pick || d.name === pick) : null;
   if (pick && !dev) throw new Error(`no simulator ${pick} (xcrun simctl list devices available)`);
-  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
+  // Several booted: whose is which is not this process's to guess (an install onto another drive's simulator,
+  // 2026-10-09: build.mjs --ios takes --sim, not --phone, for a simulator). One booted, or none, is still chosen.
+  const booted = iphones.filter((d) => d.state === 'Booted');
+  if (!pick && booted.length > 1) throw new Error(`${booted.length} ${tv ? 'Apple TV' : 'iPhone'} simulators are booted (${booted.map((d) => `${d.name} ${d.udid}`).join(', ')}): name one with --sim <udid|name> or EXACT_SIM`);
+  dev ??= booted[0] ?? iphones.find((d) => /^iPhone-\d+-Pro$/.test(kind(d))) ?? iphones[0];
   if (!dev) throw new Error(`no ${tv ? 'Apple TV' : 'iPhone'} simulator on ${tv ? 'tvOS' : 'iOS'}; add one in Xcode, or name any simulator by udid or name with EXACT_SIM (or --sim)`);
   if (dev.state !== 'Booted') {
     const b = read('xcrun', ['simctl', 'boot', dev.udid]);

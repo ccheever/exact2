@@ -497,7 +497,7 @@ extension Agent {
             }
         }
         if let reply = canvasTap(req) { return reply }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
@@ -577,12 +577,23 @@ extension Agent {
             return ["tapped": id, "wheel": wheel]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let b = v.tapBox(box(v))
+        var b = v.tapBox(box(v))
+        // A plain press: `at` is a point in the target, the press whatever a
+        // finger there reaches; without one, the target's own press
+        // (`AgentAddressedTap.swift`).
+        let plain = ["wheel", "hover", "contextmenu", "dblclick", "pinch", "x", "y"].allSatisfy { req[$0] == nil } && v.kind != "iframe"
+        if plain, req["at"] != nil {
+            guard let point = (req["at"] as? [Double]).flatMap({ $0.count == 2 && $0.allSatisfy(\.isFinite) ? tapPoint(req, node: v) : nil }) else { return ["error": "tap at needs two finite numbers"] }
+            let whole = box(v)
+            guard whole.contains(point) else { return ["error": "tap #\(v.id) at: (\(Agent.r2(point.x - whole.minX)), \(Agent.r2(point.y - whole.minY))) is outside its \(Agent.r2(whole.width))×\(Agent.r2(whole.height)) box"] }
+            b = CGRect(x: point.x, y: point.y, width: 0, height: 0)
+        }
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window.
         let vp = presenter.viewport
-        let p = vp.convert(CGPoint(x: b.midX + vp.contentOffset.x, y: b.midY + vp.contentOffset.y), to: nil)
-        let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        var p = window(CGPoint(x: b.midX, y: b.midY))
+        var at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         let seen = win.hitTest(p, with: nil)
         // A finger lands only where the target is seen (LLP 1035.003: action
         // dispatch is never substituted for a contact), so a press, a menu or
@@ -592,9 +603,23 @@ extension Agent {
         if req["wheel"] == nil, let why = offscreen(v, box: b, hit: seen) {
             return ["error": "tap #\(v.id): \(why)"]
         }
-        let hit = seen ?? v
+        var hit = seen ?? v
         if req["wheel"] == nil, req["hover"] == nil, let why = obscured(v, at: p, hit: hit) {
             return ["error": "tap #\(v.id) at (\(at[0]), \(at[1])): \(why)"]
+        }
+        // Named, it presses what it names: its own press, never a control
+        // inside it that its middle happens to reach.
+        var avoided: PressReach?
+        if plain, req["at"] == nil, (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            switch addressedPoint(v, box: b, in: win) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle {
+                    avoided = middle
+                    p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)]
+                    hit = win.hitTest(p, with: nil) ?? v
+                }
+            }
         }
         if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
@@ -684,7 +709,55 @@ extension Agent {
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
         if let element { presenter.press(element, held: held); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
-        return ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        // Its middle reaches a control inside it: the tap landed beside it.
+        if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        return reply
+    }
+
+    /// What a finger at `p` (in the window) reaches, as `touchesEnded`
+    /// resolves it (`AgentAddressedTap.swift`), nil where it would not land
+    /// on `v` (covered, under the keyboard): an SVG
+    /// element, an inline run or link, a canvas, a native control, else the
+    /// nearest node from the hit one up that takes a press — or a disabled
+    /// one on the way, which stops it.
+    func pressReach(_ v: NodeView, at p: CGPoint, in win: UIWindow) -> PressReach? {
+        guard let hit = win.hitTest(p, with: nil), obscured(v, at: p, hit: hit) == nil else { return nil }
+        var at: UIView? = hit, node: NodeView?
+        while let cur = at {
+            if let n = cur as? NodeView { node = n; break }
+            // A native button's control stands for its node (LLP 1069.011 D4);
+            // any other enabled control takes the touch itself.
+            if let button = cur as? NativeButtonIOS, let owner = button.owner { node = owner; break }
+            if let control = cur as? UIControl, control.isEnabled, let n = Agent.enclosing(control).first { return .control(n) }
+            at = cur.superview
+        }
+        guard let node, !node.inert else { return .nothing }
+        let local = node.local(p)
+        if node.kind == "svg", let element = presenter.svg.target(node.id, at: local) { return .part(node, "SVG element #\(element)", element) }
+        if let run = node.inlineActivationTarget(at: local) { return .part(node, "inline run #\(run.id)", run.id) }
+        if let href = node.inlineLink(at: local) { return .part(node, "the link \(href)", nil) }
+        if session.canvases.wantsInput(node.id), !node.isSurfaceControl { return .canvas(node) }
+        var up: UIView? = node
+        while let cur = up {
+            if let n = cur as? NodeView {
+                if n.disabled { return .blocked(n) }
+                if n.takesPress { return n.bounds.contains(n.local(p)) ? .node(n) : .nothing }
+            }
+            up = cur.superview
+        }
+        return .nothing
+    }
+
+    /// A plain tap's point for `v` (`AgentAddressedTap.swift`): `b` is its
+    /// box in the viewport, the answer a point there, or the refusal.
+    func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
+        let vp = presenter.viewport
+        let seen = b.intersection(CGRect(origin: .zero, size: vp.bounds.size))
+        let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
+        return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
+            pressReach(v, at: window(q), in: win)
+        }
     }
 
     /// Why `v`'s middle is not on screen for a finger, or nil: off the

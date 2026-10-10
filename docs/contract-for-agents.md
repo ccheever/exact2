@@ -1708,6 +1708,15 @@ A tap aims at the target's middle, or, where the target is not there (a wrapped
 inline run, whose middle can fall between its lines), at the middle of the first
 of its lines that is; a tap whose point lands on something else fails, an
 ancestor that would take the press itself included.
+A tap that names a node presses that node, never a control inside it: a node
+with its own `press` (or a link) whose middle holds another — a post row's link
+card, its Like — is pressed at the point of its box nearest the middle that
+reaches it (the reply's `avoided` names what the middle holds), or refused when
+none does; a node without one is refused when its middle holds a control
+(`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+`tap <target> at <x> <y>` presses at a point from the target's top left,
+whatever a finger there reaches, on every host. An SVG element, an inline run or link, a native control and a
+canvas inside the node count as controls; a disabled node presses nothing.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
