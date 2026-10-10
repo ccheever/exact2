@@ -1,0 +1,19 @@
+realinput-1010e row 1: #398 RC-1 step 3, the reference's first click (2026-10-10 17:18-17:20 KST)
+
+Reference: T3 Code (Alpha) Electron from the pinned source 1e2ecbd975 (target/t3-ref/src-1e2ecbd975, dist-electron/main.cjs),
+copied as "T3 Code (RI1010e 1 ref)" with its own bundle id com.exact.t3code.macos.ri1010e-1, launched with
+`open -n --env ... --args main.cjs --remote-debugging-port=16971` (backend 16970), lane home in the scratchpad.
+
+Real input: Settings > SnapShots, a real click on "Enable snapshots" (the Set up dialog: Allow snapshots, Screen Recording
+Allow, Accessibility Allow), a real click on Screen Recording's Allow.
+Result: System Settings opened on Privacy & Security > Screen & System Audio Recording and came front. No helper window
+appeared: CGWindowList showed only the reference's main window ("T3 Code (Alpha)") and System Settings; none of its child
+processes owned a window.
+
+Cause (source): apps/desktop/src/permissions/MacPermissions.ts, MacPermissions.showHelper:
+    if (environment.platform !== "darwin" || !environment.isPackaged) return;
+environment.isPackaged is Electron.app.isPackaged (electron/ElectronApp.ts:134), false for a source run (Electron with
+main.cjs as its argument). The helper exists only in a packaged reference build; none exists under target/t3-ref.
+
+Not run: the first and second clicks on the reference helper's "T3 Code" row. Needs a packaged reference build (or the
+user's approval to use a lane copy of an installed packaged T3 Code). TCC for com.exact.t3code.macos.ri1010e-1 reset after.
