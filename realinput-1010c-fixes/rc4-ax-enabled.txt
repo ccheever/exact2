@@ -1,0 +1,16 @@
+realinput-1010c-fixes RC-4: the skill chip's accessibility button reports itself enabled.
+
+AppKit default (a one-file probe, macOS 26, swiftc):
+  NSAccessibilityElement() with role button -> isAccessibilityEnabled(): false
+  after setAccessibilityEnabled(true)        -> isAccessibilityEnabled(): true
+
+macos/tests/composer (chippress.swift testTheChipIsAnAccessibilityButtonThatOpensItsDetails, new assertion
+XCTAssertEqual(elements.first?.isAccessibilityEnabled(), true)):
+
+before (modules/apple of the feature-branch tip f0aaaa56d, this branch's tests):
+  chippress.swift:169: error: ... XCTAssertEqual failed: ("Optional(false)") is not equal to ("Optional(true)")
+  Composer: 56 tests, 1 failures
+
+after (this branch, T3ComposerChipPress.Element calls setAccessibilityEnabled(true)):
+  Executed 4 tests, with 0 failures (ComposerChipPressTests)
+  Composer: 56 tests, 0 failures
