@@ -1,0 +1,70 @@
+// x78 AX probe: reads another process's accessibility tree through AXUIElement
+// (the API VoiceOver uses), the way an assistive app sees it.
+// usage: axprobe <pid> [maxDepth]
+import ApplicationServices
+import Foundation
+
+let args = CommandLine.arguments
+guard args.count >= 2, let pid = Int32(args[1]) else { print("usage: axprobe <pid> [maxDepth]"); exit(2) }
+let maxDepth = args.count > 2 ? Int(args[2]) ?? 40 : 40
+print("AXIsProcessTrusted", AXIsProcessTrusted())
+
+func copy(_ e: AXUIElement, _ name: String) -> (AXError, CFTypeRef?) {
+    var v: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(e, name as CFString, &v)
+    return (err, v)
+}
+func show(_ v: CFTypeRef?) -> String {
+    guard let v else { return "nil" }
+    if CFGetTypeID(v) == CFStringGetTypeID() { let s = v as! String; return "\"" + (s.count > 70 ? String(s.prefix(70)) + "…" : s) + "\"" }
+    if CFGetTypeID(v) == CFURLGetTypeID() { return (v as! NSURL).absoluteString ?? "?" }
+    if CFGetTypeID(v) == CFNumberGetTypeID() || CFGetTypeID(v) == CFBooleanGetTypeID() { return "\(v)" }
+    return "<\(CFCopyTypeIDDescription(CFGetTypeID(v)) as String)>"
+}
+func names(_ e: AXUIElement) -> (AXError, [String]) {
+    var arr: CFArray?
+    let err = AXUIElementCopyAttributeNames(e, &arr)
+    return (err, (arr as? [String]) ?? [])
+}
+func children(_ e: AXUIElement) -> [AXUIElement] {
+    let (_, v) = copy(e, "AXChildren")
+    return (v as? [AXUIElement]) ?? []
+}
+func line(_ e: AXUIElement) -> String {
+    let (re, role) = copy(e, "AXRole")
+    if re != .success {
+        let (ne, ns) = names(e)
+        var s = "<element> AXRole err \(re.rawValue)"
+        s += "; AXUIElementCopyAttributeNames err \(ne.rawValue) \(ns)"
+        for a in ["AXDescription", "AXTitle", "AXURL", "AXIdentifier"] { s += "; \(a) err \(copy(e, a).0.rawValue)" }
+        return s
+    }
+    var s = role as! String
+    let (_, sub) = copy(e, "AXSubrole"); if let sub { s += "/" + (sub as! String) }
+    for a in ["AXTitle", "AXValue", "AXDescription"] {
+        let (err, v) = copy(e, a)
+        if err == .success, let v, !(CFGetTypeID(v) == CFStringGetTypeID() && (v as! String).isEmpty) { s += " \(a)=\(show(v))" }
+    }
+    let (_, ident) = copy(e, "AXIdentifier"); if let ident, !(ident as! String).isEmpty { s += " id=\(ident as! String)" }
+    let (ue, url) = copy(e, "AXURL")
+    if ue == .success { s += " AXURL=\(show(url))" } else if (role as! String) == "AXLink" { s += " AXURL=(err \(ue.rawValue))" }
+    return s
+}
+func dump(_ e: AXUIElement, _ depth: Int) {
+    let pad = String(repeating: "  ", count: depth)
+    print(pad + line(e))
+    let (_, role) = copy(e, "AXRole")
+    if let r = role as? String, r == "AXWebArea" || r == "AXTextArea" || r == "AXStaticText" {
+        let (le, links) = copy(e, "AXLinkUIElements")
+        if le == .success, let ls = links as? [AXUIElement] {
+            print(pad + "  [AXLinkUIElements: \(ls.count)]")
+            for l in ls { print(pad + "    " + line(l)) }
+        }
+    }
+    if depth >= maxDepth { return }
+    for c in children(e) { dump(c, depth + 1) }
+}
+let app = AXUIElementCreateApplication(pid)
+let (we, wins) = copy(app, "AXWindows")
+print("AXWindows err \(we.rawValue) count \((wins as? [AXUIElement])?.count ?? 0)")
+for w in (wins as? [AXUIElement]) ?? [] { dump(w, 0) }

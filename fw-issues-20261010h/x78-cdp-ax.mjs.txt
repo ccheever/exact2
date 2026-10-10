@@ -1,0 +1,56 @@
+// x78 web oracle: Chrome's accessibility tree (CDP Accessibility.getFullAXTree) with each
+// node's url property, for the Exact web build of the repro and for hand-written HTML.
+// Headless Chrome with a fresh temporary profile (no real browser data).
+// usage: bun cdp-ax.mjs <web-dist dir>
+import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+const dist = resolve(process.argv[2]);
+const server = Bun.serve({ port: 0, fetch(req) {
+  let p = new URL(req.url).pathname; if (p === '/') p = '/index.html';
+  const f = join(dist, p); return existsSync(f) ? new Response(Bun.file(f)) : new Response(Bun.file(join(dist, 'index.html')));
+} });
+const profile = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'x78-chrome-'));
+const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check', '--window-size=420,260', 'about:blank'], { stdio: 'ignore' });
+let port;
+for (let i = 0; i < 100 && !port; i++) { await Bun.sleep(100); try { port = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0]; } catch {} }
+const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+const page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(t => t.type === 'page');
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise(r => ws.onopen = r);
+let id = 0; const waiting = new Map();
+ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); } };
+const send = (method, params = {}) => new Promise(r => { const i = ++id; waiting.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+
+async function tree(label, url, settle = 1500) {
+  await send('Page.navigate', { url });
+  await Bun.sleep(settle);
+  await send('Accessibility.enable');
+  const { result } = await send('Accessibility.getFullAXTree');
+  const byId = new Map(result.nodes.map(n => [n.nodeId, n]));
+  console.log(`\n## ${label}`);
+  const walk = (n, d) => {
+    const shown = !n.ignored && n.role?.value !== 'InlineTextBox';
+    if (shown) {
+      const props = Object.fromEntries((n.properties ?? []).map(p => [p.name, p.value?.value]));
+      let line = `${'  '.repeat(d)}${n.role?.value} "${n.name?.value ?? ''}"`;
+      if ('url' in props) line += ` url=${n.role?.value === 'RootWebArea' ? '(the page)' : props.url}`;
+      if (props.focusable) line += ' focusable';
+      console.log(line);
+    }
+    for (const c of n.childIds ?? []) if (byId.get(c)) walk(byId.get(c), shown ? d + 1 : d);
+  };
+  walk(result.nodes[0], 0);
+}
+console.log(`# ${version.Browser} (headless, fresh profile), CDP Accessibility.getFullAXTree; ignored nodes and InlineTextBox omitted`);
+await tree(`Exact web build (JS target) of the repro, served from ${dist.split('/').slice(-3).join('/')}`, `http://127.0.0.1:${server.port}/`, 3000);
+const html = `<!doctype html><body style="font:24px -apple-system;padding:16px">
+<a href="https://example.com/link-node">Example link</a>
+<p>Visit the <a href="https://example.com/inline-run">site</a> today</p>
+</body>`;
+console.log('\n# hand-written HTML:\n' + html);
+await tree('hand-written <a href> and an inline <a href> in a <p>', 'data:text/html,' + encodeURIComponent(html));
+ws.close(); chrome.kill(); server.stop(true);
+await Bun.sleep(300); rmSync(profile, { recursive: true, force: true });

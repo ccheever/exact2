@@ -1,0 +1,162 @@
+X78: macOS host: a link's URL is not in the accessibility tree, and an inline link run's element is invalid to other processes
+main 474999b9fe95610fdde7b99314cec8b82723de1e; macOS 26.6.2 (25G83), Apple Silicon; Google Chrome 155.0.8059.39
+App: bun scripts/exact.mjs new <dir>; app.ts exports an empty sources. VoiceOver was NOT turned on: every read below is the
+AXUIElement API (the API VoiceOver and other assistive apps use), from a separate process that has the accessibility grant
+(AXIsProcessTrusted true). Sources of the probes and the oracle are beside this file (x78-*.swift.txt, x78-cdp-ax.mjs.txt).
+
+== app.contract
+// X78: a link's URL in the macOS accessibility tree. A `link` node with an href,
+// and a paragraph holding an inline link run.
+component X78app
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=16 display="flex" flex-direction="column" align-items="flex-start" gap=12
+      link href="https://example.com/link-node" testId="l"
+        text "Example link" font-size=24
+      text testId="p" font-size=24
+        text "Visit the "
+        text "site" href="https://example.com/inline-run" testId="run"
+        text " today"
+
+== Commands (in the app dir)
+bun exact.mjs mac                       # then launch the built binary directly, no agent
+M1 axprobe <pid> 12                     # the window's subtree from another process
+M2 axdetail <pid> p ; axdetail <pid> l  # attribute names, AXChildren asked 3 times, hit tests along the element
+M3 bun exact.mjs agent macos --size 420x200 "tree --ax" "screenshot x78-macos.png"   # the agent's in-process read
+W1 bun exact.mjs agent web --size 420x200 "tree --ax" "screenshot x78-web.png"
+W2 bun x78-cdp-ax.mjs target/web-dist   # Chrome's tree with each node's url (CDP), fresh temporary profile
+
+== M1, M2 (Exact macOS host, read from another process)
+$ axprobe <pid> 12   (the window's subtree, read from another process)
+AXIsProcessTrusted true
+AXWindows err 0 count 1
+AXWindow/AXStandardWindow AXTitle="X78 Link Ax"
+  AXScrollArea
+    AXLink AXDescription="Example link" id=l AXURL=(err -25205)
+    AXStaticText AXValue="Visit the site today" AXDescription="Visit the site today" id=p
+      <element> AXRole err -25202; AXUIElementCopyAttributeNames err -25202 []; AXDescription err -25202; AXTitle err -25202; AXURL err -25202; AXIdentifier err -25202
+  AXButton/AXCloseButton
+  AXButton/AXFullScreenButton
+    AXGroup
+  AXButton/AXMinimizeButton
+  AXStaticText AXValue="X78 Link Ax"
+
+$ axdetail <pid> p
+element: AXStaticText id=p "Visit the site today" AXURL err -25205
+attributes: ["AXIdentifier", "AXCustomActions", "AXFrame", "AXDescription", "AXParent", "AXChildren", "AXFocused", "AXSize", "AXRole", "AXTopLevelUIElement", "AXHelp", "AXChildrenInNavigationOrder", "AXPosition", "AXWindow", "AXRoleDescription", "AXLanguage", "AXValue", "AXHidden"]
+parameterized: ["AXReplaceRangeWithText"]
+actions: ["AXPress"]
+AXChildren ask 1: 1 → ["<element> AXRole err -25202"]
+AXChildren ask 2: 1 → ["<element> AXRole err -25202"]
+AXChildren ask 3: 1 → ["<element> AXRole err -25202"]
+frame: (242.0, 147.0) (188.70313, 28.0)
+hit x=+2: AXStaticText id=p "Visit the site today" AXURL err -25205
+hit x=+92: <element> AXRole err -25202
+hit x=+128: AXStaticText id=p "Visit the site today" AXURL err -25205
+
+$ axdetail <pid> l
+element: AXLink id=l "Example link" AXURL err -25205
+attributes: ["AXIdentifier", "AXCustomActions", "AXFrame", "AXSelected", "AXDescription", "AXParent", "AXChildren", "AXFocused", "AXSize", "AXHidden", "AXRole", "AXTopLevelUIElement", "AXHelp", "AXChildrenInNavigationOrder", "AXPosition", "AXWindow", "AXRoleDescription", "AXLanguage", "AXSubrole", "AXValue"]
+parameterized: ["AXReplaceRangeWithText"]
+actions: ["AXPress"]
+AXChildren ask 1: 0 → []
+AXChildren ask 2: 0 → []
+AXChildren ask 3: 0 → []
+frame: (242.0, 107.0) (128.8125, 28.0)
+hit x=+2: AXStaticText "Example link" AXURL err -25205
+(-25202 is kAXErrorInvalidUIElement; -25205 kAXErrorAttributeUnsupported. The link node's AXSubrole is nil.)
+
+== M3 (the agent's tree --ax on macOS: the same tree read inside the app, LLP 1080.002; no finding)
+ax       appkit · macOS Version 26.6.2 (Build 25G83) · order navigation · epoch 2 · incarnation 1 · clock 0 ms · 4 elements
+AXScrollArea "" (PageScrollView) 0,0 420×200
+  link "Example link" #2 [l] 16,16 128.81×28
+  text "Visit the site today" value="Visit the site today" #4 [p] 16,56 188.7×28
+    link "site" #6^ [run] 104.63,55.8 36.56×28.27
+
+== W1 (the agent's tree --ax on the web)
+ax       chrome-cdp · Chrome 155.0.0.0 · order tree · epoch 1 · incarnation 1 · clock 0 ms · 10 elements
+generic "" (div) 0,0 420×200
+  main "" #1 [root] 0,0 420×200
+    link "Example link" #2 [l] 16,16 128.8×28
+      generic "" #3 16,16 128.8×28
+        StaticText "Example link" #3^ 16,16 128.8×28
+    generic "" #4 [p] 16,56 188.7×28
+      StaticText "Visit the " #5^ 16,56 88.63×28
+      link "site" #6 [run] 104.63,56 36.56×28
+      StaticText " today" #7^ 141.19,56 63.52×28
+
+== W2 (Chrome's own accessibility tree with url, CDP Accessibility.getFullAXTree)
+# Chrome/155.0.8059.39 (headless, fresh profile), CDP Accessibility.getFullAXTree; ignored nodes and InlineTextBox omitted
+
+## Exact web build (JS target) of the repro, served from x78-link-ax/target/web-dist
+RootWebArea "X78 Link Ax" url=(the page) focusable
+  generic ""
+    main ""
+      link "Example link" url=https://example.com/link-node focusable
+        generic ""
+          StaticText "Example link"
+      generic ""
+        StaticText "Visit the "
+        link "site" url=https://example.com/inline-run focusable
+          StaticText "site"
+        StaticText " today"
+
+# hand-written HTML:
+<!doctype html><body style="font:24px -apple-system;padding:16px">
+<a href="https://example.com/link-node">Example link</a>
+<p>Visit the <a href="https://example.com/inline-run">site</a> today</p>
+</body>
+
+## hand-written <a href> and an inline <a href> in a <p>
+RootWebArea "" url=(the page) focusable
+  link "Example link" url=https://example.com/link-node focusable
+    StaticText "Example link"
+  paragraph ""
+    StaticText "Visit the "
+    link "site" url=https://example.com/inline-run focusable
+      StaticText "site"
+    StaticText " today"
+
+== Chrome on macOS through AXUIElement (headed Chrome 155, fresh temporary profile, --use-mock-keychain), the same hand-written HTML
+  AXWebArea AXTitle="X78 html" AXURL=(the data: page)
+    AXLink AXTitle="Example link" AXDescription="Example link" AXURL=https://example.com/link-node
+      AXStaticText AXValue="Example link"
+    AXGroup
+      AXStaticText AXValue="Visit the "
+      AXLink AXTitle="site" AXDescription="site" AXURL=https://example.com/inline-run
+        AXStaticText AXValue="site"
+      AXStaticText AXValue=" today"
+
+== The AppKit, SwiftUI and WebKit oracle (x78-appkit-webkit-oracle.swift.txt), read with axprobe from another process
+A bundled swiftc app: a read-only, selectable NSTextView whose run "site" has a .link attribute; a SwiftUI Link; a WKWebView
+with <a href> and <p>Visit the <a href>site</a> today</p> (loaded again after the first AX query, since WebKit builds its tree
+for a client only then); an NSView whose accessibilityChildren() returns a link NSAccessibilityElement made fresh on each call
+(nothing keeps it after the call), and one whose child is kept by the view.
+AXWindow/AXStandardWindow AXTitle="X78 oracle"
+  AXTextArea AXValue="Visit the site today" id=nstextview
+    AXLink/AXTextLink AXTitle="site" AXURL=https://example.com/nstextview-run
+  AXGroup/AXHostingView
+    AXLink AXDescription="SwiftUI link" id=swiftui-link AXURL=https://example.com/swiftui-link
+  AXGroup
+    AXGroup
+      AXScrollArea
+        AXWebArea AXURL=about:blank
+          [AXLinkUIElements: 2]
+            AXLink AXTitle="Example link" AXURL=https://example.com/link-node
+            AXLink AXTitle="site" AXURL=https://example.com/inline-run
+          AXLink AXTitle="Example link" AXURL=https://example.com/link-node
+            AXStaticText AXValue="Example link"
+          AXGroup
+            AXStaticText AXValue="Visit the "
+            AXLink AXTitle="site" AXURL=https://example.com/inline-run
+              AXStaticText AXValue="site"
+            AXStaticText AXValue=" today"
+  AXStaticText AXDescription="fresh children" id=fresh
+    <element> AXRole err -25202; AXUIElementCopyAttributeNames err -25202 []; AXDescription err -25202; AXTitle err -25202; AXURL err -25202; AXIdentifier err -25202
+  AXStaticText AXDescription="kept children" id=kept
+    AXLink AXDescription="child link" id=child-kept AXURL=https://example.com/kept
+  AXButton/AXCloseButton
+  AXButton/AXZoomButton
+    AXGroup
+      AXGroup
+  AXButton/AXMinimizeButton
+  AXStaticText AXValue="X78 oracle"

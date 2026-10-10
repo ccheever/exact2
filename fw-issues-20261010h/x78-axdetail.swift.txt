@@ -1,0 +1,46 @@
+// x78 AX detail: finds the element whose AXIdentifier is <id> in <pid>'s first
+// window, prints its attribute and parameterized attribute names, its children
+// (asked three times), and what a hit test (AXUIElementCopyElementAtPosition,
+// which VoiceOver's mouse tracking uses) returns along its middle line.
+import ApplicationServices
+import Foundation
+let pid = Int32(CommandLine.arguments[1])!, want = CommandLine.arguments[2]
+func copy(_ e: AXUIElement, _ n: String) -> (AXError, CFTypeRef?) { var v: CFTypeRef?; let r = AXUIElementCopyAttributeValue(e, n as CFString, &v); return (r, v) }
+func find(_ e: AXUIElement) -> AXUIElement? {
+    if let i = copy(e, "AXIdentifier").1 as? String, i == want { return e }
+    for c in (copy(e, "AXChildren").1 as? [AXUIElement]) ?? [] { if let f = find(c) { return f } }
+    return nil
+}
+func brief(_ e: AXUIElement) -> String {
+    let (re, role) = copy(e, "AXRole")
+    if re != .success { return "<element> AXRole err \(re.rawValue)" }
+    var s = role as! String
+    if let i = copy(e, "AXIdentifier").1 as? String { s += " id=\(i)" }
+    if let d = copy(e, "AXDescription").1 as? String { s += " \"\(d)\"" } else if let t = copy(e, "AXTitle").1 as? String { s += " \"\(t)\"" }
+    let (ue, u) = copy(e, "AXURL"); s += ue == .success ? " AXURL=\((u as! NSURL).absoluteString ?? "?")" : " AXURL err \(ue.rawValue)"
+    return s
+}
+let app = AXUIElementCreateApplication(pid)
+let win = (copy(app, "AXWindows").1 as! [AXUIElement])[0]
+guard let e = find(win) else { print("no element id=\(want)"); exit(1) }
+print("element:", brief(e))
+var names: CFArray?; AXUIElementCopyAttributeNames(e, &names); print("attributes:", (names as? [String]) ?? [])
+var pnames: CFArray?; AXUIElementCopyParameterizedAttributeNames(e, &pnames); print("parameterized:", (pnames as? [String]) ?? [])
+var actions: CFArray?; AXUIElementCopyActionNames(e, &actions); print("actions:", (actions as? [String]) ?? [])
+for n in 1...3 {
+    let kids = (copy(e, "AXChildren").1 as? [AXUIElement]) ?? []
+    print("AXChildren ask \(n): \(kids.count) →", kids.map(brief))
+}
+var pos = CGPoint.zero, size = CGSize.zero
+AXValueGetValue(copy(e, "AXPosition").1 as! AXValue, .cgPoint, &pos)
+AXValueGetValue(copy(e, "AXSize").1 as! AXValue, .cgSize, &size)
+print("frame:", pos, size)
+let sys = AXUIElementCreateSystemWide()
+var last = ""
+for x in stride(from: pos.x + 2, to: pos.x + size.width, by: 6) {
+    var hit: AXUIElement?
+    let r = AXUIElementCopyElementAtPosition(app, Float(x), Float(pos.y + size.height / 2), &hit)
+    let s = r == .success ? brief(hit!) : "err \(r.rawValue)"
+    if s != last { print("hit x=+\(Int(x - pos.x)):", s); last = s }
+}
+_ = sys

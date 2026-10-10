@@ -1,0 +1,88 @@
+// x78 oracle: what a hand-built Mac app exposes for a link. One window holding
+// (1) a read-only, selectable NSTextView whose run "site" has a .link attribute,
+// (2) a SwiftUI Link, (3) a WKWebView (Safari's engine) with an <a href> and a
+// paragraph holding an inline <a href>, and (4) two NSViews that return an
+// NSAccessibilityElement link child: one made fresh on every accessibilityChildren()
+// call and released after it, one kept by its parent.
+import AppKit
+import SwiftUI
+import WebKit
+
+final class LinkChild: NSAccessibilityElement {
+    init(parent: NSView, url: String) {
+        super.init()
+        setAccessibilityParent(parent)
+        setAccessibilityRole(.link)
+        setAccessibilityLabel("child link")
+        setAccessibilityURL(URL(string: url))
+        setAccessibilityIdentifier("child-" + url.split(separator: "/").last!)
+    }
+    override func accessibilityFrame() -> NSRect {
+        guard let p = accessibilityParent() as? NSView, let w = p.window else { return .zero }
+        return w.convertToScreen(p.convert(p.bounds, to: nil))
+    }
+}
+final class FreshView: NSView {   // a new element per call, held by nothing after the call
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "fresh children" }
+    override func accessibilityIdentifier() -> String { "fresh" }
+    override func accessibilityChildren() -> [Any]? { [LinkChild(parent: self, url: "https://example.com/fresh")] }
+}
+final class KeptView: NSView {    // the same element every call, held by the view
+    lazy var kept = [LinkChild(parent: self, url: "https://example.com/kept")]
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "kept children" }
+    override func accessibilityIdentifier() -> String { "kept" }
+    override func accessibilityChildren() -> [Any]? { kept }
+}
+
+let app = NSApplication.shared
+app.setActivationPolicy(.regular)
+let win = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 520, height: 520), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+win.title = "X78 oracle"
+let root = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 520))
+win.contentView = root
+
+let tv = NSTextView(frame: NSRect(x: 16, y: 470, width: 480, height: 34))
+tv.isEditable = false; tv.isSelectable = true
+let s = NSMutableAttributedString(string: "Visit the site today", attributes: [.font: NSFont.systemFont(ofSize: 20)])
+s.addAttribute(.link, value: URL(string: "https://example.com/nstextview-run")!, range: NSRange(location: 10, length: 4))
+tv.textStorage?.setAttributedString(s)
+tv.setAccessibilityIdentifier("nstextview")
+root.addSubview(tv)
+
+let hosting = NSHostingView(rootView: Link("SwiftUI link", destination: URL(string: "https://example.com/swiftui-link")!).font(.system(size: 20)).accessibilityIdentifier("swiftui-link"))
+hosting.frame = NSRect(x: 16, y: 430, width: 300, height: 30)
+root.addSubview(hosting)
+
+final class Nav: NSObject, WKNavigationDelegate {
+    func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
+        print("web didFinish"); fflush(stdout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            print("in-process web.accessibilityChildren:", String(describing: w.accessibilityChildren())); fflush(stdout)
+        }
+    }
+    func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { print("web didFail", e); fflush(stdout) }
+    func webViewWebContentProcessDidTerminate(_ w: WKWebView) { print("web process terminated"); fflush(stdout) }
+}
+let nav = Nav()
+let web = WKWebView(frame: NSRect(x: 16, y: 230, width: 480, height: 190))
+web.navigationDelegate = nav
+let html = """
+<!doctype html><html><body style="font: 20px -apple-system">
+<a id="l" href="https://example.com/link-node">Example link</a>
+<p id="p">Visit the <a id="run" href="https://example.com/inline-run">site</a> today</p>
+</body></html>
+"""
+web.loadHTMLString(html, baseURL: nil)
+root.addSubview(web)
+
+let fresh = FreshView(frame: NSRect(x: 16, y: 150, width: 200, height: 40)); root.addSubview(fresh)
+let kept = KeptView(frame: NSRect(x: 16, y: 90, width: 200, height: 40)); root.addSubview(kept)
+
+win.makeKeyAndOrderFront(nil)
+DispatchQueue.main.asyncAfter(deadline: .now() + 6) { print("reload at 6 s"); fflush(stdout); web.loadHTMLString(html, baseURL: nil) }
+print("oracle pid", ProcessInfo.processInfo.processIdentifier); fflush(stdout)
+app.run()
