@@ -382,6 +382,33 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(tabs.selectedIndex, 0)
     }
 
+    /// While a sheet is up, the route node a sheet's background (the tabs)
+    /// belongs in is laid out at the sheet's size, 580 by 660 points in an
+    /// iPad card, and the background waits outside it. It goes back as the
+    /// sheet closes, before the node grows back to the screen's size, and
+    /// grows with it. At its old frame it grew by the node's growth too.
+    /// The close itself is the app's to drive: this window finishes no
+    /// presentation transition, and the close waits for one.
+    func testASheetsBackgroundReturnsToItsNodeAtTheNodesSize() {
+        let screen = CGRect(x: 0, y: 0, width: 820, height: 1180), card = CGRect(x: 0, y: 0, width: 580, height: 660)
+        func returned(_ frame: CGRect) -> CGRect {
+            let node = UIView(frame: card), background = UIView()
+            background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            node.addSubview(background)
+            background.frame = frame
+            node.frame = screen
+            return background.frame
+        }
+        XCTAssertEqual(returned(screen), CGRect(x: 0, y: 0, width: 1060, height: 1700), "its old frame: what an iPad showed")
+        XCTAssertEqual(returned(ModalHost.returnFrame(screen, from: screen, to: card, resizes: true)), screen,
+                       "its place now: it fills its node, as before the sheet")
+        let inset = CGRect(x: 0, y: 10, width: 820, height: 1160)
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: screen, to: card, resizes: true), CGRect(x: 0, y: 10, width: 580, height: 640),
+                       "its margins kept")
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: screen, to: card, resizes: false), inset, "one that does not resize keeps its frame")
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: nil, to: card, resizes: true), inset, "taken from no home")
+    }
+
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a
     /// unit test reaches: a route whose title stays still (Detail's, inline)
     /// names no content scroll view to UIKit, so a minimize behavior a hatch
