@@ -1,0 +1,85 @@
+X70 record: aria-disabled (a disabled control that keeps the focus)
+exact2 main abc1eadff885e203b68021df6dea76c3d48faf20; PR #327 head 14493d25343529c47938085263935d5b30535071
+macOS 26.6.2 (25G83), Apple Silicon; Chrome 155.0.8059.39 (the agent's and the oracle's)
+
+== app.contract (bun scripts/exact.mjs new <dir>; app.ts exports an empty sources) ==
+component X70app
+  state log = "-"
+  action note(name: string)
+    log = name
+  view
+    main testId="root" width="100%" height="100%" box-sizing="border-box" padding=24 display="flex" flex-direction="column" gap=12 background-color="#ffffff" color="#111111"
+      text `last press: ${log}` testId="out"
+      row gap=8 align-items="center"
+        button press=note("first") testId="first"
+          text "First"
+        button disabled=true press=note("update") testId="update"
+          text "Check for updates"
+        button press=note("last") testId="last"
+          text "Last"
+
+== drive: bun exact.mjs agent <macos|web> --json --size 520x160 ... ==
+"tap first" "type first key Tab" state "screenshot $ev/x70-$label-$host-tab.png$win" "tap last" "type last key Shift+Tab" state "tap update" "tree out" "tree --ax"
+
+== macOS, main (node ids: 4 First, 6 Check for updates, 8 Last; the macOS reply names Shift+Tab as "Tab") ==
+{"op":"first","key":null,"tapped":4,"typed":null}
+{"op":"first","key":"Tab","tapped":null,"typed":4}
+{"log":"first","focus":8}
+{"op":"screenshot","key":null,"tapped":null,"typed":null}
+{"op":"last","key":null,"tapped":8,"typed":null}
+{"op":"last","key":"Tab","tapped":null,"typed":8}
+{"log":"last","focus":4}
+{"op":"update","key":null,"tapped":6,"typed":null}
+{"out":"last press: last"}
+{"ax":[{"name":"First","states":{"focused":true}},{"name":"Check for updates","states":{"disabled":true}},{"name":"Last","states":{}}]}
+
+== macOS, #327 head ==
+{"op":"first","key":null,"tapped":4,"typed":null}
+{"op":"first","key":"Tab","tapped":null,"typed":4}
+{"log":"first","focus":8}
+{"op":"screenshot","key":null,"tapped":null,"typed":null}
+{"op":"last","key":null,"tapped":8,"typed":null}
+{"op":"last","key":"Tab","tapped":null,"typed":8}
+{"log":"last","focus":4}
+{"op":"update","key":null,"tapped":6,"typed":null}
+{"out":"last press: last"}
+{"ax":[{"name":"First","states":{"focused":true}},{"name":"Check for updates","states":{"disabled":true}},{"name":"Last","states":{}}]}
+
+== web, main ==
+{"op":"first","key":null,"tapped":4,"typed":null}
+{"op":"first","key":"Tab","tapped":null,"typed":4}
+{"log":"first","focus":8}
+{"op":"screenshot","key":null,"tapped":null,"typed":null}
+{"op":"last","key":null,"tapped":8,"typed":null}
+{"op":"last","key":"Shift+Tab","tapped":null,"typed":8}
+{"log":"last","focus":4}
+{"op":"update","key":null,"tapped":6,"typed":null}
+{"out":"last press: last"}
+{"ax":[{"name":"First","states":{}},{"name":"Check for updates","states":{"disabled":true}},{"name":"Last","states":{}}]}
+
+== compile: the same app with aria-disabled="true" in place of disabled=true (main and #327 alike) ==
+$ bun exact.mjs contract build x70-aria.contract
+x70-aria.contract:11:16 [lower-unknown-attr] `button` has no attribute `aria-disabled`; `aria-disabled` is ARIA's, and Contract does not carry it yet; Contract carries aria-busy, aria-checked, aria-controls, aria-current, aria-describedby, aria-description, aria-expanded, aria-haspopup, aria-hidden, aria-invalid, aria-keyshortcuts, aria-label, aria-labelledby, aria-level, aria-live, aria-modal, aria-orientation, aria-pressed, aria-required, aria-selected
+
+== oracle: plain HTML in headless Chrome over CDP (a mouse press, then Tab and Shift+Tab as Input.dispatchKeyEvent) ==
+<!doctype html><meta charset="utf-8"><title>X70</title>
+<body style="margin:0;padding:24px;font:14px system-ui">
+<script>window.log = []</script>
+<p id="out">last press: -</p>
+<div style="display:flex;gap:8px">
+  <button id="first" onclick="log.push('first')">First</button>
+  <button id="update" aria-disabled="true" onclick="log.push('update')">Check for updates</button>
+  <button id="disabled" disabled onclick="log.push('disabled')">disabled</button>
+  <button id="last" onclick="log.push('last')">Last</button>
+</div>
+
+chrome Chrome/155.0.8059.39
+press:first -> active: first
+tab -> active: update
+ax button "First" focusable=true
+ax button "Check for updates" disabled=true focusable=true focused=true
+ax button "disabled" disabled=true
+ax button "Last" focusable=true
+tab -> active: last
+shifttab -> active: update
+shifttab -> active: first
