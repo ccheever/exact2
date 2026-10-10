@@ -141,7 +141,10 @@ extension Agent {
         if request["contextmenu"] != nil || request["dblclick"] != nil { return nil }
         let vp = session.presenter.viewport
         let b = box(node)
-        let start = contact ?? CGPoint(x: b.midX, y: b.midY)
+        // `at`: a point in the canvas from its top left (`tap <canvas> at <x> <y>`).
+        let offset = continuing ? nil : (request["at"] as? [Double]).flatMap { $0.count == 2 && $0.allSatisfy(\.isFinite) ? CGPoint(x: b.minX + $0[0], y: b.minY + $0[1]) : nil }
+        if !continuing, request["at"] != nil, offset == nil { return ["error": "tap at needs two finite numbers"] }
+        let start = offset ?? contact ?? CGPoint(x: b.midX, y: b.midY)
         let point = CGPoint(x: request["x"] as? Double ?? start.x + (request["dx"] as? Double ?? 0),
                             y: request["y"] as? Double ?? start.y + (request["dy"] as? Double ?? 0))
         guard point.x.isFinite, point.y.isFinite else { return ["error": "pointer needs finite coordinates"] }

@@ -55,6 +55,21 @@ fn a_heading_is_its_levels_text_style_at_the_root_size_unless_written() {
     assert!(r.set_root_font_size(17.0).unwrap().is_some());
     assert_eq!(size(&r, "h1"), 28.0);
     assert_eq!(size(&r, "h2"), 22.0, "ARIA's default level is 2");
+    // And said, so a host that reads the level (iOS's header-shaped route) sees it.
+    let level = exact_kernel::PropId::from_name("accessibilityHeadingLevel").unwrap();
+    let node = |id| {
+        r.kernel()
+            .node_by_key(r.kernel().find_by_test_id(id)[0])
+            .unwrap()
+    };
+    assert_eq!(
+        node("h2").props.get(level),
+        Some(&exact_kernel::PropValue::Int(2))
+    );
+    assert_eq!(
+        node("h3").props.get(level),
+        Some(&exact_kernel::PropValue::Int(3))
+    );
     assert_eq!(size(&r, "h3"), 20.0);
     assert_eq!(size(&r, "h5"), 17.0);
     assert_eq!(size(&r, "chosen"), 20.0, "a choice of levels, of styles");

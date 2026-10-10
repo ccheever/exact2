@@ -65,6 +65,13 @@ pub struct CollectionFill {
     /// optional row, retires within `limit` as a slice does, and runs edge
     /// actions. The immediate report after a build-only one.
     pub no_build: bool,
+    /// With a velocity, the window keeps half a viewport behind its
+    /// travel instead of a whole one. For a host that leads its window far
+    /// and waits for its passes (the rows behind then pile up to two and a
+    /// half viewports before a pass retires them), and whose travel turns
+    /// only through a report without a velocity, which builds the side it
+    /// turned to. Carried on the wire as flag bit 3.
+    pub lean: bool,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -173,7 +180,7 @@ impl CollectionFeedback {
     /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
-    /// moving; bit 1: build only; bit 2: retire only), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
     /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
@@ -198,7 +205,8 @@ impl CollectionFeedback {
         w.u32(
             u32::from(fill.ancestor_moving)
                 | u32::from(fill.create_only) << 1
-                | u32::from(fill.no_build) << 2,
+                | u32::from(fill.no_build) << 2
+                | u32::from(fill.lean) << 3,
         );
         w.u32(
             self.measurements
@@ -237,7 +245,7 @@ impl CollectionFeedback {
             let velocity = r.f64()?;
             let limit = r.u32()?;
             let flags = r.u32()?;
-            if flags > 7 || flags & 6 == 6 {
+            if flags > 15 || flags & 6 == 6 {
                 return Err(exact_plan::PlanError::BadCount(flags));
             }
             let fill = CollectionFill {
@@ -246,6 +254,7 @@ impl CollectionFeedback {
                 ancestor_moving: flags & 1 != 0,
                 create_only: flags & 2 != 0,
                 no_build: flags & 4 != 0,
+                lean: flags & 8 != 0,
             };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {

@@ -57,7 +57,7 @@ code path on macOS, **not actual Linux**. The smoke report names both host and O
    remounted lanes nor decrement their pending count. Replacing a held wave
    without leaving exercises the same newest-ticket rule.
 
-On **native**, held data explicitly opts into two independent HTTP workers.
+On **native**, held data explicitly opts into six independent HTTP workers.
 Wave opening, release and inspection remain ordered on a separate transport, so
 **Release current** and **Release all old + current** work while data is held.
 This is transport concurrency; native module continuations and storage still
@@ -106,9 +106,9 @@ lane and exact `wave N lane M` payload before it can count as valid.
   releases later browser-queued arrivals. Thus “together” means the fixture
   releases its currently held responses in one turn, **not** 128 simultaneous
   sockets or 128 commits in one frame. This is not an HTTP/2 benchmark.
-- Native limits: 128 admitted independent requests and 32 MiB of reserved
+- Native limits: 128 admitted independent requests and 64 MiB of reserved
   payload/result capacity, including queued, running and undrained results;
-  two concurrent data transports. The ordered lane separately admits 16
+  six concurrent data transports. The ordered lane separately admits 16
   requests within 512 MiB: a waiting call is charged its request buffers, the
   one running its 64 MiB response ceiling and a completed one what it retains.
   Request-owned buffers are capped at 4 MiB. Independent replies here are capped
@@ -118,8 +118,8 @@ lane and exact `wave N lane M` payload before it can count as valid.
   prevent later ordered admission until settled or forgotten, so failure parsing
   cannot reorder Store writes. Wakes coalesce. Retirement aborts HTTP and drops
   queued work on its executor owner, without joining active native closures.
-  Each native host implementation caps live/retiring executor workers at 48
-  until they actually exit. Arbitrary Rust closure captures are count-bounded
+  Each native host implementation caps live/retiring executor workers at 112
+  (sixteen executors') until they actually exit. Arbitrary Rust closure captures are count-bounded
   only; their heap size and transient source allocations are outside transport
   byte accounting. This is no absolute memory bound for native continuations.
 

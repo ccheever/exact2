@@ -25,6 +25,25 @@ const NOTE = 'quote " slash \\ tab\t<&>';
 export async function nativeSmoke({ host, open, check: record, webDist, shots, device = false }) {
   let checks = 0, failed = 0;
   const check = (ok, what) => { checks += 1; if (!ok) failed += 1; return record(ok, what); };
+  // A tap that names a node presses that node (LLP 1012 §1), on Detail: the post row beside the card at its middle,
+  // never the card; the box with no press refuses rather than press the Like at its middle; a point presses what is
+  // there. `how` is the session's input: the agent's, or the touch runner's real touches.
+  const namedTaps = async (s, how) => {
+    const slots = async () => { const st = (await s.state()).slots; return { post: st.postOpens, card: st.cardOpens, likes: st.likes }; };
+    const before = await slots();
+    const row = await s.tap('post-row'); await settle(s);
+    let now = await slots();
+    check(now.post === before.post + 1 && now.card === before.card && row.avoided?.pressing != null && (how === 'agent' || row.delivery === 'platform'),
+      `${host} native (${how}): tap post-row presses the row beside the card at its middle: ${JSON.stringify({ before, now, avoided: row.avoided, at: row.at, delivery: row.delivery })}`);
+    const refused = await s.tap('post-actions').then((r) => `pressed: ${JSON.stringify(r)}`, (e) => e.message);
+    now = await slots();
+    check(/^tap post-actions would press post-like inside it/.test(refused) && now.likes === before.likes, `${host} native (${how}): tap post-actions refuses, naming post-like: ${refused}; likes ${before.likes} → ${now.likes}`);
+    const b = (await s.layout()).nodes.find((n) => n.testId === 'post-row');
+    await s.tap('post-row', { at: [b.w / 2, b.h / 2] }); await settle(s);
+    await s.tap('post-like'); await settle(s);
+    now = await slots();
+    check(now.card === before.card + 1 && now.likes === before.likes + 1 && now.post === before.post + 1, `${host} native (${how}): a point presses the card there, and post-like named is Like: ${JSON.stringify({ before, now })}`);
+  };
   const t0 = Date.now();
   const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
   const module = (t, id) => byTestId(t, id)?.module;
@@ -147,6 +166,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
     }
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    await namedTaps(s, 'agent');
     // Hatched nodes (LLP 1075.003.000): the tree shows each word, the hatch
     // hears a node's mount and its data-* change (`state` counts them; on the
     // web the fixture's page module does), and a development build journals a
@@ -509,6 +529,16 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots, d
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
+  // A real touch that names a row presses the row (LLP 1012 §1, LLP 1080.000): the runner's aim lands beside the
+  // card at its middle, and its dispatch log confirms where. A simulator only (the touch runner).
+  if (host === 'ios' && !device) {
+    const d = await open({ host, touch: 'platform' });
+    try {
+      await d.tap('detail'); await settle(d); await d.clock('settle');
+      await namedTaps(d, 'touch platform');
+    } finally { await d.close(); }
+  }
+
   // A route pushed in a sheet's own stack (Detail over Sheet), popped by
   // UIKit's bar Back and by the edge swipe, real touches both (a session
   // with UIKit's bars, `--chrome platform`, and the touch runner): each is

@@ -9,6 +9,10 @@ use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
 
+/// Whether a led window leans ([`CollectionFill::lean`]): off unless asked.
+static LEAN: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_LEAN").is_ok_and(|v| v == "1"));
+
 /// One future model position, not the acknowledged picture's input position.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) struct ModelScroll {
@@ -794,6 +798,37 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
+    /// The scrolled list's rows that show where its port now is start what
+    /// waited for that ([`exact_runner::Runner::collection_shown`]), without
+    /// a report: for a pass that waits.
+    #[cfg(target_os = "android")]
+    pub(crate) fn show_collection(&mut self) {
+        let Some(view) = self.last_wheel else {
+            return;
+        };
+        let Some(snapshot) = self.host.collection(view) else {
+            return;
+        };
+        let Some(g) = geometry(self.host.kernel(), &snapshot, self.viewport.0 as f64) else {
+            return;
+        };
+        let main = self
+            .scroll
+            .get(&view)
+            .map_or(0., |off| main_of(g.axis, *off));
+        let offset = (main as f64 - g.origin).max(-g.origin);
+        match self.host.collection_shown(view, offset) {
+            Ok(true) => {
+                if let Some(error) = self.sync_commit() {
+                    self.host.log(error);
+                }
+                self.dirty = true;
+            }
+            Ok(false) => {}
+            Err(error) => self.host.log(error),
+        }
+    }
+
     /// Slice the next passes ([`State::limit`]) with the scrolled list's
     /// velocity, or build whole windows (`None`).
     #[cfg(target_os = "android")]
@@ -988,13 +1023,17 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             }
             cursor.sent = Some(sent);
+            let velocity = (self.collection.velocity)
+                .filter(|(v, _)| *v == view)
+                .map_or(0.0, |(_, v)| v);
             let fill = CollectionFill {
-                velocity: self
-                    .collection
-                    .velocity
-                    .filter(|(v, _)| *v == view)
-                    .map_or(0.0, |(_, v)| v),
+                velocity,
                 limit: self.collection.limit,
+                // `EXACT_LEAN=1`: a window this host leads keeps half a
+                // viewport behind it (crypto rests 4 MB lower after a fling;
+                // a turn back at 24,000 dp/s shows up to 58% of its view
+                // blank for one to four frames, against 35% for two).
+                lean: velocity != 0.0 && *LEAN,
                 ..CollectionFill::default()
             };
             match self.host.collection_feedback_filled(feedback, fill) {

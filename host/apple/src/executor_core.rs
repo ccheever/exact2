@@ -12,8 +12,13 @@ use std::sync::{
     Arc, Condvar, Mutex,
 };
 
-const WORKERS: usize = 3;
-const MAX_WORKERS: usize = 48; // Includes retired workers until they actually exit.
+/// Independent HTTP workers, each with its own transport: a browser's six
+/// connections a host, so a source's `Promise.all` of reads overlaps.
+const INDEPENDENT: usize = 6;
+/// The ordered owner and the independent ones.
+const WORKERS: usize = 1 + INDEPENDENT;
+/// Sixteen cores' workers; includes retired workers until they actually exit.
+const MAX_WORKERS: usize = 16 * WORKERS;
 static LIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
 const COUNTS: [usize; 2] = [16, 128];
 const ORDERED_READS: usize = 128;
@@ -29,7 +34,7 @@ const ORDERED_WAITING_BYTES: usize = 64 << 20;
 /// and must neither starve nor be starved by a lane of held replies
 /// (LLP 1016.000 D4; LLP 1069.004 As built). Its bytes stay on the lane.
 const STREAMS: usize = 16;
-const BYTES: [usize; 2] = [512 << 20, 32 << 20];
+const BYTES: [usize; 2] = [512 << 20, 64 << 20];
 const MAX_REQUEST: usize = 4 << 20;
 const MAX_BODY: usize = 64 << 20;
 const MAX_HEADERS: usize = 64 << 10;
@@ -186,11 +191,18 @@ pub(super) struct Core {
 /// fetches through: the platform's, unless the embedder names another.
 pub(super) type StreamHost = Arc<dyn Fn() -> ibex2::host::Host + Send + Sync>;
 
+/// The ordered owner (the boot's bindings) and the independent ones.
+fn owners(bindings: Option<ibex2::host::Bindings>) -> Vec<Option<ibex2::host::Bindings>> {
+    std::iter::once(bindings)
+        .chain(std::iter::repeat_with(|| None).take(INDEPENDENT))
+        .collect()
+}
+
 impl Core {
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
         // Additional transports are constructed on their own threads, not
         // while the presenter is trying to publish its first frame.
-        Self::with_owners(vec![bindings, None, None], grants, wake)
+        Self::with_owners(owners(bindings), grants, wake)
     }
 
     /// [`Core::start`] with every transport the other owners, scoped grants
@@ -202,7 +214,7 @@ impl Core {
         wake: Wake,
         host: StreamHost,
     ) -> Self {
-        Self::with_owners_on(vec![bindings, None, None], grants, wake, host)
+        Self::with_owners_on(owners(bindings), grants, wake, host)
     }
 
     fn with_owners(owners: Vec<Option<ibex2::host::Bindings>>, grants: &str, wake: Wake) -> Self {
@@ -225,10 +237,11 @@ impl Core {
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
         });
+        let count = owners.len();
         let reserve = || {
             LIVE_WORKERS
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                    (n + WORKERS <= MAX_WORKERS).then_some(n + WORKERS)
+                    (n + count <= MAX_WORKERS).then_some(n + count)
                 })
                 .is_ok()
         };

@@ -47,16 +47,27 @@ const LEAD_SECONDS: f64 = 0.25;
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
 
+/// What a window that leans ([`CollectionFill::lean`]) keeps behind its
+/// travel, in viewports.
+const LEAN_BEHIND: f64 = 0.5;
+
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
-/// second of that travel more, up to two viewports.
-fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
+/// second of that travel more, up to two viewports. A fill that leans keeps
+/// [`LEAN_BEHIND`] of a viewport on the side it travels from.
+fn lead(viewport: f64, fill: CollectionFill) -> [f64; 2] {
+    let velocity = fill.velocity;
     let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
     let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
-    if velocity > 0.0 {
-        [viewport * k, (viewport + extra) * k]
+    let behind = if fill.lean && velocity != 0.0 {
+        viewport * LEAN_BEHIND
     } else {
-        [(viewport + extra) * k, viewport * k]
+        viewport
+    };
+    if velocity > 0.0 {
+        [behind * k, (viewport + extra) * k]
+    } else {
+        [(viewport + extra) * k, behind * k]
     }
 }
 
@@ -842,7 +853,7 @@ impl Collection {
                 .window_led(
                     g.offset,
                     g.port_main,
-                    lead(g.port_main, fill.velocity),
+                    lead(g.port_main, fill),
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;

@@ -1,10 +1,13 @@
 # Contract: a complete working guide for agents
 
+> **Lookup reference; start at [start-here.md](start-here.md).** Building an app needs
+> only that page. Open this guide at the section its last table names, or grep it;
+> don't read it front to back.
+
 Use this guide to author, change, inspect, and verify a current Exact application.
-It covers the language implemented on `main` on 2026-10-02. Start here for an
-implementation task; use the [human guide](contract-for-humans.md) for explanations
-and complete examples, and the [grammar reference](contract-grammar.md) for exact
-forms, built-in functions, tags, and event payloads.
+It covers the language implemented on `main` on 2026-10-02. Use the [human guide](contract-for-humans.md)
+for explanations and complete examples, and the [grammar reference](contract-grammar.md)
+for exact forms, built-in functions, tags, and event payloads.
 
 The compiler and executable fixtures are authoritative. Read the repository's
 `AGENTS.md`, `rules/RULES.md`, and `rules/DEFERRED.md` before making changes here.
@@ -940,7 +943,12 @@ See [`controls.rs`](../contract/lower/src/controls.rs) for the checks.
 
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
-drawn title bar) is a bug. On iOS:
+drawn title bar) is a bug. [`apps/shelf`](../apps/shelf/app.contract) is the recipe
+to copy for an iPhone app: tabs, a large title with a bar button and header search, a
+segmented filter, rows that push, a long-press menu, swipe to delete, the system
+alert, a sheet with Cancel and Save, pull to refresh, grouped lists, persistence and
+fetch, with its tests, in roles and text styles only. `bun scripts/no-tells.mjs <app>`
+lists any literal colour, font size or weight an app's `.contract` files still write. On iOS:
 
 | Write | iOS draws |
 | --- | --- |
@@ -1666,6 +1674,9 @@ The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
 `"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
+On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
+for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
+choice among several is refused rather than guessed (another drive's simulator).
 A target no `testId` carries resolves by a view's exact accessibility label or
 text (`tap "Save draft"`); a name several views share refuses, naming them.
 `type` also sets a control's value: `type "persona" "bob"` chooses a
@@ -1708,6 +1719,23 @@ A tap aims at the target's middle, or, where the target is not there (a wrapped
 inline run, whose middle can fall between its lines), at the middle of the first
 of its lines that is; a tap whose point lands on something else fails, an
 ancestor that would take the press itself included.
+A tap that names a node presses that node, never a control inside it: a node
+with its own `press` (or a link) whose middle holds another — a post row's link
+card, its Like — is pressed at the nearest point of its box the search finds
+that reaches it (the reply's `avoided` names what the middle holds), or refused
+when it finds none; a node without one is refused when its middle holds a control
+(`tap post-0 would press card-0 inside it; tap card-0, or tap post-0 at <x> <y>`).
+The search tries a grid of about 12 points, then about 3 points and the box's
+edges 1 point in, so a reachable strip thinner than that, away from the edges,
+can be missed: then name a point. `tap <target> at <x> <y>` presses at a point
+from the target's top left, whatever a finger there reaches, on every host. What
+a press there would deliver counts as a control: a node with its own press, an
+SVG element, an inline run or link, a form control or text field (it toggles,
+opens or takes the focus), a grouped list's row, a surface's action button and a
+canvas that takes input. A disabled node presses nothing (on the web only a
+disabled form control: `disabled` on a box means nothing there). On iOS without
+`--touch platform` a refused tap has still dismissed, or begun to open, a
+painted popover, as the tap's first step.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,

@@ -273,7 +273,7 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    for (const guide of ['contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
+    for (const guide of ['start-here.md', 'contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }

@@ -215,13 +215,21 @@ extension NodeView {
         target.presenter?.press(target.id)
         return target
     }
+    /// Whether a press is this node's own: a `press` handler, a link, a
+    /// presented menu's closer, a surface control or a native button that
+    /// invokes a command or a popover. A touch stops at the first such node
+    /// from the one it hit up; `activationTarget` resolves it.
+    var takesPress: Bool {
+        handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || isSurfaceControl
+            || isNativeButton && (props["commandfor"]?.isEmpty == false || props["popovertarget"]?.isEmpty == false)
+    }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {
         guard !inert else { return nil }
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, (n.handlers.contains("press") || n.defaultLink != nil || n.presenter?.menus.closesPresentedContent(n) == true || n.isSurfaceControl || n.isNativeButton && (n.props["commandfor"]?.isEmpty == false || n.props["popovertarget"]?.isEmpty == false)) {
+            if let n = cur as? NodeView, n.takesPress {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

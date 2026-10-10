@@ -49,6 +49,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
             // last pass is asked for now (heavy's placeholders showed for
             // three points more of the view at 1,000 dp/s when they did).
             self.sync_moved_pictures();
+            // Nor does what its rows do as they come into view (a draw-in
+            // animation waits for its row to show, and the runner learns that
+            // a row shows from a report): the runner is told where the view
+            // is, as often as a pass did before the slower tiers waited
+            // longer ([`crate::travel::Travel::shows`]). Without it a row
+            // waited for the next pass, up to 21 steps at 6,000 dp/s, and
+            // crypto's rows came into view with their charts undrawn.
+            let viewport = (self.feed.and_then(|id| self.p.host().kernel().node(id)))
+                .map_or(self.viewport.1, |n| n.frame.height);
+            if self.travel.shows(viewport) {
+                self.p.show_collection();
+            }
             return false;
         }
         let started = std::time::Instant::now();
@@ -57,11 +69,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // A row's cost is measured only where it is used: while the feed
         // travels fast (two walks to the list each pass otherwise, 2% of
         // crypto's scrolling).
-        let measure = self.travel.fast();
+        let measure = self.travel.fast() || lead.is_some();
         let mut before = std::mem::take(&mut self.rows_before);
         if measure {
             self.feed_rows(&mut before);
             before.sort_unstable();
+        }
+        if lead.is_some() || !stepped {
+            self.travel.recovered();
         }
         self.p.slice_collections(limit, velocity);
         let wanted = self.refine_inner();
@@ -118,7 +133,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_LEAD").is_ok_and(|v| v == "0"));
         let travels = self.now() - self.scrolled_at < crate::travel::SETTLE_MS;
-        self.travel.lead().filter(|_| *ON && self.lead && travels)
+        let viewport = (self.feed.and_then(|id| self.p.host().kernel().node(id)))
+            .map_or(self.viewport.1, |n| n.frame.height);
+        (self.travel.lead(viewport)).filter(|_| *ON && self.lead && travels)
     }
 
     /// Whether a moved paint owes a paint: once moves pause (a frame
@@ -163,7 +180,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
     fn batches(&self, led: bool, stepped: bool) -> bool {
         static ON: std::sync::LazyLock<bool> =
             std::sync::LazyLock::new(|| !std::env::var("EXACT_PASS_BATCH").is_ok_and(|v| v == "0"));
-        if !*ON || !self.lead || self.leftover {
+        // (After a turn from a led travel no pass waits: see `refine_pending`.)
+        if !*ON || !self.lead || self.leftover || self.travel.turned() {
             return false;
         }
         let viewport = self
@@ -198,9 +216,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// Whether a slice left rows to build: the reader then asks for the next
     /// pass at once. A pass that waits for more travel left none (it is
-    /// asked for again at the reader's next third step, or its timer).
+    /// asked for again at the reader's next third step, or its timer). After
+    /// a turn back from a travel its window led
+    /// ([`crate::travel::Travel::turned`]) every step is followed by a pass:
+    /// the window leaned, and the side it turned to is short.
     pub fn refine_pending(&self) -> bool {
-        !self.waiting && self.p.collections_pending()
+        !self.waiting && (self.p.collections_pending() || self.travel.turned())
     }
 
     /// Pictures coming into view while frames move: requested now, where

@@ -427,7 +427,9 @@ if (host === 'host' || host === 'host-ios') {
         let shown = 0;
         for (let i = 0; i < 40 && !(shown > 0); i++) { await sleep(50); shown = (await s.layout()).env['keyboard-inset-height']; }
         s.session = 'a';
-        await s.tap('caltrain-main');
+        // Its ground, a point at its top left: a plain tap names `main`, which has no press, and is refused when its
+        // middle holds a control (LLP 1012 §1) — the departure card a finger there would press.
+        await s.tap('caltrain-main', { at: [2, 2] });
         s.session = 'b';
         const kept = (await s.layout()).env['keyboard-inset-height'];
         const sb3 = await s.state();

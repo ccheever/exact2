@@ -494,6 +494,11 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         CollectionFeedback::decode_with_fill(&filled).unwrap(),
         (f.clone(), fill)
     );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
+    );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
         CollectionFill::default()

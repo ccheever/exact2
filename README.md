@@ -295,9 +295,10 @@ bun exact.mjs ios --run                     # an iOS Simulator
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
-guides are and lists the app's commands, including `bun exact.mjs contract …` for the
-compiler and `contract vocab` for every tag and property Contract accepts. Before any of
+`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) points a coding agent at
+[`docs/start-here.md`](docs/start-here.md), the one guide it must read, and lists the
+app's commands, including `bun exact.mjs contract …` for the compiler and `contract
+vocab` for every tag and property Contract accepts. Before any of
 it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
 is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
@@ -318,8 +319,9 @@ on each host in its own session; for a copy you launched yourself, use
 
 ## Contract
 
-Read the complete [guide for humans](docs/contract-for-humans.md),
-[guide for agents](docs/contract-for-agents.md), or
+An agent building an app starts at [start-here.md](docs/start-here.md), the only
+required reading. For more, read the complete [guide for humans](docs/contract-for-humans.md),
+or look things up in the [guide for agents](docs/contract-for-agents.md) or the
 [grammar and vocabulary reference](docs/contract-grammar.md).
 
 Contract describes what an app shows and how its state changes. It doesn't fetch, read

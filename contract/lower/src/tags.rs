@@ -1321,6 +1321,16 @@ impl crate::Lowerer<'_> {
             .iter()
             .find(|a| a.name == "aria-level")
             .map(|a| &a.value);
+        if level.is_none() {
+            // ARIA's default level, said: a host that reads the level (iOS's
+            // header-shaped route takes only a heading with one) sees 2.
+            let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
+            bindings.push(BindingsRow {
+                kind: BindingKind::Prop,
+                id: p("accessibilityHeadingLevel") as u16,
+                expr,
+            });
+        }
         let span = level.map_or_else(Default::default, |l| l.span());
         let two = Expr::Number(2.0, span);
         let level = level

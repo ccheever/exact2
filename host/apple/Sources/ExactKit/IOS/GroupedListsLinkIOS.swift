@@ -12,6 +12,8 @@ package protocol GroupedLists: AnyObject {
     func prepare()
     /// After a batch; `changed` is the touched views and their ancestors.
     func sync(changed: Set<UInt32>?)
+    /// Whether some list holds a custom row's views in its cells.
+    var carriesRows: Bool { get }
     func reset()
     /// The collection view a wheel on `id` scrolls.
     func scroller(for id: UInt32) -> UIScrollView?

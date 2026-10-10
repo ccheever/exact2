@@ -1012,6 +1012,10 @@ package final class Presenter {
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
         groupedLists?.sync(changed: changed)
+        // `prepare` put carried rows back under the list's hidden sheet, where
+        // the pass above judged a segmented control in one unavailable (shown
+        // dimmed, deaf to a finger); judge it again where it shows, in its cell.
+        if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
         syncAccessibility(changed: changed)
         #if os(iOS)
