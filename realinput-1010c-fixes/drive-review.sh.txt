@@ -1,0 +1,45 @@
+#!/bin/zsh
+# Review-round drive of the clone for realinput-1010c-fixes. Usage: drive2.sh before|after
+# before: the PR's previous head c8668fb34 built in t3-code-ri1010c-before; after: this worktree's build. Same steps, same size.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes
+S=$W/target/ri1010c/shots2/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-ri1010c-before; LANE=realinput-1010c-fixes-before; else ROOTDIR=$W; LANE=realinput-1010c-fixes; fi
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  'tap "Dismiss notification"' "clock +600 real"
+  'tap "Dismiss"' "clock +600 real"
+  # RC-4 with the right panel open: the panel's toggle holds Escape and was made before the chip opened.
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap toggle-right-panel" "clock +1500 real"
+  "tap surface-files" "clock +2000 real"
+  "tap draft-hero-heading" "clock +300 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "state"
+  "screenshot $S/rc4p-1-chip-open.png window"
+  "tree chip-popover-escape"
+  "tree panel-toggle-right"
+  "type chip-popover key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4p-2-escape.png window"
+  "type t3-code key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4p-3-second-escape.png window"
+  # RC-4 without a panel (the first round's case), then the Settings sample's chip.
+  "tap draft-hero-heading" "clock +300 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "type chip-popover key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4c-escape.png window"
+  "tap connection-settings" "clock +1200 real"
+  "tap settings-appearance" "clock +1200 real"
+  "tap prompt-font-preview down at 90 13" "tap up" "clock +1000 real"
+  "screenshot $S/rc4s-1-settings-chip.png window"
+  "type chip-popover key Escape" "clock +800 real"
+  "state"
+  "screenshot $S/rc4s-2-settings-escape.png window"
+)
+print -rl -- "${ops[@]}" > $S/ops.txt
+T3_BROWSER_IMPORT_HOME=$A/lanes/$LANE/browser-home EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16520 --epoch 2026-10-10T06:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
