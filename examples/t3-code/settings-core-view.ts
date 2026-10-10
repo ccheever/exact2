@@ -3,7 +3,7 @@
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import type { T3Client } from './client';
-import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
+import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 import { appearanceSections, fontStack, modeTiles, palette } from './settings-appearance';
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
 import type { CustomTheme } from './settings-themes';
@@ -69,7 +69,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
   const prefs: ClientPrefs = (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
   const project = scope.kind === 'project' || scope.kind === 'checkout';
-  const files = active && project && (route === 'general' || route === 'projects') ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
+  // useMemberProjectFiles: a project scope reads its members' t3.json on every route, so Restore defaults lists what the scope's
+  // target resolves to (useScopedSettings), file tier included.
+  const files = active && project ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
@@ -87,7 +89,9 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
-  const labels = restoreLabels(client.local as never, obj(client.config.settings), client.ready);
+  // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment (audit-wave-followups-4 FX-1).
+  const scoped = scopeTarget(client, context);
+  const labels = restoreLabels(client.local as never, scoped ? scoped.settings : null);
   // SettingsScopeBoundary: a search target outside the selected scope explains its owning scope.
   const wanted = target ? searchTargetScope(target) : null;
   const notice = wanted && scope.kind !== 'unavailable' && !scopeAvailable(wanted.scope, scope.kind) ? `${wanted.title} is not available for the selected target. Choose its owning scope to continue.` : '';
