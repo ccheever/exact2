@@ -162,7 +162,16 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         reportedRate = rate
         emit("ratechange")
     }
-    var seconds: Double { if let seekTarget { return seekTarget }; let s = player.currentTime().seconds; return s.isFinite ? s : 0 }
+    /// The position, read from the item's timebase: `player.currentTime()`
+    /// takes a MediaToolbox lock a busy player holds, and every report reads
+    /// this on main (the Bluesky clone's round-1 sample, 2026-10-09: main
+    /// waiting there during a fling of autoplaying videos). An item not yet
+    /// timed is at zero.
+    var seconds: Double {
+        if let seekTarget { return seekTarget }
+        let s = player.currentItem?.timebase.map { CMTimebaseGetTime($0).seconds } ?? 0
+        return s.isFinite ? s : 0
+    }
     func bool(_ name: String, _ fallback: Bool = false) -> Bool { props[name].map { $0 == "true" } ?? fallback }
     func number(_ name: String, _ fallback: Double) -> Double { props[name].flatMap(Double.init) ?? fallback }
     var rate: Float { Float(number("playbackRate", 1)) }
