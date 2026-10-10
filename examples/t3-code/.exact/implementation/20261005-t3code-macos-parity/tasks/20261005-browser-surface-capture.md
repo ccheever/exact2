@@ -75,6 +75,15 @@ Built (2026-10-09), on part 1's seams (X1 path B, the `WKWebView` in the clone's
   are client settings (`settings-core.ts`) the recording reads (`browserRecordingSettings`); part 5's planner reads
   `browserAutoShowFloatingPreview` (`browser-automation.ts`, wired at the merge of #346, with a Bun row). Their rows in Settings › Integrations › Browser are part 4's (coordinator, 2026-10-09): this branch built
   them first (the drives used them) and then left them to part 4.
+- **Fix round of realinput-1010c** (the coordinator's real-input session of 2026-10-10, row A, bundle `d1ae77d7` built
+  from `a63794adb`): a person's Escape while annotating is the page's (the panel toggle declares Escape only while the
+  shown tab is not annotating, `r4-surfaces.contract`); the floating player's handle grows its hover box to the pill's
+  box and the pill's buttons hear no hover of their own (X62), their tooltips follow the pointer's place in the box
+  (`pointermove`), close on a press and end at their buttons near the canvas's right edge; a player gesture keeps one
+  serial, so the canvas moves the frame of the gesture's start by the pan's total (MiniPlayerShell); the header's Toggle
+  right panel drops its hover on press (`chat.contract`); a draft's sidebar row reads its chips by their labels
+  (`sidebar-view.ts`, `replaceContextReferences`). Float reading "Close floating preview" after the panel is reopened,
+  and the unfocused editor of a Draw after an Erase, are the reference's own states (checked over CDP) and stay.
 
 Decisions at `prepare` (2026-10-09):
 - **Frame source: `takeSnapshot` polling**, not ScreenCaptureKit. Measured in this worktree: pipelined snapshots reach
@@ -123,10 +132,14 @@ closed port 16749. The project opens as a new thread's draft (`t3 app <project> 
 (`drive7.sh <run> <app worktree> [before]`); record of drives 7–9 (every op's answer, each tree's facts, the host's
 `t3.browser:` lines, the artifacts): [drive record](https://raw.githubusercontent.com/ccheever/exact2/daaecd1208063683ae151eb3cbe77da98f002ad2/browser-surface-capture/h63bdd73b4-drive-record-7-9.txt).
 
-**The final head.** Code head **`a63794adb`**; the commit after it changes only this record. The review of 2026-10-10
-(findings 1–6, below) was fixed in `adc7f4806` and `a63794adb`, with the base merged at `2a6395e93` (#373, #374). Drive 10
-ran a bundle built from `a63794adb` and the reference drive took the same steps (rows "Review of 2026-10-10"). Drives 7–9
-ran earlier code (`8038df70e`, `81ceb373c`, `63bdd73b4`); their rows stand for what this round did not change.
+**The final head.** Code head **`b691e6388`**: the realinput-1010c fixes (`85ea13fbe`), the base merged at `871f4ffe1`
+(#384, main `bc357d03c`; part 3's icon buttons say `title=""`, LLP 1115's AppKit help tags), and `b691e6388` (main's
+`now()` is `performanceNow()` in the player's gesture serial; `usage-pooled.test.ts` lists the handle as a pointer taker);
+the commit after it changes only this record. The fix round's drives (agent mode, window images, the same steps): before-a
+and before-b drove the bundle realinput-1010c drove (`a63794adb`, kept and run with `EXACT_MAC_BIN`), after1 and after2
+this round's builds before the #384 merge; the reference took the same steps over CDP (rows "realinput-1010c"). The
+review of 2026-10-10 (findings 1–6) was fixed in `adc7f4806` and `a63794adb`, with drive 10 beside its reference drive;
+drives 7–9 ran earlier code (`8038df70e`, `81ceb373c`, `63bdd73b4`); their rows stand for what later rounds did not change.
 
 **Window images.** Drives 7–9 take `screenshot <png> window`: the app renders its own window into the image, so it shows
 the window's real content while the screen is locked (the plain form, which the earlier drives used, is blank then). The
@@ -135,6 +148,14 @@ ring, drags, the clipboard, Finder, the save panel); those stay open acceptance 
 
 | Criterion | Action | Expected | Result |
 | --- | --- | --- | --- |
+| **realinput-1010c, row 1**: a real Escape while annotating closed the right panel and floated the page; the pick ended by the panel closing, no chip | Annotate preview; Escape in the page | The page's overlay cancels the pick and the panel stays (the reference's pick focuses the page; PickPreload's Escape) | **pass in agent mode at `85ea13fbe`'s code** (after1): while annotating the tree's `panel-toggle-right` declares no key shortcut (before: `Escape`); after the key: `annotate cancelled in the page`, `right-panel` and "Annotate preview" in the tree, no player; before: `annotate cancel` (the panel's), the page floated. Reference: the panel stays, "Annotate preview" ([image](https://raw.githubusercontent.com/ccheever/exact2/feedab8ed6e4686cb27af670a0bcc9ea77182976/browser-surface-capture/c1010-escape.png), [drive record](https://raw.githubusercontent.com/ccheever/exact2/13ee8fd60b1ae23b319a2a9aa7bc1077719a68ef/browser-surface-capture/c1010-drive-record.txt), [reference record](https://raw.githubusercontent.com/ccheever/exact2/35da06e55fde2da70209cdc040ac501955341676/browser-surface-capture/c1010-reference-record.txt)). Bun: "Escape while the shown tab annotates is the page's". By real keys: step 2 below |
+| **realinput-1010c, row 1 (state)**: after that, reopening the panel left Float reading "Close floating preview" while the page sat in the panel | Toggle right panel on a Browser tab (closePreviewPanel floats it), then Toggle right panel again | The reference's state | **no change: the reference does the same**: its tree reads `button "Close floating preview" [pressed]` with the page in the panel (PreviewView `pictureInPicture = miniPlayerTabId === tabId`; ChatView `toggleRightPanel` opens the panel with `toggleVisibility`, which keeps the store's player), and its first click closes the hidden player ([reference record](https://raw.githubusercontent.com/ccheever/exact2/35da06e55fde2da70209cdc040ac501955341676/browser-surface-capture/c1010-reference-record.txt)). With row 1 fixed, Escape no longer leads there. Asked in the PR ("Decision needed") |
+| **realinput-1010c, row 2**: the pill showed only on the 12-pt dot and hid on its buttons | Float; the pointer on the handle dot, then on Pop into separate window, then off the player | The pill stays while the pointer is on it (the reference's `group-hover`), with the button's tooltip | **pass in agent mode at the final code** (after2): on Pop into separate window the pill stays and "Pop into separate window" shows, ending at the button inside the window; before: the pill hid. Reference: the pill stays with that tooltip ([image](https://raw.githubusercontent.com/ccheever/exact2/36ee4d966ef4b014737fee0970f46b1e28b3dfd5/browser-surface-capture/c1010-pill.png)). Bun: "the handle's hover box covers the pill while it shows…". A real pointer: step 3 |
+| **realinput-1010c, row 3**: the handle drag did not track the pointer ((-200, -100) moved (-100, -188); a later drag sent it back; a small drag did nothing) | Drag the handle (-200, -100) in four moves, the clock moving between them as a person's does | MiniPlayerShell: the frame at the gesture's start plus the pointer's total | **pass** (after2): (1028, 495) → (928, 395), moved (-100, -100) (x stops at the readable chat lane); before: (928, 307), (-100, -188). Reference from the same place: (-100, -100) ([image](https://raw.githubusercontent.com/ccheever/exact2/73dcbaf2be0209751500c6699fed678d45290788/browser-surface-capture/c1010-drag-resize.png), frames in the [drive record](https://raw.githubusercontent.com/ccheever/exact2/13ee8fd60b1ae23b319a2a9aa7bc1077719a68ef/browser-surface-capture/c1010-drive-record.txt)). Bun: "one gesture keeps one serial" and "a resize's pans under one serial land where one pan of their total does" (both fail before). A real pointer: step 3 |
+| **realinput-1010c, row 4**: the resize kept the aspect ratio but overshot (an 80-pt NW drag took 240 × 333 to 416 × 577) | The north-west grip (-80, -80) in four moves | resizePreviewMiniPlayer's corner projection | **pass** (after2): 240 × 333 → **305 × 423**, the bottom-right corner held; before: → 403 × 559. Reference: 240 × 333 → 305 × 423 ([image](https://raw.githubusercontent.com/ccheever/exact2/73dcbaf2be0209751500c6699fed678d45290788/browser-surface-capture/c1010-drag-resize.png), [reference record](https://raw.githubusercontent.com/ccheever/exact2/35da06e55fde2da70209cdc040ac501955341676/browser-surface-capture/c1010-reference-record.txt)) |
+| **realinput-1010c, row 5**: after Erase, the next Draw's editor appears without focus | Annotate; Draw; a stroke; Erase on it; Draw; a stroke | The reference's state | **no change: the reference does the same**: over CDP its overlay's `activeElement` is the comment after the first stroke, none (the page's body) after the erase and after the second stroke, and a key then goes to the page; PickPreload's `updateStatus` focuses the comment only the first time it shows (`editorWasShown`), as the port does ([image](https://raw.githubusercontent.com/ccheever/exact2/64fcd7cd2e7e727caba48cbfbc602e12e2ff98c8/browser-surface-capture/c1010-erase-draw-reference.png), [reference record](https://raw.githubusercontent.com/ccheever/exact2/35da06e55fde2da70209cdc040ac501955341676/browser-surface-capture/c1010-reference-record.txt)). Step 2 now clicks the comment before typing |
+| **realinput-1010c, row 6**: the "Toggle right panel (⌥⌘B)" and "Pop into separate window" tooltips stayed after the pointer left | Hover and press the header's Toggle right panel, the pointer elsewhere, Float; the pill's buttons | No tooltip without the pointer on its trigger (Base UI closes one on press and on leave) | **pass** (after2): no header tooltip after Float; before: "Toggle right panel (⌥⌘B)" at the header in every later image (it left the header under the pointer as the panel opened, so no leave came). Reference: none ([image](https://raw.githubusercontent.com/ccheever/exact2/b10b88a71c69341428b785bb6a17c3519a6841d4/browser-surface-capture/c1010-header-tooltip.png)). The pill's tooltips follow the pointer's place in the hover box and close on a press. Bun: "the header's Toggle right panel drops its hover on press" |
+| **realinput-1010c, row 7**: a draft's sidebar row showed `[101](t3-context://v1/preview-annotation/…)` | A chip "101" in a new thread's draft; open another thread | SidebarDraftRow: `replaceComposerContextReferences(prompt, label)` | **pass** (after1): the row reads "101" and the tree has no `t3-context` text (before: 2 nodes, the row shows the link). Reference: the row reads its chips' labels ("Tighten the button spacing Sen…") ([image](https://raw.githubusercontent.com/ccheever/exact2/c0bb33cf941c7d56ab7b817097cb3848239b599c/browser-surface-capture/c1010-sidebar-draft.png)). Bun (`sidebar.test.ts`): "a draft row reads its context chips by their labels" |
 | **Review of 2026-10-10, finding 1**: the ⌘Return send waited for a Browser tab and fired later | Annotate; Float preview (or close the panel); pick in the floating page; ⌘Return | The reference's PreviewView unmounts with the panel and cancels the pick (`cancelPickElement`), and a pick that settled with ⌘Return sends at once (onSendAnnotation) | **pass at `a63794adb`**. Drive 10: after Annotate the tree has "Cancel annotation"; after Float it has `browser-mini-player`, no `right-panel`, and the host logs `annotate cancel` and `annotate applied 3 cancelled`; the floating page has no overlay. The reference does the same: no overlay in the floating page, and a click and ⌘Return there add nothing ([image](https://raw.githubusercontent.com/ccheever/exact2/66535614bf573ec4e293d8de3d0f58094cf279e4/browser-surface-capture/r1010-annotate-then-float.png), [record](https://raw.githubusercontent.com/ccheever/exact2/3e4e26606df956e7ed18615f2748655bcadc043e/browser-surface-capture/r1010-drive-record.txt)). The send serial is the panel's (`shell.panel.annotationSend`), not the Browser tab view's, and the task no longer waits on `commandPending`. Bun: "Float or a closed panel ends the tab's pick, once" and "a pick that settled with ⌘↩ as the panel hid still sends at once" (the first fails without `cancelHiddenPicks`) |
 | **Review of 2026-10-10, finding 2**: onSend's guard for a direct annotation | A second Annotate; a pick; ⌘Return with no provider (both lanes, equal states) | The info toast "Annotation attached to draft", "Sending is unavailable right now. Finish the current action, then send."; the annotation stays in the draft; a pending question is never answered by it | **pass at `a63794adb`**. Drive 10: `annotate applied 2 chip+image send`, then state shows the toast and its description, `canSend` false, `commandPending` false, and `composerText` holds both chips. Reference: the same toast, both chips in the composer ([image](https://raw.githubusercontent.com/ccheever/exact2/9f9b99e71a622b93ba509968c4e12a2766700298/browser-surface-capture/r1010-command-return.png)). Bun: the held toast spends the mark; a pending question's send toasts and commits nothing; an unavailable provider toasts instead of the send error (both fail without the guard); the window's action is checked line by line |
 | **Review of 2026-10-10, finding 3**: a person's screenshot was scaled to 1,280 px | Maximize panel; Capture | The page's own pixels (Manager.ts captureScreenshot saves capturePage's size) | **pass at `a63794adb`**. Drive 10 saved 2046 × 1496; the reference saved 2046 × 1496 in the same state ([image](https://raw.githubusercontent.com/ccheever/exact2/016cf72fd69335856b6d259cde711a0f862ad864/browser-surface-capture/r1010-maximized-capture.png)). AppKit: the screenshot row checks the window's backing scale, and a 2,000-px image keeps its width (the scaled code gave 1,280). The `EXACT2-GAPS.md` "Screenshots" entry is removed |
@@ -154,8 +175,8 @@ ring, drags, the clipboard, Finder, the save panel); those stay open acceptance 
 | Downloads | A page's download links | To the artifact directory (agent run); a save panel (a person) | AppKit: `browser-download-<id>-<name>` in the directory, content intact; a redirected download ends its load. Live (drive 4): the fixture's attachment and `<a download>` links saved `browser-download-…-0-report.bin` and `browser-download-…-1-export.csv` in the lane's artifact directory. A person's save panel: open row below |
 | States | Each surface | Focus ring on every chrome button; Escape cancels one thing; no pulse with reduced motion | The dot's pulse and the player's dot are `none` under reduced motion (Contract `still`); the buttons are `button`s with AppKit's ring; a failed page's Annotate tip live (drive 4, closed port 16749: "Page didn’t load — pick unavailable until the page renders"). Real focus, Escape and reduced motion: open row below |
 | Standard gates | Clone checks, caps, the five checks | Green | pass at `48bce98c6`: see "Checks" |
-| **Open: Annotate's real drags and Escape** | Real-input step 2 | A real marquee over empty space gives a region; Draw makes a stroke; Erase removes it; a real Escape cancels | **not passed** (real input; AppKit rows only) |
-| **Open: the player by a real pointer** | Real-input step 3 | The pill stays shown from the handle onto it, no flicker; drag and resize; a thread switch | **not passed** (real input) |
+| **Open: Annotate's real drags and Escape** | Real-input step 2 | A real marquee over empty space gives a region; Draw makes a stroke; Erase removes it; a real Escape cancels in the page and keeps the panel | realinput-1010c: Region and Draw passed, Escape failed (row 1 above, fixed); **re-check by real keys** |
+| **Open: the player by a real pointer** | Real-input step 3 | The pill stays shown from the handle onto it, no flicker; drag and resize follow the pointer; no tooltip stays | realinput-1010c failed the pill, the drag, the resize and two tooltips (rows 2–4 and 6 above, fixed); **re-check by a real pointer** |
 | **Open: clipboard, Reveal and the save panel** | Real-input steps 4 and 5 | Copy image and Copy path reach the person's clipboard (restored after); Reveal in Finder opens Finder at the file; a person's download asks with a save panel | **not passed** (real input; agent runs write a private pasteboard, record Reveal and save downloads without asking) |
 | **Open: focus and reduced motion** | Real-input step 6 | Tab and Shift-Tab reach Annotate, Capture and Float preview with the focus ring; no pulse with reduced motion | **not passed** (real input) |
 | **Open: a person's ⌘Return and chip** | Real-input step 1 | The chip as seen at the caret; a real ⌘Return in the editor sends in the foreground | **not passed by real keys** (agent mode passed at `63bdd73b4`) |
@@ -202,7 +223,7 @@ rows), `previewMiniPlayerStore.test.ts` 6 (re-ported with browser sources), `bro
 PreviewView.test.tsx's annotation rows followed; three new at `81ceb373c`: the draft's foreground send, "auto" on a
 running thread, the mark's 10 s; nine new in the review round of 2026-10-10: the hidden tab's pick ends, the panel's send
 serial, the window's task and guard, the held toast, a pending question, an unavailable provider, Float's `rightPanelAt`
-rule, `toastAct`'s keep rule, the artifact error toasts), part 5's `browser-automation.test.ts` Auto-show row. AppKit `macos/tests/browser-capture`
+rule, `toastAct`'s keep rule, the artifact error toasts; five new in the realinput-1010c round: the panel toggle's Escape rule while annotating, the pill's hover box, one serial per gesture, a resize's pans under one serial (305 × 423 from 240 × 333), the header toggle's press), `sidebar.test.ts` +1 (a draft row's chip labels), part 5's `browser-automation.test.ts` Auto-show row (read through part 4's `resolveBrowserOpenDefaults` since the merge of #354). AppKit `macos/tests/browser-capture`
 34: recordingCompositor.test.ts 7 (8 methods, the it.each's two rows), Manager.test.ts `fitPictureInPictureContentSize` 2
 and `recordingFileExtension` 1; clone: Annotate 9, recording 8, capture 6 (the screenshot row checks the page's own pixels
 since the review of 2026-10-10). `macos/tests/browser` 29 (part 1 and part 2's
@@ -210,7 +231,16 @@ rows; two part 1 rows expect downloads). Substitutions are in each file's header
 
 ## Checks
 
-At code head `a63794adb` (the record commit after it changes only this file), once: `bun test examples/t3-code --timeout
+At code head `b691e6388` (the record commit after it changes only this file), once: `bun test examples/t3-code --timeout
+60000` **4,354 pass, 1 skip, 0 fail** (exit 0; an earlier run on `871f4ffe1` failed one row, `usage-pooled.test.ts`'s
+pointer-taker list, and `contract build` refused part 3's one `now()` call after main's rename; `b691e6388` fixes both); strict `tsc` (README command) exit 0;
+`contract build` of `app.contract` exit 0 (**1,341 lines**; this round adds none, the base merges +26); `git add -A && bun
+scripts/caps.mjs` "All budgets within cap"; the five checks: `cargo build --all-targets --keep-going` 0, `cargo test --lib
+--bins --tests --no-fail-fast` 0, `cargo clippy --all-targets --keep-going -- -D warnings` 0, `cargo fmt --all -- --check`
+0, caps 0, `bun scripts/boot.mjs` 0. No Rust or Swift changed this round, so `cargo test -p t3-code-macos --lib` and the
+AppKit binaries were not rerun (their last results, at `a63794adb`, follow).
+
+Previous round: At code head `a63794adb` (the record commit after it changes only this file), once: `bun test examples/t3-code --timeout
 60000` **4,087 pass, 1 skip, 0 fail** (exit 0); strict `tsc` (README command) exit 0; `contract build` of `app.contract` exit
 0 (**1,315 lines**: 1,292 before this round, +4 for the guard, the rest the base's #373 and #374); `cargo test -p
 t3-code-macos --lib` 13 pass; AppKit (README recipe): `browser-capture` 34, `browser` 29 and part 5's `browser-automation`
@@ -250,6 +280,17 @@ reference drive took the same steps with no provider on either side; every image
 `app.contract`: 1,230 → 1,237 lines (the annotation send task and its state, the canvas re-ask key, the toast keep rule),
 then 1,292 after the base merges (+1 here: Float clears the panel).
 
+2026-10-10, fix round of realinput-1010c (the coordinator's real-input session, row A: seven findings). Merged the base
+first (`800c24a8b`, `b5dceb1c8`: part 4 #354, #371 #375 #376 #378 #379 #382 #383; conflicts kept both sides: part 4's
+profiles and defaults beside part 3's capture view, the More menu's keyed rows with part 3's window row, the planner's
+Auto-show read through part 4's defaults). Checked each finding against the reference over CDP: rows 1, 2, 3, 4, 6 and 7
+differ and are fixed in `85ea13fbe`; Float's label after a reopened panel and the unfocused editor after Erase are the
+reference's own states (no change). Drives before-a/before-b (the realinput bundle) and after1/after2 (this round)
+reproduced and then cleared rows 1–4, 6 and 7 in agent mode; after2 stopped on the driver's clock ("the clock cannot go
+backwards", 48028.0 → 48027.99999999999) after rows 2–4 and 6, so rows 1 and 7 are after1's (its build differs only in
+the pill's tooltip alignment). Merged the base again (`871f4ffe1`, #384): part 3's icon buttons say `title=""`.
+`app.contract`: 1,315 → 1,341 lines from the base merges (this round adds none there).
+
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
@@ -266,11 +307,17 @@ then 1,292 after the base merges (+1 here: Float clears the panel).
 | Drive 9 (agent mode) | the second base merge (`63bdd73b4`), bundle rebuilt: the final code but for `48bce98c6`'s one Contract line | Every op answered (83 lines, exit 0): the three final rows, part 2 beside part 3, screenshot, recording, every window image in the PR | same record; images in "Acceptance" | none; the open rows are real input |
 | Reference drive (CDP) | T3 Code 0.0.45 (`1e2ecbd975`), `A/ref-app.sh browser-surface-capture 16730`, `ref-drive.mjs` over the renderer and the preview's webview | Capture, record, stop; Annotate, a pick, Return; Float and the pill; a second Annotate with ⌘Return ("Annotation attached to draft"); Annotate then Float (the pick ends); the maximized capture (2046 × 1496) | [record](https://raw.githubusercontent.com/ccheever/exact2/3e4e26606df956e7ed18615f2748655bcadc043e/browser-surface-capture/r1010-drive-record.txt), [driver](https://raw.githubusercontent.com/ccheever/exact2/ab9330c0f876b34621ca5151a7c76e8bbabdceb6/browser-surface-capture/r1010-ref-drive.mjs.txt) | none |
 | Drive 10 (agent mode) | the review fixes (`a63794adb`), bundle rebuilt; no provider in the lane (both CLIs pinned to a missing path, as the reference lane) | Every op answered (86 lines, agent exit 0): the same steps as the reference drive; findings 1–3 pass live | [record](https://raw.githubusercontent.com/ccheever/exact2/3e4e26606df956e7ed18615f2748655bcadc043e/browser-surface-capture/r1010-drive-record.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/55125a5a1ac1ff094ce9902416d8228784c20e19/browser-surface-capture/r1010-drive10.sh.txt), [compose](https://raw.githubusercontent.com/ccheever/exact2/69702e6b82070de05ad75701f761242a4afc223a/browser-surface-capture/r1010-compose.py.txt) | none; the open rows are real input |
+| Reference drive, realinput-1010c (CDP) | T3 Code 0.0.45, `A/ref-app.sh browser-surface-capture 16700`, the audit lane's data | Escape in the page keeps the panel; Float's label after a reopen; the pill on its buttons; drag (-200, -100) → (-100, -100); NW grip → 305 × 423; Erase then Draw unfocused; no stuck tooltip; the draft row's labels | [record](https://raw.githubusercontent.com/ccheever/exact2/35da06e55fde2da70209cdc040ac501955341676/browser-surface-capture/c1010-reference-record.txt), [driver](https://raw.githubusercontent.com/ccheever/exact2/b74ca0e0f97fa1c9c228ad34dc9049e581023338/browser-surface-capture/c1010-ref-drive.mjs.txt) | none |
+| before-a, before-b (agent mode) | the bundle realinput-1010c drove (`a63794adb`), `EXACT_MAC_BIN` | Every op answered (83 and 36 lines): rows 1–4, 6, 7 reproduced (the panel floats on Escape, the pill hides, (-100, -188), 403 × 559, the stuck header tooltip, the link text in the draft row) | [record](https://raw.githubusercontent.com/ccheever/exact2/13ee8fd60b1ae23b319a2a9aa7bc1077719a68ef/browser-surface-capture/c1010-drive-record.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/9114163e1f7a2f69c6b99db90106c19cb47cd121/browser-surface-capture/c1010-drive.sh.txt) | — |
+| after1 (agent mode) | `85ea13fbe` without the pill tooltip alignment, bundle rebuilt | Every op answered (81 lines): rows 1–4, 7 pass; row 6's header tooltip showed because the agent's pointer still rested on the toggle (the drive then moves it first) | same record | the drive's step, fixed |
+| after2 (agent mode, the retry) | the final code before the #384 merge, bundle rebuilt | Ops 1–67 of 83: rows 2, 3, 4, 6 pass; stopped at op 68 on the driver's clock (a rounding error); rows 1 and 7 stand on after1 | same record, [compose](https://raw.githubusercontent.com/ccheever/exact2/8304a391aaeae7a5bae2d687142496e50fd3271b/browser-surface-capture/c1010-compose.py.txt) | none for this task |
 
 ## Real-input batch steps
 
 For the coordinator's batch, on #349's final head. They need an unlocked screen and a normal launch; everything else
-already passed in agent mode (drive 9). Conventions: "page (x, y)" is a point in the Browser tab's page, i.e. the page's
+already passed in agent mode (drive 9, and this round's after1/after2). Rewritten after realinput-1010c (row A) for every
+row it failed: step 0 adds the header tooltip's setup, step 2 the page's Escape and the unfocused editor, step 3 the
+pill, the drag, the resize and the tooltips, step 7 the draft's sidebar row. Conventions: "page (x, y)" is a point in the Browser tab's page, i.e. the page's
 web area frame (`orca computer get-app-state --app com.exact.t3code.macos.lanecapture --json`) origin plus (x, y); the
 fixture's `#save` button spans page x 48–228, y 200–240. Pointer by `orca computer click` / `drag` on the copy only (or
 `cliclick m:x,y` to rest it); text by `orca computer type-text` with **digits only** (the Mac may be on Korean 2-Set; never
@@ -284,7 +331,8 @@ switch it, never paste); a read-back must answer before the next action. Logs: `
    it copies the bundle as "T3 Code (Lane Capture)" (`com.exact.t3code.macos.lanecapture`), starts the fixture on 16721
    and the app on 16720 with the lane's isolated home, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_*` and `PATH`, and opens the
    `work` project as a new thread's draft. Read back: the window's title row "work / New thread". Close the "Update
-   Available: Codex …" toast with its × (it covers the page's top right). Click "Toggle right panel", then "Browser"
+   Available: Codex …" toast (and "Nightly needs the beta mobile app", if shown) with its × (it covers the page's top
+   right). Rest the pointer on the chat header's "Toggle right panel" until its tooltip shows (row 6's setup), click it, then "Browser"
    under "Open a surface"; click the "Search or enter URL" field, type-text `127.0.0.1:16721`, press Return. Read back:
    `fixture.log` has `GET /` and the page shows "Capture fixture".
 1. Chip and ⌘Return by real keys. Click "Annotate preview" (read back: `annotate start`; the button reads "Cancel
@@ -295,24 +343,44 @@ switch it, never paste); a read-back must answer before the next action. Logs: `
    picked send …`, `annotate applied 2 chip+image send`; the title row names the new thread, its user message shows the
    chips "101" and "102", the composer is empty and the button reads "Annotate preview" again (the turn ends "Not logged
    in": the lane's Claude CLI has no account).
-2. Annotate's real drags and Escape (same thread, the Browser tab still open). Click "Annotate preview", click the
+2. Annotate's real drags, Erase and Escape (same thread, the Browser tab still open). Click "Annotate preview", click the
    overlay toolbar's "Region" (at the page's top, y 10–52), drag page (60, 340) → (320, 430) (empty space), type-text `201`,
    Return. Read back: `annotate picked attach: elements 0, regions 1, strokes 0`. Click "Annotate preview", "Draw", drag
-   page (80, 470) → (300, 530) (the editor shows), then "Erase", click page (190, 500) (the stroke's middle: the stroke and
-   the editor go), "Draw", drag page (80, 560) → (300, 600), type-text `202` in the editor, Return. Read back: `elements 0,
+   page (80, 470) → (300, 530): the editor shows with its caret in the comment. "Erase", click page (190, 500) (the
+   stroke's middle: the stroke and the editor go). "Draw", drag page (80, 560) → (300, 600): the editor shows **without**
+   the focus, as the reference's does (PickPreload focuses the comment only the first time it shows; realinput-1010c
+   row 5, checked over CDP), so click the comment field first, then type-text `202`, Return. Read back: `elements 0,
    regions 0, strokes 1`.
-   Click "Annotate preview", then press Escape. Read back: `annotate cancelled in the page`; the button reads "Annotate
-   preview"; no chip was added.
-3. The floating player by a real pointer. Click "Float preview over chat". Read back: no "Right panel" region in the AX
-   tree; the player shows the fixture page at the chat's bottom right. Rest the pointer on the player's top edge (the
-   handle), then move it in 10-pt steps onto the pill at the player's top right; take three window images 300 ms apart
-   with the pointer resting on the pill: the pill (Open in right panel, Pop into separate window, Close) shows in all
-   three. Click "Pop preview into separate window": a "Preview · Capture fixture" window opens (`pip open`); click it
-   again ("Close popped-out preview"; `pip close`). Drag the handle 200 pt left and 100 pt up: the player moves and stays
-   there. Drag its north-west grip 80 pt outward: it grows and keeps the page's aspect ratio. Click "New thread" in the
-   sidebar's `work` row: the player is gone; click the step 1 thread: the player is back where it was left. Click "Open
-   preview in right panel": the panel opens on the Browser tab and the player closes. Click "Toggle right panel" with the
-   Browser tab shown: the player floats it again. Click the pill's "Close": the player closes.
+   Escape (realinput-1010c row 1, fixed): click "Annotate preview" (read back: it reads "Cancel annotation"), then press
+   Escape (`orca computer key escape`). Read back: `t3.browser: annotate cancelled in the page` (not `annotate cancel`)
+   and `annotate applied N cancelled`; the AX tree still has the "Right panel" region and the Browser tab's page, no
+   "Floating browser preview" region; the button reads "Annotate preview"; no chip was added.
+3. The floating player by a real pointer (realinput-1010c rows 2, 3, 4, 6, fixed). Geometry, from the player's AX frame
+   (region "Floating browser preview"; at 1280 × 840 it opens at window (1028, 495), 240 × 333): the handle dot is 14 pt in
+   from its right and top edges; the pill's buttons are 24 pt from its top, Close floating preview 23 pt, Pop into
+   separate window 49 pt and Open in right panel 75 pt in from its right edge.
+   a. Move the pointer onto "Float preview over chat" and click it. Read back: no "Right panel" region; the player at the
+      chat's bottom right; **no "Toggle right panel (⌥⌘B)" tooltip** anywhere (step 0 left the header's toggle hovered
+      when it pressed it; window image).
+   b. Rest the pointer on the handle dot: the pill shows (window image). Move it left in 4-pt steps along y = top + 24 to
+      Pop into separate window, resting 1 s: the pill stays in three window images 300 ms apart, and "Pop into separate
+      window" shows above the button, inside the window (it ends at the button's right edge near the window's edge).
+      Move the pointer off the player (onto the chat): the pill and the tooltip go (window image).
+   c. Click "Pop preview into separate window": a "Preview · Capture fixture" window opens (`pip open`); move off and
+      back, click it again ("Close popped-out preview"; `pip close`); move off the player: no tooltip stays.
+   d. Drag from the handle dot by (-200, -100) in one drag (`orca computer drag`): the player's top-left goes to (928, 395)
+      (moved (-100, -100): x stops at the readable chat lane, as the reference's does; the realinput bundle gave
+      (-100, -188)). Drag the dot by (+60, +40): top-left (988, 435). Drag it by (+10, +6): top-left (998, 441). It never
+      jumps back to the corner.
+   e. Press 6 pt outside the player's top-left corner (the north-west grip; the corner itself may meet the west edge's
+      grip) and drag (-80, -80): the size goes from 240 × 333 to **305 × 423** (the reference's corner projection), the
+      bottom-right corner held unless the layout lifts it above the composer (the realinput bundle gave 416 × 577).
+   f. Click "New thread" in the sidebar's `work` row: the player is gone; click the step 1 thread: it is back where it
+      was left. Click "Open preview in right panel": the panel opens on the Browser tab and the player closes. Click
+      "Toggle right panel" with the Browser tab shown: the player floats it again. Then click "Toggle right panel" once
+      more: the panel opens on the tab and Float reads "Close floating preview" while the page sits in the panel, as the
+      reference's does (realinput-1010c row 1's state, checked over CDP; its first click closes the hidden player).
+      Click the pill's "Close": the player closes.
 4. Clipboard and Finder. Save the person's clipboard first (`osascript -e 'clipboard info'` names its types; keep its text
    with `pbpaste`). Open the right panel on the Browser tab, click "Capture screenshot". Read back: `screenshot
    browser-screenshot-127-0-0-1-….png`, the "Screenshot saved" toast. Click "Copy path": it reads "Copied!" for 2 s;
@@ -330,12 +398,18 @@ switch it, never paste); a read-back must answer before the next action. Logs: `
    'prefer {"prefers-reduced-motion":"reduce"}' "tap browser-capture modifiers Shift" "clock +500 real"
    "screenshot <dir>/dot.png over 1200 every 100 window" "tap browser-capture"`: the recording dot is the same in every
    frame (no pulse); without the `prefer` it pulses.
+7. A draft's sidebar row (realinput-1010c row 7, fixed). With chips left in the `work` new thread's draft (step 2's
+   `201`, `202`), click the "Timeline verification" thread in the sidebar. Read back: the `work` draft row's second
+   line reads the chips' labels (e.g. `201 202`), never `[…](t3-context://…)`; the reference's row reads its chips'
+   labels ("Tighten the button spacing Sen…").
 
 After: `osascript -e 'quit app id "com.exact.t3code.macos.lanecapture"'` (an Apple Event quit stops its server), kill the
 fixture pid in `<run>/pids.txt`, `defaults delete com.exact.t3code.macos.lanecapture`, remove `lane/apps/`, release the lock.
 
 ## Next action
 
-PR [#349](https://github.com/ccheever/exact2/pull/349) stays a **draft**. The review of 2026-10-10 (findings 1–6) is fixed
-at code head `a63794adb` and driven against the reference (drive 10). Left: the real-input batch above (steps 1–6), then
-the coordinator's review and the ready flip.
+PR [#349](https://github.com/ccheever/exact2/pull/349) stays a **draft**. The realinput-1010c findings are fixed at code
+head `b691e6388` (rows 1–4, 6, 7) or kept as the reference's own behavior (rows 1b and 5, "Decision needed" in the PR).
+Left: the real-input batch above (steps 1–7, rewritten for every row realinput-1010c failed), then the coordinator's
+review and the ready flip. Follow-up outside this task: the floating device player (`r6-device.contract`) has the same
+per-pan serial and the same sibling handle and pill hover boxes (not changed here).
