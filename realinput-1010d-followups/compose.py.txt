@@ -1,0 +1,53 @@
+# realinput-1010d-followups: before | after | reference, one image per scenario (not committed).
+from PIL import Image, ImageDraw, ImageFont
+S = '/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/realinput-1010d-followups'
+B, A, R, OUT = f'{S}/runs/before2/shots', f'{S}/runs/after1/shots', f'{S}/ref', f'{S}/evidence'
+BAR, GAP, HEAD = 46, 12, 52
+def font(size):
+    for path in ('/System/Library/Fonts/SFNS.ttf', '/System/Library/Fonts/Helvetica.ttc'):
+        try: return ImageFont.truetype(path, size)
+        except Exception: pass
+    return ImageFont.load_default()
+def cell(image, label, w, h):
+    out = Image.new('RGB', (w, h + BAR), '#f4f4f5')
+    d = ImageDraw.Draw(out); d.rectangle([0, 0, w - 1, BAR - 1], fill='#18181b'); d.text((12, 11), label, fill='white', font=font(20))
+    image = image.convert('RGB'); image.thumbnail((w, h), Image.LANCZOS)
+    out.paste(image, (0, BAR)); return out
+def grid(name, title, cells, w, h):
+    out = Image.new('RGB', (len(cells) * w + (len(cells) - 1) * GAP, HEAD + h + BAR), 'white')
+    ImageDraw.Draw(out).text((12, 12), title, fill='#18181b', font=font(26))
+    for i, (image, label) in enumerate(cells): out.paste(cell(image, label, w, h), (i * (w + GAP), HEAD))
+    out.save(f'{OUT}/{name}', optimize=True); print(name, out.size)
+crop = lambda path, box: Image.open(path).crop(box)
+# RD-5
+box = (0, 150, 900, 800)
+grid('rd5-snooze-menu.png', 'RD-5: the snooze menu of a thread row (before | after | reference)', [
+    (crop(f'{B}/rd5-snooze.png', box), 'Before: 10.8rem wide, "Mon 9:00 AM" past the edge'),
+    (crop(f'{A}/rd5-snooze.png', box), 'After: sized to its rows, the time inside'),
+    (crop(f'{R}/snooze.png', (0, 150, 900, 800)), 'Reference: 192 px, sized to its rows')], 900, 650)
+# RD-2
+full = (0, 0, 2560, 1680)
+grid('rd2-refloat.png', 'RD-2: floated, moved (-300, -200), NW grip (-80, -80), then Toggle right panel twice (before | after | reference)', [
+    (crop(f'{B}/rd2-04-refloat.png', full), 'Before: back at (863, 204), 305 x 423'),
+    (crop(f'{A}/rd2-04-refloat.png', full), 'After (no change): (863, 204), 305 x 423'),
+    (crop(f'{R}/f5-resized-refloat.png', full), 'Reference: (863, 204), 305 x 423')], 960, 630)
+# RD-1
+grid('rd1-pill-agent.png', 'RD-1: the pill on the dot and a pill button\'s tooltip, agent pointer (before | after | reference)', [
+    (crop(f'{B}/rd1-pill.png', (1900, 850, 2560, 1400)), 'Before: the pill on the dot (agent hover)'),
+    (crop(f'{A}/rd1-tooltip.png', (1900, 150, 2560, 700)), 'After: pill, Pop into separate window tooltip'),
+    (crop(f'{R}/rd1-tooltip.png', (1900, 850, 2560, 1400)), 'Reference: pill and its tooltip')], 660, 550)
+# RD-4: no native menu in an agent screenshot; the before is the real-input session's own image, the after the drive's
+# selection and the menu the window answered with (its log line), the reference DesktopWindow.ts's template.
+def textcard(lines, w, h, size=26):
+    im = Image.new('RGB', (w, h), 'white'); d = ImageDraw.Draw(im); y = 24
+    for line in lines:
+        d.text((24, y), line, fill='#18181b', font=font(size)); y += int(size * 1.6)
+    return im
+sel = crop(f'{A}/rd4-selected.png', (500, 100, 2000, 400))
+after = Image.new('RGB', (1500, 760), 'white'); after.paste(sel, (0, 0))
+after.paste(textcard(['Agent drive: double-click "status", then right-click it.', 'App log: t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All', '', 'AppKit (contextmenu binary, TextContextMenuTests): 3 pass', '  Copy runs the text node\'s copy:, Select All its selectAll:'], 1500, 440, 30), (0, 320))
+ref = textcard(['DesktopWindow.ts installContextMenu (1e2ecbd975):', '  { role: "cut",       enabled: params.editFlags.canCut }', '  { role: "copy",      enabled: params.editFlags.canCopy }', '  { role: "paste",     enabled: params.editFlags.canPaste }', '  { role: "selectAll", enabled: params.editFlags.canSelectAll }', '', 'Read-only text with a selection:', '  Cut (disabled), Copy, Paste (disabled), Select All'], 1500, 760, 30)
+grid('rd4-text-menu.png', 'RD-4: right-click on selected read-only text (before | after | reference)', [
+    (Image.open(f'{S}/ev/D2-384-help-tags-menus-context.png').crop((0, 4500, 1410, 5674)), 'Before (real input, 1010d): Look Up, Copy, Speech, Services'),
+    (after, 'After: the shell\'s four roles (agent log; no menu is drawn under the agent)'),
+    (ref, 'Reference: the desktop shell\'s template')], 1000, 640)
