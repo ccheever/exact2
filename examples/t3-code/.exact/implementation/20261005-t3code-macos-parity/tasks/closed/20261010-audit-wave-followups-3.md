@@ -16,7 +16,7 @@ verified_commit: 1b848a8bed96b0abc5c1c2001541ac363fbd8e64
 ## Outcome
 
 PRs #371 and #375 reported four more differences from the reference, outside their findings. This task fixes them as
-the reference does. ([First set](closed/20261010-audit-wave-followups.md), [second set](20261010-audit-wave-followups-2.md).)
+the reference does. ([First set](20261010-audit-wave-followups.md), [second set](20261010-audit-wave-followups-2.md).)
 
 ## Findings
 

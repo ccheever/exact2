@@ -25,7 +25,7 @@ Browser's defaults group (coordinator scope addition, 2026-10-09, confirmed by t
 to part 4): the default viewport, zoom and appearance a new tab opens with, the recording frame rate and key/mouse
 presses (part 3's client settings), Auto-show floating preview, beside part 5's "Open links in".
 
-Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 4). It starts
+Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 4). It starts
 after part 1 merges into `feat(example)/t3-code`.
 
 ## Scope and exclusions
@@ -61,7 +61,7 @@ Excluded: parts 2, 3 and 5 (part 4 wires its defaults into their open paths: par
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md); engine decisions and declared differences: the parent record and
+Parent specification: [spec](../../spec.md); engine decisions and declared differences: the parent record and
 `EXACT2-GAPS.md` "Browser surface: declared differences (X1 path B)". Reference: T3 Code `1e2ecbd975`
 (`packages/contracts/src/{browserProfile,browserImport}.ts`, `apps/desktop/src/preview/BrowserSession.ts`,
 `apps/desktop/src/preview/BrowserImport/*`, `apps/web/src/browser/browserDefaults.ts`). Part 1's seams:
@@ -71,7 +71,7 @@ Parent specification: [spec](../spec.md); engine decisions and declared differen
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
+| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
 | framework issue | [X66](../../issues/closed/20261008-x66-popover-from-action-and-toggle.md) | #319 | nonblocking: the profile submenu opens from its chevron, not on hover, until a popover can open from an action | — |
 | task PR, reverted and re-landed | `20261005-browser-surface-navigation` (part 2) | [#348](https://github.com/ccheever/exact2/pull/348), reverted by #351, re-landed as [#352](https://github.com/ccheever/exact2/pull/352) | Part 2 re-lands on `feat(example)/t3-code`; this branch then merges the base again | re-landed as `ab220bfdb` (2026-10-10); merged here at `e075de6e6` |
 | task PR | `20261009-fix-settings-integrations-loop` | [#353](https://github.com/ccheever/exact2/pull/353) | Settings › Integrations reads the subscribed config; part 4's Browser rows keep that | merged as `950e8e2e5`; merged here at `e075de6e6`, both sides kept |

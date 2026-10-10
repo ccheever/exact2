@@ -23,7 +23,7 @@ The window shell behaves as the reference in six places:
 - A project path in a palette row starts at its start and ends in an ellipsis.
 - Custom snooze picks its date from a date button with a calendar popover.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

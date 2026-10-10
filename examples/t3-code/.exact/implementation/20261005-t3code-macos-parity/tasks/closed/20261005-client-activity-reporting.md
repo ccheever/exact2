@@ -214,16 +214,16 @@ acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.lo
 
 **Result: blocked.** Native7, workspace6 and80s cadence pass. Live proxy confirms accepted reports,25s cadence, stable identity and focus/input/scope transitions. Provider refresh effects, two-server live lifecycle, root retry and reference comparison remain unverified.
 
-See [live attempt](../../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
+See live attempt, capture report, and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
 
 
 ## Repair-session verification, 2026-10-06
 
 No activity production change was needed. **Verification remains blocked**, with the following formerly missing functional checks now established:
 
-- [Real server effects and reference payload semantics](../../evidence/20261005-client-activity-reporting/20261006-server-effects-and-reference/attempt.md): production reporter/transport/fleet against two isolated reference servers. Provider timestamps remain stable without reporting, advance during actual native foreground demand, and remain stable after48s hidden. B off/on/reconnect and diagnostics scope retain/release pass. The executed reference payload function matches native lease fields; this is not an Electron capture.
-- [Final actual root-clock retry](../../evidence/20261005-client-activity-reporting/20261006-final-root-deadline/attempt.md): completion21000 sets deadline31000; +9000 produces no refresh, +10000 adds exactly one and sets41000. Current activity source comparison passes. The initially overshooting helper was corrected after preserving its failed assumption; app behavior was already correct.
-- [Final main-app silent failure](../../evidence/20261005-client-activity-reporting/20261006-final-silent-failure/attempt.md): named app61311 connected before recorded backend6207 stopped; after27s real waiting, disconnected with zero new toasts or activity-report refusal logs. Before-to-after elapsed71,746ms. App/backend/proxy and component servers were stopped by their owners.
+- Real server effects and reference payload semantics: production reporter/transport/fleet against two isolated reference servers. Provider timestamps remain stable without reporting, advance during actual native foreground demand, and remain stable after48s hidden. B off/on/reconnect and diagnostics scope retain/release pass. The executed reference payload function matches native lease fields; this is not an Electron capture.
+- Final actual root-clock retry: completion21000 sets deadline31000; +9000 produces no refresh, +10000 adds exactly one and sets41000. Current activity source comparison passes. The initially overshooting helper was corrected after preserving its failed assumption; app behavior was already correct.
+- Final main-app silent failure: named app61311 connected before recorded backend6207 stopped; after27s real waiting, disconnected with zero new toasts or activity-report refusal logs. Before-to-after elapsed71,746ms. App/backend/proxy and component servers were stopped by their owners.
 
 Each final capture has passing scoped runner assertions and a validated evidence manifest. These reports establish their stated checks, not whole-task acceptance. Earlier captures remain historical; the final root-clock capture supersedes the stale full-file fingerprint from the first pass. Current source, test/build gates and review are coordinated in [repair review](../../reviews/20261006-repair-verification.md).
 

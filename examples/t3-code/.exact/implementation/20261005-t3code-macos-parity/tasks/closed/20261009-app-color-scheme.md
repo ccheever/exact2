@@ -20,7 +20,7 @@ it. Today many surfaces pick their palette from `viewport.prefersColorScheme`, w
 appearance, beneath the app's own. When the two differ, those surfaces draw the other palette. The audit found three
 symptoms of this one root cause, in three areas.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

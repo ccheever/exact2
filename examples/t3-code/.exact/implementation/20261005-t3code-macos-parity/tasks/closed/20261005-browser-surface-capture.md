@@ -2,13 +2,13 @@
 name: 20261005-browser-surface-capture
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: partial
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-surface-capture
 pr_url: https://github.com/ccheever/exact2/pull/349
-verified_commit: null
+verified_commit: 70e2ddd4b6232d3a96d5134298a4a6376d3d7580
 ---
 
 # Browser surface part 3: Annotate, screenshots, recording and picture in picture
@@ -16,12 +16,12 @@ verified_commit: null
 ## Outcome
 
 The Browser tab's Annotate, Capture screenshot (Shift-click records) and Float preview over chat buttons, drawn disabled
-and marked "part 3" by [part 1](closed/20261005-browser-surface.md), work as in the reference: annotation with select,
+and marked "part 3" by [part 1](20261005-browser-surface.md), work as in the reference: annotation with select,
 marquee, draw and erase tools whose payload lands in the composer; screenshots and recordings saved as artifacts with
 their toasts; the separate preview window and the floating mini player's browser source. The More menu's Open/Close
 separate preview window row works; downloads that a page starts go to the artifact directory.
 
-Split from [20261005-browser-surface](closed/20261005-browser-surface.md) at its `prepare` (planned split, part 3).
+Split from [20261005-browser-surface](20261005-browser-surface.md) at its `prepare` (planned split, part 3).
 
 Built (2026-10-09), on part 1's seams (X1 path B, the `WKWebView` in the clone's module):
 - **Chrome row** (`browser-capture.contract` `BrowserCaptureButtons`): Annotate ("Annotate preview" / "Cancel
@@ -122,10 +122,10 @@ Reference T3 Code `1e2ecbd975`: `apps/desktop/src/preview/{PickPreload,PickedEle
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-browser-surface](closed/20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
-| framework issue | [X8](../issues/closed/20261005-x08-agent-pointer-native-views.md) | #107 (fixed) | Pointer input into the page for annotate drags; real drags stay attended | agent clicks reach the page (drive 2: `tap browser-page clicks 1 at …` selected `#save`); real drags are in the real-input batch |
-| merged task PR | [20261005-browser-surface-automation](closed/20261005-browser-surface-automation.md) (part 5) | [#346](https://github.com/ccheever/exact2/pull/346) | Merged into `feat(example)/t3-code` | merged as `5f0ae7dca`; this branch merged it at `a0527085c` |
-| merged task PR | [20261005-browser-surface-navigation](closed/20261005-browser-surface-navigation.md) (part 2) | [#352](https://github.com/ccheever/exact2/pull/352) (re-land of [#348](https://github.com/ccheever/exact2/pull/348), reverted by [#351](https://github.com/ccheever/exact2/pull/351)) | Part 2 back on `feat(example)/t3-code` | merged as `ab220bfdb` (2026-10-10); this branch merged it at `8038df70e` (#352's code superseded the #348 code it carried; part 3 kept), and the base again at `63bdd73b4` (#367–#370, #372) |
+| merged task PR | [20261005-browser-surface](20261005-browser-surface.md) (part 1) | [#337](https://github.com/ccheever/exact2/pull/337) | Merged into `feat(example)/t3-code` | merged as `dce6d78df` (2026-10-09) |
+| framework issue | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | #107 (fixed) | Pointer input into the page for annotate drags; real drags stay attended | agent clicks reach the page (drive 2: `tap browser-page clicks 1 at …` selected `#save`); real drags are in the real-input batch |
+| merged task PR | [20261005-browser-surface-automation](20261005-browser-surface-automation.md) (part 5) | [#346](https://github.com/ccheever/exact2/pull/346) | Merged into `feat(example)/t3-code` | merged as `5f0ae7dca`; this branch merged it at `a0527085c` |
+| merged task PR | [20261005-browser-surface-navigation](20261005-browser-surface-navigation.md) (part 2) | [#352](https://github.com/ccheever/exact2/pull/352) (re-land of [#348](https://github.com/ccheever/exact2/pull/348), reverted by [#351](https://github.com/ccheever/exact2/pull/351)) | Part 2 back on `feat(example)/t3-code` | merged as `ab220bfdb` (2026-10-10); this branch merged it at `8038df70e` (#352's code superseded the #348 code it carried; part 3 kept), and the base again at `63bdd73b4` (#367–#370, #372) |
 | scheduling preference | `20261005-floating-device-player` (player layout) | none | Not a prerequisite | — |
 
 ## Acceptance and reproduction
@@ -453,3 +453,7 @@ the declared difference is gone).
 Left: the real-input batch above (steps 1–7, rewritten for every row realinput-1010c failed), then the coordinator's
 review and the ready flip. Follow-up outside this task: the floating device player (`r6-device.contract`) has the same
 per-pan serial and the same sibling handle and pill hover boxes (not changed here).
+
+## Delivery
+
+Merged on 2026-10-10 as `70e2ddd4b` (#349, squash) after two independent reviews and the realinput-1010c fix round. The real-input rows passed in `realinput-1010d` on the fix round's bundle (code head `b6ca2cbc4`): steps 1, 4 and 5; a real Escape cancels Annotate in the page; the pill holds under hover; a press on a pill button never drags, a press on its padding does; drags follow the pointer's total; the NW resize; thread switch, restore and close; tooltips hide; step 7's labels ([fix round](https://raw.githubusercontent.com/ccheever/exact2/10c4009a2b19eb891713cd0fed56905057929b93/realinput-1010d/D4-349-fix-round.png), [pill](https://raw.githubusercontent.com/ccheever/exact2/4f2df998e1042f628051a603eff6e80fba76b23e/realinput-1010d/D4-349-pill.png), [app log](https://raw.githubusercontent.com/ccheever/exact2/8246315c3bb0972bd8bde40ea194d8992f690408/realinput-1010d/D4-349-app-log-t3browser.txt)). Step 6's focus passed in `realinput-1010c`. Reduced motion was not re-run in 1010d: it passed earlier, and the toolbar dot's code is unchanged. Two new findings moved to [realinput-1010d-followups](../20261010-realinput-1010d-followups.md): RD-1 (the pill does not show when the pointer arrives on the dot and rests, until it moves again) and RD-2 (where Float puts the player after a re-float).

@@ -53,4 +53,4 @@ The host menu bar was fixed (`Mac/DevMenuMac.swift:141-181`) and submenus were o
   - **#226 (`dfcf8e9cf`): Edit ▸ Speech, paste variants after Paste.** `T3Menus.swift` no longer adds its own Speech; `R8KeysMenus.swift` keeps Edit's app commands as hidden key equivalents, so Edit is DesktopApplicationMenu.ts's again.
   - Keyboard-opened row menus filed as [#235](https://github.com/ccheever/exact2/issues/235) (2026-10-07).
 - 2026-10-08: [#292](https://github.com/ccheever/exact2/issues/292) filed (main-queue work stalls while an `NSMenu` tracks).
-- 2026-10-10 ([adopt-main-fixes-r7](../../tasks/20261010-adopt-main-fixes-r7.md), #384): main #314 (`d236c36d5`, #235's ContextMenu key) adopted: a thread row's ContextMenu opens its host context popover at the row's centre; Shift+F10 stays the module's (the reference binds it in its own key handlers).
+- 2026-10-10 ([adopt-main-fixes-r7](../../tasks/closed/20261010-adopt-main-fixes-r7.md), #384): main #314 (`d236c36d5`, #235's ContextMenu key) adopted: a thread row's ContextMenu opens its host context popover at the row's centre; Shift+F10 stays the module's (the reference binds it in its own key handlers).

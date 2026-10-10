@@ -29,7 +29,7 @@ Edit › Undo (`R8KeysMenus.swift`) also sent `undo:` to nil.
 ## Clone workaround
 
 Not blocking: the clone already lays the reference's menu bar over the host's (`R8KeysMenus.swift`) and retargets
-Edit › Undo there; [fix-misc-batch](../../tasks/20261008-fix-misc-batch.md) (#306) makes that item (and Edit › Redo)
+Edit › Undo there; [fix-misc-batch](../../tasks/closed/20261008-fix-misc-batch.md) (#306) makes that item (and Edit › Redo)
 act on the focused text view's own manager, which matches the reference (Electron's `undo`/`redo` roles act on the
 focused editor). Remove that routing when the host undoes its textareas.
 

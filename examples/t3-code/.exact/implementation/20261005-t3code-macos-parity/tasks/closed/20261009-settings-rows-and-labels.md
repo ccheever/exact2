@@ -19,7 +19,7 @@ Eight small Settings differences in text, tooltips and accessible names, and the
 reference. Each is a row, label or
 message; none changes a page's structure.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

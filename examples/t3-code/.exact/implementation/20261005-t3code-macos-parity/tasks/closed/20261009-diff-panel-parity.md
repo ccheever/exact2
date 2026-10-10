@@ -20,7 +20,7 @@ verified_commit: fea18077477000f33e76d12f8ddf1388d9ccd148
 - File headers read additions first.
 - ⌘Enter saves a line comment draft. The closed diff-review-engine task recorded this as working (regression).
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -61,7 +61,7 @@ Clone (`examples/t3-code`): `diff.contract` (header row; scope menu `:211-216`),
 `diff-comments.contract:15-21`. The branch picker of the composer strip (Search refs, Branch/Remote) can be reused for
 PA-6.
 
-Regression: [diff-review-engine](closed/20261005-diff-review-engine.md) lists "type; ⌘↵" in its "Diff line comment"
+Regression: [diff-review-engine](20261005-diff-review-engine.md) lists "type; ⌘↵" in its "Diff line comment"
 acceptance row (line 101) and "⌘↵ sends" in its build notes (line 133).
 
 ## Acceptance

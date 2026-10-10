@@ -20,7 +20,7 @@ verified_commit: 678b6421198662d453c1c7f0fe4d66fcb25e8319
 - A skill chip opens its details popover on a press: in the Appearance prompt preview, and in the composer, where the
   closed skill-chip task found the same gap.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings
@@ -31,7 +31,7 @@ Evidence paths are under the repository root. They stay local and are not commit
 | --- | --- | --- | --- | --- |
 | S1-5 | Duplicate T3 Chat opens "Create theme" with name "T3 Chat copy" and Advanced on (all 20 roles: Foundation, Brand & content, Context, Status, with the source colours). Edit of a saved custom theme opens "Edit theme" with Advanced on. `ThemeEditorPanel.tsx:395-399` opens Advanced for any source theme that is not managed, so guided regeneration cannot discard hand-tuned colours. | Duplicate opens with Advanced off and only Background (#fdf7fd) and Accent (#db2777). Edit of a theme saved with Advanced on also opens in simple mode ("Two colors, rest derived"). `settings-appearance-editor.ts:128` always sets `advanced: false`. | Appearance › Duplicate T3 Chat; save; press Edit on "T3 Chat copy". | `target/t3-audit/evidence/settings-1/S1-5-ref.png`, `S1-5-clone.png`, `S1-5-edit-ref.png`, `S1-5-edit-clone.png` |
 | S1-6 | Dracula results: "dracula-theme · 431.5K downloads", "Dracula-2 · 104K downloads", "bceskavich · 18K downloads", "MateuszDrewniak · 16.9K downloads" (`openVsxThemes.ts:195`: publisher = namespace). | "open-vsx · 431.5K downloads", "TimDeen · 104K downloads", "open-vsx · 18K downloads", "Verseth · 16.9K downloads" (`settings-appearance-import.ts:160` uses `publishedBy.loginName`). | Appearance › Add theme › Popular › Dracula. | `target/t3-audit/evidence/settings-1/S1-6-ref.png`, `S1-6-clone.png`, `S1-6-ref.txt`, `S1-6-clone.txt` |
-| S1-12 | Clicking the "Frontend Design" chip in the Typography sample opens a popover: "Frontend Design" / "No description is available for this skill.". | A press on the chip shows no popover; the tree has no chip control. The closed [skill-chip-provider-name](closed/20261008-skill-chip-provider-name.md) (lines 82-84) found the same for the composer's chips: the reference's chip opens a popover (label, description or "No description is available for this skill.", "View instructions" for a skill with a path) and is named "Skill <label>". | Appearance › Typography › click the "Frontend Design" chip. In the composer, insert a skill chip and press it. | `target/t3-audit/evidence/settings-1/S1-12-ref.png`, `S1-12-clone.png` |
+| S1-12 | Clicking the "Frontend Design" chip in the Typography sample opens a popover: "Frontend Design" / "No description is available for this skill.". | A press on the chip shows no popover; the tree has no chip control. The closed [skill-chip-provider-name](20261008-skill-chip-provider-name.md) (lines 82-84) found the same for the composer's chips: the reference's chip opens a popover (label, description or "No description is available for this skill.", "View instructions" for a skill with a path) and is named "Skill <label>". | Appearance › Typography › click the "Frontend Design" chip. In the composer, insert a skill chip and press it. | `target/t3-audit/evidence/settings-1/S1-12-ref.png`, `S1-12-clone.png` |
 
 ## Scope and exclusions
 
@@ -39,9 +39,9 @@ Included: the three findings above.
 
 Excluded:
 - The theme editor's Inspect (S1-15): waits for main fix of X68 ([#321](https://github.com/ccheever/exact2/issues/321)), plan decision U18.
-- The usage highlight and "N uses" (S1-7): [blocked-theme-usage-highlight](20261009-blocked-theme-usage-highlight.md).
+- The usage highlight and "N uses" (S1-7): [blocked-theme-usage-highlight](../20261009-blocked-theme-usage-highlight.md).
 - The colour picker's placement (S1-10): X17, waits for main fix of #112.
-- The installed font picker (S1-11): [installed-font-picker](20261007-installed-font-picker.md).
+- The installed font picker (S1-11): [installed-font-picker](../20261007-installed-font-picker.md).
 - Atomic chips in plain Contract fields: #276 is closed as not planned; the chips stay the native editor's. This task adds
   a press and a popover to the existing native chips; it does not move them.
 - Framework code.

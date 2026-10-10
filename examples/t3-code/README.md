@@ -75,7 +75,7 @@ every real-input window of rounds 9 to 11. The manual checklist is in `AGENT-HAN
 
 Requires macOS 14 or later, Xcode, the repository's Rust toolchain, Bun version
 from `package.json`, and the native TypeScript Hermes toolchain described in the
-[root setup instructions](../../../README.md#1-install-the-tools). Run from the
+[root setup instructions](../../README.md#1-install-the-tools). Run from the
 Exact repository root:
 
 ```sh

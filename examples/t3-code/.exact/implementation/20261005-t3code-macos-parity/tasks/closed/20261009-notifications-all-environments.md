@@ -19,7 +19,7 @@ A completion, approval, failure, usage limit or input request in any connected e
 reference (the in-app toast with "Open thread", the system notification, the sound). Today only the focused
 environment's threads notify.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)), from source. Reference: T3 Code
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)), from source. Reference: T3 Code
 `1e2ecbd975`. Clone: `c603c22d6`.
 
 ## Findings
