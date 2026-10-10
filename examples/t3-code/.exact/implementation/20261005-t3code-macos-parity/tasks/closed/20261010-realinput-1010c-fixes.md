@@ -269,7 +269,7 @@ Run the real-input batch steps; then the coordinator reviews and merges.
 Merged on 2026-10-10 as `df2cc67e1` (#399, squash) after an independent review and its repair round. The real-input
 batch steps ran in `realinput-1010e` on the bundle of `a1ade42f9` (lane ri1010e-3)
 ([notes](https://raw.githubusercontent.com/ccheever/exact2/a18ab23126a27ce4804478282e641fb8734d3f02/realinput-1010e/E4-399-notes.txt)).
-New rows went to [realinput-1010e-followups](../20261010-realinput-1010e-followups.md).
+New rows went to [realinput-1010e-followups](20261010-realinput-1010e-followups.md).
 
 - RC-2 passed in dark and light: the painted label equals the accessible name after every Shift+click
   ([dark](https://raw.githubusercontent.com/ccheever/exact2/f42813d709681e41d5d88f4bfa2198acbfcf3bd3/realinput-1010e/E4-RC2-dark-shift-clicks.png)).
