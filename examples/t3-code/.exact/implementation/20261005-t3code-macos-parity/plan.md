@@ -247,9 +247,15 @@ user's decision once Charlie's acceptance list passed). Records are in `tasks/cl
 #374, #375, #354 (Browser part 4), #376, #378, #379, #382 (the flatten), #383, #384 (main adoption round 7, main
 `bc357d03c`, `afe62dfeb`; closed) and #349 (Browser part 3, `70e2ddd4b`). `realinput-1010d` passed #349's rows, #383's
 and #384's steps 1-3 and #346's ⌘-click, and closed #296 U6 (real input cannot time its race); #308's gutter drag waits
-for a retry (the lane's Code tab answered 503). Open fix tasks: [realinput-1010c-fixes](tasks/20261010-realinput-1010c-fixes.md)
-(draft #399), [realinput-1010c-native](tasks/20261010-realinput-1010c-native.md) (draft #398) and
-[realinput-1010d-followups](tasks/20261010-realinput-1010d-followups.md) (RD-1 to RD-5, planned).
+for a retry (the lane's Code tab answered 503). Then merged: [realinput-1010c-native](tasks/closed/20261010-realinput-1010c-native.md)
+(#398, `9cb5d3315`) and [realinput-1010c-fixes](tasks/closed/20261010-realinput-1010c-fixes.md) (#399, `df2cc67e1`),
+both closed, and [adopt-main-fixes-r8](tasks/closed/20261010-adopt-main-fixes-r8.md) (#402, main adoption round 8),
+merged by fast-forward, so main `d413487a8` is now an ancestor of the T3 branch. `realinput-1010e` (the bundle of
+`a1ade42f9`) passed #398's RC-1 step 1 and #399's RC-2, RC-3, RC-4 (b)–(d), RC-6 and RC-8.
+What did not pass (RC-1 steps 2 and 3, RC-4 (a)'s caret, RC-5, #308's 503 again) and one new finding are RE-1 to RE-6.
+Open tasks: [realinput-1010d-followups](tasks/20261010-realinput-1010d-followups.md) (draft #400),
+[right-panel-escape](tasks/20261010-right-panel-escape.md) (draft #403), [settings-headings](tasks/20261010-settings-headings.md)
+(planned) and [realinput-1010e-followups](tasks/20261010-realinput-1010e-followups.md) (RE-1 to RE-6, planned).
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with

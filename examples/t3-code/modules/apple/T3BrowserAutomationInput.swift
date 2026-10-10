@@ -85,7 +85,11 @@ enum T3BrowserAgentCursor {
         guard let root = web.layer else { return }
         let cursor = root.sublayers?.first(where: { $0.name == key }) ?? make(in: root)
         let scale = web.pageZoom * web.magnification
-        let position = CGPoint(x: x * scale, y: root.isGeometryFlipped ? y * scale : web.bounds.height - y * scale)
+        // The page's point in the view's own coordinates, then in its layer's. The layer's axes follow every flipped
+        // ancestor (the stage's host is flipped, `T3BrowserView.Host`), which its own `isGeometryFlipped` does not say:
+        // reading that alone put the cursor at the page's height minus the target's y (realinput-1010d RD-3).
+        let position = web.convertToLayer(NSPoint(x: x * scale, y: web.isFlipped ? y * scale : web.bounds.height - y * scale))
+        orient(cursor, down: layerPointsDown(web))
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.15)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
@@ -105,25 +109,43 @@ enum T3BrowserAgentCursor {
         cursor.setValue(sequence, forKey: "sequence")
     }
 
+    /// Whether the web view's layer draws its y axis downward on screen: a step down in the view (its y grows when it is
+    /// flipped) against the same step in its layer.
+    static func layerPointsDown(_ web: NSView) -> Bool {
+        let top = web.convertToLayer(NSPoint.zero), below = web.convertToLayer(NSPoint(x: 0, y: web.isFlipped ? 1 : -1))
+        return below.y > top.y
+    }
+
+    /// The tip at the cursor's top left, the arrow drawn y-down, in the page layer's current orientation (the page moves
+    /// between the panel, the floating player and an off-screen host).
+    private static func orient(_ cursor: CALayer, down: Bool) {
+        if cursor.value(forKey: "down") as? Bool == down { return }
+        cursor.setValue(down, forKey: "down")
+        cursor.anchorPoint = CGPoint(x: 0.1, y: down ? 0.1 : 0.9)
+        guard let arrow = cursor.sublayers?.first(where: { $0.name == "arrow" }) as? CAShapeLayer else { return }
+        let path = CGMutablePath()
+        let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: x, y: down ? y : 20 - y) } // drawn y-down, the tip at the top left
+        cursor.sublayers?.first(where: { $0.name == "ping" })?.position = point(2, 2)
+        path.move(to: point(2, 2)); path.addLine(to: point(8.5, 18)); path.addLine(to: point(10.8, 10.8)); path.addLine(to: point(18, 8.5)); path.closeSubpath()
+        arrow.path = path
+    }
+
     private static func make(in root: CALayer) -> CALayer {
         let cursor = CALayer()
         cursor.name = key
         cursor.bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
-        cursor.anchorPoint = CGPoint(x: 0.1, y: root.isGeometryFlipped ? 0.1 : 0.9)
         cursor.zPosition = 1_000
         let ping = CALayer()
         ping.name = "ping"
-        ping.frame = CGRect(x: -6, y: -6, width: 16, height: 16)
+        ping.bounds = CGRect(x: 0, y: 0, width: 16, height: 16)
         ping.cornerRadius = 8
         ping.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
         ping.opacity = 0
         cursor.addSublayer(ping)
-        // lucide mouse-pointer-2: an arrow filled with the page's background, stroked in the accent colour.
+        // lucide mouse-pointer-2: an arrow filled with the page's background, stroked in the accent colour (its path and
+        // the ping's place are `orient`'s).
         let arrow = CAShapeLayer()
-        let path = CGMutablePath(), down = root.isGeometryFlipped
-        let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: x, y: down ? y : 20 - y) } // drawn y-down, the tip at the top left
-        path.move(to: point(2, 2)); path.addLine(to: point(8.5, 18)); path.addLine(to: point(10.8, 10.8)); path.addLine(to: point(18, 8.5)); path.closeSubpath()
-        arrow.path = path
+        arrow.name = "arrow"
         arrow.fillColor = NSColor.windowBackgroundColor.cgColor
         arrow.strokeColor = NSColor.controlAccentColor.cgColor
         arrow.lineWidth = 1.6
