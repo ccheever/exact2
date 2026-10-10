@@ -187,6 +187,13 @@ activity 10 tests, 0 failures; caps; the five checks (cargo build, cargo test 36
 caps, boot). The bundle was built for the live drive at `2c23c369b`; what changed after it is the merge, test expectations
 and records.
 
+Review round, checks on `d2adc7783` (the fix `06113041e`, merged with `feat(example)/t3-code` `eb54e4e6a`, and its records;
+all exit 0): `bun test examples/t3-code --timeout 60000` 4436 pass / 1 skip / 0 fail (302 files); strict tsc; `contract
+build` of `app.contract` (1397 lines; the plan 28,624,818 bytes, +24.5 KB); caps; the five checks (cargo build, cargo test
+3679 pass / 0 fail / 34 ignored, clippy, fmt, caps, boot). No Rust or Swift changed in this round, so `cargo test -p
+t3-code-macos --lib` and the AppKit binaries were not run again. The bundle for the live drive was built from `0ac7ab269`
+(the same code; records only after it).
+
 ## Attempts and evidence
 
 | Attempt | Revision | Outcome | Evidence |
