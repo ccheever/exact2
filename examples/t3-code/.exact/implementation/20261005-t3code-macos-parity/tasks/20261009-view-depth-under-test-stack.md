@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-view-depth-under-test-stack
-pr_url: PR_URL_PLACEHOLDER
+pr_url: https://github.com/ccheever/exact2/pull/382
 verified_commit: null
 ---
 
@@ -124,4 +124,4 @@ changed `.contract` files (`browser-surface`, `r4-surfaces`, `settings-a-about`,
 
 ## Next action
 
-The coordinator reviews the draft PR, merges it, then starts [adopt-main-fixes-r7](20261010-adopt-main-fixes-r7.md).
+The coordinator reviews the draft PR [#382](https://github.com/ccheever/exact2/pull/382), merges it, then starts [adopt-main-fixes-r7](20261010-adopt-main-fixes-r7.md).
