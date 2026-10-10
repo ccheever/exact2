@@ -122,34 +122,61 @@ pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
 }
 
 impl<D: DataSource> Runner<D> {
-    /// Whether resource `i`'s call arguments read, directly or through
-    /// derives, a resource still showing its fallback before its source is
-    /// ready: its identity is not yet known, so its kept answer must wait.
-    /// An account resource with no kept answer of its own shows its
-    /// placeholder (`did: ""`), and that empty id would match whatever
-    /// another account's launch kept (LLP 1027.005 D3, 2026-10-10).
+    /// Whether resource `i`'s identifying call arguments (not its `with`
+    /// context) read, directly or through derives, a store-reading resource
+    /// still on its fallback, its compiled answer or placeholder, before its
+    /// source is ready: its identity is not yet known, so its kept answer
+    /// must wait. An account resource with no kept answer of its own shows
+    /// its placeholder (`did: ""`), and that empty id would match whatever
+    /// another launch kept (LLP 1027.005 D3, 2026-10-10). Kept seeds,
+    /// carried and checkpoint answers and non-store values are known.
     pub(super) fn identity_unknown(&self, i: usize, states: &[Option<ResourceState>]) -> bool {
         use crate::instance::Input;
         let deps = self.sites.deps();
+        let row = &self.plan.resources[i];
+        let identity = row.args.len as usize - usize::from(row.context);
+        let mut work: Vec<_> = row
+            .args
+            .iter()
+            .take(identity)
+            .map(|a| deps.reads_of(&self.plan, self.plan.arg(a).expr))
+            .collect();
         let mut derives = vec![false; self.plan.derives.len()];
-        let mut work = vec![&deps.resource_args[i]];
         while let Some(reads) = work.pop() {
-            for input in deps.inputs(reads) {
+            for input in deps.inputs(&reads) {
                 match input {
-                    Input::Resource(r)
-                        if self.stale[r] && !states[r].as_ref().is_some_and(|s| s.kept_seed) =>
+                    Input::Resource(r) | Input::PendingResource(r) | Input::FailedResource(r)
+                        if self.store_readers[r]
+                            && states[r]
+                                .as_ref()
+                                .is_some_and(|s| s.placeholder || s.value.is_compiled()) =>
                     {
                         return true;
                     }
                     Input::Derive(d) if !derives[d] => {
                         derives[d] = true;
-                        work.push(&deps.derives[d]);
+                        work.push(deps.derives[d].clone());
                     }
                     _ => {}
                 }
             }
         }
         false
+    }
+
+    /// Journal each kept answer the first frame shows, with the arguments it
+    /// was kept for (development tools read the journal; its request lines
+    /// already carry URLs), so a stale answer is traceable to its key.
+    pub(super) fn journal_kept_seeds(&mut self) {
+        for i in 0..self.plan.resources.len() {
+            if let Some(state) = self.resources[i].as_ref().filter(|s| s.kept_seed) {
+                let mut args = String::new();
+                crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
+                let line =
+                    super::lines::kept_shown(self.plan.str(self.plan.resources[i].name), &args);
+                self.log(line);
+            }
+        }
     }
 
     /// Keep a store-reading resource's fresh answer for the next boot's

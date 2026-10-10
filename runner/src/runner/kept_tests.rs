@@ -1,5 +1,8 @@
 //! Persisted-answer identity and request context (LLP 1027.005 D3–D6).
 use super::*;
+
+#[path = "kept_identity_tests.rs"]
+mod identity;
 use crate::{Answer, Outcome, Request, Store};
 use exact_kernel::{Kernel, NodeType};
 use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, Plan, TypeKind, Value};

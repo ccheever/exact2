@@ -57,8 +57,6 @@ mod gates;
 mod into_view;
 mod kept;
 #[cfg(test)]
-mod kept_identity_tests;
-#[cfg(test)]
 mod kept_tests;
 mod lines;
 mod lists;
@@ -997,17 +995,7 @@ impl<D: DataSource> Runner<D> {
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
-        // What the first frame shows from the last session, and for which
-        // arguments (development tools read the journal; its request lines
-        // already carry URLs): a stale answer is then traceable to its key.
-        for i in 0..runner.plan.resources.len() {
-            if let Some(state) = runner.resources[i].as_ref().filter(|s| s.kept_seed) {
-                let mut args = String::new();
-                crate::agent::untyped_json(&Value::list(state.args.clone()), &mut args);
-                let line = lines::kept_shown(runner.plan.str(runner.plan.resources[i].name), &args);
-                runner.log(line);
-            }
-        }
+        runner.journal_kept_seeds();
         runner.init_late_slots(carried)?;
         let now = runner.now_ms;
         // A gated task starts idle; the gate step arms the ones whose gate

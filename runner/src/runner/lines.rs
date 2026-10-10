@@ -59,9 +59,13 @@ pub(super) fn revalidated(resource: &str, same: bool) -> String {
 }
 
 /// A kept answer the first frame shows, with its identifying arguments
-/// (at most 200 characters of them).
+/// (the first 200 characters, and `…` when there were more).
 pub(super) fn kept_shown(resource: &str, args: &str) -> String {
-    let args: String = args.chars().take(200).collect();
+    let mut shown: String = args.chars().take(200).collect();
+    if shown.len() < args.len() {
+        shown.push('…');
+    }
+    let args = shown;
     text!(
         "{} shows its kept answer from the last session, kept for {}",
         resource,

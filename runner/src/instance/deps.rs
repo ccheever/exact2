@@ -274,6 +274,11 @@ impl Deps {
     }
 
     /// The inputs `reads` names, in bit order.
+    /// What one code body reads, as the table's rows are scanned.
+    pub(crate) fn reads_of(&self, plan: &Plan, code: Code) -> Reads {
+        scan(plan, self.layout.expect("built from a plan"), code)
+    }
+
     pub(crate) fn inputs<'a>(&self, reads: &'a Reads) -> impl Iterator<Item = Input> + 'a {
         let l = self.layout.expect("built from a plan");
         (0..l.width()).filter(|i| reads.bits.get(*i)).map(move |i| {

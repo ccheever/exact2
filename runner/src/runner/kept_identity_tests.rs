@@ -62,6 +62,12 @@ impl DataSource for Source {
 /// `account(0)` (placeholder "nobody") and `feeds(gen, key)`, the key read
 /// straight from `account` or, with `through_derive`, through a derive.
 fn plan(through_derive: bool) -> Plan {
+    plan_with(through_derive, false, true)
+}
+
+/// As [`plan`]; `key_is_context` makes the key `feeds`' `with` context, and
+/// `account_reads_store` false makes `account` a plain compiled resource.
+fn plan_with(through_derive: bool, key_is_context: bool, account_reads_store: bool) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let string = b.primitive(TypeKind::String);
     let number = b.primitive(TypeKind::Number);
@@ -77,7 +83,7 @@ fn plan(through_derive: bool) -> Plan {
         string,
         Some(&Value::str("nobody")),
     );
-    b.set_resource_reader(account, true);
+    b.set_resource_reader(account, account_reads_store);
     b.set_resource_initial_args(account, &[Value::Number(0.)]);
     let mut g = Asm::new();
     g.load_slot(gen);
@@ -101,6 +107,7 @@ fn plan(through_derive: bool) -> Plan {
         Some(&Value::str("loading")),
     );
     b.set_resource_reader(feeds, true);
+    b.set_resource_context(feeds, u16::from(key_is_context));
     b.set_resource_initial_args(feeds, &[Value::Number(0.), Value::str("nobody")]);
     let mut body = Asm::new();
     body.load_param(0).store_slot(gen);
@@ -111,8 +118,12 @@ fn plan(through_derive: bool) -> Plan {
 }
 
 fn launch(through_derive: bool, snapshot: Vec<(String, String)>) -> Runner<Source> {
+    launch_plan(plan(through_derive), snapshot)
+}
+
+fn launch_plan(plan: Plan, snapshot: Vec<(String, String)>) -> Runner<Source> {
     Runner::boot_stored(
-        plan(through_derive),
+        plan,
         Source::default(),
         Kernel::with_monospace(),
         snapshot,
@@ -203,4 +214,38 @@ fn an_identity_read_from_a_kept_answer_still_admits_its_dependent() {
             .journal()
             .any(|l| l.contains("account shows its kept answer")));
     }
+}
+
+#[test]
+fn a_placeholder_read_only_by_with_context_does_not_refuse_the_identity() {
+    // `feeds(gen) with key`: the identity is `gen`, which is known.
+    let r = launch_plan(
+        plan_with(false, true, true),
+        vec![feeds_kept(&[Value::Number(0.)], "feeds kept for gen 0")],
+    );
+    shows(&r, "account", "nobody");
+    shows(&r, "feeds", "feeds kept for gen 0");
+}
+
+#[test]
+fn a_compiled_value_of_a_resource_that_reads_no_store_is_a_known_identity() {
+    let r = launch_plan(
+        plan_with(false, false, false),
+        vec![feeds_kept(
+            &[Value::Number(0.), Value::str("nobody")],
+            "feeds of nobody",
+        )],
+    );
+    shows(&r, "feeds", "feeds of nobody");
+}
+
+#[test]
+fn a_long_identity_is_journaled_shortened_with_a_mark() {
+    let line = super::lines::kept_shown("feeds", &"x".repeat(300));
+    assert!(
+        line.ends_with(&format!("kept for {}…", "x".repeat(200))),
+        "{line}"
+    );
+    let line = super::lines::kept_shown("feeds", "[0]");
+    assert!(line.ends_with("kept for [0]"), "{line}");
 }
