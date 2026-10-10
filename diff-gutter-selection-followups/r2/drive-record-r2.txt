@@ -1,0 +1,310 @@
+diff-gutter-selection-followups, review round: the agent drives of the clone and what their window screenshots show
+(points; the 2x window screenshots halved). One drive per build, the same 116 ops, 1280x840, both exit 0, no retry.
+
+Builds: before = the feature tip 327336447 (worktree t3-code-diff-gutter-selection-followups-before, its bundle as built
+for the first round). after = this branch's f7ad4e8f3 (bundle rebuilt from it: the code is c160a4d6f's; the merge of
+79cfa3706 and the test change are all that came after). Lanes as in the first round (drive-record.txt): clone server
+16782, fresh storages audit-dgs-before-r2 / audit-dgs-after-r2, Codex and Claude pointed at missing binaries; the GitHub
+lane's primary server on 16783, a fresh single-use pairing link per drive (no GitHub write; the Code tab's draft is
+cancelled). What changed from the first round's steps: the Diff panel's code drag now comes first, with nothing
+selected, as the reference's run (it had cancelled its draft); a second press on number 3 clears the line before the
+gutter drag; split view is driven; the Files tab is closed and opened again in dark; Cmd+C ends the drive.
+
+Where the after build's pixels differ from the before build's (threshold 8 per channel):
+  1-diff-open (stacked, nothing selected)        identical
+  2-diff-code-drag (nothing selected; code 2->4)  x 756.5..764.5 y 166.5..201.5 only: before also paints the numbers 3 and 4
+                                                  inside the code selection; after only the code, as the reference
+  3-diff-number-press (number 3)                  identical: the press ends the code selection and selects line 3
+  4-diff-gutter-held (numbers 2 -> 4)             x 756.5..1236.5 y 146.5..182.0: before paints a text selection over numbers
+  5-diff-gutter-released                          2-3 and their code; after none (the same region after the release)
+  6-split-open (split view, nothing selected)     identical: the additions side's numbers at left="50%" sit where the
+                                                  second cell's own number sat
+  7-split-gutter-held (additions 2 -> 4, held)    x 1026.0..1224.0 y 146.5..222.0 only (the code column): before paints a
+                                                  text selection over "name: verify" / "description: ..."; after none.
+                                                  The numbers and their selected colours at 50% are the same pixels
+  8-files-light, 9-files-dark-live,               x 741.0..1024.0 y 100.0..120.0: before the whole row amber; after the
+  10-files-dark-mounted (line 1)                  number cell and number in blue, the code row untinted
+  11-pr-open (nothing selected)                   identical
+  12-pr-gutter-held (#168 docs/usage.md 2 -> 4)   x 664.5..768.5 y 261.5..297.0: before "## Install" and the numbers as
+                                                  selected text; after none
+  13-pr-code-drag (code 2 -> 4)                   x 664.5..672.5 y 281.5..317.0 only: before also the numbers 3 and 4
+
+Cmd+C after 13-pr-code-drag ("type t3-code key Meta+c", the responder chain's copy), the pasteboard read with pbpaste
+after each drive (empty before each drive, cleared after; \n is a newline):
+  before  "3\n\n## Install\n\n4"   the numbers 3 and 4 lead their lines' code (they were selectable text)
+  after   "2\n\n## Install\n\n3"   the numbers 2 and 3 trail their lines' code (DiffNumber comes after the code)
+  reference (reference-cdp.txt, the same drag)  "\n## Install\n"   the code only
+  -> X81 (EXACT2-GAPS.md; main issues/20261011-macos-list-copy-unselectable-text.md, main PR #418): on macOS a copy
+     across a virtualized list's rows takes the runner's list_text, which counts every text of a row and ignores
+     user-select. Both builds copy numbers; neither copies what the reference does. The paragraph between texts is "\n\n".
+
+Colours sampled in the Files shots (the four most common colours of each box; window points):
+before 8-files-light line1 code ['#fef3c7 x10018', '#0a0a0a x663', '#ebe1b9 x60', '#fdf2c6 x52'] | .agents ['#fcfcfc x1183', '#27272a x85', '#2b2b2e x20', '#38383b x15'] | .claude ['#fcfcfc x1199', '#27272a x108', '#ececec x33', '#b7b7b8 x18']
+before 9-files-dark-live line1 code ['#3b3112 x10093', '#0a0a0a x735', '#392e12 x106', '#3a3013 x94'] | .agents ['#0a0a0a x1216', '#27272a x78', '#262629 x47', '#242427 x44'] | .claude ['#0a0a0a x1120', '#f5f5f5 x185', '#b6b6b6 x28', '#0c0c0c x20']
+before 10-files-dark-mounted line1 code ['#3b3112 x9808', '#fafafa x841', '#f9f9f9 x43', '#827c69 x39'] | .agents ['#0a0a0a x1091', '#f5f5f5 x192', '#0b0b0b x22', '#0c0c0c x18'] | .claude ['#0a0a0a x1120', '#f5f5f5 x185', '#646464 x25', '#323232 x20']
+after 8-files-light line1 code ['#ffffff x10018', '#0a0a0a x663', '#ececec x62', '#fefefe x52'] | .agents ['#fcfcfc x1183', '#27272a x85', '#2b2b2e x20', '#38383b x15'] | .claude ['#fcfcfc x1199', '#27272a x108', '#ececec x33', '#b7b7b8 x18']
+after 9-files-dark-live line1 code ['#111111 x10324', '#0a0a0a x1035', '#101010 x535', '#0b0b0b x409'] | .agents ['#0a0a0a x1216', '#27272a x78', '#262629 x47', '#242427 x44'] | .claude ['#0a0a0a x1120', '#f5f5f5 x185', '#b6b6b6 x28', '#0c0c0c x20']
+after 10-files-dark-mounted line1 code ['#111111 x9808', '#fafafa x841', '#f5f5f5 x56', '#f9f9f9 x51'] | .agents ['#0a0a0a x1091', '#f5f5f5 x192', '#0b0b0b x22', '#0c0c0c x18'] | .claude ['#0a0a0a x1120', '#f5f5f5 x185', '#646464 x25', '#323232 x20']
+  -> after a live `prefer prefers-color-scheme dark` (9), line 1's code keeps #0a0a0a and .agents #27272a, the light
+     halves of their `light-dark(#0a0a0a, #fafafa)` (synInk's default) and `light-dark(#27272a, #f5f5f5)`, while .claude
+     and the number 2 take their dark halves. With the tab closed and opened again in dark (10), line 1 is #fafafa and
+     .agents #f5f5f5. Both builds alike: the clone's values are right and the live switch leaves some texts in their
+     light colour until they mount again (cause not read). Not this task's row; reported in the PR's Observations.
+
+Reference (T3 Code 1e2ecbd975, lane 16780/16781, CDP, 1280x840): the fixture thread's Diff panel, Cargo.lock, the
+"Split diff view" toggle (DiffPanel.tsx), then Playwright's mouse over the additions side's numbers 4727 -> 4730:
+  number cells, split: deletions side x 741 (4725..4730, the context rows), additions side x 1008 (4725..4744), w 57
+  held: document selection type None, text ""; no shadow-root selection; selected numbers 4727 (both sides), 4728-4730
+        (additions side, x 1008)
+  released: an empty caret; the draft cancelled; the layout set back to stacked
+  The empty side of an added run is hatched (diagonal stripes); the clone's is flat light-dark(#e4e4e4, #222222).
+
+=== ops (after; the before drive's are the same with /before/)
+clock +20000 real
+clock +3000 real
+tap thread-verify-timeline
+clock +2500 real
+tap details-changes
+clock +10000 real
+tap "Dismiss notification"
+clock +1500 real
+tap "Expand .agents/skills/verify/SKILL.md"
+clock +4000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/1-diff-open.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/2-diff-code-drag.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/3-diff-number-press.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag to diff-line-.agents/skills/verify/SKILL.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/4-diff-gutter-held.png window"
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/5-diff-gutter-released.png window
+tap diff-split
+clock +2000 real
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/6-split-open.png window
+tap diff-line-.agents/skills/verify/SKILL.md-additions-2 drag to diff-line-.agents/skills/verify/SKILL.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/7-split-gutter-held.png window"
+clock +1500 real
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1000 real
+tap diff-line-.agents/skills/verify/SKILL.md-additions-3
+clock +1000 real
+tap diff-stacked
+clock +2000 real
+tap panel-add-surface
+clock +1500 real
+tap add-surface-files
+clock +4000 real
+tap tree-fixture.txt
+clock +4000 real
+tap file-line-1
+clock +1000 real
+tap file-line-2 modifiers Shift
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/8-files-light.png window
+prefer prefers-color-scheme dark
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/9-files-dark-live.png window
+tap close-tab-file:fixture.txt
+clock +1500 real
+tap panel-add-surface
+clock +1500 real
+tap add-surface-files
+clock +4000 real
+tap tree-fixture.txt
+clock +4000 real
+tap file-line-1
+clock +1000 real
+tap file-line-2 modifiers Shift
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/10-files-dark-mounted.png window
+prefer prefers-color-scheme light
+clock +1000 real
+tap connection-settings
+clock +1500 real
+tap settings-connections
+clock +1500 real
+tap manage-connection
+clock +1000 real
+type server-origin <pairing link>
+clock +500 real
+tap connect
+clock +12000 real
+type t3-code key Escape
+clock +1500 real
+tap open-pull-requests
+clock +6000 real
+type pull-requests-search #168
+clock +6000 real
+tap pr-row-168
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-more
+clock +6000 real
+tap pull-request-code-tree-toggle
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap pull-request-code-fold-docs/usage.md
+clock +4000 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/11-pr-open.png window
+tap diff-line-docs/usage.md-additions-2 drag to diff-line-docs/usage.md-additions-4 mouse over 400 during "clock +1500 real" "screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/12-pr-gutter-held.png window"
+clock +2000 real
+tap pull-request-comment-cancel
+clock +1500 real
+tap pull-request-code-list into file:docs/usage.md block start
+clock +1500 real
+tap diff-line-docs/usage.md-additions-2 drag 140 40 from 70 10 mouse over 400
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups/target/dgs-drive/shots2/after/13-pr-code-drag.png window
+type t3-code key Meta+c
+clock +1000 real
+state
+logs
+
+=== drive2.sh
+#!/bin/zsh
+# The review round's agent drive of the clone for diff-gutter-selection-followups. Usage: drive2.sh before|after
+# before: the feature tip 327336447 built in t3-code-diff-gutter-selection-followups-before; after: this worktree's bundle.
+# Same steps, 1280x840. (1) The fixture thread's Diff panel (Changes), .agents/skills/verify/SKILL.md: a drag in the code
+# from line 2 to line 4 with nothing selected (the reference's run had cancelled its lines first), a press on number 3,
+# a second press (clears it), the numbers 2 to 4 dragged (held, released); then split view: lines cleared, nothing
+# selected, the additions side's numbers 2 to 4 dragged (held). (2) The Files surface: fixture.txt, number 1 pressed and
+# number 2 Shift-pressed, light, then dark (the live switch), then the tab closed and opened again in dark. (3) The
+# GitHub lane's server paired, #168's Code tab, docs/usage.md: numbers 2 to 4 dragged and held (the release opens a
+# draft, then Cancel), a drag in the code from line 2 to line 4, then Cmd+C (the pasteboard is read after the drive).
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups
+S=$W/target/dgs-drive/shots2/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-diff-gutter-selection-followups-before; LANE=diff-gutter-selection-followups-before; export CLONE_STORAGE=audit-dgs-before-r2; else ROOTDIR=$W; LANE=diff-gutter-selection-followups; export CLONE_STORAGE=audit-dgs-after-r2; fi
+G=$W/examples/t3-code/tools/github-lane
+( cd $G && PATH=$HOME/.bun-1.4.2/bin:$PATH T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane bun lane.mjs pair primary >/dev/null )
+PAIR=$(cat $W/target/github-lane/servers/primary/pairing-url); rm -f $W/target/github-lane/servers/primary/pairing-url
+D=.agents/skills/verify/SKILL.md
+F=docs/usage.md
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  # (1) The thread's Diff panel.
+  "tap thread-verify-timeline" "clock +2500 real"
+  "tap details-changes" "clock +10000 real"
+  "tap \"Dismiss notification\"" "clock +1500 real"
+  "tap \"Expand $D\"" "clock +4000 real"
+  "screenshot $S/1-diff-open.png window"
+  "tap diff-line-$D-additions-2 drag 140 40 from 70 10 mouse over 400" "clock +1500 real"
+  "screenshot $S/2-diff-code-drag.png window"
+  "tap diff-line-$D-additions-3" "clock +1500 real"
+  "screenshot $S/3-diff-number-press.png window"
+  "tap diff-line-$D-additions-3" "clock +1500 real"
+  "tap diff-line-$D-additions-2 drag to diff-line-$D-additions-4 mouse over 400 during \"clock +1500 real\" \"screenshot $S/4-diff-gutter-held.png window\""
+  "clock +1500 real"
+  "screenshot $S/5-diff-gutter-released.png window"
+  # Split view.
+  "tap diff-split" "clock +2000 real"
+  "tap diff-line-$D-additions-3" "clock +1500 real"
+  "tap diff-line-$D-additions-3" "clock +1500 real"
+  "screenshot $S/6-split-open.png window"
+  "tap diff-line-$D-additions-2 drag to diff-line-$D-additions-4 mouse over 400 during \"clock +1500 real\" \"screenshot $S/7-split-gutter-held.png window\""
+  "clock +1500 real"
+  "tap diff-line-$D-additions-3" "clock +1000 real"
+  "tap diff-line-$D-additions-3" "clock +1000 real"
+  "tap diff-stacked" "clock +2000 real"
+  # (2) The Files surface.
+  "tap panel-add-surface" "clock +1500 real"
+  "tap add-surface-files" "clock +4000 real"
+  "tap tree-fixture.txt" "clock +4000 real"
+  "tap file-line-1" "clock +1000 real"
+  "tap file-line-2 modifiers Shift" "clock +1500 real"
+  "screenshot $S/8-files-light.png window"
+  "prefer prefers-color-scheme dark" "clock +1500 real"
+  "screenshot $S/9-files-dark-live.png window"
+  "tap close-tab-file:fixture.txt" "clock +1500 real"
+  "tap panel-add-surface" "clock +1500 real"
+  "tap add-surface-files" "clock +4000 real"
+  "tap tree-fixture.txt" "clock +4000 real"
+  "tap file-line-1" "clock +1000 real"
+  "tap file-line-2 modifiers Shift" "clock +1500 real"
+  "screenshot $S/10-files-dark-mounted.png window"
+  "prefer prefers-color-scheme light" "clock +1000 real"
+  # (3) Pair the GitHub lane's server, then #168's Code tab.
+  "tap connection-settings" "clock +1500 real"
+  "tap settings-connections" "clock +1500 real"
+  "tap manage-connection" "clock +1000 real"
+  "type server-origin $PAIR" "clock +500 real"
+  "tap connect" "clock +12000 real"
+  "type t3-code key Escape" "clock +1500 real"
+  "tap open-pull-requests" "clock +6000 real"
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-more" "clock +6000 real"
+  "tap pull-request-code-tree-toggle" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap pull-request-code-fold-$F" "clock +4000 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "screenshot $S/11-pr-open.png window"
+  "tap diff-line-$F-additions-2 drag to diff-line-$F-additions-4 mouse over 400 during \"clock +1500 real\" \"screenshot $S/12-pr-gutter-held.png window\""
+  "clock +2000 real"
+  "tap pull-request-comment-cancel" "clock +1500 real"
+  "tap pull-request-code-list into file:$F block start" "clock +1500 real"
+  "tap diff-line-$F-additions-2 drag 140 40 from 70 10 mouse over 400" "clock +1500 real"
+  "screenshot $S/13-pr-code-drag.png window"
+  "type t3-code key Meta+c" "clock +1000 real"
+  "state"
+  "logs"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 16780 --epoch 2026-10-11T09:00:00Z --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
+
+=== ref-split.mjs
+// diff-gutter-selection-followups review fix: the reference's Diff panel in split view (the open diff), nothing selected,
+// then a drag over the additions side's numbers <fromN> to <toN> (held, then released and the draft cancelled), and what
+// the text selection holds. Usage: node ref-split.mjs <cdpPort> <fromN> <toN> <shotPrefix>
+import { open, log, gutter } from '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/diff-gutter-selection-followups/ref-lib.mjs';
+const [port, fromN, toN, shot] = process.argv.slice(2);
+const page = await open(port);
+const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+const sel = () => page.evaluate(() => {
+  const doc = window.getSelection(), shadow = [];
+  for (const c of document.querySelectorAll('diffs-container')) { const s = c.shadowRoot?.getSelection?.(); if (s && s.rangeCount) shadow.push({ type: s.type, text: s.toString() }); }
+  return { document: { type: doc.type, text: doc.toString() }, shadow };
+});
+await page.getByRole('radio', { name: 'Split diff view' }).or(page.getByRole('button', { name: 'Split diff view' })).first().click();
+await page.waitForTimeout(2500);
+await page.evaluate(() => { window.getSelection().removeAllRanges(); });
+const g = await gutter(page);
+log({ gutter: g.map(e => [e.n, e.type, e.x, e.y, e.w]) });
+await page.screenshot({ path: `${shot}-1-open.png` });
+// The additions side: the rightmost cell of each number.
+const right = (n) => g.filter(e => e.n === n).sort((a, b) => b.x - a.x)[0];
+const from = right(fromN), to = right(toN);
+log({ from, to });
+await page.mouse.move(from.x + from.w - 8, from.y + 10); await page.waitForTimeout(200);
+await page.mouse.down();
+for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x + from.w - 8, from.y + 10 + (to.y - from.y) * i / 8); await page.waitForTimeout(40); }
+await page.waitForTimeout(300);
+log({ step: 'split gutter drag held', ...(await sel()), selected: (await gutter(page)).filter(e => e.selected !== null).map(e => [e.n, e.x]) });
+await page.screenshot({ path: `${shot}-2-gutter-held.png` });
+await page.mouse.up(); await page.waitForTimeout(600);
+log({ step: 'released', ...(await sel()) });
+if (await cancel.count()) { await cancel.first().click(); await page.waitForTimeout(600); }
+process.exit(0);
