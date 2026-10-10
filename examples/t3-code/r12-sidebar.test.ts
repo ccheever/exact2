@@ -64,26 +64,27 @@ describe('a row-action sweep cancelled with Escape (SidebarPointerSensor keydown
 });
 
 describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 reference)', () => {
-  test('ContextMenu opens a thread row menu at its centre and a draft row menu at its bottom left; other keys do nothing', () => {
-    expect(rowKeyMenu('t1', 'ContextMenu')).toEqual({ op: 'menu', id: 't1', value: 'row', anchor: 'center' });
+  test('a draft row\'s ContextMenu and Shift+F10 open its menu at its bottom left; a thread row\'s keys open none here', () => {
     expect(rowKeyMenu('draft:p1', 'ContextMenu')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
-    expect(rowKeyMenu('t1', '')?.anchor).toBe('center');
-    // Shift+F10 opens only a draft row's menu (its own handler); a thread row has none on macOS, and F10 alone is no menu key.
-    for (const key of ['F10', 'Shift+F10', '', 'Enter', ' ', 'a', 'Escape']) expect(rowKeyMenu('t1', key)).toBeNull();
+    // A thread row's ContextMenu is the host's default since exact2 #314 (its context popover at the row's centre, as
+    // Chromium's keyboard contextmenu); Shift+F10 opens nothing on macOS, and F10 alone is no menu key.
+    for (const key of ['ContextMenu', 'F10', 'Shift+F10', '\uf735', '\uf70d', 'Enter', ' ', 'a', 'Escape']) expect(rowKeyMenu('t1', key)).toBeNull();
     expect(rowKeyMenu('draft:p1', 'Shift+F10')).toEqual({ op: 'draft-menu', id: 'p1', value: 'key', anchor: 'bottom-left' });
     for (const key of ['F10', 'Enter', ' ', 'a']) expect(rowKeyMenu('draft:p1', key)).toBeNull();
     expect(rowKeyMenu('draft:', 'ContextMenu')).toBeNull();
     expect(rowKeyMenu('draft:', 'Shift+F10')).toBeNull();
     expect(isMenuKey('ContextMenu')).toBe(true);
+    // The host names the key ContextMenu on every input path (exact2 #314); AppKit's NSMenuFunctionKey name is gone.
+    expect(isMenuKey('\uf735')).toBe(false);
   });
 
-  test('a keyed thread menu asks the native menu for the focused row anchor; a right click does not', async () => {
+  test('a thread row\'s ContextMenu asks the module for no menu (the host\'s context popover opens it); a right click does', async () => {
     const { client, calls, dispatched } = fake([shell('t1')], ['settle']);
     await sidebarCommand(client, native, files, 'row-key', 't1', 'ContextMenu', NOW);
-    expect(calls.filter(call => call.op === 'sidebarMenu').map(call => call.anchor)).toEqual(['center']);
-    expect(dispatched.map(entry => entry.type)).toEqual(['thread.settle']);
+    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]);
+    expect(dispatched).toEqual([]);
     await sidebarCommand(client, native, files, 'menu', 't1', 'row', NOW);
-    expect(calls.filter(call => call.op === 'sidebarMenu').map(call => call.anchor)).toEqual(['center', undefined]);
+    expect(calls.filter(call => call.op === 'sidebarMenu').map(call => call.anchor)).toEqual([undefined]);
     expect(menuAnchor(client)).toEqual({});
   });
 

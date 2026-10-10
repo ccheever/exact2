@@ -265,7 +265,7 @@ component PrdLayoutButton
     press: action
     testId: string
   view
-    button press=press aria-label=label aria-pressed=pressed testId=testId width="2rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press aria-label=label aria-pressed=pressed testId=testId width="2rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       DiffGlyph(name=icon, size=14, color=(pressed ? pcInk() : "light-dark(#71717a, #818181)"))
 
 // A commit in the scope menu: its headline (whole on hover) and the abbreviated oid a reader matches on the host.
@@ -364,7 +364,7 @@ component PrdCodeFileHeader
     row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" gap="0.5rem" hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" border-top-width=1 border-top-style="solid" border-color=pcBorder() testId=`pull-request-code-file-${item.path}`
       when hovering
         box position="absolute" left=0 top=0 bottom=0 width="0.1875rem" background-color="light-dark(#0a0a0a3d, #fafafa3d)"
-      button press=press("fold", item.path) aria-label=(item.expanded ? "Collapse diff" : "Expand diff") aria-expanded=item.expanded testId=`pull-request-code-fold-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=press("fold", item.path) aria-label=(item.expanded ? "Collapse diff" : "Expand diff") aria-expanded=item.expanded testId=`pull-request-code-fold-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         PgIcon(name=(item.expanded ? "chevron-down" : "chevron-right"), size=16, color=pcMuted())
       button press=press("fold", item.path) aria-label=item.path flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem"
         DiffGlyph(name=item.status, size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
@@ -387,7 +387,7 @@ component PrdViewedTick
   derive viewed = mark == "viewed"
   view
     row align-items="center" gap="0.375rem" flex-shrink=0
-      button press=press("viewed", `${path}|${viewed ? "false" : "true"}`) role="checkbox" aria-checked=viewed aria-label=(mark == "changed" ? "Changed" : "Viewed") testId=`pull-request-code-viewed-${path}` width="1rem" height="1rem" padding=0 box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff08)") display="flex" align-items="center" justify-content="center" flex-shrink=0
+      button press=press("viewed", `${path}|${viewed ? "false" : "true"}`) role="checkbox" aria-checked=viewed aria-label=(mark == "changed" ? "Changed" : "Viewed") testId=`pull-request-code-viewed-${path}` width="1rem" height="1rem" padding=0 box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(viewed ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff08)") display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
         when viewed
           PgIcon(name="check", size=12, color="#ffffff")
       when mark == "changed"

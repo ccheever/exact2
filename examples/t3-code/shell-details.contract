@@ -53,7 +53,7 @@ component ThreadDetailsPanel
     still: bool
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=35 testId="thread-details-layer"
-      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000"
+      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
@@ -132,7 +132,7 @@ component DetailsBody
               column flex=1 min-width=0 gap="0.25rem"
                 text "Client and server versions differ" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
                 text `Client ${details.versionClient} · ${details.versionLabel} ${details.versionServer}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="details-version-detail"
-              button press=act("su:dismiss", "", "") aria-label="Dismiss version mismatch warning" testId="details-version-dismiss" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=act("su:dismiss", "", "") aria-label="Dismiss version mismatch warning" testId="details-version-dismiss" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 ShellIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
           when details.envShow
             // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label (lane r4-git).
@@ -171,7 +171,7 @@ component DetailsBody
                   box width="1rem" height="1rem" flex-shrink=0
                 text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
               box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
-              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+              button press=toggleEditors key=editorsKey focus=clearEditorsEnd hover=hover("editor-menu") aria-label="Choose editor" aria-expanded=editorsOpen testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" background-color=(editorsOpen or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                 ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
           // r6-polish: a project with scripts shows its primary script as a split row (r6-polish.contract).
           when details.scriptName != ""
@@ -198,7 +198,7 @@ component DetailsBody
         when scriptsOpen and details.scriptName != ""
           R6ScriptMenu(details=details, top=((76 + (details.envShow ? 32 : 0) + (details.editorShow ? 32 : 0)) * rem / 16), act=act, close=toggleScripts)
         when editorsOpen
-          button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop"
+          button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop" title=""
           column position="absolute" left="0.5rem" right="0.5rem" top=(details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
             when details.editorUnavailable != ""
               DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
@@ -320,7 +320,7 @@ component LineageRow
       when row.mergeTarget
         box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff10)"
         box position="relative" flex-shrink=0 hover=hover(`merge-${row.id}`)
-          button press=act("shell:merge-back", details.mergeSourceId, `${details.mergeTargetId}|${details.mergeRunId}`) disabled=(details.mergeRunId == "") aria-label=details.mergeLabel testId=`details-merge-${row.id}` width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(details.mergeRunId == "" ? 0.64 : 1) background-color=(hovered == `merge-${row.id}` and details.mergeRunId != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=act("shell:merge-back", details.mergeSourceId, `${details.mergeTargetId}|${details.mergeRunId}`) disabled=(details.mergeRunId == "") aria-label=details.mergeLabel testId=`details-merge-${row.id}` width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(details.mergeRunId == "" ? 0.64 : 1) background-color=(hovered == `merge-${row.id}` and details.mergeRunId != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             ShellIcon(name="git-merge", size=12, color="light-dark(#27272acc, #f5f5f5cc)")
           TipBubble(label=details.mergeHint, side="top", align="end", offset=36, inset=0, shown=(hovered == `merge-${row.id}`))
         text row.status flex-shrink=0 padding-left="0.25rem" padding-right="0.6875rem" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"

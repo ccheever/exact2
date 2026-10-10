@@ -245,7 +245,7 @@ component R5Action
     press: action
   view
     box position="relative" flex-shrink=0
-      button press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
+      button press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
         when icon == "copy" or icon == "download" or icon == "check"
           ShellIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
         else

@@ -398,7 +398,7 @@ component TaskCheckbox
   view
     box width="1.11875rem" height="1.421875rem" flex-shrink=0 padding-top="0.33125rem" box-sizing="border-box"
       when block.taskOffset >= 0
-        button press=local("surface-files-task", block.id, `${block.taskOffset}\t${block.task == "done" ? "false" : "true"}`) hover=hover role="checkbox" aria-checked=(block.task == "done") aria-label="Toggle task" testId=`task-${block.id}` width=13 height=13 padding=0 border-width=0 background-color="#00000000" cursor="default"
+        button press=local("surface-files-task", block.id, `${block.taskOffset}\t${block.task == "done" ? "false" : "true"}`) hover=hover role="checkbox" aria-checked=(block.task == "done") aria-label="Toggle task" testId=`task-${block.id}` width=13 height=13 padding=0 border-width=0 background-color="#00000000" cursor="default" title=""
           TaskBox(done=(block.task == "done"), disabled=false, hovered=hovered)
       else
         box role="checkbox" aria-checked=(block.task == "done") aria-label="Task" testId=`task-${block.id}` width=13 height=13
@@ -735,10 +735,10 @@ component CodeBlock
         row gap="0.125rem" align-items="center"
           when canRun
             Tip(label="Run in terminal", side="top", align="center", offset=28)
-              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="square-terminal", size=12, color="light-dark(#27272a, #f5f5f5)")
           Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
-            button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
           Tip(label="Copy code", side="top", align="center", offset=28)
             CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
@@ -790,7 +790,7 @@ component MermaidBlock
             Tip(label="Show diagram", side="top", align="center", offset=28)
               DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
             Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
-              button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="text-wrap", size=12, color="light-dark(#27272a, #f5f5f5)")
             Tip(label="Copy code", side="top", align="center", offset=28)
               CopyCodeButton(block=block, local=local, copied=copied)
@@ -835,7 +835,7 @@ component DiagramToggle
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
 
 // The flattened diagram at its natural size, scaled down to fit (h-auto, max-w-full).
@@ -861,7 +861,7 @@ component CopyCodeButton
   action hover(over: bool)
     hovered = over
   view
-    button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       when copied > 0
         box position="relative" width="0.75rem" height="0.75rem"
           box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
@@ -972,7 +972,7 @@ component TableIconButton
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fafafa, #ffffff08)" : hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fafafa, #ffffff08)" : hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       // ChatMarkdown's table toggle: MorphIcon Maximize2↔Minimize2 (morphicons' morph, shell-morph.contract).
       MorphMaximize(on=(icon == "minimize"), size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=false)
 
@@ -1003,7 +1003,7 @@ component TableCopyButton
       else
         pressFirst()
   view
-    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       when copied > 0
         box position="relative" width="0.75rem" height="0.75rem"
           box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")

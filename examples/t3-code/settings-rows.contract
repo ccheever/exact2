@@ -166,7 +166,7 @@ component CoreSections
               when section.id == "typography"
                 row gap="0.5rem" align-items="center"
                   text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted
-                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced"
+                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced" title=""
                     box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d"
           when not section.collapsible or legacyOpen
             column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
@@ -212,7 +212,7 @@ component CoreRowView
                 CoreIcon(name="info", size=14, color=pal.muted)
             when row.inheritance != ""
               box position="relative"
-                button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}`
+                button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}` title=""
                   // SettingInheritance: LayersIcon size-3, text-primary only when overridden, text-warning when mixed.
                   CoreIcon(name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
                 column id=`inherit-${section}-${row.id}` popover="auto" position="absolute" margin-top="0.25rem" width="19.375rem"
@@ -227,7 +227,7 @@ component CoreRowView
                         when layer.selected
                           CoreIcon(name="check", size=14, color=pal.accent)
             when row.resettable
-              button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}`
+              button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}` title=""
                 CoreIcon(name="undo-2", size=12, color=pal.muted)
           when row.description != ""
             text row.description font-size="0.75rem" line-height="1.125rem" color=pal.description max-width="36rem" testId=`setting-description-${row.id}`
@@ -244,7 +244,7 @@ component CoreRowView
             when row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               when row.value2 == "configure"
-                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure`
+                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title=""
                   CoreIcon(name="settings", size=16, color=pal.text)
             when row.kind == "model"
               // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger (settings-model-picker);
@@ -551,7 +551,7 @@ component PanelPreview
   action replay
     open = not open
   view
-    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width="7rem" height="2.5rem" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview"
+    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width="7rem" height="2.5rem" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview" title=""
       box height="100%" width=(open ? "1rem" : "0px") border-radius="0.375rem" background-color=pal.sidebar flex-shrink=0 transition=`width ${duration}ms ease-out`
       column flex=1 min-width=0 padding-left="0.25rem" padding-right="0.25rem"
         column flex=1 gap="0.25rem" padding-top="0.25rem"

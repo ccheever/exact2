@@ -67,7 +67,7 @@ component BdRow
           text title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
             when reset
-              button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=resetPress aria-label=`Reset ${resetLabel} to default` testId=`reset-browser-default-${rowId}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" flex-wrap="wrap"
@@ -165,7 +165,7 @@ component BdViewportSize
         text "×" font-size="0.75rem" color="light-dark(#71717b, #818181)"
         input value=`${view.viewportHeight}` change=height inputmode="numeric" aria-label="Default viewport height" spellcheck="false" testId="browser-default-viewport-height" width="5rem" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
       box position="relative" flex-shrink=0 hover=hover
-        button press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        button press=pick("viewport-rotate", "") aria-label=view.rotateLabel testId="browser-default-viewport-rotate" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           LucideRotateCcw(size=16, color="light-dark(#71717b, #818181)")
         TipBubble(label="Rotate", side="top", align="center", offset=36, inset=0, shown=over)
 

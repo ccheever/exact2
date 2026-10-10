@@ -144,7 +144,7 @@ component ProjectsPanel
                 text "Project icon" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
                 box width="1.25rem" height="1.25rem"
                   when data.iconCustom
-                    button press=rest("project-icon", "action=reset") disabled=busy aria-label="Reset project icon to default" testId="reset-project-icon" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                    button press=rest("project-icon", "action=reset") disabled=busy aria-label="Reset project icon to default" testId="reset-project-icon" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                       LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
               text data.icon font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId="project-icon-description"
             // ProjectFavicon size-6, then Choose icon (ProjectIconPickerDialog) and Choose file (ProjectFaviconPickerDialog).
@@ -166,7 +166,7 @@ component ProjectsPanel
                   Inheritance(row=data.workspace)
                   box width="1.25rem" height="1.25rem"
                     when data.workspace.reset != ""
-                      button press=rest("scoped", data.workspace.reset) disabled=busy aria-label="Reset default workspace to default" testId="reset-project-workspace" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                      button press=rest("scoped", data.workspace.reset) disabled=busy aria-label="Reset default workspace to default" testId="reset-project-workspace" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                         LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
                 text data.workspace.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
               SettingsSelect(selectId="project-workspace", label="Default workspace", valueLabel=data.workspace.valueLabel, value="", width=160, disabled=(busy or data.workspace.disabled), options=data.workspace.options, choose=restInput("scoped", "key=defaultThreadEnvMode&value="))
@@ -272,7 +272,7 @@ component ProjectActionsSection
               Inheritance(row=data.actionsRow)
               box width="1.25rem" height="1.25rem"
                 when data.actionsRow.reset != ""
-                  button press=raw("sb:action-reset", data.actionScope, "") disabled=(busy or not data.actionsWritable) aria-label="Reset Actions to default" testId="reset-project-actions" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=raw("sb:action-reset", data.actionScope, "") disabled=(busy or not data.actionsWritable) aria-label="Reset Actions to default" testId="reset-project-actions" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                     LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
             text "Commands that run in this project's checkout or its worktree, with optional shortcuts." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
           row flex-shrink=0 gap="0.375rem" align-items="center" flex-wrap="wrap"
@@ -354,7 +354,7 @@ component ProjectActionRow
       row flex-shrink=0 gap="0.5rem" align-items="center"
         when item.shortcut != ""
           text item.shortcut font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`project-action-shortcut-${item.id}`
-        button press=open("project-action", item.id, item.name) focus=focusGear(true) blur=focusGear(false) aria-label=`Edit ${item.name}` disabled=(busy or not writable) opacity=(hovered or focused ? 1 : 0) testId=`edit-project-action-${item.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=open("project-action", item.id, item.name) focus=focusGear(true) blur=focusGear(false) aria-label=`Edit ${item.name}` disabled=(busy or not writable) opacity=(hovered or focused ? 1 : 0) testId=`edit-project-action-${item.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           CnGlyph(name="settings", size=14, color="light-dark(#71717b, #818181)")
 
 // Button variant="outline" size="sm": h-7, px 9, radius 8, border-input, bg-popover, shadow-xs/5.

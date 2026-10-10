@@ -252,7 +252,7 @@ component AddProviderDialog
                       button press=clearAccent class=PvGhost height="1.75rem" testId="new-provider-accent-clear"
                         PvIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
                         text "Clear color" font-size="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"
-                    button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent"
+                    button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent" title=""
                       when accent == ""
                         PvIcon(name="plus", size=16, color="light-dark(#71717b, #818181)")
             when shownStep == 2 and not isAcp
@@ -288,7 +288,7 @@ component AddProviderDialog
             when step == lastStep
               button press=add(wizard.driver, shownLabel, idSet ? id : "", accent, f0, f1, f2, f3, f4) class=PvPrimary disabled=busy testId="create-provider"
                 text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
-        button press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x"
+        button press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x" title=""
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
       // The Sign in step's Sign out confirmation (dialogs.confirm) over the wizard.
       when signOutOpen

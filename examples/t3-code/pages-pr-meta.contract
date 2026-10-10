@@ -108,7 +108,7 @@ component PrdReactionAdd
   action hover(value: bool)
     over = value
   view
-    button popovertarget=pickerId hover=hover aria-label="Add a reaction" testId=testId height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="624.9375rem" border-width=1 border-style="solid" border-color=(over ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+    button popovertarget=pickerId hover=hover aria-label="Add a reaction" testId=testId height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" border-radius="624.9375rem" border-width=1 border-style="solid" border-color=(over ? "light-dark(#1b4ed899, #346bf199)" : "light-dark(#e4e4e7b3, #ffffff12)") background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
       PrmIcon(name="smile-plus", size=14, color=(over ? prmInk() : prmMuted()))
 
 component PrdReactionChoiceButton
@@ -177,11 +177,11 @@ component PrdCandidatePicker
   view
     when not picker.allowed
       Tip(label=disabledReason, side="bottom", align="center", offset=28)
-        button disabled=true aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=0.64 display="flex" align-items="center" justify-content="center"
+        button disabled=true aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=0.64 display="flex" align-items="center" justify-content="center" title=""
           PgIcon(name=icon, size=14, color=prmMuted())
     else
       column position="relative" flex-shrink=0
-        button press=opening popovertarget=menuId hover=hover aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center"
+        button press=opening popovertarget=menuId hover=hover aria-label=label testId=`pull-request-${which}-picker` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" align-items="center" justify-content="center" title=""
           PgIcon(name=icon, size=14, color="light-dark(#71717b, #a1a1a1)")
         // ComboboxPopup align="start" side="bottom" w-72: below the trigger (no flip near the window's bottom, X17).
         // aria-modal: while it shows, its Escape closes it, not the Pull Requests page (usage-and-pr-pages PG-7).

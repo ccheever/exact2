@@ -76,7 +76,7 @@ component AttachmentTile
     box position="relative" width=width height=height box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)"
       when length(filter(urls, (entry) => entry.id == image.id)) > 0
         each entry in filter(urls, (entry) => entry.id == image.id) key=entry.id
-          button press=local("image-open", image.id, messageId) aria-label=`Preview ${image.name}` testId=`attachment-image-${image.id}` width="100%" height="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row"
+          button press=local("image-open", image.id, messageId) aria-label=`Preview ${image.name}` testId=`attachment-image-${image.id}` width="100%" height="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" title=""
             image entry.url aria-label=image.name width="100%" height="100%" object-fit="cover"
       else
         column width="100%" height="100%" min-height="4.5rem" align-items="center" justify-content="center" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box"
@@ -142,7 +142,7 @@ component ImagePreviewDialog
     failedUrl = url
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview"
-      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop"
+      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), testId="image-preview-previous")
         MediaActions(source=source, tip=name, local=local, testId="image-preview-actions")
@@ -167,7 +167,7 @@ component ImagePreviewDialog
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size="0.875rem" line-height="1.25rem" color="#ffffff"
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading image"
-              button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="x", size=14, color="#ffffff")
             text (position != "" ? `${name} ${position}` : name) margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
         PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), testId="image-preview-next")
@@ -182,7 +182,7 @@ component PreviewStep
   view
     box width="2.25rem" height="2.25rem" flex-shrink=0
       when shown
-        button press=press aria-label=label testId=testId width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=press aria-label=label testId=testId width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           box width="1.25rem" height="1.25rem" rotate=(flip ? 180 : 0)
             Icon(name="right", size=20, color="#ffffff")
 
@@ -202,6 +202,6 @@ component SentFileRow
         text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" text-decoration-line=(hovered == "preview" ? "underline" : "none") color="light-dark(#27272a, #f5f5f5)"
         ShellIcon(name="eye", size=16, color="light-dark(#27272a, #f5f5f5)")
       box position="relative" flex-shrink=0
-        button press=local("surface-r5-att-save", file.id, "") hover=hover("download") aria-label=`Download ${file.name}` testId=`attachment-download-${file.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered == "download" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=local("surface-r5-att-save", file.id, "") hover=hover("download") aria-label=`Download ${file.name}` testId=`attachment-download-${file.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered == "download" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           ShellIcon(name="download", size=14, color=(hovered == "download" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         TipBubble(label=`Download ${file.name}`, side="top", align="end", offset=28, inset=0, shown=(hovered == "download"))

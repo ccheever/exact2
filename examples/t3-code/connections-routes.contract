@@ -138,7 +138,7 @@ component RouteRow
           text route.address font-size="0.625rem" line-height="0.875rem" line-clamp=1 color="light-dark(#71717b, #818181)"
       when route.removable
         box position="relative" hover=hover
-          button press=remove(route.target) class=PvIconButton width="1.5rem" height="1.5rem" aria-label=`Remove ${route.label} route` disabled=busy testId=`environment-route-remove-${route.position}`
+          button press=remove(route.target) class=PvIconButton width="1.5rem" height="1.5rem" aria-label=`Remove ${route.label} route` disabled=busy testId=`environment-route-remove-${route.position}` title=""
             RtGlyph(name="x", size=12, color="light-dark(#71717b, #818181)")
           when tip
             CnTooltip(tip="Remove route", tipId=`environment-route-remove-tip-${route.position}`, above=28)

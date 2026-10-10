@@ -149,7 +149,7 @@ component DxRefresh
     hovered = over
   view
     box position="relative" width=`${size / 16}rem` height=`${size / 16}rem` flex-shrink=0
-      button press=press hover=hover disabled=busy aria-label=label testId=refreshId width=`${size / 16}rem` height=`${size / 16}rem` padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1)
+      button press=press hover=hover disabled=busy aria-label=label testId=refreshId width=`${size / 16}rem` height=`${size / 16}rem` padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1) title=""
         LucideRefreshCw(size=(size >= 24 ? 14 : 12), color="light-dark(#71717b, #818181)")
       when hovered
         DxTip(text=tip, right=0, bottom=((size + 6) * rem / 16))
@@ -242,7 +242,7 @@ component DxName
   view
     row flex=1 min-width=0 gap="0.5rem" align-items="center" padding-left=(row.depth * 10) box-sizing="border-box"
       when row.toggle == "expand" or row.toggle == "collapse"
-        button press=toggle(toggleOp, row.id) aria-label=`${row.toggle == "expand" ? "Expand" : "Collapse"} ${row.name}` aria-expanded=(row.toggle == "collapse") testId=`dx-toggle-${row.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=toggle(toggleOp, row.id) aria-label=`${row.toggle == "expand" ? "Expand" : "Collapse"} ${row.name}` aria-expanded=(row.toggle == "collapse") testId=`dx-toggle-${row.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           // f2cc80a7 MorphIcon ChevronRight↔ChevronDown: congruent under 90°, so the glyph turns (morphicons' snappy spring).
           box rotate=(row.toggle == "collapse" ? "90deg" : "0deg") transition="rotate -exact-spring(420, 30, 1)" display="flex"
             LucideChevronRight(size=14, color="light-dark(#71717b, #818181)")
@@ -282,7 +282,7 @@ component DxTableView
                 when part.id == "trace"
                   row flex=1 min-width=0 gap="0.5rem" align-items="center"
                     text item.traceLabel font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" line-clamp=1 flex=1 min-width=0 color="light-dark(#71717b, #818181)" aria-description=item.trace
-                    button press=copy(item.trace) aria-label="Copy trace ID" testId=`copy-trace-${table.id}-${item.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                    button press=copy(item.trace) aria-label="Copy trace ID" testId=`copy-trace-${table.id}-${item.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                       LucideCopy(size=12, color="light-dark(#71717b, #818181)")
                 when part.id == "level"
                   text part.text font-family="ui-monospace" font-size="0.6875rem" font-weight=500 line-height="1rem" text-transform="uppercase" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0f)" color="light-dark(#27272acc, #f5f5f5cc)"

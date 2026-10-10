@@ -145,7 +145,7 @@ component CnFolded
           when summary != ""
             text summary font-size="0.75rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)"
         when hasSwitch
-          button press=flip role="switch" aria-checked=switchOn aria-label=switchLabel disabled=busy testId=`${sectionId}-switch` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(switchOn ? "flex-end" : "flex-start") flex-shrink=0 background-color=(switchOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+          button press=flip role="switch" aria-checked=switchOn aria-label=switchLabel disabled=busy testId=`${sectionId}-switch` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(switchOn ? "flex-end" : "flex-start") flex-shrink=0 background-color=(switchOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
             box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
       when open
         column width="100%" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"

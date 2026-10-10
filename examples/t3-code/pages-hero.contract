@@ -185,7 +185,7 @@ component PagesLanding
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`landing-${home.landing}`
       row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.5rem" position="relative" border-bottom-width=(home.landing == "no-environment" or home.landing == "no-thread" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
         when not sidebarOpen
-          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar" title=""
             Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         when home.landing == "no-environment"
           text "T3 Code" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b99, #81818199)"

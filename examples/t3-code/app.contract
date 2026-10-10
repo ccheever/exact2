@@ -49,13 +49,13 @@ component T3Code
     disconnectDelayKey = data.serverUpdate.unavailable
   task rootFont key=data.look.fontSize // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
     after(1, rootFontApply)
-  action rootFontApply
-    setRootFontSize(data.look.fontSize)
+  action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115)
+    setRootFontSize(data.look.fontSize > 0 ? data.look.fontSize : 16)
   mutation balanceLoaded as shape Change refreshes data // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)
   action balanceLoadNow
-    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + now()}`, 0)
+    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + performanceNow()}`, 0)
   state noticeExit = ""
   state noticeExitOp = ""
   state noticeExitTarget = ""
@@ -182,34 +182,34 @@ component T3Code
   action welcomeFinish
     if not commandPending
       commandPending = true
-      send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + now()}`, 0)
+      send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
     if op != "import" and op != "usage-prices-save"
       send localChanged = command(startsWith(op, "usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
     else if not commandPending
       commandPending = true
-      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + now()}`, 0)
+      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
   action openConnectionsPage
     openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
     settingsRoute = "connections"
   action tick
-    elapsed = now()
+    elapsed = performanceNow()
   task clock mount
     every(60000, tick)
   state windowReturns = 0 // pr-list-live-refresh: the window focused again, the clock read then (useLiveRefresh's `focus` at Date.now(), not at the last minute tick), for the list and the detail
   task windowBack when page.hasFocus and page.visibilityState == "visible"
     after(1, windowReturned)
   action windowReturned
-    elapsed = now()
+    elapsed = performanceNow()
     windowReturns = windowReturns + 1
   mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
   mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
   mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data
   action dispatchTimelineReads
     if not pending(timelineReadsRefreshed)
-      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + now())
+      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
     if not pending(timelineReadsRefreshedNext)
-      send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + now())
+      send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
   state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
   resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
   mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
@@ -220,26 +220,26 @@ component T3Code
     match workspaceRefreshed
       case some(result)
         workspaceRetryKey = result.key
-        workspaceRetryAt = result.retry ? now() + 10000 : 0
+        workspaceRetryAt = result.retry ? performanceNow() + 10000 : 0
         workspaceRetryWake = result.wake
       case none
-        workspaceRetryAt = now() + 10000
+        workspaceRetryAt = performanceNow() + 10000
   action liveTick
     if data.timelineReadsNeeded
       dispatchTimelineReads()
     if workspaceDiscovery.needed and not pending(workspaceRefreshed)
-      if workspaceRetryKey != workspaceDiscovery.key or (now() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
+      if workspaceRetryKey != workspaceDiscovery.key or (performanceNow() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
-      if workspaceRetryKey == workspaceDiscovery.key and now() < workspaceRetryAt
+      if workspaceRetryKey == workspaceDiscovery.key and performanceNow() < workspaceRetryAt
         workspaceRetryWake = workspaceDiscovery.wake
     if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
-      liveNow = now()
+      liveNow = performanceNow()
   task liveClock mount
     every(1000, liveTick)
   mutation highlightSliced as shape HighlightStep then highlightStepped
   action highlightStep
     if not pending(highlightSliced)
-      send highlightSliced = highlightSlice(wallTime.epochAtZero + now())
+      send highlightSliced = highlightSlice(wallTime.epochAtZero + performanceNow())
   action highlightStepped
     match highlightSliced
       case some(step)
@@ -431,7 +431,7 @@ component T3Code
   state providerNow = 0
   action providerTick
     if settingsOpen and (settingsRoute == "providers" or (settingsRoute == "connections" and connectionsPage.network.ticking))
-      providerNow = now()
+      providerNow = performanceNow()
     providerDialog = (providerDialog == "chatgpt" and providerWizard.chatgptConnected) or providerPage.environment == "-" ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared; the page's dialogs close when its environment drops (they unmount with EnvironmentProviderSettings, ProviderSettingsPanel.tsx:551-586, 1377-1385)
   task providerClock mount
     every(1000, providerTick)
@@ -507,7 +507,7 @@ component T3Code
     every(1000, sshTick)
   action sshTick
     if sshPrompt.open
-      sshNow = now()
+      sshNow = performanceNow()
     if sshReturnToConnect and not sshPrompt.open and not commandPending
       sshReturnToConnect = false
       if connecting
@@ -692,7 +692,7 @@ component T3Code
           commandPending = true
           // shell-sidebar-palette-keys (SH-2): a thread command carries the window's instant, as the sidebar's do, so
           // ⇧⌘S's undo notice is timed on the window's clock (sidebar-state.ts adoptCommandTime).
-          send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + now() : n)
+          send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + performanceNow() : n)
   action editKeybindingQuery(value: string)
     keybindingQuery = value
   action newKeybinding
@@ -1038,7 +1038,7 @@ component T3Code
   action sidebarRun(op: string, id: string, value: string)
     if not commandPending and ((op != "row-key" and op != "legacy-row-key") or (value != "Enter" and value != " " and value != "Meta" and value != "Shift" and value != "Control" and value != "Alt" and value != "CapsLock"))
       commandPending = true
-      send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + now())
+      send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
     if over
       sidebarHoverId = id
@@ -1087,7 +1087,7 @@ component T3Code
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
-    send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + now())
+    send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action openModels
     focus(modelsOpen ? "composer" : "model-search")
     modelsOpen = not modelsOpen
@@ -1186,7 +1186,7 @@ component T3Code
     every(500, shellTick)
   action shellTick
     if shell.toastCount > 0 or shell.ticking or commandPending
-      shellClock = now()
+      shellClock = performanceNow()
   task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog // fix-keyboard-focus: and again as the palette over it closes (its finalFocus); dialog-shortcut-focus: a dialog the sidebar opens takes the focus at its first stop, however it opened (Base UI's initialFocus)
     after(1, focusSidebarDialog)
   action focusSidebarDialog
