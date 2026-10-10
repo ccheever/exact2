@@ -74,6 +74,18 @@ whose `(what == "key" and id == "Escape")` hid the panel.
   nothing; its letters still open surfaces.
 - `r4-surfaces-files.contract` `R4FilePreview`: the editor's own `key` takes Escape and blurs, which ends the editing
   (it had no Escape of its own while the toggle took the key).
+- `r4-surfaces-files.contract` `R4Explorer` (review of #403): the Files search's own `key` takes Escape, as
+  FileSearchField's `onKeyDown` does (`closeSearch`, then `blur()`). Before this PR the toggle took the key first, so
+  the field never heard it. `searchKey` sends `surface-files-search-key` once, prevents the default and blurs: inline
+  the search clears and the panel stays. In a sheet the reference's dialog closes after that handler, so the toggle
+  leaves Escape to the field while it has the focus (`searchFocused`), and the field's `"sheet"` Escape clears the
+  search and hides the panel in one request (`r4-surfaces-panel.ts`; `app.contract` `chatLocal` clears `rightPanelAt`,
+  as Float preview's close does). The panel reopens with no search, as the reference's does. The focus is
+  `SurfacePanel` state (`filesSearchAt`, kept by surface as the URL field's `urlFocusTab` is by tab), passed to
+  `R4PanelHeader`/`R4HeaderBar` as `searchFocused` (`diff.contract` passes `false`) and down to the field as
+  `searchFocus`. It is not sent to the module: the first live drive kept it there, and a second `localChanged` send in
+  the same turn forgot the first (the log reads `forget request 731 (localChanged)`), so the field's focus was lost
+  under its first keystroke and the Escape's clear under the blur that follows it.
 - What relied on the old key, checked: the annotate pick (`browser-capture.test.ts` row updated; the pick still holds it
   in a sheet), the editor menu (its backdrop has its own Escape; it still holds the sheet's), the diff scope menu's
   scoped Escape (`menu-keys.test.ts`, unchanged, it still matters in a sheet), and `ChipPopoverEscape`'s first-node
@@ -89,25 +101,49 @@ whose `(what == "key" and id == "Escape")` hid the panel.
 | Clone matches: inline launcher | Pass: before closed, after stays | [inline-launcher-escape.png](https://raw.githubusercontent.com/ccheever/exact2/3de07f3ac9974f13c344ee320400ee61f40f8722/right-panel-escape/inline-launcher-escape.png) |
 | Clone matches: the sheet closes | Pass: before and after close, as the reference (Files at the toggle; the launcher, text record) | [sheet-escape.png](https://raw.githubusercontent.com/ccheever/exact2/50500ec963af39b82659ec3e2899584731d0c049/right-panel-escape/sheet-escape.png) |
 | Clone matches: the sheet's file editor | Pass: before closed the sheet, after the first Escape leaves the editor and the second closes | [sheet-editor-escape.png](https://raw.githubusercontent.com/ccheever/exact2/08ff724697f7f348b7e8e28630fb260a31ee9bc6/right-panel-escape/sheet-editor-escape.png) |
-| Unit test of the toggle's keys | Pass: `right-panel-escape.test.ts` evaluates both toggles' `aria-keyshortcuts` over inline/sheet × each holder | Tests |
+| Clone matches: inline Files search (review) | Pass: before closed the panel; after the search clears, the field is left and the panel stays (value `""`, no focus) | [inline-search-escape.png](https://raw.githubusercontent.com/ccheever/exact2/b65811ce39a2b51eafee14ae3dffae8d58471da4/right-panel-escape/inline-search-escape.png) |
+| Clone matches: the sheet's Files search (review) | Pass: before and after the sheet closes; reopened, before still reads "app", after has no search, as the reference | [sheet-search-escape.png](https://raw.githubusercontent.com/ccheever/exact2/42de5f27eab6706241162fa6ed3b746297d17ef7/right-panel-escape/sheet-search-escape.png) |
+| Clone matches: the sheet's URL field (review) | Pass: before the field kept Escape and the sheet stayed; after the sheet closes (the tab floats), as the reference | [sheet-url-escape.png](https://raw.githubusercontent.com/ccheever/exact2/961a722f5ac1a7fb42908b662fcb10f0f39c4b78/right-panel-escape/sheet-url-escape.png) |
+| Clone matches: inline Browser (review) | Pass: the URL field's Escape keeps the panel before and after; at the toggle before closed, after stays | [inline-browser-escape.png](https://raw.githubusercontent.com/ccheever/exact2/9bd336a16ea3f8bd6398011d120b3643a9370b1f/right-panel-escape/inline-browser-escape.png) |
+| Clone matches: inline Diff (review) | Pass: on Timeline verification, Escape at the toggle: before closed, after stays | [inline-diff-escape.png](https://raw.githubusercontent.com/ccheever/exact2/114247c58f6da893b8c03347d1f2def95121f275/right-panel-escape/inline-diff-escape.png) |
+| Unit test of the toggle's keys | Pass: `right-panel-escape.test.ts` evaluates both toggles' `aria-keyshortcuts` over inline/sheet × each holder (the Files search's focus among them) | Tests |
 
-No real-input rows: inline nothing declares Escape any more, and the sheet's key is the same shortcut as before.
+The review's rows, as text (before, after, reference, with the field values):
+[escape-record-review.txt](https://raw.githubusercontent.com/ccheever/exact2/7a8ef4877ff9cbd33410b4a72e04bd63c406c2a6/right-panel-escape/escape-record-review.txt).
+
+No real-input rows: inline nothing declares Escape any more, and the sheet's key is the same shortcut as before; the
+Files search's Escape is a field `key` handler, which a real key reaches the same way (`Presenter.keyDown`).
 
 ## Tests
 
-- `right-panel-escape.test.ts` (new, 6): the tab bar toggle's and the launcher bar toggle's `aria-keyshortcuts`
-  evaluated as expressions (inline: none, whatever holds the focus; sheet: Escape, none while each holder holds it); the
-  `urlFocused` prop gone from the header; the Files editor's Escape; `panelUi` without the `key` Escape clause. Each
-  fails on the base (the old expression reads `urlFocused`, declares Escape inline; `panelUi` hid on Escape).
+- `right-panel-escape.test.ts` (new, 10): the tab bar toggle's and the launcher bar toggle's `aria-keyshortcuts`
+  evaluated as expressions (inline: none, whatever holds the focus; sheet: Escape, none while each holder holds it,
+  the Files search's `searchFocused` among them); the `urlFocused` prop gone from the header; the Files search's
+  `searchKey`, its window-kept focus (`SurfacePanel` `filesSearchAt`, the header's `searchFocused`, `diff.contract`'s
+  `false`) and `chatLocal`'s close; the Files editor's Escape; `panelUi` without the `key` Escape clause; and against
+  the module, the search's Escape clearing it with the panel open inline, a sheet's clearing it and hiding the panel
+  (reopened with no search), other keys leaving it. The contract rows and the sheet's module row fail on the base (the
+  old expression reads `urlFocused`, declares Escape inline and while the search has the focus; `panelUi` hid on
+  Escape; no `searchKey`, no sheet close). The inline module row and the other-keys row pass there too: the module's
+  `search-key` Escape clear was there, but nothing sent it the key.
 - `browser-capture.test.ts`: the annotate pick row checks the new expression.
 
-Checks (head `1ac69c03c`: the fix `22ab9d9d4` merged with `feat(example)/t3-code` `a1ade42f9`; all exit 0, run once):
-bun test 4364 pass / 1 skip / 0 fail (296 files); strict tsc; contract build (`app.contract` 1343 lines); caps; the five
-checks (cargo test 3675 pass, 0 fail, 34 ignored; clippy, fmt, boot clean); the bundle build. No Rust or Swift changed,
-so `cargo test -p t3-code-macos` and the AppKit binaries were not run. Live drive (agent mode, once, this bundle): every
-row of the table; `state.rightPanel` after each Escape matched the reference, and the logs held no errors.
+Checks (code head `c84ba64b7`: the review's fix `532ed599d` and `c84ba64b7`, merged with `feat(example)/t3-code`
+`4c13b440f` in `5afd1ff27`; the commit after it is this record only; all exit 0, run once): bun test 4372 pass / 1 skip /
+0 fail (297 files); strict tsc; contract build (`app.contract` 1344 lines); caps; the five checks (cargo test 3679 pass,
+0 fail, 34 ignored; build, clippy, fmt, boot clean); the bundle build. No Rust or Swift changed, so
+`cargo test -p t3-code-macos` and the AppKit binaries were not run.
+
+Live drives (agent mode). The first round (head `1ac69c03c`): the first six rows; `state.rightPanel` after each
+Escape matched the reference and the logs held no errors. The review round: a first drive kept the search's focus in
+the files module and failed (inline the search kept "app"; the sheet closed through the toggle, because the focus's
+send was forgotten under the first keystroke's). The retry, on the bundle of `c84ba64b7`, drove the review's five rows
+in one session; the logs held no error lines. Before: three sessions of the evidence-base build (`c03d7e908`).
+Reference: this lane's T3 Code over CDP (the sheet's search reopened with no search; inline its Escape left the field
+with `""`).
 
 ## Next action
 
-Coordinator review of the draft PR [#403](https://github.com/ccheever/exact2/pull/403).
+Coordinator review of the draft PR [#403](https://github.com/ccheever/exact2/pull/403) (review round done: the Files
+search's Escape, and the sheet's URL field, inline Browser and Diff driven).
 
