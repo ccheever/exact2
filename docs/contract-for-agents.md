@@ -1580,8 +1580,8 @@ An interface size setting is `rem` plus `setRootFontSize(px)`, CSS's `:root {
 font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
 heights, paddings) and what should not in `px`; an action calling
 `setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
-The app's size stands over the host's (the browser's setting, iOS Dynamic Type,
-16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a
+The app's size stands over the host's (the browser's setting, iOS Dynamic Type's
+body, 13 on macOS, 16 on Linux), as an author's `html { font-size: 20px }` stands over a
 browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
 "Default" choice that follows Dynamic Type calls that. A size of 0 or less is
 refused (a literal at compile time, a computed one in `logs`). It is not kept
@@ -2095,6 +2095,23 @@ the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `-gray` (each `-exact-system-…`). `color="-exact-secondary-label"`, not
 `color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. A brand colour
 the platform has no role for is the one place for a literal.
+
+**Type: say a heading, not a size.** Body text is the platform's body size
+already (the root font size: Dynamic Type's body on iOS, 13 on the Mac, the
+browser's 16). A `text role="heading"` with no `font-size` or `font-weight` of
+its own is the platform's text style for its `aria-level` (LLP 1115 D3): 1
+`title1`, 2 (the default) `title2`, 3 `title3`, 4 and on `headline`, sized for
+the reader's Dynamic Type by Apple's own ramp (iOS at the default size:
+28/22/20/17 pt, the titles regular and `headline` semibold; the Mac: 22/17/15/13;
+the web reads the ramp at its 16 px root: 27/21/19/16, in `rem`). So omit
+`font-size` on headings; a written `font-size` or `font-weight` on the heading
+wins, an inherited one does not. Other text takes a style by name with `font`,
+as WebKit's `font: -apple-system-headline`: `font="-exact-footnote"` (or
+`"-apple-system-footnote"`) sets the style's size and weight, `normal` style and
+line height. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title2`,
+`-exact-title3`, `-exact-headline`, `-exact-body`, `-exact-callout`,
+`-exact-subheadline`, `-exact-footnote`, `-exact-caption1`, `-exact-caption2`;
+`font-size="-exact-caption1"` alone sets only the size. `font` takes nothing else.
 
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB

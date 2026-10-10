@@ -130,6 +130,20 @@ beside `colors`), D5, D6, platform press feedback for custom pressables, Mac lab
 and focus rings, `NSSearchField`/`UISearchTextField`, a canonical native recipe app with a lint
 for literal colours and font sizes.
 
+*D3's heading styles, as built (2026-10-10).* The schema's `textStyles` beside `colors`:
+eleven styles (`large-title` … `caption2`), each with its UIKit/AppKit name, WebKit alias,
+weight and Apple's ramp, the size at each body size (13 the Mac's; 14–53 iOS's Dynamic Type
+categories). A style is a value of `font-size` (`-exact-title1`, `-apple-system-title1`)
+that the **kernel** resolves, like `rem`, against the root font size (wave 1's platform body
+size), so the hosts need no new fact and layout agrees on every host given the same root;
+Dynamic Type's nonlinear scaling comes from the ramp, not a ratio (AX5's title1 is 58, not
+87). The web writes the ramp at 16 px in `rem`. Lowering gives `text role="heading"` an
+unsaid `font-size` and `font-weight` by `aria-level` (1 `title1`, 2 and unset `title2`, 3
+`title3`, 4+ `headline`; HIG weights: titles regular, `headline` semibold), before the
+author's rows. `font="-exact-footnote"` (CSS's `font` shorthand, a text style only) sets a
+style's size and weight. Not done: Bold Text, the Mac's bold `headline` (one weight per
+style, iOS's semibold), and per-style leading (line height stays `normal`).
+
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac
 sheets and `NSPopover`, Mac native lists and sidebars, drag out, window restoration, and the

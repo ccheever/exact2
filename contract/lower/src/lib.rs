@@ -825,6 +825,7 @@ impl<'a> Lowerer<'a> {
                     });
                 }
                 self.link_run_color(tag, parent_tag, expanded, &mut bindings);
+                self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
                 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
                 // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
                 // fixed prop (text) cannot be.
