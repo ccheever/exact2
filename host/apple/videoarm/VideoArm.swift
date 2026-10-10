@@ -168,8 +168,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     /// `-[AVPlayerItem currentTime]` during a fling of autoplaying videos.
     /// The timebase read takes locks too, but a shorter path (unmeasured
     /// under that load; QUEUE). The two agree because the arm never schedules
-    /// a start (`setRate(_:time:atHostTime:)`), where the timebase runs ahead
-    /// of `currentTime()` until the start. No item is at zero, as before.
+    /// a start (`setRate(_:time:atHostTime:)`), where `currentTime()` holds
+    /// the start position while the timebase advances to it from earlier.
+    /// No item is at zero, as before.
     var seconds: Double {
         if let seekTarget { return seekTarget }
         let s = player.currentItem?.timebase.map { CMTimebaseGetTime($0).seconds } ?? 0
