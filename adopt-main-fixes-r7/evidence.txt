@@ -63,7 +63,7 @@ Code head for the checks: 5e7597f38 (records and one test comment follow).
    before: the feature tip 309e49344 built in a detached worktree; after: this branch.
    Agent tree (type, role, testId, label) diff, before vs after: 0 lines on all 8 shared states
      (shell 637, thread 669, composer 668, right panel 660, dialog 729, Settings 2000, Pull Requests 800, Shift+F10 669 nodes).
-   Screenshots: no pixel differs by more than 24/255 in any channel (one 90x23 px area at the sidebar artwork moves slightly).
+   Screenshots: no pixel differs by more than 24/255 in any channel (the only differing pixels, all under that, lie in one 90x23 px area of the sidebar header's animated artwork).
    Logs: no refusal, error or failure line in either build.
    Shift+F10 on the focused thread row: no menu in either build (the reference: none on macOS).
    ContextMenu on the focused thread row: before "key: unsupported key ContextMenu" (the old agent);
