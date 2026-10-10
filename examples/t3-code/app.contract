@@ -478,6 +478,33 @@ component T3Code
     if importWizardShown and not integrations.browserProfiles.wizard.open
       focus("browser-profiles-add")
     importWizardShown = integrations.browserProfiles.wizard.open
+  // import-wizard-initial-focus: as the wizard opens, Base UI's Dialog focuses the popup's first tabbable element
+  // (`openFocus`; the menu has given the focus back to Add profile, so an `autofocus` would not take it), and a step change,
+  // which removes the focused button, leaves it on the popup itself (restoreFocus "popup"); a grant on Full Disk Access
+  // replaces Allow, so it counts as a change (`focusKey`). The removal confirm (AlertDialog) focuses Cancel as it opens,
+  // and Cancel or Escape gives the focus back to the row's options button; once the profile is removed, that button is
+  // gone and Base UI falls back to the last element that held the focus as a popup opened, Add profile in the reference's
+  // run (the clone keeps no such history). The reference over CDP, each step.
+  state importWizardAt = ""
+  task importWizardStepFocus when integrations.browserProfiles.wizard.focusKey != importWizardAt
+    after(1, importWizardStep)
+  action importWizardStep
+    if importWizardAt == "" and integrations.browserProfiles.wizard.focusKey != ""
+      focus(integrations.browserProfiles.wizard.openFocus)
+    else if integrations.browserProfiles.wizard.focusKey != ""
+      focus("browser-import-popup")
+    importWizardAt = integrations.browserProfiles.wizard.focusKey
+  state removalAt = ""
+  task removalFocus when integrations.browserProfiles.removalId != removalAt
+    after(1, removalFlip)
+  action removalFlip
+    if removalAt == ""
+      focus("browser-profile-remove-cancel")
+    else if includes(map(integrations.browserProfiles.rows, (row) => row.id), removalAt)
+      focus(`browser-profile-options-${removalAt}`)
+    else
+      focus("browser-profiles-add")
+    removalAt = integrations.browserProfiles.removalId
   resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
   resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
   resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings

@@ -304,19 +304,37 @@ export type BrowserImportWizardView = {
   from: WizardTileView[]; into: WizardTileView[]; feedback: string; importDisabled: boolean;
   fdaGranted: boolean; fdaStillRequired: boolean; fdaBusy: boolean; fdaNote: string; fdaResume: string;
   doneTitle: string; doneDescription: string; skipped: string; blockedText: string; retry: boolean;
+  /** Where the focus goes as the wizard opens, and what a step change is told by (app.contract importWizardStepFocus). */
+  openFocus: string; focusKey: string;
 };
 export type BrowserProfilesView = {
   hydrated: boolean; writesDisabled: boolean; importInFlight: boolean; atLimit: boolean; rows: BrowserProfileRowView[];
   sourcesState: string; sources: { id: string; name: string }[]; canImport: boolean; removalAvailable: boolean; removalNote: string;
-  removalOpen: boolean; removalName: string; removalError: string; removalBusy: boolean; wizard: BrowserImportWizardView;
+  removalOpen: boolean; removalId: string; removalName: string; removalError: string; removalBusy: boolean; wizard: BrowserImportWizardView;
   /** The group's other rows: viewport, zoom, appearance, recording, auto-show (browser-defaults.ts). */
   defaults: BrowserDefaultsView;
 };
 const closedWizard = (): BrowserImportWizardView => ({ open: false, step: '', sourceName: '', environmentName: '', canClose: true, check: '', from: [], into: [], feedback: '', importDisabled: true,
-  fdaGranted: false, fdaStillRequired: false, fdaBusy: false, fdaNote: '', fdaResume: '', doneTitle: '', doneDescription: '', skipped: '', blockedText: '', retry: false });
+  fdaGranted: false, fdaStillRequired: false, fdaBusy: false, fdaNote: '', fdaResume: '', doneTitle: '', doneDescription: '', skipped: '', blockedText: '', retry: false,
+  openFocus: '', focusKey: '' });
 export const emptyBrowserProfilesView = (): BrowserProfilesView => ({ hydrated: false, writesDisabled: true, importInFlight: false, atLimit: false, rows: [], sourcesState: 'loading', sources: [],
-  canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
+  canImport: false, removalAvailable: false, removalNote: '', removalOpen: false, removalId: '', removalName: '', removalError: '', removalBusy: false, wizard: closedWizard(),
   defaults: browserDefaultsView({ local: {} }) });
+
+/** import-wizard-initial-focus: the element Base UI's Dialog focuses as the wizard opens on `step` (initialFocus: the popup's
+ *  first tabbable element; the close X comes after the step). Configure: the first "From" tile; the quit step: Cancel; Full
+ *  Disk Access: PermissionChecklist's Allow, which a grant replaces with "Allowed" and so the popup itself (restoreFocus
+ *  "popup"); a blocked source: Close. The other steps follow an action, never an opening. The ids are
+ *  browser-profiles.contract's. */
+export function wizardOpenFocus(step: string, fdaGranted: boolean): string {
+  switch (step) {
+    case 'configure': return 'browser-import-from-0';
+    case 'quit': return 'browser-import-cancel';
+    case 'fullDiskAccess': return fdaGranted ? 'browser-import-popup' : 'browser-import-fda-allow';
+    case 'blocked': return 'browser-import-close';
+    default: return 'browser-import-popup';
+  }
+}
 
 async function wizardView(client: T3Client, native: Native, wizard: Wizard | null): Promise<BrowserImportWizardView> {
   if (!wizard) return closedWizard();
@@ -346,6 +364,7 @@ async function wizardView(client: T3Client, native: Native, wizard: Wizard | nul
     fdaResume: step.step === 'fullDiskAccess' ? step.resume : '',
     doneTitle: done.title, doneDescription: done.description, skipped: step.step === 'done' ? formatSkippedDomains(step.skippedDomains) : '',
     blockedText: step.step === 'blocked' ? BROWSER_IMPORT_FAILURE_COPY[step.reason] : '', retry: step.step === 'blocked' && isRetryableReason(step.reason),
+    openFocus: wizardOpenFocus(step.step, wizard.fdaGranted), focusKey: `${step.step}|${wizard.fdaGranted ? 'granted' : ''}`,
   };
 }
 
@@ -363,7 +382,7 @@ export async function browserProfilesView(client: T3Client, native: Native | nul
     sourcesState: state.sources === null ? 'loading' : sources.length === 0 ? 'empty' : 'ready', sources: sources.map(source => ({ id: source.id, name: source.name })),
     canImport: ready && primaryEntry() !== null, removalAvailable,
     removalNote: removalAvailable ? '' : environments.ready ? 'Connect to an environment to clear profile data' : 'Checking environments…',
-    removalOpen: state.removal !== null, removalName: state.removal?.profile.name ?? '', removalError: state.removal?.error ?? '', removalBusy: state.removal?.inFlight ?? false,
+    removalOpen: state.removal !== null, removalId: state.removal?.profile.id ?? '', removalName: state.removal?.profile.name ?? '', removalError: state.removal?.error ?? '', removalBusy: state.removal?.inFlight ?? false,
     wizard: await wizardView(client, native, state.wizard), defaults: browserDefaultsView(client),
   };
 }
