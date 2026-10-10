@@ -60,6 +60,8 @@ in bold are open (in `../tasks/`); the rest are closed and carry the workaround.
 | [X72](closed/20261010-x72-apple-intl-half-even.md) | [20261010-apple-intl-number-format-half-even.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-apple-intl-number-format-half-even.md) (main #394) | [usage-and-pr-pages](../tasks/closed/20261009-usage-and-pr-pages.md) | `formatUsd` (`pages-usage.ts`) rounds the shortest digits half away from zero itself, with Bun's ICU `Intl.NumberFormat` as its test oracle |
 | [X73](closed/20261010-x73-macos-popover-escape-after-blur.md) | [20261010-macos-popover-escape-after-blur.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-popover-escape-after-blur.md) (main #401) | **[realinput-1010c-fixes](../tasks/closed/20261010-realinput-1010c-fixes.md)** (RC-3) | The Filters submenu's dropped focus lands on a 1-pt rest box inside the popover (`pr-filters-rest`, `pages-prs.contract` `PrFiltersMenu`), not on nothing, so the next Escape closes Filters (#399) |
 | [X74](closed/20261010-x74-macos-heading-inside-button.md) | [20261010-macos-a-heading-inside-a-button.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-a-heading-inside-a-button.md) (main #405) | [settings-headings](../tasks/closed/20261010-settings-headings.md) | Legacy features' level-2 heading is an sr-only heading right before its button (`SettingsSrHeading`, `settings-kit.contract`; `settings-rows.contract` `CoreSections`), not inside it (#404) |
+| [X76](closed/20261010-x76-macos-right-click-selects-no-word.md) | [20261010-macos-right-click-selects-no-word.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-right-click-selects-no-word.md) (main #410) | [realinput-1010d-followups](../tasks/closed/20261010-realinput-1010d-followups.md) (RD-4), **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | None: over unselected page text the shell menu's Copy stays disabled, where the reference enables it (#407) |
+| [X77](closed/20261010-x77-macos-inline-run-contextmenu.md) | [20261010-macos-inline-run-contextmenu.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-inline-run-contextmenu.md) (main #410) | **[shell-context-menu](../tasks/20261010-shell-context-menu.md)** | Paragraph links are laid out word by word (`FlowRuns`), so their link menu opens; a Markdown table cell's web link opens the shell's Copy Link menu instead of the link menu (#407) |
 | X67 (no record) | [20261009-compiler-small-stack-depth.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-compiler-small-stack-depth.md) ([#320](https://github.com/ccheever/exact2/issues/320)) | [view-depth-under-test-stack](../tasks/closed/20261009-view-depth-under-test-stack.md), **[clone-on-exact2-main](../tasks/20261005-clone-on-exact2-main.md)** | The clone's views were flattened under main's 2 MiB test-thread stack (#382) |
 | X68 (no record) | [20261009-elements-from-point-read.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-elements-from-point-read.md) ([#321](https://github.com/ccheever/exact2/issues/321)) | [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) (U18) | The theme editor's Inspect is not built (U18) |
 | side, from X26 (no record) | [20261009-macos-menu-stalls-native-work.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-macos-menu-stalls-native-work.md) ([#292](https://github.com/ccheever/exact2/issues/292)) | [adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md) | `T3MenuTurn` keeps native work running while an `NSMenu` tracks; fix in open PR [#327](https://github.com/ccheever/exact2/pull/327) (partial) |
@@ -263,3 +265,18 @@ Chrome. Until then it was `EXACT2-GAPS.md`'s unnumbered entry "Settings headings
 | Gap | Main issue | Title |
 | --- | --- | --- |
 | X74 | `issues/20261010-macos-a-heading-inside-a-button.md` | macOS: a heading inside a button is not exposed, because the host makes every button an accessibility leaf |
+
+### Filed on main, 2026-10-10, fifth round
+
+Main PR [#410](https://github.com/ccheever/exact2/pull/410) (merged as `474999b9f`) filed these as main `issues/`
+files. Both were reproduced on main `42fd5d99e` in one one-file app, with the agent's real secondary click on macOS
+against the Exact web in Chrome. X76 was also checked against a hand-built read-only `NSTextView` and a `WKWebView`.
+Until then they were `EXACT2-GAPS.md`'s "Text context menu" entries S1 and S2 (shell-context-menu, #407). The same
+round checked S3, "a native module cannot read a node's `href`", and did not file it. No module on any host is given
+the page's nodes, and a `contextmenu` action on the link node already hands the href to the module on macOS
+(`EXACT2-GAPS.md`, "Text context menu", S3).
+
+| Gap | Main issue | Title |
+| --- | --- | --- |
+| X76 | `issues/20261010-macos-right-click-selects-no-word.md` | macOS: a right-click on unselected page text selects no word, so no text menu opens |
+| X77 | `issues/20261010-macos-inline-run-contextmenu.md` | macOS: an inline text run's `contextmenu` never runs; only a node's own handler does |
