@@ -1,0 +1,13 @@
+FX-1 review round 1: Restore defaults with a theme on one appearance (bun target/awf4/fx1-theme-mix.ts <tree>)
+
+before (PR base, feature tip ec6f9bf1c):
+Use Dusk (dark palette only): its half       theme=t3-code light=t3-code dark=dusk  restoreCount=0  (Restore defaults disabled)
++ Follow system off (Dark)                   theme=t3-code light=t3-code dark=dusk  restoreCount=1  This will reset: Follow system.
+Use Grove (a whole theme)                    theme=grove light=grove dark=grove  restoreCount=2  This will reset: Follow system, Theme.
+
+after (this branch):
+Use Dusk (dark palette only): its half       theme=t3-code light=t3-code dark=dusk  restoreCount=1  This will reset: Theme mix.
++ Follow system off (Dark)                   theme=t3-code light=t3-code dark=dusk  restoreCount=2  This will reset: Follow system, Theme mix.
+Use Grove (a whole theme)                    theme=grove light=grove dark=grove  restoreCount=2  This will reset: Theme, Follow system.
+
+reference (T3 Code 1e2ecbd975 SettingsPanels.tsx:533-536 useSettingsRestore changedSettingLabels): ...(theme !== "system" ? ["Theme"] : []), ...(!followSystem ? ["Follow system"] : []), ...(themeHalves !== null ? ["Theme mix"] : []), ...; useTheme setThemeHalf stores a half, setTheme removes THEME_HALVES_STORAGE_KEY.
