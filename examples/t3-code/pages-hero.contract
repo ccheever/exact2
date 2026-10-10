@@ -138,10 +138,13 @@ component HeroMenu
     keyed: number
     command: action
     addProject: action
-  state hovered = ""
   state lit = ""
-  action hover(id: string, over: bool)
-    hovered = over ? id : (hovered == id ? "" : hovered)
+  // FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the focus hands it to the popup.
+  action hover(id: string, rowId: string, over: bool)
+    if over
+      focus(`${rowId}-km`)
+    else if lit == id
+      focus("hero-project-keys")
   action focused(id: string, on: bool)
     lit = on ? id : (lit == id ? "" : lit)
   view
@@ -150,15 +153,15 @@ component HeroMenu
         scroll width="100%" max-height="19.875rem" padding="0.25rem" box-sizing="border-box"
           column width="100%" role="group"
             when home.noProjectItem
-              button id="hero-project-none" press=command("pages:hero-scratch", "", "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("no-project") focus=focused("no-project", true) blur=focused("no-project", false) role="menuitemradio" aria-checked=home.scratchDraft testId="hero-project-none" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovered == "no-project" or lit == "no-project" ? "light-dark(#f4f4f5, #ffffff0a)" : home.scratchDraft ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              button id="hero-project-none" press=command("pages:hero-scratch", "", "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("no-project", "hero-project-none") focus=focused("no-project", true) blur=focused("no-project", false) role="menuitemradio" aria-checked=home.scratchDraft testId="hero-project-none" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit == "no-project" ? "light-dark(#f4f4f5, #ffffff0a)" : home.scratchDraft ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                 PgIcon(name="message-square-dashed", size=16, color="light-dark(#4b5563, #9ca3af)")
                 text "No project" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
             each project in home.projects key=project.id
-              button id=`hero-project-${project.id}` press=command("pages:hero-project", project.id, "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover(project.id) focus=focused(project.id, true) blur=focused(project.id, false) role="menuitemradio" aria-checked=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovered == project.id or lit == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              button id=`hero-project-${project.id}` press=command("pages:hero-project", project.id, "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover(project.id, `hero-project-${project.id}`) focus=focused(project.id, true) blur=focused(project.id, false) role="menuitemradio" aria-checked=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                 ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
                 text project.name font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 white-space="nowrap" min-width=0 text-align="left"
           box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-          button id="hero-add-project" press=addProject popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("add-project") focus=focused("add-project", true) blur=focused("add-project", false) role="menuitem" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(hovered == "add-project" or lit == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          button id="hero-add-project" press=addProject popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("add-project", "hero-add-project") focus=focused("add-project", true) blur=focused("add-project", false) role="menuitem" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(lit == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
             box opacity=0.8 display="flex"
               PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #818181)")
             text "Add project" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"

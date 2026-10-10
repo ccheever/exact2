@@ -127,20 +127,24 @@ component BdViewportSelect
         each option in options key=option.value
           when option.heading != ""
             text option.heading padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="presentation" testId="browser-default-viewport-group"
-          BdViewportItem(option=option, choose=choose(option.value))
+          BdViewportItem(keysId="browser-default-viewport-menu-keys", option=option, choose=choose(option.value))
 
 component BdViewportItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     option: BdViewportOption
     choose: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`browser-default-viewport-option-${option.value}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=`browser-default-viewport-option-${option.value}` press=choose popovertarget="browser-default-viewport-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-selected=option.selected testId=`browser-default-viewport-option-${option.value}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="1.25rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : hovered or lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+    button id=`browser-default-viewport-option-${option.value}` press=choose popovertarget="browser-default-viewport-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="option" aria-selected=option.selected testId=`browser-default-viewport-option-${option.value}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="1.25rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
       text option.label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color="light-dark(#27272a, #f5f5f5)"
       when option.detail != ""
         text option.detail flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)"

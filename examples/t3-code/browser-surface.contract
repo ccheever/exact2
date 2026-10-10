@@ -230,10 +230,10 @@ component BrowserMore
       column id="browser-more-menu" popover="auto" position="absolute" margin-top="0.375rem" width="17.5rem" margin-left="-16rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=(view.hasWebContents ? [KmItem(id="browser-more-hard-reload", label="Hard reload"), KmItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar")), KmItem(id="browser-more-appearance", label="Appearance"), KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")] : [KmItem(id="browser-more-clear-cookies", label="Clear cookies"), KmItem(id="browser-more-clear-cache", label="Clear cache")]), keyed=keyed, gap="0px", modal=true)
-            BsMenuItem(id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
-            BsMenuItem(id="browser-more-window", label="Open separate preview window", note="Part 3", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
-            BsMenuItem(id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-device-toolbar", view.tabId, `${pw}|${ph}`))
-            BrowserAppearanceItem(view=view, local=local)
+            BsMenuItem(keysId="browser-more-keys", id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
+            BsMenuItem(keysId="browser-more-keys", id="browser-more-window", label="Open separate preview window", note="Part 3", chevron=false, disabled=true, press=local("surface-browser-noop", view.tabId, ""))
+            BsMenuItem(keysId="browser-more-keys", id="browser-more-device-toolbar", label=(view.viewportMode != "fill" ? "Hide device toolbar" : "Show device toolbar"), note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-device-toolbar", view.tabId, `${pw}|${ph}`))
+            BrowserAppearanceItem(keysId="browser-more-keys", view=view, local=local)
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
             // The zoom row: label, −, the level, +, reset; its buttons keep the menu open (closeOnClick false).
             row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.25rem" box-sizing="border-box" align-items="center" justify-content="space-between" opacity=(view.hasWebContents ? 1 : 0.64) testId="browser-more-zoom"
@@ -246,26 +246,30 @@ component BrowserMore
             box width="100%" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)" role="separator"
             text `Profile: ${view.profileName}` max-width="16rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)" testId="browser-more-profile"
             // Part 4: this tab's environment and profile only (PreviewMoreMenu's Profile group).
-            BsMenuItem(id="browser-more-clear-cookies", label="Clear cookies", note="", chevron=false, disabled=false, press=local("surface-browser-clear-cookies", view.tabId, ""))
-            BsMenuItem(id="browser-more-clear-cache", label="Clear cache", note="", chevron=false, disabled=false, press=local("surface-browser-clear-cache", view.tabId, ""))
+            BsMenuItem(keysId="browser-more-keys", id="browser-more-clear-cookies", label="Clear cookies", note="", chevron=false, disabled=false, press=local("surface-browser-clear-cookies", view.tabId, ""))
+            BsMenuItem(keysId="browser-more-keys", id="browser-more-clear-cache", label="Clear cache", note="", chevron=false, disabled=false, press=local("surface-browser-clear-cache", view.tabId, ""))
 
 // MenuItem: 28pt, 8pt sides, the highlight on hover or focus; a disabled row at 64%.
 component BsMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     id: string
     label: string
     note: string
     chevron: bool
     disabled: bool
     press: action
-  state hovered = false
   state lit = false
   action hover(on: bool)
-    hovered = on
+    if on
+      focus(`${id}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=id press=press popovertarget="browser-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=id display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=((hovered or lit) and not disabled ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=id press=press popovertarget="browser-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=id display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit and not disabled ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
       when note != ""
         text note flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
@@ -292,17 +296,21 @@ component BsZoomButton
 // Choosing one keeps the menus open, as a Base UI radio item does.
 component BrowserAppearanceItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     view: BrowserPanel
     local: action
-  state hovered = false
   state lit = false
   action hover(on: bool)
-    hovered = on
+    if on
+      focus("browser-more-appearance-km")
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
     box position="relative" width="100%"
-      button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover focus=focused(true) blur=focused(false) disabled=(not view.hasWebContents) role="menuitem" aria-haspopup="menu" testId="browser-more-appearance" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.hasWebContents ? 1 : 0.64) background-color=((hovered or lit) and view.hasWebContents ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover focus=focused(true) blur=focused(false) disabled=(not view.hasWebContents) role="menuitem" aria-haspopup="menu" testId="browser-more-appearance" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(view.hasWebContents ? 1 : 0.64) background-color=(lit and view.hasWebContents ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         text "Appearance" flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
       column id="browser-appearance-menu" popover="auto" position="absolute" margin-top="-1.75rem" margin-left="-10.5rem" width="10rem"
@@ -480,6 +488,8 @@ component BrowserTabIcon
 // a popover opened by hover has no Contract mechanism yet (X66, exact2 #319), so the chevron is pressed.
 component BrowserAddItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     surface: ShellSurface
     profiles: list<BrowserProfileChoice>
     choose: action
@@ -488,6 +498,10 @@ component BrowserAddItem
   state lit = false
   state chevronOver = false
   action hover(over: bool)
+    if over
+      focus("add-surface-browser-km")
+    else if lit
+      focus(keysId)
     hovered = over
   action focused(on: bool)
     lit = on
@@ -495,7 +509,7 @@ component BrowserAddItem
     chevronOver = over
   view
     box position="relative" width="100%" hover=hover
-      button id="add-surface-browser" press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=focused(true) blur=focused(false) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut aria-haspopup="menu" testId="add-surface-browser" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="1.75rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      button id="add-surface-browser" press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=focused(true) blur=focused(false) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut aria-haspopup="menu" testId="add-surface-browser" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="1.75rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
         box width="1rem" height="1rem" flex-shrink=0 opacity=0.8
           BsIcon(name="earth", size=16, color="light-dark(#71717b, #818181)")
         text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -567,20 +581,24 @@ component BrowserLauncherProfiles
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="launcher-browser-profile-menu"
           KeyMenu(menuId="launcher-browser-profiles-keys", items=map(profiles, (profile) => KmItem(id=`launcher-browser-profile-${profile.id}`, label=profile.name)), keyed=keyed, gap="0px", modal=true)
             each profile in profiles key=profile.id
-              BrowserLauncherProfileItem(profile=profile, open=local("surface-browser-open", "", profile.id))
+              BrowserLauncherProfileItem(keysId="launcher-browser-profiles-keys", profile=profile, open=local("surface-browser-open", "", profile.id))
 
 component BrowserLauncherProfileItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     profile: BrowserProfileChoice
     open: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`launcher-browser-profile-${profile.id}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=`launcher-browser-profile-${profile.id}` press=open popovertarget="launcher-browser-profiles" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`launcher-browser-profile-${profile.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=`launcher-browser-profile-${profile.id}` press=open popovertarget="launcher-browser-profiles" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`launcher-browser-profile-${profile.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text profile.name flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 // One of the checklist's list-disc rows: the bullet in the muted colour, then the advice.

@@ -169,7 +169,7 @@ component R7DevSelect
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
       SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=width, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         each option in options key=option.value
-          SkMenuItem(label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose(option.value))
+          SkMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose(option.value))
 
 component R7DevSection
   props

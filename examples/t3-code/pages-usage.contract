@@ -360,10 +360,10 @@ component UsageBreadcrumb
           // the pull request Code tab's menus, or the headline reads through it.
           column min-width=`${page.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-environment-menu"
             KeyMenu(menuId="usage-environment-keys", items=concat(concat([KmItem(id="usage-environment-all", label="All environments")], map(filter(page.environments, (env) => not env.disabled), (env) => KmItem(id=`usage-environment-${env.key}`, label=env.label))), [KmItem(id="usage-model-prices", label="Model prices")]), keyed=keyed, gap="0px", modal=true)
-              CheckRow(label="All environments", status="", checked=page.allSelected, disabled=false, press=op("usage-pool-env", "", ""), testId="usage-environment-all")
+              CheckRow(keysId="usage-environment-keys", label="All environments", status="", checked=page.allSelected, disabled=false, press=op("usage-pool-env", "", ""), testId="usage-environment-all")
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
               each env in page.environments key=env.key
-                CheckRow(label=env.label, status=env.status, checked=env.checked, disabled=env.disabled, press=op("usage-pool-env", env.key, ""), testId=`usage-environment-${env.key}`)
+                CheckRow(keysId="usage-environment-keys", label=env.label, status=env.status, checked=env.checked, disabled=env.disabled, press=op("usage-pool-env", env.key, ""), testId=`usage-environment-${env.key}`)
               when length(page.environments) == 0
                 text "No environments connected." padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               when page.partial != "" and page.metric != "limits"
@@ -373,11 +373,13 @@ component UsageBreadcrumb
                   each line in page.coverage key=line.key
                     text line.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-              UsageMenuItem(label="Model prices", icon="sliders-horizontal", press=op("usage-prices-open", "", ""), menuId="usage-environment-menu", testId="usage-model-prices")
+              UsageMenuItem(keysId="usage-environment-keys", label="Model prices", icon="sliders-horizontal", press=op("usage-prices-open", "", ""), menuId="usage-environment-menu", testId="usage-model-prices")
 
 // MenuCheckboxItem: a 16pt check column, then the label (and scan status).
 component CheckRow
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     status: string
     checked: bool
@@ -385,14 +387,16 @@ component CheckRow
     disabled: bool
     press: action
     testId: string
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled opacity=(disabled ? 0.64 : 1) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) disabled=disabled opacity=(disabled ? 0.64 : 1) role="menuitemcheckbox" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when checked
           PgIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)")
@@ -403,19 +407,23 @@ component CheckRow
 // MenuItem: a 16pt muted glyph at 80% (pulled in 2pt), then the label; closes the menu.
 component UsageMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     icon: string
     press: action
     menuId: string
     testId: string
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       box opacity=0.8 display="flex"
         PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"

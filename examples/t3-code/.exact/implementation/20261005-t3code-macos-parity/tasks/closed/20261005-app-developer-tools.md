@@ -90,7 +90,7 @@ since macOS 13.3 and the app's minimum is 14.0, so no availability check is need
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| framework policy decision | [X2 developer tools for the app UI](../../issues/20261005-x02-app-developer-tools.md) | [#101](https://github.com/ccheever/exact2/issues/101) | Charlie's decision | decided 2026-10-08 (Charlie, [comment](https://github.com/ccheever/exact2/issues/101#issuecomment-6055584890)): Safari inspection of development WKWebViews; Exact's own inspector stays deferred; #101 stays open with that bounded scope |
+| framework policy decision | [X2 developer tools for the app UI](../../issues/closed/20261005-x02-app-developer-tools.md) | [#101](https://github.com/ccheever/exact2/issues/101) | Charlie's decision | decided 2026-10-08 (Charlie, [comment](https://github.com/ccheever/exact2/issues/101#issuecomment-6055584890)): Safari inspection of development WKWebViews; Exact's own inspector stays deferred; #101 stays open with that bounded scope |
 | user decision | Scope of this task | none | The user's narrowing | 2026-10-08: development-only `isInspectable` on the clone's own WKWebViews, gated on the existing development/release line, no cargo feature; the menu item stays absent as a declared difference |
 | task in progress | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | #99 (to main at the end) | The clone builds on exact2 main | the feature branch builds on main |
 | merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | merged | Merged into the feature branch | merged |
@@ -106,7 +106,7 @@ Checked 2026-10-08 against the feature branch at `732f0e3f3` (merged to `84a52dd
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X2](../../issues/20261005-x02-app-developer-tools.md), #101 | Inspector for the app UI; DEFERRED rule | decided 2026-10-08 | resolved for this task: only the app-side web view flag is allowed, and that needs no framework change | none; #101 stays open upstream for its bounded scope |
+| [X2](../../issues/closed/20261005-x02-app-developer-tools.md), #101 | Inspector for the app UI; DEFERRED rule | decided 2026-10-08 | resolved for this task: only the app-side web view flag is allowed, and that needs no framework change | none; #101 stays open upstream for its bounded scope |
 | [X26](../../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | none: no menu item is added | none |
 
 ## Implementation notes

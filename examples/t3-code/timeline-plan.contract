@@ -47,9 +47,9 @@ component PlanCard
             column id=`plan-menu-${message.id}` popover="auto" position="absolute" margin-top="0.25rem" width="12.5rem" margin-left="-11rem"
               column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Plan actions"
                 KeyMenu(menuId=`plan-menu-${message.id}-keys`, items=[KmItem(id=`plan-copy-${message.id}`, label="Copy to clipboard"), KmItem(id=`plan-download-${message.id}`, label="Download as markdown"), KmItem(id=`plan-save-${message.id}`, label="Save to workspace")], keyed=keyed, gap="0px", modal=true)
-                  PlanMenuItem(label=(message.copied > 0 ? "Copied!" : "Copy to clipboard"), menuId=`plan-menu-${message.id}`, itemId=`plan-copy-${message.id}`, disabled=false, choose=local("plan-copy", message.id, ""))
-                  PlanMenuItem(label="Download as markdown", menuId=`plan-menu-${message.id}`, itemId=`plan-download-${message.id}`, disabled=false, choose=local("plan-download", message.id, ""))
-                  PlanMenuItem(label="Save to workspace", menuId=`plan-menu-${message.id}`, itemId=`plan-save-${message.id}`, disabled=false, choose=local("plan-save-open", message.id, ""))
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label=(message.copied > 0 ? "Copied!" : "Copy to clipboard"), menuId=`plan-menu-${message.id}`, itemId=`plan-copy-${message.id}`, disabled=false, choose=local("plan-copy", message.id, ""))
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label="Download as markdown", menuId=`plan-menu-${message.id}`, itemId=`plan-download-${message.id}`, disabled=false, choose=local("plan-download", message.id, ""))
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label="Save to workspace", menuId=`plan-menu-${message.id}`, itemId=`plan-save-${message.id}`, disabled=false, choose=local("plan-save-open", message.id, ""))
         column width="100%" margin-top="1rem"
           column width="100%" position="relative" max-height=(message.collapsible and not expanded ? "26rem" : "6250rem") overflow="hidden"
             each document in filter(documents, (doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
@@ -64,19 +64,23 @@ component PlanCard
 // One MenuItem row: 28pt, 4/8 inset, radius 6, highlight on hover.
 component PlanMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     menuId: string
     itemId: string
     disabled: bool
     choose: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${itemId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(hovered or lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 // The "Save plan to workspace" dialog: a path relative to the workspace root.

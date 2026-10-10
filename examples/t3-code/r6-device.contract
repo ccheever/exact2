@@ -155,20 +155,24 @@ component R6RailDivider
 
 component R6MenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     icon: string
     label: string
     checked: bool
     destructive: bool
     press: action
     testId: string
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role=(icon == "" ? "menuitemradio" : "menuitem") aria-checked=checked testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(over or lit ? (destructive ? "light-dark(#e400141a, #ff64671a)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role=(icon == "" ? "menuitemradio" : "menuitem") aria-checked=checked testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(lit ? (destructive ? "light-dark(#e400141a, #ff64671a)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
       when icon != ""
         R6DeviceGlyph(name=icon, size=16, color=(destructive ? r6devDestructive() : r6devMuted()))
       text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(destructive ? r6devDestructive() : r6devInk())
@@ -257,22 +261,22 @@ component R6DeviceWorkspaceView
         when ws.rail.menu == "text"
             KeyMenu(menuId="device-text-keys", items=[KmItem(id="device-text-small", label="Small"), KmItem(id="device-text-default", label="Default"), KmItem(id="device-text-large", label="Large"), KmItem(id="device-text-extra-large", label="Extra large")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
             column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Device text size" testId="device-text-menu"
-              R6MenuItem(icon="", label="Small", checked=(ws.rail.textSize == "small"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "small", 0), testId="device-text-small")
-              R6MenuItem(icon="", label="Default", checked=(ws.rail.textSize == "default"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "default", 0), testId="device-text-default")
-              R6MenuItem(icon="", label="Large", checked=(ws.rail.textSize == "large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "large", 0), testId="device-text-large")
-              R6MenuItem(icon="", label="Extra large", checked=(ws.rail.textSize == "extra-large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "extra-large", 0), testId="device-text-extra-large")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Small", checked=(ws.rail.textSize == "small"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "small", 0), testId="device-text-small")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Default", checked=(ws.rail.textSize == "default"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "default", 0), testId="device-text-default")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Large", checked=(ws.rail.textSize == "large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "large", 0), testId="device-text-large")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Extra large", checked=(ws.rail.textSize == "extra-large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "extra-large", 0), testId="device-text-extra-large")
         when ws.rail.menu == "rotate"
             KeyMenu(menuId="device-rotate-keys", items=[KmItem(id="device-rotate-portrait", label="Portrait"), KmItem(id="device-rotate-landscape", label="Landscape")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
             column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Rotate device" testId="device-rotate-menu"
-              R6MenuItem(icon="", label="Portrait", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "portrait"), testId="device-rotate-portrait")
-              R6MenuItem(icon="", label="Landscape", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "landscape_left"), testId="device-rotate-landscape")
+              R6MenuItem(keysId="device-rotate-keys", icon="", label="Portrait", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "portrait"), testId="device-rotate-portrait")
+              R6MenuItem(keysId="device-rotate-keys", icon="", label="Landscape", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "landscape_left"), testId="device-rotate-landscape")
         when ws.rail.menu == "more"
             KeyMenu(menuId="device-more-keys", items=[KmItem(id="device-float", label="Float device over chat"), KmItem(id="device-close-panel", label="Close device panel"), KmItem(id="device-power-off", label="Power off device")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
             column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More device actions" testId="device-more-menu"
-              R6MenuItem(icon="float", label="Float device over chat", checked=false, destructive=false, press=local("surface-r6dev-float", "", ""), testId="device-float")
-              R6MenuItem(icon="x", label="Close device panel", checked=false, destructive=false, press=local("surface-r6dev-close-panel", "", ""), testId="device-close-panel")
+              R6MenuItem(keysId="device-more-keys", icon="float", label="Float device over chat", checked=false, destructive=false, press=local("surface-r6dev-float", "", ""), testId="device-float")
+              R6MenuItem(keysId="device-more-keys", icon="x", label="Close device panel", checked=false, destructive=false, press=local("surface-r6dev-close-panel", "", ""), testId="device-close-panel")
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=r6devBorder()
-              R6MenuItem(icon="power", label="Power off device", checked=false, destructive=true, press=command("shell:surface-r6dev-poweroff", "", "", 0), testId="device-power-off")
+              R6MenuItem(keysId="device-more-keys", icon="power", label="Power off device", checked=false, destructive=true, press=command("shell:surface-r6dev-poweroff", "", "", 0), testId="device-power-off")
       when ws.r7.tools.open
         when ws.r7.tools.overlay
           row position="absolute" top=0 bottom=0 right=0 width="100%" max-width="18rem" z-index=15
