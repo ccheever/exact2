@@ -1,0 +1,84 @@
+view-depth-under-test-stack — the review's guard (2026-10-10): examples/t3-code/view-depth.test.ts
+Head: 7629ff112 (bc182afad + the test). Base: feat(example)/t3-code 1b848a8be (sources extracted with git archive, the same test file copied in).
+
+1. After (this branch):  bun test examples/t3-code/view-depth.test.ts
+   bun test v1.4.2 (744846f84)
+   
+    2 pass
+    0 fail
+    3 expect() calls
+   Ran 2 tests across 1 file. [225.00ms]
+   exit 0
+   predicted: {"kib":1536.1875,"sites":67,"levels":17,"at":"timeline-files.contract:39","deepest":69,"route":18}
+
+2. Base 1b848a8be (before the flatten): the same test
+   error: over 1792 KiB: 2303 KiB at icons.contract:11 (80 sites, 59 expression levels; deepest site 80)
+   route: app.contract:1329 T3Window > app-window.contract:607 RightPanels > app-main.contract:263 SurfacePanel > shell-panels.contract:71 R5PrSurfaceBody > r5-panels.contract:135 PrdBody > pages-pr-detail.contract:321 PrdCode > pages-pr-code.contract:166 PrdCodeOrphans > pages-pr-code.contract:435 PrdThreadCard > pages-pr-threads.contract:127 PrdThreadComment > pages-pr-threads.contract:192 PrdWords > pages-pr-edit.contract:189 ChatMarkdown > markdown.contract:185 EnvBlocks > markdown.contract:285 BlockBody > markdown.contract:383 FlowRuns > markdown.contract:477 ResolvedChip > markdown.contract:624 Tip > markdown.contract:625 AttachmentChip > markdown.contract:661 AttachmentChipBody > markdown.contract:677 ChipFace > markdown.contract:694 TimelineIcon > timeline-icons.contract:34 Icon
+   Flatten as the task record view-depth-under-test-stack did: group lookup chains with includes(), move a lookup into a fn, turn else-when chains into sibling whens; then confirm with the ulimit -s 2048 debug compile.
+   (fail) view depth under main's 2 MiB test thread > the debug compiler's predicted lowering stack stays within 7/8 of 2 MiB [0.27ms]
+    1 pass
+    1 fail
+   exit 1
+
+3. Calibration. Site tree of the model vs the compiled plan (scratch tool over contract::compile_path_mapped):
+   after: model nodes 109849 regions 43947 54:3366 55:3380 56:3382 57:3021 58:2726 59:2154 60:1693 61:1235 62:813 63:538 64:296 65:198 66:85 67:46 68:9 69:4
+   plan : nodes 109849 regions 43947 54:3366 55:3380 56:3382 57:3021 58:2726 59:2154 60:1693 61:1235 62:813 63:538 64:296 65:198 66:85 67:46 68:9 69:4
+   base : model nodes 109849 regions 41379 ... 70:1095 71:819 72:621 73:513 74:382 75:243 76:120 77:70 78:54 79:34 80:12
+   plan : nodes 109849 regions 41379 ... 70:1095 71:819 72:621 73:513 74:382 75:243 76:120 77:70 78:54 79:34 80:12
+
+   Stack per leaf: every leaf the instrumented contract-lower (opt-level 0, stack sampled at each node and expr::compile) listed,
+   vs the test's prediction (BELOW_LOWERING 61,840 + 19,328 per site + 12,720 per level):
+   after (f69ab9414):
+     timeline-files.contract:39   measured  1535 KiB at 67 | model  1536 KiB at 67 | over 1
+     timeline-files.contract:38   measured  1516 KiB at 66 | model  1530 KiB at 66 | over 14
+     icons.contract:15            measured  1510 KiB at 67 | model  1511 KiB at 67 | over 1
+     timeline-icons.contract:39   measured  1498 KiB at 67 | model  1499 KiB at 67 | over 1
+     timeline-files.contract:41   measured  1485 KiB at 67 | model  1487 KiB at 67 | over 2
+     timeline-files.contract:37   measured  1473 KiB at 65 | model  1474 KiB at 65 | over 1
+     timeline-icons.contract:37   measured  1472 KiB at 65 | model  1486 KiB at 65 | over 14
+     timeline-icons.contract:35   measured  1472 KiB at 65 | model  1486 KiB at 65 | over 14
+     timeline-files.contract:40   measured  1466 KiB at 66 | model  1480 KiB at 66 | over 14
+     icons.contract:14            measured  1442 KiB at 66 | model  1443 KiB at 66 | over 1
+     shell-icons.contract:19      measured  1440 KiB at 62 | model  1442 KiB at 62 | over 2
+     timeline-files.contract:43   measured  1436 KiB at 67 | model  1437 KiB at 67 | over 1
+   base (1b848a8be):
+     icons.contract:11            measured  2303 KiB at 80 | model  2303 KiB at 80 | over 0
+     timeline-files.contract:31   measured  2240 KiB at 76 | model  2240 KiB at 76 | over 0
+     timeline-icons.contract:37   measured  2228 KiB at 80 | model  2229 KiB at 80 | over 1
+     timeline-files.contract:30   measured  2220 KiB at 75 | model  2234 KiB at 75 | over 14
+     timeline-icons.contract:33   measured  2190 KiB at 78 | model  2203 KiB at 78 | over 13
+     shell-icons.contract:14      measured  2156 KiB at 67 | model  2157 KiB at 67 | over 1
+     timeline-files.contract:29   measured  2091 KiB at 74 | model  2091 KiB at 74 | over 0
+     timeline-files.contract:33   measured  1941 KiB at 76 | model  1942 KiB at 76 | over 1
+     timeline-files.contract:32   measured  1922 KiB at 75 | model  1936 KiB at 75 | over 14
+     icons.contract:10            measured  1763 KiB at 79 | model  1763 KiB at 79 | over 0
+     timeline-icons.contract:36   measured  1713 KiB at 79 | model  1713 KiB at 79 | over 0
+     timeline-icons.contract:29   measured  1694 KiB at 78 | model  1694 KiB at 78 | over 0
+     timeline-icons.contract:28   measured  1674 KiB at 77 | model  1688 KiB at 77 | over 14
+     timeline-icons.contract:14   measured  1656 KiB at 76 | model  1656 KiB at 76 | over 0
+     timeline-icons.contract:16   measured  1655 KiB at 76 | model  1669 KiB at 76 | over 14
+     timeline-icons.contract:13   measured  1636 KiB at 75 | model  1650 KiB at 75 | over 14
+     markdown.contract:697        measured  1619 KiB at 74 | model  1619 KiB at 74 | over 0
+     timeline-files.contract:35   measured  1606 KiB at 76 | model  1607 KiB at 76 | over 1
+     markdown.contract:695        measured  1600 KiB at 73 | model  1600 KiB at 73 | over 0
+     markdown.contract:679        measured  1593 KiB at 72 | model  1593 KiB at 72 | over 0
+     markdown.contract:676        measured  1593 KiB at 72 | model  1593 KiB at 72 | over 0
+     timeline-files.contract:34   measured  1587 KiB at 75 | model  1600 KiB at 75 | over 13
+     timeline-icons.contract:24   measured  1583 KiB at 80 | model  1583 KiB at 80 | over 0
+     timeline-icons.contract:21   measured  1583 KiB at 80 | model  1583 KiB at 80 | over 0
+     timeline-icons.contract:23   measured  1583 KiB at 80 | model  1583 KiB at 80 | over 0
+     timeline-icons.contract:22   measured  1583 KiB at 80 | model  1583 KiB at 80 | over 0
+     timeline-icons.contract:31   measured  1564 KiB at 79 | model  1564 KiB at 79 | over 0
+     timeline-icons.contract:20   measured  1563 KiB at 79 | model  1564 KiB at 79 | over 1
+     timeline-icons.contract:30   measured  1563 KiB at 79 | model  1564 KiB at 79 | over 1
+     markdown.contract:550        measured  1555 KiB at 70 | model  1556 KiB at 70 | over 1
+     timeline-icons.contract:18   measured  1551 KiB at 77 | model  1551 KiB at 77 | over 0
+     markdown.contract:555        measured  1549 KiB at 71 | model  1550 KiB at 71 | over 1
+     timeline-icons.contract:26   measured  1545 KiB at 78 | model  1545 KiB at 78 | over 0
+     timeline-icons.contract:25   measured  1545 KiB at 78 | model  1545 KiB at 78 | over 0
+     timeline-files.contract:37   measured  1545 KiB at 76 | model  1545 KiB at 76 | over 0
+     markdown.contract:620        measured  1543 KiB at 70 | model  1543 KiB at 70 | over 0
+     markdown.contract:618        measured  1536 KiB at 69 | model  1537 KiB at 69 | over 1
+     markdown.contract:690        measured  1532 KiB at 74 | model  1557 KiB at 74 | over 25
+     timeline-icons.contract:15   measured  1526 KiB at 77 | model  1526 KiB at 77 | over 0
+     timeline-files.contract:36   measured  1524 KiB at 75 | model  1538 KiB at 75 | over 14
