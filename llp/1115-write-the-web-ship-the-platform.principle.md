@@ -144,6 +144,16 @@ author's rows. `font="-exact-footnote"` (CSS's `font` shorthand, a text style on
 style's size and weight. Not done: Bold Text, the Mac's bold `headline` (one weight per
 style, iOS's semibold), and per-style leading (line height stays `normal`).
 
+*Status (2026-10-10).* Wave 1 landed whole (eaa9f1b41 docs, 69c5455aa iOS, 550aa871a macOS,
+8dd49f60c type/links/`hr`), plus a pitfall for a fixed light background in dark mode
+(`color-scheme="light"`, 67a1892b6). Wave 2 landed but for the recipe app and its lint: Mac
+label selection, `NSSearchField` and the selected-text menu (3d4713c02; the system focus ring
+was already drawn); D5 (29bd3dcd1 by the root's `navigate`, 6e78068b4 by the runner's
+`host_back` where there is none; `exact new`'s root names `navigationBack`, a92deb3eb);
+press feedback and `UISearchTextField` (edd4690de); D6 (b968df0d8, `showModal`/`close` on every
+host); D3's heading styles (2d26c223f). Still open: the recipe app and lint; Bold Text;
+`text aria-level` without `role="heading"`; the grouped list's fixed sizes as text styles.
+
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac
 sheets and `NSPopover`, Mac native lists and sidebars, drag out, window restoration, and the
