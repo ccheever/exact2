@@ -1,0 +1,114 @@
+realinput-1010c-fixes review round: the before and after drives (same ops, lanes realinput-1010c-fixes[-before], 1280x840, --epoch 2026-10-10T06:00:00Z)
+before = the PR's previous head c8668fb34 built in t3-code-ri1010c-before; after = this branch's bundle (head 5fa6501bc's sources)
+
+ops:
+     1	clock +20000 real
+     2	clock +3000 real
+     3	tap "Dismiss notification"
+     4	clock +600 real
+     5	tap "Dismiss"
+     6	clock +600 real
+     7	type composer $frontend-design now
+     8	clock +1500 real
+     9	tap toggle-right-panel
+    10	clock +1500 real
+    11	tap surface-files
+    12	clock +2000 real
+    13	tap draft-hero-heading
+    14	clock +300 real
+    15	tap composer mouse at 60 12
+    16	clock +1000 real
+    17	state
+    18	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4p-1-chip-open.png window
+    19	tree chip-popover-escape
+    20	tree panel-toggle-right
+    21	type chip-popover key Escape
+    22	clock +800 real
+    23	state
+    24	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4p-2-escape.png window
+    25	type t3-code key Escape
+    26	clock +800 real
+    27	state
+    28	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4p-3-second-escape.png window
+    29	tap draft-hero-heading
+    30	clock +300 real
+    31	tap composer mouse at 60 12
+    32	clock +1000 real
+    33	type chip-popover key Escape
+    34	clock +800 real
+    35	state
+    36	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4c-escape.png window
+    37	tap connection-settings
+    38	clock +1200 real
+    39	tap settings-appearance
+    40	clock +1200 real
+    41	tap prompt-font-preview down at 90 13
+    42	tap up
+    43	clock +1000 real
+    44	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4s-1-settings-chip.png window
+    45	type chip-popover key Escape
+    46	clock +800 real
+    47	state
+    48	screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-realinput-1010c-fixes/target/ri1010c/shots2/after/rc4s-2-settings-escape.png window
+
+Escape holders while the details show (tree):
+  before: chip-popover-escape node 978 (made when the chip opened), panel-toggle-right node 931 (Escape): the host takes the lowest id, the panel toggle
+  after:  chip-popover-escape node 3 (the window's first node), panel-toggle-right node 934 (Escape): the details' button
+
+Outcomes (screenshots):
+  op 21 Escape with the Files panel open: before the panel closes and the details stay; after the details close and the panel stays
+  op 25 second Escape: before the details close; after the panel closes
+  op 33 Escape, no panel (first round's case): both close the details
+  op 45 Escape over Settings' prompt sample chip: both close only the details, Settings stays
+
+== before (agent ops, results)
+3 tap "Dismiss notification" -> {'tapped': 612, 'delivery': 'platform'}
+5 tap "Dismiss" -> {'tapped': 689, 'delivery': 'platform'}
+7 type composer $frontend-design now -> {'typed': 150, 'delivery': 'platform'}
+9 tap toggle-right-panel -> {'tapped': 126, 'delivery': 'platform'}
+11 tap surface-files -> {'tapped': 768, 'delivery': 'platform'}
+13 tap draft-hero-heading -> {'tapped': 490, 'delivery': 'platform'}
+15 tap composer mouse at 60 12 -> {'tapped': 150, 'delivery': 'platform'}
+17 state focus= {"logical": 491, "responder": "NodeView", "pending": null, "editor": null}
+19 tree chip-popover-escape -> [(979, None, 'Close')]
+20 tree panel-toggle-right -> [(931, 'panel-toggle-right', 'Toggle right panel')]
+21 type chip-popover key Escape -> {'typed': 974, 'key': 'Escape', 'delivery': 'platform'}
+23 state focus= {"logical": 491, "responder": "NodeView", "pending": null, "editor": null}
+25 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+27 state focus= {"editor": null, "pending": null, "logical": 491, "responder": "NodeView"}
+29 tap draft-hero-heading -> {'tapped': 490, 'delivery': 'platform'}
+31 tap composer mouse at 60 12 -> {'tapped': 150, 'delivery': 'platform'}
+33 type chip-popover key Escape -> {'typed': 1107, 'key': 'Escape', 'delivery': 'platform'}
+35 state focus= {"logical": 491, "responder": "NodeView", "editor": null, "pending": null}
+37 tap connection-settings -> {'tapped': 89, 'delivery': 'platform'}
+39 tap settings-appearance -> {'tapped': 1181, 'delivery': 'platform'}
+41 tap prompt-font-preview down at 90 13 -> {'tapped': 3304, 'delivery': 'platform'}
+42 tap up -> {'delivery': 'platform'}
+45 type chip-popover key Escape -> {'typed': 3544, 'key': 'Escape', 'delivery': 'platform'}
+47 state focus= {"logical": 1181, "editor": null, "responder": "NodeView", "pending": null}
+
+== after (agent ops, results)
+3 tap "Dismiss notification" -> {'tapped': 615, 'delivery': 'platform'}
+5 tap "Dismiss" -> {'tapped': 692, 'delivery': 'platform'}
+7 type composer $frontend-design now -> {'typed': 153, 'delivery': 'platform'}
+9 tap toggle-right-panel -> {'tapped': 129, 'delivery': 'platform'}
+11 tap surface-files -> {'tapped': 771, 'delivery': 'platform'}
+13 tap draft-hero-heading -> {'tapped': 493, 'delivery': 'platform'}
+15 tap composer mouse at 60 12 -> {'tapped': 153, 'delivery': 'platform'}
+17 state focus= {"editor": null, "logical": 494, "pending": null, "responder": "NodeView"}
+19 tree chip-popover-escape -> [(4, None, 'Close')]
+20 tree panel-toggle-right -> [(934, 'panel-toggle-right', 'Toggle right panel')]
+21 type chip-popover key Escape -> {'typed': 977, 'key': 'Escape', 'delivery': 'platform'}
+23 state focus= {"logical": 494, "responder": "NodeView", "pending": null, "editor": null}
+25 type t3-code key Escape -> {'typed': 1, 'key': 'Escape', 'delivery': 'platform'}
+27 state focus= {"editor": null, "pending": null, "responder": "NodeView", "logical": 494}
+29 tap draft-hero-heading -> {'tapped': 493, 'delivery': 'platform'}
+31 tap composer mouse at 60 12 -> {'tapped': 153, 'delivery': 'platform'}
+33 type chip-popover key Escape -> {'typed': 1108, 'key': 'Escape', 'delivery': 'platform'}
+35 state focus= {"pending": null, "logical": 494, "editor": null, "responder": "NodeView"}
+37 tap connection-settings -> {'tapped': 92, 'delivery': 'platform'}
+39 tap settings-appearance -> {'tapped': 1180, 'delivery': 'platform'}
+41 tap prompt-font-preview down at 90 13 -> {'tapped': 3303, 'delivery': 'platform'}
+42 tap up -> {'delivery': 'platform'}
+45 type chip-popover key Escape -> {'typed': 3543, 'key': 'Escape', 'delivery': 'platform'}
+47 state focus= {"logical": 1180, "pending": null, "editor": null, "responder": "NodeView"}
