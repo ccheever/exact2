@@ -57,8 +57,6 @@ export type FilesView = {
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
   codeCopied: string; codeCopyNonce: number; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   url: string; media: MediaView;
-  // right-panel-escape: the explorer's "Search files" field has the focus, so its own Escape runs before a sheet closes.
-  searchFocused: boolean;
 };
 export type MarkdownSource = { id: string; kind: string; title: string; body: string };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
@@ -68,7 +66,6 @@ type FilesState = {
   key: string; dirs: Map<string, Entry[]>; errors: Map<string, string>; requested: Set<string>; expanded: Set<string>; expandAll: boolean;
   query: string; search: { query: string; entries: Entry[]; truncated: boolean; error: string } | null;
   reads: Map<string, Read>; edits: Map<string, Edit>; loading: number; editing: string; editorText: string; editorsOpen: boolean; crumb: { root: string; dir: string } | null;
-  searchFocus: string; // right-panel-escape: the panel surface whose explorer search has the focus ('' none)
 };
 // Preferences the reference keeps in localStorage (t3code.fileExplorerOpen, t3code.renderMarkdown, t3code.renderTable),
 // persisted in the client's preference file (lane r5-panels: r5-panels-prefs.ts).
@@ -81,16 +78,10 @@ export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
   if (!state || state.key !== key) {
-    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', editorsOpen: false, crumb: null, searchFocus: '' };
+    state = { key, dirs: new Map(), errors: new Map(), requested: new Set(), expanded: new Set(), expandAll: false, query: '', search: null, reads: new Map(), edits: new Map(), loading: 0, editing: '', editorText: '', editorsOpen: false, crumb: null };
     states.set(client, state);
   }
   return state;
-}
-/** right-panel-escape: the panel hid or showed, so no explorer search keeps the focus (a field that leaves with the panel
- * may send no blur). */
-export function forgetFilesSearchFocus(client: T3Client): void {
-  const state = states.get(client);
-  if (state) state.searchFocus = '';
 }
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
@@ -257,8 +248,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   if (op === 'search') { await search(client, native, value); return ''; }
   if (op.startsWith('comment-')) return fileComment(client, native, op.slice(8), id, value, state.reads.get(id)?.contents ?? '', panelKey(client)); // diff-file-comments.ts
   // FileSearchField: its Escape closes the search (closeSearch); the field blurs itself (R4Explorer searchKey).
-  if (op === 'search-key') { if (value === 'Escape') { state.searchFocus = ''; await search(client, native, ''); } return ''; }
-  if (op === 'search-focus') { state.searchFocus = value === 'true' ? panelState(client).active : ''; return ''; }
+  if (op === 'search-key') { if (value === 'Escape') await search(client, native, ''); return ''; }
   if (op === 'begin-edit') {
     const read = state.reads.get(id);
     if (read && !read.error && !read.truncated && !isAbsolute(id)) { state.editing = id; state.editorText = read.contents; }
@@ -280,7 +270,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     else state.expanded.clear();
     return '';
   }
-  if (op === 'explorer') { preferences.explorer = !preferences.explorer; state.searchFocus = ''; return ''; }
+  if (op === 'explorer') { preferences.explorer = !preferences.explorer; return ''; }
   if (op === 'render') {
     if (isMarkdownPath(id)) preferences.renderMarkdown = !preferences.renderMarkdown;
     else if (isHtmlPath(id)) preferences.renderBrowserFile = preferences.renderBrowserFile === false;
@@ -509,7 +499,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
   explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA, searchFocused: false,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
@@ -563,6 +553,5 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered && !pdf ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
     url: frame ? page.url : '', media,
-    searchFocused: !!state.searchFocus && state.searchFocus === active.id && showExplorer,
   };
 }

@@ -60,12 +60,17 @@ component SurfacePanel
   state urlFocusTab = ""
   action urlFocus(tab: string, on: bool)
     urlFocusTab = on ? tab : (urlFocusTab == tab ? "" : urlFocusTab)
+  // right-panel-escape: the surface whose Files search has the focus; while it does, a sheet's toggle leaves Escape to it.
+  // Kept by surface, as the URL field's is by tab.
+  state filesSearchAt = ""
+  action filesSearchFocus(on: bool)
+    filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
       // r4-surfaces: an open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
       when shell.panel.open
-        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme)
-        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId))
+        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
+        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus)
         // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
         when shell.panel.kind == "pull-request"
           R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))

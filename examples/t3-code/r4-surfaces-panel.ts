@@ -17,7 +17,7 @@ import { ClientError, type Files, type Native } from './protocol';
 import { diffRequest, adoptDiff, diffNotGit } from './diff';
 import { fileIconToken } from './timeline-files';
 import { visiblePullRequests } from './shell-pr';
-import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, forgetFilesSearchFocus, type FilesView } from './r4-surfaces-files';
+import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './r4-surfaces-files';
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './r4-surfaces-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceStateOf, type DeviceView } from './r4-surfaces-device';
 // lane r6-media: opening a device, its workspace and the floating player (r6-media-device.ts).
@@ -240,12 +240,10 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (target && thread) floatMiniDevice(client, thread, target);
     // Part 3: a live Browser tab floats too (closePreviewPanel's browser half).
     if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
-    forgetFilesSearchFocus(client); // right-panel-escape
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
     // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface (audit-wave-followups FU-2).
-    forgetFilesSearchFocus(client);
     state.visible = true;
     const active = state.surfaces.find(entry => entry.id === state.active);
     if (state.visible && active?.kind === 'diff') await showDiff(client, native);

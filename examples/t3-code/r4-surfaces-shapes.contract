@@ -141,8 +141,6 @@ shape R4Files
   url: string
   // media-actions: an image or video file (media-views.ts filesMediaView).
   media: MediaView
-  // right-panel-escape: "Search files" has the focus, so its Escape is the field's before a sheet closes.
-  searchFocused: bool
 shape R4CrumbEntry
   id: string
   path: string
