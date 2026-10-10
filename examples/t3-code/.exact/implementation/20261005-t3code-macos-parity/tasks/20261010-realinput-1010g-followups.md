@@ -95,17 +95,23 @@ of the shell's menu in the same files.
   with an `href` (AXStaticText "linked ", "$verify"; on the web a generic). `FlowRuns` now draws a web link's first word as
   a Contract `link` node (href, the press and the app's link menu), its globe inside it as the reference's favicon, named
   with the whole link: `ChatRun.label`, set by `markdown_links.rs` `link_labels` from the link's runs. The link's other
-  words keep their press and menu and are hidden from assistive tech (`aria-hidden`), a code span inside a link too. macOS
+  words keep their press and menu and are hidden from assistive tech (`aria-hidden`), a code span inside a link too, but
+  only when the link has its link node: `link_labels` gives every run of such a link the label and every run of a link
+  that starts with a code span (which draws no link node, see below) "", and FlowRuns hides a later word or code span
+  only when its label is set (a code span in a pull request link neither, where each word is its own link). So
+  ``[`x` docs](https://…)`` keeps "x" and "docs" readable text, as before this PR (review round). macOS
   in-process: `AXLink "linked $verify"`, no `$verify` text after it; the web (the same construct in a one-file app): `link
   "the docs"` (`<a>`). The look is unchanged. Out of process the link node has no AXURL (X78's host part, EXACT2-GAPS row
   updated); that read needs an unlocked screen (the locked Mac answers AXWindows with the application element, the
   reference's Electron too): real-input step 4.
 
-The plan grows by 10.5 KB for all four rows (28,573,504 bytes at `327336447`, 28,584,027 on the final head).
+The plan grows by about 12 KB for all four rows (28,573,504 bytes at `327336447`, 28,584,027 at `642cdeb37`; the review
+round's link-node condition adds 1,618 bytes; 28,585,446 on the code head `e36a97748`, which also merges `2cb77060d`).
 
 Seen while building, not a finding row (left as is): a code span inside a web link (``[`x` docs](https://…)``) is drawn as
-a plain code box (no press, no menu), and a link that starts with code has no link node; drawing those parts as the link
-(two more `FlowRuns` branches) measured +763 KB of plan, so it was not built. A mailto, irc, xmpp or fragment link in a
+a plain code box (no press, no menu), and a link that starts with code has no link node, so its words stay text that
+assistive tech reads (no link role, as before this PR); drawing those parts as the link (two more `FlowRuns` branches)
+measured +763 KB of plan, so it was not built. A mailto, irc, xmpp or fragment link in a
 reply stays plain link text (#407 round 2: no press), so it is not a link in the accessibility tree either.
 
 ## Acceptance results
@@ -115,11 +121,14 @@ reply stays plain link text (#407 round 2: no press), so it is not a link in the
 | RG-1 | pass (agent drive, reference, AppKit test): before (evidence worktree c03d7e908) no shell menu; the first after drive: no Copy Image (the hidden timestamp took the click); the final after drive: Copy Image, a separator, Cut, Copy and Paste disabled, Select All at three points of the icon, the reference's menu. AppKit: Copy Image under a pass-through hook, its bitmap copied (fails on the tip). Drawn menu and paste: real-input step 1 (open) | [RG1-tool-icon.txt](https://raw.githubusercontent.com/ccheever/exact2/ad5e2f9e703571dc08186ff5500e68b7957630b9/realinput-1010g-followups/RG1-tool-icon.txt) |
 | RG-2 | implemented: every text input has `autocorrect="off"` (Bun: 52 inputs without it on the tip); the final drive's Settings search: `autocorrect` off, "theme" kept, menu Cut, Copy, Paste (disabled), Select All; AppKit: the menu's Cut cuts the selected word. The capitalization needs real input: step 2 (open) | [RG2-settings-search.txt](https://raw.githubusercontent.com/ccheever/exact2/ed151f471bd7a495c8cf913d90e58222477bc4e5/realinput-1010g-followups/RG2-settings-search.txt) |
 | RG-3 | pass (AppKit, drawn menus): composer "chek" and field "theme" draw the template only (the session's build drew AutoFill and Services after it); a Browser page's word and field: before `…, Services` and `…, AutoFill, Services`, after the four roles only; Writing Tools off. Real menus: step 3 (open) | [RG3-drawn-menus.txt](https://raw.githubusercontent.com/ccheever/exact2/d09388babc4af2561b0621cdd69fd96fad4d0776/realinput-1010g-followups/RG3-drawn-menus.txt) |
-| RG-4 | pass in-process (agent drive, reference, web repro): before AXStaticText "linked ", "$verify"; after AXLink "linked $verify" and nothing after it; the reference one `<a>` with its URL; the web `link "the docs"`. Look unchanged. Out of process (AXURL is X78): step 4 (open) | [RG4-link-ax.txt](https://raw.githubusercontent.com/ccheever/exact2/ae98bd868356071b1eeae6744129c0b59aaed3dd/realinput-1010g-followups/RG4-link-ax.txt), [RG4-reply-link-look.png](https://raw.githubusercontent.com/ccheever/exact2/d833dcdd57b197eaa2615472d799bb19c9dc91c3/realinput-1010g-followups/RG4-reply-link-look.png) |
+| RG-4 | pass in-process (agent drive, reference, web repro): before AXStaticText "linked ", "$verify"; after AXLink "linked $verify" and nothing after it; the reference one `<a>` with its URL; the web `link "the docs"`. Look unchanged. Review round (a link that starts with a code span, added to the lane's fixture reply): before this PR and after, "x" and "docs" are AXStaticText (the PR's earlier head hid "docs"), and "linked $verify" is still one AXLink with nothing after it. Out of process (AXURL is X78): step 4 (open) | [RG4-link-ax.txt](https://raw.githubusercontent.com/ccheever/exact2/ae98bd868356071b1eeae6744129c0b59aaed3dd/realinput-1010g-followups/RG4-link-ax.txt), [RG4-reply-link-look.png](https://raw.githubusercontent.com/ccheever/exact2/d833dcdd57b197eaa2615472d799bb19c9dc91c3/realinput-1010g-followups/RG4-reply-link-look.png), [RG4-review-code-first-link.txt](https://raw.githubusercontent.com/ccheever/exact2/ed5f5133742bc4dc5805be9df2d7218067bd41b2/realinput-1010g-followups/RG4-review-code-first-link.txt), [RG4-code-first-link-look.png](https://raw.githubusercontent.com/ccheever/exact2/765fdfc132b833ded9870ed54faabe13170f1183/realinput-1010g-followups/RG4-code-first-link-look.png) |
 
 The before build is the evidence worktree at `c03d7e908` (it predates #407, so it shows no shell menu at all); the
 before of the AppKit rows is the feature tip's module (`327336447`) under the same new tests. The after drive ran twice:
 the first (bundle of `09ea1c785`) found the timestamp over the icon, the retry (bundle of `15df07483`) is the result above.
+The review round drove once more (bundle of `e36a97748`; the evidence worktree for before): the lane's fixture reply got a
+link that starts with a code span for the drive, its database copied first and put back after
+([drive-review.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/9051599b8ca83629d2a363130eaf514b87dce61f/realinput-1010g-followups/drive-review.sh.txt)).
 Drive steps: [drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/ee68c49b720a38061ebc4dbd68073b438a502a5b/realinput-1010g-followups/drive.sh.txt); reference tools: [ref-ax.mjs.txt](https://raw.githubusercontent.com/ccheever/exact2/a1055e2c904ebe01e30bb52313feb041b5b59b70/realinput-1010g-followups/ref-ax.mjs.txt),
 [ref-rclick-at.mjs.txt](https://raw.githubusercontent.com/ccheever/exact2/bce134edafc6c1e7566712d0c88684685c91caee/realinput-1010g-followups/ref-rclick-at.mjs.txt); the AppKit checking probe: [rg2-types.swift.txt](https://raw.githubusercontent.com/ccheever/exact2/0ec5f8285506324dcedc08c87173ca68a4cbc68e/realinput-1010g-followups/rg2-types.swift.txt).
 
@@ -154,24 +163,27 @@ NSAutomaticCapitalizationEnabled` prints 1); do not change it. Never send a mess
   same menu draws AutoFill and Services, and Writing Tools is off (1 failure on the tip); a real WKWebView's drawn menus on a
   word and in a field (2 failures on the tip: Services, AutoFill and Services). `main.swift` runs both new suites.
 - `text-entry.test.ts` (+1): every text input has `autocorrect="off"` (52 missing on the tip).
-- `realinput-1010g-followups.test.ts` (new, 3): the header's hidden timestamp takes no pointer, the icon's hook box and the
-  shell's search below the hit, the system-item switches (3 failures on the tip).
+- `realinput-1010g-followups.test.ts` (new, 1): the header's hidden timestamp takes no pointer (fails on the tip). The
+  review round dropped its checks of Swift source strings (the search below the hit, the system-item switches): the
+  AppKit tests above test that behaviour.
 - `external-link-menu.test.ts`: the hookup test reads FlowRuns' link node (href, press, menu, `aria-label=run.label`, the
-  globe inside), the hidden other words and code span, and `ChatRun.label`.
-- `macos/src/markdown_links.rs` (+1, Rust): a link's first run is labelled with the whole link, its other runs and other
-  runs with "" (`a_links_first_run_is_labelled_with_the_whole_link`).
+  globe inside), the other words and code span hidden only when their label is set (not in a pull request link), and
+  `ChatRun.label`.
+- `macos/src/markdown_links.rs` (+1, Rust): every run of a link is labelled with the whole link (a code span after its
+  first word too), other runs with "", and a link that starts with a code span with "" on all its runs
+  (`a_links_runs_are_labelled_with_the_whole_link`).
 
 ## Checks
 
-On the code head `642cdeb37` (`origin/feat(example)/t3-code` `327336447` merged; all exit 0): `bun test examples/t3-code
---timeout 60000` 4448 pass / 1 skip / 0 fail (304 files); strict `tsc`; `contract build` of `app.contract` (1397 lines;
-28,584,027 bytes); `cargo test -p t3-code-macos --lib` 19 pass; AppKit `contextmenu` 53 run / 0 failed (4 new),
-`browser-capture` 34 / 0, `media-actions` 7 / 0, `r6-media` 10 / 0 (the three use T3ShellWebView); `git add -A && bun
+Review round, on the code head `e36a97748` (the fix `c76c91285`, `origin/feat(example)/t3-code` `2cb77060d` merged; all
+exit 0): `bun test examples/t3-code --timeout 60000` 4453 pass / 1 skip / 0 fail (305 files); strict `tsc`; `contract
+build` of `app.contract` (1397 lines; 28,585,446 bytes); `cargo test -p t3-code-macos --lib` 19 pass; `git add -A && bun
 scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests
 --no-fail-fast` (3679 passed, 0 failed, 34 ignored), `cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt
---all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. The live drive's bundle was built from `15df07483`;
-`642cdeb37` only moves `autocorrect="off"` to the end of each input's attribute line (same plan size), and later commits
-change records and merge `origin/feat(example)/t3-code`'s records (`79cfa3706`).
+--all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. No Swift changed in the review round, so the AppKit
+binaries were not rerun (first round, on `642cdeb37`: `contextmenu` 53 run / 0 failed (4 new), `browser-capture` 34 / 0,
+`media-actions` 7 / 0, `r6-media` 10 / 0). The review round's drive ran on the bundle of `e36a97748`; the first round's on
+`15df07483` (`642cdeb37` only moved `autocorrect="off"` to the end of each input's attribute line).
 
 ## Not done / not verified
 
