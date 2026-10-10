@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010d-followups
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/400
 verified_commit: null
 ---
 
@@ -135,6 +135,11 @@ fixture), floated with the chrome's Float preview over chat. Move the pointer wi
 - AppKit: `macos/tests/browser-automation` `testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost` (RD-3; 4 failures
   on the branch tip's module), `macos/tests/contextmenu/text-menu.swift` (RD-4, 3 rows).
 
+Checks on the code head `7749bf954` (all exit 0): `bun test examples/t3-code` 4357 pass, 1 skip, 0 fail; strict `tsc`;
+`contract build` of `app.contract` (1341 lines); `cargo test -p t3-code-macos --lib` 17 pass; AppKit `browser-automation`
+26 and `contextmenu` 22 pass; `caps`; `cargo build --all-targets`, `cargo test` (3675 pass), `clippy -D warnings`,
+`fmt --check`, `boot`.
+
 ## Next action
 
-Coordinator: review the draft PR. Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 join the next session.
+Coordinator: review the draft PR ([#400](https://github.com/ccheever/exact2/pull/400)). Real-input rows RD-1, RD-2 (re-check), RD-3 and RD-4 join the next session.
