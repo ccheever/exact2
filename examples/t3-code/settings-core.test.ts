@@ -287,6 +287,24 @@ describe('writes through the command', () => {
     // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
     expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
   });
+  test('Restore defaults lists "Theme mix" for a theme on one appearance, after Follow system (useTheme themeHalves)', async () => {
+    // The library's Use puts a one-palette theme on its own half (assignHalf): the reference stores the mix and lists it
+    // (`themeHalves !== null`), so Restore defaults is enabled with it alone; a whole theme (setTheme) clears the mix.
+    const client = fake();
+    client.local.customThemes = [{ id: 'dusk', label: 'Dusk', appearance: 'dark', light: null, dark: { canvas: '#101820', accent: '#44cc88', text: '#f0f0f0' } }];
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect([(client.local.clientSettings as Obj).theme, (client.local.clientSettings as Obj).themeDark]).toEqual(['t3-code', 'dusk']);
+    expect(await settingsCore(as(client), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Theme mix.' });
+    applyDeviceSetting(client.local as never, 'appearanceMode', 'dark');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Follow system', 'Theme mix']);
+    applyDeviceSetting(client.local as never, 'theme', 'grove');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system']);
+    // A half over a whole theme is both.
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system', 'Theme mix']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, null)).toEqual([]);
+  });
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();
     client.files['/a'] = '{"worktreeSubmodules":"none"}';

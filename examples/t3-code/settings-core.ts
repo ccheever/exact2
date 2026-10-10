@@ -606,6 +606,9 @@ const SERVER_LABELS: Record<string, string> = {
  *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
 const AGENT_BROWSER_LABELS: Record<string, string> = { enableAgentBrowserAccess: 'Agent browser access' };
 const RESTORED_SERVER_KEYS = [...Object.keys(SERVER_LABELS), ...Object.keys(AGENT_BROWSER_LABELS)];
+/** useTheme's `themeHalves`: a theme on one appearance only (a one-palette theme's Use, assignHalf), which a whole theme (setTheme)
+ *  clears. Here a half is `themeLight` or `themeDark` apart from `theme` (a whole theme sets all three). */
+const THEME_MIX = 'themeMix';
 /**
  * useSettingsRestore's changedSettingLabels in its order (SettingsPanels.tsx): each label with the keys it reads, `device` from this
  * app's preferences (changedDeviceLabels) and `server` from the scope's settings. `browser` is getChangedBrowserSettingLabels' place.
@@ -613,7 +616,8 @@ const RESTORED_SERVER_KEYS = [...Object.keys(SERVER_LABELS), ...Object.keys(AGEN
  * reference neither lists nor resets it, but this app's restore resets it, so the list names it (audit-wave-followups-4).
  */
 const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
-  ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Contrast', 'device', ['appearanceContrast']], ['Glass opacity', 'device', ['glassOpacity']],
+  ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
+  ['Glass opacity', 'device', ['glassOpacity']],
   ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Panel animations', 'device', ['panelAnimationDurationMs']],
   ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
   ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
@@ -640,7 +644,8 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
  * `settings` is null with no connected target (DEFAULT_SERVER_SETTINGS: no environment row is listed).
  */
 export function restoreLabels(local: LocalPrefs, settings: Obj | null): string[] {
-  const device = new Set(changedDeviceLabels(local));
+  const device = new Set(changedDeviceLabels(local)), prefs = local.clientSettings || decodeClientPrefs({});
+  if (prefs.themeLight !== prefs.theme || prefs.themeDark !== prefs.theme) device.add(THEME_MIX);
   const changed = (key: string) => settings !== null && key in settings && !same(settings[key], SERVER_DEFAULTS[key]);
   return RESTORE_ROWS.flatMap(([label, source, keys]) => source === 'browser' ? changedBrowserSettingLabels({ local })
     : keys.some(key => source === 'device' ? device.has(key) : changed(key)) ? [label] : []);

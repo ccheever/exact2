@@ -48,7 +48,10 @@ Included: the two rows. FX-2 is a shared model change: do it once in the shared 
   t3.json in a project scope on every settings route (useMemberProjectFiles is the scope provider's, not a page's).
   `restoreLabels` now walks the reference's own list in its order (`RESTORE_ROWS`): device and environment values
   interleave as there, a font's label counts its family and its size ("Code font", not "Monospace font" and "Code font
-  size"), and "Visible threads" is listed. Checked on the reference over CDP with the same settings: the environment
+  size"), "Visible threads" is listed, and "Theme mix" follows "Follow system" when a theme sits on one appearance only
+  (`themeHalves !== null`: here `themeLight` or `themeDark` apart from `theme`, which a one-palette theme's Use sets and a
+  whole theme clears). The base listed no row for that state, so Restore defaults stayed disabled with a mix alone (review
+  round 1). Checked on the reference over CDP with the same settings: the environment
   scope lists "Snooze limited threads."; the work project scope lists "Auto-settle merged threads, Snooze limited
   threads, Response streaming, New thread mode." The last is the reference's own resolution: a read t3.json fills the
   unset `defaultThreadEnvMode` with its built-in "local", which is not the default's null, so every project scope lists
@@ -79,19 +82,32 @@ Included: the two rows. FX-2 is a shared model change: do it once in the shared 
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| FX-1 | pass: Settings in the work project scope, Restore defaults lists "Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode." as the reference (before: "Snooze limited threads."); the environment scope stays "Snooze limited threads."; the Bun test of the scoped list; the live drive's dialog | [FX-1-restore-list.txt](https://raw.githubusercontent.com/ccheever/exact2/fa219b729896c3a61badb2b9fc7bd2cf3ce9e072/audit-wave-followups-4/FX-1-restore-list.txt), [fx1-restore.png](https://raw.githubusercontent.com/ccheever/exact2/ccc2f5b0f0f356dcc4707c6295054c68cf9373d6/audit-wave-followups-4/fx1-restore.png) |
-| FX-2 | pass (agent pointer and keys; real input open): Sort, the pointer on Blocked on me, ↓: one highlight on Recently updated, as the reference (before: Blocked on me and Merge readiness shaded, ↓ had gone from the popup to the first row); the settings scope menu, the pointer on Verification fixture, ↓: work highlighted, All projects keeps its checked wash, as the reference (before: All projects and Verification fixture shaded); the pointer then on Oldest shown moves the focus there (state: focus node 2165 → 2173; before: unchanged). The shared rule's Bun tests | [fx2-sort.png](https://raw.githubusercontent.com/ccheever/exact2/a705b303aa34fa0e78e83a44738bb4011cf33898/audit-wave-followups-4/fx2-sort.png), [fx2-scope.png](https://raw.githubusercontent.com/ccheever/exact2/6e9698ce6223fe1868b62d6c06a4407388a56ddc/audit-wave-followups-4/fx2-scope.png) |
+| FX-1 | pass: Settings in the work project scope, Restore defaults lists "Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode." as the reference (before: "Snooze limited threads."); the environment scope stays "Snooze limited threads."; a one-palette theme on its half lists "Theme mix" and enables Restore defaults (before: nothing listed, disabled); the Bun tests of the scoped list and of the mix; the live drive's dialog | [FX-1-theme-mix.txt](https://raw.githubusercontent.com/ccheever/exact2/4ef1132986178c2c3eae3ab7be0704034ca903cd/audit-wave-followups-4/FX-1-theme-mix.txt), [FX-1-restore-list.txt](https://raw.githubusercontent.com/ccheever/exact2/fa219b729896c3a61badb2b9fc7bd2cf3ce9e072/audit-wave-followups-4/FX-1-restore-list.txt), [fx1-restore.png](https://raw.githubusercontent.com/ccheever/exact2/ccc2f5b0f0f356dcc4707c6295054c68cf9373d6/audit-wave-followups-4/fx1-restore.png) |
+| FX-2 | pass (agent pointer and keys; real input open): Sort, the pointer on Blocked on me, ↓: one highlight on Recently updated, as the reference (before: Blocked on me and Merge readiness shaded, ↓ had gone from the popup to the first row); the settings scope menu, the pointer on Verification fixture, ↓: work highlighted, All projects keeps its checked wash, as the reference (before: All projects and Verification fixture shaded); the pointer then on Oldest shown moves the focus there (state: focus node 2165 → 2173; before: unchanged). `menu-one-highlight.test.contract` on the bundle, 5 of 5: hover a row, ↓, Enter presses the next row (Sort: Recently updated after Blocked on me, Largest shown after the pointer moved to Oldest shown; scope: Verification fixture after All projects), and the pointer leaving hands the keys back to the popup; the same steps on the before build pressed the first row (Merge readiness, All projects). The shared rule's Bun tests, each `keysId` checked against its popup | [FX-2-menu-one-highlight.txt](https://raw.githubusercontent.com/ccheever/exact2/bd2a6b0a89c853c8ec7518a3eee4cfd2301b338f/audit-wave-followups-4/FX-2-menu-one-highlight.txt), [fx2-sort.png](https://raw.githubusercontent.com/ccheever/exact2/a705b303aa34fa0e78e83a44738bb4011cf33898/audit-wave-followups-4/fx2-sort.png), [fx2-scope.png](https://raw.githubusercontent.com/ccheever/exact2/6e9698ce6223fe1868b62d6c06a4407388a56ddc/audit-wave-followups-4/fx2-scope.png) |
 
 ## Tests
 
 - `settings-core.test.ts` "Restore defaults lists the scope target's values, in the reference's order": the environment
   scope, the checkout p1 (its overrides, the environment's value, New thread mode from the t3.json tier), the same on
   Source Control and in the project scope, a member without overrides, device values among the environment's, the font
-  label, Visible threads, no connected target. The earlier restore tests take the new signature.
+  label, Visible threads, no connected target. The earlier restore tests take the new signature. "Restore defaults lists
+  "Theme mix" for a theme on one appearance": a one-palette theme's half alone enables Restore defaults with "Theme mix",
+  after Follow system; a whole theme clears it; a half over a whole theme is both; Restore clears it.
 - `menu-keys.test.ts` "one highlight": `KeyMenu`/`KeyMenuWatched` make a door's row current and focus it and hear no
   hover or pointer; `KmDoor`'s box; each of the 37 row components paints from its focus, focuses its door on entering
   and hands the focus to `keysId` on leaving, and every use passes `keysId`; the owner-drawn menus; no keyboard-reachable
-  menu row paints from its hover. The snooze, Act on and Filters expectations follow the new rows.
+  menu row paints from its hover. The snooze, Act on and Filters expectations follow the new rows. "every keysId names
+  the KeyMenu popup the row sits in": each of the 146 row uses' `keysId` equals the `menuId` of the `KeyMenu` around it
+  (or a wrapper's, `SkPopup`/`CnMenu`, with `-keys`), following a component that hands its `keysId` on to its uses; only
+  the device rail's rows sit beside their KeyMenu (Found, not changed).
+- `menu-one-highlight.test.contract` (behaviour, the agent's pointer and keys on the macOS bundle, review round 1): Sort
+  (a `KeyMenu` of `PrMenuItem` rows) and the settings scope menu (`ScopeMenu`, rows its owner draws). Each case hovers
+  rows, sends ↓ and Enter to the popup's own box (a node that takes no focus, so the keys reach whatever holds it) and
+  reads the pressed row from the state (`prList.sort`, `settingsCore.projectLabel`): the pointer on a row, ↓ goes on
+  from it; the pointer moving to another row takes the current row with it; the pointer leaving hands the keys back to
+  the popup. Run it with `EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh <lane> <port> --test
+  examples/t3-code/menu-one-highlight.test.contract`. 5 of 5 pass on this branch; on the before build the first, second
+  and fourth press the first row (the leave cases match the base, which never moved the keys with the pointer).
 
 ## Real-input batch steps
 
@@ -131,6 +147,7 @@ T3_LOCAL_PORT=16502`), app launched normally and active, window 1280×840:
 | Reference | T3 Code `1e2ecbd975` Electron over CDP, lane `audit-wave-followups-4` (backend 16500, CDP 16501) | Complete | the third column of each image; the restore lists in FX-1-restore-list.txt |
 | Before drive | `t3-code-evidence-base` at `950e8e2e5` (its menu rows and restore list are the tip's in these steps) | Complete on the third run (the first two stopped at navigation steps of the drive script) | the first column |
 | After drive (the live drive) | this branch's bundle `d7622dffe` | Complete, one run | the second column |
+| Review round 1 | this branch's bundle with the fixes below | The review asked for a behavioural test of the shared rule on a KeyMenu and an owner-drawn menu, a check of each `keysId` value, and "Theme mix" in the restore list: added; `menu-one-highlight.test.contract` 5/5 on the bundle (one run); the before build's same steps press the first row | [FX-2-menu-one-highlight.txt](https://raw.githubusercontent.com/ccheever/exact2/bd2a6b0a89c853c8ec7518a3eee4cfd2301b338f/audit-wave-followups-4/FX-2-menu-one-highlight.txt), [FX-1-theme-mix.txt](https://raw.githubusercontent.com/ccheever/exact2/4ef1132986178c2c3eae3ab7be0704034ca903cd/audit-wave-followups-4/FX-1-theme-mix.txt) |
 | Design | — | A popup `pointermove` worked but took the presses inside menus from the window's light-dismiss count (`usage-pooled.test.ts`); forwarding them through injected window actions grew the plan from 27.1 to 33.7 MB; replaced by the doors | — |
 
 ## Next action

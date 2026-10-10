@@ -308,6 +308,8 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
   });
 });
 
+// The behaviour (a hovered row takes the focus, ↓ goes on from it, leaving hands the keys back) is
+// menu-one-highlight.test.contract, which the agent runs against the app on a KeyMenu (Sort) and an owner-drawn menu (scope).
 describe('one highlight: the pointer and the keys move one focus (audit-wave-followups-4 FX-2; Base UI highlightedIndex)', () => {
   test('a row\'s door makes it the menu\'s current row and hands it the focus, so the keys go on from the row the pointer rests on', async () => {
     for (const name of ['KeyMenu', 'KeyMenuWatched']) {
@@ -349,10 +351,63 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect(body).toContain('    keysId: string');
     expect(body).toMatch(new RegExp(`    if (value|over|on)\\n      focus\\(${quote(door(id))}\\)\\n    else if lit\\n      focus\\(keysId\\)`));
     expect(body).not.toMatch(/\b(over|hovered|hovering) or lit\b|\blit or (over|hovered|hovering)\b/);
-    // Every use names the KeyMenu popup it sits in.
+    // Every use passes the popup it sits in (the next test checks which).
     for (const f of readdirSync(dir).filter(n => n.endsWith('.contract'))) {
       for (const line of (await source(f)).split('\n').filter(l => new RegExp(`^\\s*${name}\\(`).test(l))) expect(line).toContain(`${name}(keysId=`);
     }
+  });
+
+  test('every keysId names the KeyMenu popup the row sits in', async () => {
+    const files = new Map<string, string[]>();
+    for (const f of readdirSync(dir).filter(n => n.endsWith('.contract') && !n.endsWith('.test.contract'))) files.set(f, (await source(f)).split('\n'));
+    const indent = (line: string) => line.length - line.trimStart().length;
+    // The popup a line opens: KeyMenu's own `menuId`, or the `-keys` KeyMenu of a wrapper (SkPopup, CnMenu) by its `menuId`.
+    const popupOf = (line: string): string | null => {
+      const own = line.match(/^\s*KeyMenu(?:Watched)?\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
+      if (own) return own[1]!;
+      const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
+      if (!wrapped) return null;
+      return /^[`"]/.test(wrapped) ? `${wrapped.slice(0, -1)}-keys${wrapped.slice(-1)}` : `\`\${${wrapped}}-keys\``;
+    };
+    // The popups around a line: the nearest one among its ancestors in its component, else those around each use of the
+    // component. `beside`: no ancestor opens one, but a KeyMenu precedes an ancestor at its own depth (the rows sit beside it).
+    type Around = { popup: string; beside: boolean };
+    const around = (file: string, at: number, seen: Set<string>): Around[] => {
+      const lines = files.get(file)!;
+      let depth = indent(lines[at]!), beside: string | null = null;
+      for (let i = at - 1; i >= 0; i--) {
+        const line = lines[i]!;
+        const owner = line.match(/^component (\w+)$/)?.[1];
+        if (owner) {
+          if (beside) return [{ popup: beside, beside: true }];
+          if (seen.has(owner)) return [];
+          seen.add(owner);
+          return [...files].flatMap(([f, ls]) => ls.flatMap((l, j) => new RegExp(`^\\s+${owner}\\(`).test(l) ? around(f, j, seen) : []));
+        }
+        if (!line.trim() || line.trimStart().startsWith('//') || indent(line) > depth) continue;
+        if (indent(line) === depth) { beside ??= popupOf(line); continue; }
+        depth = indent(line);
+        const popup = popupOf(line);
+        if (popup) return [{ popup, beside: false }];
+      }
+      return [];
+    };
+    const wrong: string[] = [], besides = new Set<string>();
+    let checked = 0;
+    for (const [file, lines] of files) lines.forEach((line, at) => {
+      const keys = line.match(/^\s*\w+\(keysId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
+      // A component that hands its own `keysId` on is checked at its uses.
+      if (!keys || keys === 'keysId') return;
+      const popups = around(file, at, new Set());
+      checked++;
+      if (popups.length === 0 || popups.some(entry => entry.popup !== keys)) wrong.push(`${file}:${at + 1} keysId=${keys} in ${popups.map(entry => entry.popup).join(', ') || 'no KeyMenu'}`);
+      for (const entry of popups) if (entry.beside) besides.add(file);
+    });
+    expect(wrong).toEqual([]);
+    // A floor, so a pattern that stops matching the uses fails here (146 at audit-wave-followups-4).
+    expect(checked).toBeGreaterThan(140);
+    // Only the device rail draws its rows beside their KeyMenu (a key at a focused row reaches no menu; the record's "Found, not changed").
+    expect([...besides]).toEqual(['r6-device.contract']);
   });
 
   test('the menus whose rows their owner draws: one focused row, the door on entering, the popup on leaving', async () => {
