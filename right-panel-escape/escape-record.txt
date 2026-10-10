@@ -1,0 +1,32 @@
+right-panel-escape, 2026-10-10. Escape and the right panel: T3 Code (Alpha 0.0.45, 1e2ecbd975, CDP, lane port 16601)
+against the clone (agent mode, before = evidence-base c03d7e908, after = this branch). "open" = the panel stays.
+
+T3 Code reference (Toggle right panel aria-pressed after Escape; focus as listed)
+  inline 1280x840:
+    launcher ("Open a surface" focused)                 open
+    Files, focus BODY / on the toggle                   open / open
+    Files tree row focused                              open
+    Files search field (typed "fix")                    open (field blurred)
+    file editor focused (README.md)                     open (editor blurred, focus BODY); 2nd Escape: open
+    Browser, focus BODY / URL field / toggle            open / open (field blurred) / open
+    Diff (server thread), focus BODY / toggle           open / open
+    composer focused                                    open
+    Pull Requests page                                  no PR in the fixture, its toggle disabled; Escape went back
+                                                        to the thread (useEscapeToGoBack)
+  sheet 900x840 (RightPanelSheet, role=dialog):
+    Browser, focus "Close Browser"                      closed
+    Browser URL field focused                           closed
+    Diff                                                closed
+    Files search field                                  closed
+    file editor focused (fixture.txt)                   open (editor blurred); 2nd Escape: closed
+    launcher                                            closed
+
+Clone, state.rightPanel after Escape (agent `type <target> key Escape`)
+                                                before   after   reference
+  inline launcher (surface-chooser)             false    true    open
+  inline Files, at panel-toggle-right           false    true    open
+  inline file editor (file-editor)              false    true    open (editing false after)
+  sheet Files/app.ts, at panel-toggle-right     false    false   closed
+  sheet file editor, 1st Escape                 false    true    open (editing false after)
+  sheet, 2nd Escape                             -        false   closed
+  sheet launcher (surface-chooser)              false    false   closed
