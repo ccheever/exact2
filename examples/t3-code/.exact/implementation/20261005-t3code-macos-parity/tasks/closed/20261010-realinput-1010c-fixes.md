@@ -1,14 +1,14 @@
 ---
 name: 20261010-realinput-1010c-fixes
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+implementation: done
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010c-fixes
 pr_url: https://github.com/ccheever/exact2/pull/399
-verified_commit: null
+verified_commit: df2cc67e19d30813b547e7099cf9811a94bd4df5
 ---
 
 # Failures of the attended real-input session of 2026-10-10 (realinput-1010c)
@@ -263,3 +263,30 @@ step 1.
 ## Next action
 
 Run the real-input batch steps; then the coordinator reviews and merges.
+
+## Delivery
+
+Merged on 2026-10-10 as `df2cc67e1` (#399, squash) after an independent review and its repair round. The real-input
+batch steps ran in `realinput-1010e` on the bundle of `a1ade42f9` (lane ri1010e-3)
+([notes](https://raw.githubusercontent.com/ccheever/exact2/a18ab23126a27ce4804478282e641fb8734d3f02/realinput-1010e/E4-399-notes.txt)).
+New rows went to [realinput-1010e-followups](../20261010-realinput-1010e-followups.md).
+
+- RC-2 passed in dark and light: the painted label equals the accessible name after every Shift+click
+  ([dark](https://raw.githubusercontent.com/ccheever/exact2/f42813d709681e41d5d88f4bfa2198acbfcf3bd3/realinput-1010e/E4-RC2-dark-shift-clicks.png)).
+  The long single-model sub-step was skipped: no model label wider than about 205 pt is available. The unit test covers
+  the key.
+- RC-3 passed for Author and State
+  ([Author](https://raw.githubusercontent.com/ccheever/exact2/70c2e0e5927630f2907f40dae7221c8e6d6ece86/realinput-1010e/E4-RC3-author.png)).
+- RC-4 (b), (c) and (d) passed. In (a) the prompt stays unchanged and the ⌘K order passed, but the caret failed (2 of 2):
+  a click on the chip moves the caret to 0, after Escape no caret shows, and typing lands before the chip
+  ([typed](https://raw.githubusercontent.com/ccheever/exact2/7a248636ea42d3fecaf35fdcfe546194628c52f8/realinput-1010e/E4-RC4a-2-FAIL-typed-x-lands-before-chip.png)).
+  Moved to RE-3.
+- RC-5: the diagnostic ran. No cause was found, a bad state was seen twice, and no trace was written (the session
+  pressed ⌥⌘T, which is not the binding). Moved to RE-6.
+- RC-6 passed: ↓ walks Blank profile, Chrome, Brave, Arc, Safari, Firefox and wraps; Return on Chrome opens the wizard
+  with the fixture's profiles only; Escape closes the menu
+  ([keys](https://raw.githubusercontent.com/ccheever/exact2/2d9e11dfd24b7e2ef6730f8b9202d4792cbc5f94/realinput-1010e/E4-RC6-1-arrow-keys.png)).
+  New: after Cancel by mouse in the wizard the focus goes nowhere. Moved to RE-4.
+- RC-8 passed: Diff › Changes shows the `work` repository (feature/audit → main, +6 −1), and one click in the composer's
+  empty area gives it the caret
+  ([Diff and composer](https://raw.githubusercontent.com/ccheever/exact2/f593e58600f3bfd30f87cefada94f96ef0234f2c/realinput-1010e/E4-RC8-diff-work-repo-comment-then-composer.png)).
