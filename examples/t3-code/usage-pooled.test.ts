@@ -523,10 +523,14 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     }
     // browser-surface-capture (realinput-1010c, 1010d RD-1): the floating player hears `pointermove` for its pill and the
     // pill's tooltips (its buttons hear no hover, X62); a press there is the page's, the player's drag or resize, or a pill
-    // button's, and the Usage page's popover is never on screen with the chat's floating player.
+    // button's, and the Usage page's popover is never on screen with the chat's floating player. realinput-1010f RF-3: the
+    // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
+    // request's Code tab, which the Usage page covers, so its popover is never on screen with them either.
     expect(takers).toEqual([
       'app-window.contract t3-code',
       'browser-capture.contract browser-mini-player',
+      'diff-rows.contract diff-line-${path}-${side}-${line}',
+      'diff-rows.contract diff-comment-${path}-${side}-${line}',
       'pages-usage.contract usage-page',
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',

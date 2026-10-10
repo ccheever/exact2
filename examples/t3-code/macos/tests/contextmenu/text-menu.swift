@@ -24,6 +24,26 @@ private final class HostParagraph: NSView {
     override func selectAll(_ sender: Any?) { selections += 1 }
 }
 
+/// realinput-1010f RF-1: a text node as AppKit sees it for Services (ExactKit's answers `validRequestor` for its
+/// selection). AppKit's context-menu pop-up asks it once per service type while it builds the Services item.
+private final class ServicesRequestor: NSView, NSServicesMenuRequestor {
+    private(set) var servicesAsks = 0
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+        servicesAsks += 1
+        return sendType == .string ? self : super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+    func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool { pboard.setString("selected", forType: .string) }
+}
+
+/// Closes a menu shortly after it opens, from the tracking loop.
+private final class MenuCloser: NSObject, NSMenuDelegate {
+    private(set) var opened = false
+    func menuWillOpen(_ menu: NSMenu) {
+        opened = true
+        RunLoop.main.add(Timer(timeInterval: 0.2, repeats: false) { _ in menu.cancelTrackingWithoutAnimation() }, forMode: .common)
+    }
+}
+
 /// A view with a menu of its own that is not the host's text menu (a field's, a web view's).
 private final class OtherMenuView: NSView {
     private(set) var ownMenus = 0
@@ -113,5 +133,20 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu (the after drive's 120 s hang)")
         NSApp.sendEvent(rightClick(at: NSPoint(x: 280, y: 40)))
         XCTAssertEqual(other.ownMenus, 1)
+    }
+
+    /// realinput-1010f RF-1: the shell's menu pops up without Services. DesktopWindow's template (Electron's menu) has
+    /// none; `NSMenu.popUpContextMenu` adds them for a view that answers `validRequestor` unless plug-ins are off.
+    func testTheShellsMenuPopsUpWithoutServices() {
+        let requestor = ServicesRequestor(frame: NSRect(x: 20, y: 120, width: 200, height: 40))
+        window.contentView!.addSubview(requestor)
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        let closer = MenuCloser()
+        menu.delegate = closer
+        T3TextContextMenu(agent: false).present(menu, rightClick(at: NSPoint(x: 60, y: 140)), requestor)
+        XCTAssertTrue(closer.opened, "the menu was shown (and closed by the test)")
+        XCTAssertFalse(menu.allowsContextMenuPlugIns, "no context-menu plug-ins (Services) on the shell's menu")
+        XCTAssertEqual(requestor.servicesAsks, 0, "AppKit built no Services item for the text node")
     }
 }

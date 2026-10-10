@@ -93,10 +93,13 @@ describe('diff review engine', () => {
   test('a line comment becomes a review-comment chip with the reference record; deleting it removes the chip', async () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
-    await command('diffreview', 'line:additions', 'a.ts', 3);
-    await command('diffreview', 'line:additions:shift', 'a.ts', 5);
+    // A click on number 3, then a Shift-click on 5 (the gutter's drags, realinput-1010f RF-3): the Diff panel's viewer has no
+    // onLineSelectionEnd (AnnotatableCodeView), so the lines stay selected and no draft opens.
+    await command('diffreview', 'drag:additions', 'a.ts', 3); await command('diffreview', 'end', 'a.ts', 3);
+    await command('diffreview', 'drag:additions:shift', 'a.ts', 5); await command('diffreview', 'end', 'a.ts', 5);
     let view = snapshot(client);
     expect(view.diffItems.filter(item => item.kind === 'line').map(item => item.selected)).toEqual([true, true, true, false, false]);
+    expect(view.diffCommentOpen).toBe(false);
     await command('diffreview', 'comment:additions', 'a.ts', 4);
     view = snapshot(client);
     expect(view.diffCommentOpen).toBe(true);
@@ -116,6 +119,75 @@ describe('diff review engine', () => {
     await command('diffreview', 'delete', id);
     expect(calls.filter(call => call.op === 'editorEdit').at(-1)).toMatchObject({ all: true, text: 'Please look ' });
     expect(snapshot(client).diffItems.some(item => item.kind === 'note')).toBe(false);
+  });
+});
+
+describe('the gutter\'s drags in the Diff panel (realinput-1010f RF-3)', () => {
+  test('a drag on the numbers selects the lines it crosses; a drag from the "+" opens the draft on its range', async () => {
+    const { client, command } = harness(false);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    await command('diffreview', 'drag:additions', 'a.ts', 3);
+    await command('diffreview', 'to', 'dl:additions:4:a.ts', 0);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    await command('diffreview', 'end', 'a.ts', 3);
+    let view = snapshot(client);
+    expect([view.diffItems.filter(item => item.kind === 'line').map(item => item.selected), view.diffCommentOpen]).toEqual([[true, true, true, false, false], false]);
+    // A press on the one selected line that never moves clears it.
+    await command('diffreview', 'drag:additions', 'a.ts', 9); await command('diffreview', 'end', 'a.ts', 9);
+    await command('diffreview', 'drag:additions', 'a.ts', 9); await command('diffreview', 'end', 'a.ts', 9);
+    expect(snapshot(client).diffItems.filter(item => item.kind === 'line').some(item => item.selected)).toBe(false);
+    await command('diffreview', 'gutter:additions', 'a.ts', 3);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    await command('diffreview', 'end', 'a.ts', 3);
+    view = snapshot(client);
+    const draft = view.diffItems.findIndex(item => item.kind === 'draft');
+    expect([view.diffCommentOpen, view.diffItems[draft]?.label]).toEqual([true, '3 to 5']);
+  });
+});
+
+describe('the "+" pinned to a selection (placeUtilityFromSelection; the review of #413)', () => {
+  const lines = (client: T3Client) => snapshot(client).diffItems.filter(item => item.kind === 'line');
+  const pins = (client: T3Client) => lines(client).filter(item => item.pin).map(item => `${item.side}:${item.line}`);
+  test('a selection pins the "+" to its bottom line, and it follows the drag; without one it follows the hover', async () => {
+    const { client, command } = harness(false);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    expect([lines(client).some(item => item.pinned), pins(client)]).toEqual([false, []]);
+    await command('diffreview', 'drag:additions', 'a.ts', 3);
+    expect([lines(client).every(item => item.pinned), pins(client)]).toEqual([true, ['additions:3']]);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    expect(pins(client)).toEqual(['additions:5']);
+    await command('diffreview', 'end', 'a.ts', 3);
+    expect([pins(client), snapshot(client).diffCommentOpen]).toEqual([['additions:5'], false]);
+    // A click on the one selected line clears it: the "+" follows the hover again.
+    await command('diffreview', 'drag:additions', 'a.ts', 10); await command('diffreview', 'end', 'a.ts', 10);
+    await command('diffreview', 'drag:additions', 'a.ts', 10); await command('diffreview', 'end', 'a.ts', 10);
+    expect([lines(client).some(item => item.pinned), pins(client)]).toEqual([false, []]);
+  });
+  test('a click on the "+" opens one draft on the selection, whichever of its press and release runs first', async () => {
+    // Numbers 3 to 5 dragged (they stay selected, no draft), then the "+": on line 5, the selection's bottom where it is
+    // drawn, or on line 10 (a press no pointer could make now: before the pin, the "+" under the pointer there opened the
+    // draft on 3 to 5 or on line 10 alone, by which of its two sends ran first).
+    for (const line of [5, 10]) for (const order of [['gutter', 'end', 'comment'], ['gutter', 'comment', 'end'], ['comment']]) {
+      const { client, command } = harness(false);
+      await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+      await command('diffreview', 'drag:additions', 'a.ts', 3); await command('diffreview', 'to', 'dl:additions:5:a.ts', 0); await command('diffreview', 'end', 'a.ts', 3);
+      for (const step of order) {
+        if (step === 'gutter') await command('diffreview', 'gutter:additions', 'a.ts', line);
+        if (step === 'end') await command('diffreview', 'end', 'a.ts', line);
+        if (step === 'comment') await command('diffreview', 'comment:additions', 'a.ts', line);
+      }
+      const view = snapshot(client);
+      expect([line, order.join(','), view.diffItems.filter(item => item.kind === 'draft').map(item => item.label)]).toEqual([line, order.join(','), ['3 to 5']]);
+    }
+  });
+  test('a "+" drag whose press arrives before its release comments on the range it was dragged over', async () => {
+    const { client, command } = harness(false);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    await command('diffreview', 'gutter:additions', 'a.ts', 3);
+    await command('diffreview', 'to', 'dl:additions:5:a.ts', 0);
+    await command('diffreview', 'comment:additions', 'a.ts', 3);
+    await command('diffreview', 'end', 'a.ts', 3);
+    expect(snapshot(client).diffItems.filter(item => item.kind === 'draft').map(item => item.label)).toEqual(['3 to 5']);
   });
 });
 

@@ -16,7 +16,8 @@ import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { letGo } from './let-go';
 import { pushToast } from './toast';
-import { buildDiffReviewComment, diffReviewLines, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { buildDiffReviewComment, diffReviewLines, findDiffReviewLineIndex, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from './diff-line-drag';
 import { changeType, expandRange, type Expansion, type FileContents } from './diff-lazy';
 import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, type DiffTreeRow } from './diff-tree';
 import { decodeClientPrefs } from './settings-core';
@@ -46,7 +47,7 @@ export type CodeState = {
   parsed: Map<string, RenderablePatch>;
   toggled: ReadonlySet<string>; foldOverride: DiffFoldOverride; visibleCommits: number;
   ignoreWhitespace: boolean; wrap: boolean; orphansOpen: boolean; treeClosed: Set<string>; treeSelected: string;
-  selection: { path: string; range: SelectedLineRange } | null; draft: Draft | null;
+  selection: { path: string; range: SelectedLineRange } | null; drag: LineDrag | null; draft: Draft | null;
   contents: Record<string, FileContents>; expansions: Record<string, Expansion>; contentsDue: Map<string, { path: string; gap: number }>;
   viewed: FilesViewedStore; threads: ThreadState; shown: string;
 };
@@ -56,7 +57,7 @@ function fresh(client: { local: object }, key: string): CodeState {
   const settings = prefs(client);
   return { key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
-    selection: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
+    selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
 }
 /** The Code tab of the pull request on screen; another pull request starts over. */
 export function codeState(client: { local: object }, key: string): CodeState {
@@ -76,7 +77,7 @@ function scope(code: CodeState, commit: string | null): void {
   if (code.commit === commit) return;
   code.commit = commit;
   // PullRequestCodeTab's reset on scopeKey: the draft, the selection, the folds, the menu page, the orphans.
-  code.draft = null; code.selection = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false;
+  code.draft = null; code.selection = null; code.drag = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false;
   restart(code);
 }
 
@@ -342,22 +343,15 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       else if (contents?.state !== 'error') code.contentsDue.set(contentsKey, { path, gap: index });
       return '';
     }
-    case 'select': case 'select-shift': {
-      // Pierre's line selection: a press selects a line, a Shift-press extends it in the same file.
-      if (code.draft || code.commit !== null) return '';
-      const [side = '', line = '', path = ''] = fields(value, 3), at = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
-      const anchor = op === 'select-shift' && code.selection?.path === path ? code.selection.range : null;
-      code.selection = { path, range: anchor ? { ...anchor, end: at.line, endSide: at.side } : { start: at.line, side: at.side, end: at.line, endSide: at.side } };
-      return '';
-    }
-    case 'row': {
-      // DiffRow's commands: `diffreview|line:<side>[:shift]|<line>|<path>` and `diffreview|expand|<gap>|<path>`.
+    case 'row': case 'drag': {
+      // DiffRow's commands: `diffreview|expand|<gap>|<path>`, and the gutter's drags (diff-line-drag.ts): `drag:<side>[:shift]`
+      // and `gutter:<side>` on a press on a line number or the "+", `to` with the cell id under the pointer, `end` on the release.
       const [, id = '', n = '', path = ''] = fields(value, 4), [action = '', side = '', shift = ''] = id.split(':');
-      if (action === 'line') return prCodeLocal(ctx, shift === 'shift' ? 'select-shift' : 'select', `${side}|${n}|${path}`);
       if (action === 'expand') return prCodeLocal(ctx, 'expand', `${path}|${n}`);
+      if (action === 'drag' || action === 'gutter' || action === 'to' || action === 'end') return lineDrag(ctx, code, action, side, shift === 'shift', Number(n), path);
       return '';
     }
-    case 'begin': return beginComment(client, code, ctx.detail, value);
+    case 'begin': return beginComment(ctx, code, value);
     case 'cancel': code.draft = null; code.selection = null; return '';
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
@@ -371,26 +365,62 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     default: throw new ClientError(`Unknown Code tab action: ${op}`);
   }
 }
-/** beginComment: the gutter's "+" (or a selection's end) opens the draft on the line it ends on, on the whole change only. */
-function beginComment(client: T3Client, code: CodeState, detail: Obj | null, value: string): string {
+/** Whether the viewer can comment on lines now (PullRequestCodeTab's canCommentOnLines and no draft open): the gutter is on. */
+function linesOpen(code: CodeState, detail: Obj | null): boolean {
   const capabilities = obj(detail?.capabilities), review = obj(capabilities.review), permissions = obj(detail?.viewerPermissions);
-  if (code.draft || code.commit !== null || review.inlineComment !== true || permissions.comment !== true) return '';
-  const [side = '', line = '', path = ''] = fields(value, 3), at = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
+  return !code.draft && code.commit === null && review.inlineComment === true && permissions.comment === true;
+}
+const loadedContents = (code: CodeState, path: string) => { const contents = code.contents[contentsKeyOf(code, path)]; return contents?.state === 'loaded' ? contents : null; };
+/**
+ * beginComment from the gutter's "+" press (`chatlocal:pr-code-begin`, on the drags' queued send). Its pointer gesture owns
+ * the click: a press while that gesture is in flight is its release, one after it finds the draft open. A press no gesture
+ * carried (a keyboard or accessibility press) comments on what the gesture would: the selection's top to bottom, else its
+ * line (diff-line-drag.ts gutterClick); the draft goes on the range's last line, on the whole change only.
+ */
+function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): string {
+  if (code.drag?.mode === 'gutter') return lineDrag(ctx, code, 'end', '', false, 0, '');
+  if (!linesOpen(code, ctx.detail)) return '';
+  const [side = '', line = '', path = ''] = fields(value, 3), at: LinePoint = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !(at.line > 0)) return '';
-  // The gutter's button comments on the selection when its line is in it, else on that line alone.
-  const selected = code.selection?.path === path ? code.selection.range : null;
-  const contents = code.contents[contentsKeyOf(code, path)], loaded = contents?.state === 'loaded' ? contents : null;
-  const lines = diffReviewLines(target, loaded);
-  const probe = (range: SelectedLineRange) => buildDiffReviewComment({ id: 'probe', sectionId: '', sectionTitle: '', filePath: path, lines, range, text: '' });
-  const inside = selected && (() => { const whole = probe(selected), one = probe({ start: at.line, side: at.side, end: at.line, endSide: at.side }); return !!whole && !!one && one.startIndex >= whole.startIndex && one.startIndex <= whole.endIndex; })();
-  const range: SelectedLineRange = inside && selected ? selected : { start: at.line, side: at.side, end: at.line, endSide: at.side };
-  // A range collapses to its last line: only GitHub carries a multi-line comment.
-  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loaded);
+  const lines = diffReviewLines(target, loadedContents(code, path));
+  const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+  return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index));
+}
+/** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
+function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange): string {
+  const target = filesOf(code).find(entry => entry.path === path);
+  if (!target || !linesOpen(code, detail)) return '';
+  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loadedContents(code, path));
   if (position === null) return '';
   code.selection = { path, range };
   code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, position, range };
-  void client;
+  return '';
+}
+/**
+ * The gutter's drags (realinput-1010f RF-3; diff-line-drag.ts): a press on a line number or on the "+" starts one, each
+ * line the pointer reaches moves its end, and the release opens the draft on what it ended on (PullRequestCodeTab's
+ * onGutterUtilityClick and onLineSelectionEnd are both beginComment). Off while a draft is open or a commit is scoped.
+ */
+function lineDrag(ctx: CodeLocalContext, code: CodeState, action: string, side: string, shift: boolean, line: number, value: string): string {
+  if (action === 'end') {
+    const { selection, gutter, ended } = releaseDrag(code.drag, code.selection), path = code.drag?.path ?? '';
+    code.drag = null; code.selection = selection;
+    const range = gutter ?? ended;
+    return range ? beginRange(code, ctx.detail, path, range) : '';
+  }
+  if (action === 'to') {
+    const hit = parseLineCellId(value);
+    if (hit) ({ drag: code.drag, selection: code.selection } = dragTo(code.drag, code.selection, hit.path, hit.at));
+    return '';
+  }
+  if (!linesOpen(code, ctx.detail) || !(line > 0)) { code.drag = null; return ''; }
+  const path = value, at: LinePoint = { line, side: side === 'deletions' ? 'deletions' : 'additions' };
+  const target = filesOf(code).find(entry => entry.path === path);
+  if (!target) return '';
+  const lines = diffReviewLines(target, loadedContents(code, path));
+  const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+  ({ drag: code.drag, selection: code.selection } = action === 'gutter' ? pressGutter(code.selection, path, at, index) : pressLine(code.selection, path, at, shift, index));
   return '';
 }
 const SET_FILES_VIEWED = 'pullRequests.setFilesViewed';

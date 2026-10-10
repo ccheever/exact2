@@ -258,6 +258,11 @@ shape DiffItem
   rightLine: number
   leftSelected: bool
   rightSelected: bool
+  // The file has a selection: its gutter "+" is pinned to the selection's bottom line (pin, or leftPin/rightPin in split), not hover.
+  pinned: bool
+  pin: bool
+  leftPin: bool
+  rightPin: bool
   error: bool
   partial: bool
   unavailable: bool
