@@ -1,0 +1,93 @@
+shell-context-menu, review round 2 (2026-10-10): the link menus in a rendered Markdown file. Before | after | reference.
+
+Fixture: docs/links.md in the lane's "work" project (both apps, the same file), opened in the right panel's Files
+surface on a new thread's draft and shown rendered:
+
+  # Links
+
+  Read [manualpage](https://example.com/docs) today.
+
+  Write to [mailword](mailto:lane@example.invalid) now.
+
+  | Name | Link |
+  | --- | --- |
+  | Docs | [tablelink](https://example.com/table) |
+
+Clone: agent mode, 1280 x 840, drive2.sh (before = evidence base c03d7e908, after = this branch's bundle of the merged
+head with the round-2 changes). Menus are the agent's host log lines (t3.contextmenu: the app's own module menu;
+t3.textmenu: the shell's). Reference: T3 Code 1e2ecbd975 Electron, the renderer right-clicked over CDP (ref-rc.mjs),
+the menu read from the main process (ref-main.mjs: Menu.prototype.popup recorded, context-menu params logged).
+
+Case                                   | Before (clone)  | After (clone)                                                     | Reference
+---------------------------------------+-----------------+-------------------------------------------------------------------+---------------------------------------------------------
+R1 "manualpage": a paragraph's web link| nothing         | app menu: Open in integrated browser | Open in system browser |     | same (app menu; no context-menu params: the page took it)
+   (FlowRuns, a plain paragraph)       |                 | Copy Link                                                         |
+R2 "mailword": a mailto link           | nothing         | shell: Cut (disabled) | Copy (disabled) | Paste (disabled) |       | shell: Cut (disabled) | Copy | Paste (disabled) | Select All
+                                       |                 | Select All (no handler on the run: the click is the shell's)      | ("mailword" selected: S1; linkURL mailto, no Copy Link)
+R3 "tablelink": a table cell's web link| nothing         | shell: Copy Link | — | Cut (disabled) | Copy (disabled) |           | app menu: Open in integrated browser | Open in system browser |
+   (ChatRuns, one text node)           |                 | Paste (disabled) | Select All  (S2)                              | Copy Link
+R4 "Read": plain text (reference only) |                 |                                                                   | shell: Cut (disabled) | Copy | Paste (disabled) | Select All ("Read" selected)
+C3 "linked $verify" (thread fixture)   | nothing         | app menu: Open in integrated browser | Open in system browser |     | same (round 1)
+                                       |                 | Copy Link                                                         |
+
+The first after drive on this round's code had R1 without "Open in integrated browser": a new thread's draft has no
+thread id until something allocates one, so the menu saw no thread. The reference's draft has its thread ref from the
+start; the menu now counts a draft as a thread and allocates its id when the Browser opens (as addBrowserSurface does).
+The retry (above) offers it.
+
+== Raw: after (retry)
+TAP Dismiss [1083.8, 197] 
+TAP toggle-right-panel [1253, 26] 
+TAP files-expand-all [1260, 70] 
+TAP links.md [1010.5, 128] 
+TAP file-toggle-render [1182, 66] 
+TAP manualpage [861.16, 159.77] contextmenu
+   journal: t=32800 contextmenu view 1114 (linkMenu#1) → epoch 28 (+0 −0 ~0)
+   app: app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+TAP mailword [848.84, 192.93] contextmenu
+   app: app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+TAP t3-code [906, 270] contextmenu
+   app: app: t3.textmenu: Copy Link | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+TAP thread-verify-timeline [127.5, 141] 
+TAP t3-code [780, 125] contextmenu
+   journal: t=38200 contextmenu view 1290 (linkMenu#1) → epoch 38 (+0 −0 ~0)
+   app: app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+
+== Raw: after (first drive, before the draft fix)
+TAP Dismiss [1083.8, 197] 
+TAP toggle-right-panel [1253, 26] 
+TAP files-expand-all [1260, 70] 
+TAP links.md [1010.5, 128] 
+TAP file-toggle-render [1182, 66] 
+TAP manualpage [861.16, 159.77] contextmenu
+   journal: t=32800 contextmenu view 1114 (linkMenu#1) → epoch 27 (+0 −0 ~0)
+   app: app: t3.contextmenu: Open in system browser | Copy Link
+TAP mailword [848.84, 192.93] contextmenu
+   app: app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+TAP t3-code [906, 270] contextmenu
+   app: app: t3.textmenu: Copy Link | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+TAP thread-verify-timeline [127.5, 141] 
+TAP t3-code [780, 125] contextmenu
+   journal: t=38200 contextmenu view 1290 (linkMenu#1) → epoch 38 (+0 −0 ~0)
+   app: app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+
+== Raw: reference (ref-rc.mjs)
+{"op":"find","text":"manualpage","box":{"x":801.453125,"y":151.3984375,"width":99.1328125,"height":16.5}}
+{"op":"find","text":"mailword","box":{"x":819.6875,"y":184.546875,"width":58.2734375,"height":16.5}}
+{"op":"find","text":"tablelink","box":{"x":868.421875,"y":262.484375,"width":67.1875,"height":14}}
+{"op":"rc","x":850,"y":160,"selection":"","active":"A","log":[{"kind":"popup","items":[{"label":"Open in integrated browser","role":null,"type":"normal","enabled":true,"accelerator":null},{"label":"Open in system browser","role":null,"type":"normal","enabled":true,"accelerator":null},{"label":"Copy Link","role":null,"type":"normal","enabled":true,"accelerator":null}]}]}
+{"op":"rc","x":848,"y":193,"selection":"mailword","active":"A","log":[{"kind":"popup","items":[{"label":"Cut","role":"cut","type":"normal","enabled":false,"accelerator":"CommandOrControl+X"},{"label":"Copy","role":"copy","type":"normal","enabled":true,"accelerator":"CommandOrControl+C"},{"label":"Paste","role":"paste","type":"normal","enabled":false,"accelerator":"CommandOrControl+V"},{"label":"Select All","role":"selectall","type":"normal","enabled":true,"accelerator":"CommandOrControl+A"}]},{"kind":"params","wc":"window","url":"t3code://app/#/draft/acdb96e2-8a51-4631-afed-763067b88136","misspelledWord":"","dictionarySuggestions":[],"linkURL":"mailto:lane@example.invalid","mediaType":"none","srcURL":"","isEditable":false,"selectionText":"mailword","editFlags":{"canUndo":false,"canRedo":false,"canCut":false,"canCopy":true,"canPaste":false,"canDelete":false,"canSelectAll":true,"canEditRichly":false},"x":848,"y":193}]}
+{"op":"rc","x":910,"y":270,"selection":"mailword","active":"A","log":[{"kind":"popup","items":[{"label":"Open in integrated browser","role":null,"type":"normal","enabled":true,"accelerator":null},{"label":"Open in system browser","role":null,"type":"normal","enabled":true,"accelerator":null},{"label":"Copy Link","role":null,"type":"normal","enabled":true,"accelerator":null}]}]}
+{"op":"rc","x":790,"y":160,"selection":"Read","active":"DIV","log":[{"kind":"popup","items":[{"label":"Cut","role":"cut","type":"normal","enabled":false,"accelerator":"CommandOrControl+X"},{"label":"Copy","role":"copy","type":"normal","enabled":true,"accelerator":"CommandOrControl+C"},{"label":"Paste","role":"paste","type":"normal","enabled":false,"accelerator":"CommandOrControl+V"},{"label":"Select All","role":"selectall","type":"normal","enabled":true,"accelerator":"CommandOrControl+A"}]},{"kind":"params","wc":"window","url":"t3code://app/#/draft/acdb96e2-8a51-4631-afed-763067b88136","misspelledWord":"","dictionarySuggestions":[],"linkURL":"","mediaType":"none","srcURL":"","isEditable":false,"selectionText":"Read","editFlags":{"canUndo":false,"canRedo":false,"canCut":false,"canCopy":true,"canPaste":false,"canDelete":false,"canSelectAll":true,"canEditRichly":false},"x":790,"y":160}]}
+
+== Raw: before (evidence base c03d7e908; no menu lines: the base shows nothing where no node answers)
+TAP Dismiss [1083.8, 197] 
+TAP toggle-right-panel [1253, 26] 
+TAP files-expand-all [1260, 70] 
+TAP links.md [1010.5, 128] 
+TAP file-toggle-render [1182, 66] 
+TAP manualpage [861.16, 159.77] contextmenu
+TAP mailword [869.14, 192.93] contextmenu
+TAP t3-code [906, 270] contextmenu
+TAP thread-verify-timeline [127.5, 141] 
+TAP t3-code [780, 125] contextmenu
