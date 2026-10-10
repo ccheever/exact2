@@ -1,0 +1,34 @@
+browser-surface-capture, fix round of realinput-1010c: the reference drive (2026-10-10)
+T3 Code 0.0.45 (Electron, source 1e2ecbd975), A/ref-app.sh browser-surface-capture 16700 (CDP 16701), the audit lane's
+data (work on feature/audit, Verification fixture), the fixture page on 127.0.0.1:16703, no provider. Driver:
+ref-drive.mjs (Playwright over the renderer, raw CDP on the preview's guest; DOM.getDocument pierce for the overlay's
+closed shadow root).
+
+Row 1, Escape while annotating: Annotate preview, then Escape dispatched to the guest page.
+  aria after: button "Toggle right panel" [pressed] (the panel stays open); button "Annotate preview"; no
+  "Floating browser preview" region. Image: c1010-escape.png (reference column).
+Row 1, Float's label after the panel is reopened: Toggle right panel on a Browser tab (closePreviewPanel floats it:
+  region "Floating browser preview"), then Toggle right panel again.
+  aria after: button "Close floating preview" [pressed] while the page sits in the panel (PreviewView
+  pictureInPicture = miniPlayerTabId === tabId; toggleRightPanel's toggleVisibility keeps the store's player).
+  The clone does the same (no change).
+Row 2, the pill: pointer on the 12 px dot (1254, 509): pill opacity 1; on Pop into separate window (1219, 518):
+  pill opacity 1, tooltip "Pop into separate window". Images r02/r03 in c1010-pill.png.
+Row 3, the drag (from the pill's padding, the handle's group): fresh player at (1028, 495) 240 x 333;
+{"op":"pdrag","dir":null,"dx":-200,"dy":-100,"from":[1206,533],"before":{"x":1028,"y":495,"width":240,"height":333},"after":{"x":928,"y":395,"width":240,"height":333},"moved":[-100,-100],"size":[240,333]}
+Row 4, the north-west grip, (-80, -80) from 240 x 333:
+{"op":"gripdrag","dir":"northwest","dx":-80,"dy":-80,"from":[1006,367],"before":{"x":1006,"y":367,"width":240,"height":333},"after":{"x":941,"y":276,"width":305,"height":423},"moved":[-65,-91],"size":[305,423]}
+  That is resizePreviewMiniPlayer's corner projection from 240 x 333; the clone after this round: 240 x 333 to 305 x 423.
+  (Two later runs that started the grip at the corner point after the row 3 drag hit the west edge's grip there
+  (elementFromPoint "west") and resized from the edge, 320 x 444; they are not used.)
+Row 5, Erase then Draw: Annotate; Draw; a stroke; Erase; a click on the stroke; Draw; a second stroke.
+  shadowRoot.activeElement after the first stroke: TEXTAREA "Describe the change…" (focused)
+  after the erase click: null (document.activeElement BODY)
+  after the second stroke: null (BODY); a key "5" dispatched then: still null, the comment empty.
+  The reference's updateStatus focuses the comment only the first time it shows (editorWasShown); the clone's port
+  does the same (no change). Image: c1010-erase-draw-reference.png.
+Row 6, Toggle right panel's tooltip: hover it: tooltip "Toggle right panel (⌥⌘B)"; press it: no tooltip; the
+  pointer elsewhere, the panel closed again: no tooltip.
+Row 7, a draft's sidebar row: button "Tighten the button spacing Send this one too, Unsent draft, work" (a draft
+  whose prompt holds two preview-annotation chips): SidebarDraftRow reads replaceComposerContextReferences(prompt,
+  label). Image: s00 in c1010-sidebar-draft.png.
