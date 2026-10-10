@@ -503,13 +503,13 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
   });
 
   it('one gesture keeps one serial: the canvas takes the frame at its first pan and moves it by the pan\'s total', () => {
-    // floor(now()) in every pan's serial made each move a new gesture from the frame on screen: a (-200, -100) drag moved
+    // The clock (floor(now()), performanceNow() since #384) in every pan's serial made each move a new gesture from the frame on screen: a (-200, -100) drag moved
     // (-100, -188) and an 80 pt north-west resize took 240 × 333 to 416 × 577 (the reference: 305 × 423).
     const pan = block(source('browser-capture.contract'), '  action pan(direction: string, dx: number, dy: number)', '  action release');
-    expect(pan).toContain('let id = starting ? `${floor(now())}.${count}` : serial');
+    expect(pan).toContain('let id = starting ? `${floor(performanceNow())}.${count}` : serial');
     expect(pan).toContain('serial = id');
     expect(pan).toContain('gesture(`${id}|${mini.sourceKey}|${direction}|${nx}|${ny}`)');
-    expect(pan.match(/now\(\)/g)).toHaveLength(1);
+    expect(pan.match(/performanceNow\(\)/g)).toHaveLength(1);
   });
 
   it('a resize\'s pans under one serial land where one pan of their total does; a serial per pan overshoots', async () => {

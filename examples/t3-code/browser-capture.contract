@@ -138,7 +138,7 @@ component BrowserMiniPlayer
   action pan(direction: string, dx: number, dy: number)
     let starting = dragging == ""
     let count = starting ? started + 1 : started
-    let id = starting ? `${floor(now())}.${count}` : serial
+    let id = starting ? `${floor(performanceNow())}.${count}` : serial
     let nx = (starting ? 0 : gx) + dx
     let ny = (starting ? 0 : gy) + dy
     started = count
