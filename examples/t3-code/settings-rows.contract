@@ -162,7 +162,7 @@ component CoreSections
       each section in sections key=section.id
         column gap="0.625rem" width="100%" position="relative" z-index=(startsWith(menu, `${section.id}/`) ? 50 : 1) id=section.id testId=`settings-section-${section.id}`
           when section.collapsible
-            // FoldedSettingsSection's `<h2>` around its trigger: the heading beside the button (SettingsSrHeading).
+            // LegacyFeaturesSection's trigger holds an `<h2>`; a Mac button is a leaf, so the heading sits beside it.
             SettingsSrHeading(title=section.title, level=2)
             button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}`
               text section.title font-size="0.875rem" line-height="1.25rem" color=pal.heading

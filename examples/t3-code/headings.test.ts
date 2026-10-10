@@ -37,7 +37,7 @@ test('the device tools section title is an h3 and the import menu label is no he
 });
 
 // settings-headings: settingsLayout.tsx's SettingsSection title is an `<h2>` (`sr-only` with hideTitle) and its
-// SettingsRow title an `<h3>`; FoldedSettingsSection's `<h2>` holds its trigger. The reference's lists, page by page,
+// SettingsRow title an `<h3>`; Legacy features' trigger, a button, holds an `<h2>`. The reference's lists, page by page,
 // are in the task record (20261010-settings-headings.md); these are the clone's views that draw them.
 test('Settings section titles are h2 and row titles h3, as the reference', () => {
   // General and Appearance (CoreSections, CoreRowView); the Project page's Model row is a CoreRowView too.

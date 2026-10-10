@@ -40,8 +40,15 @@ predates the round. Found by [adopt-main-fixes-r8](closed/20261010-adopt-main-fi
 ## The reference's headings, page by page
 
 Read from `settingsLayout.tsx` (SettingsSection's title is an `<h2>`, `sr-only` with `hideTitle`; SettingsRow's title an
-`<h3>`), FoldedSettingsSection (an `<h2>` holding its trigger), ThemeSettings.tsx (two `<h3>`s), and confirmed on the
-running reference over CDP (every `h1`–`h6`/`role=heading` and the ARIA snapshot, lane `settings-headings`, 1280×840).
+`<h3>`), SettingsPanels.tsx's `LegacyFeaturesSection` (about line 2112: its `<CollapsibleTrigger>`, a button, holds
+`<h2>Legacy features</h2>`; FoldedSettingsSection is not used there), ThemeSettings.tsx (two `<h3>`s), and the
+ProjectSettingsPanel.tsx, ProjectDefaultsSettings.tsx and ProjectActionsSettings.tsx sections for the Project page.
+Confirmed on the running reference over CDP (every `h1`–`h6`/`role=heading` and the ARIA snapshot, lane
+`settings-headings`, 1280×840). The first read had no project chosen, so the Project page showed only its scope notice
+and the list came from source; review round 2 chose the project "work" in the scope picker and read the same list
+([ref-projects-headings.txt](https://raw.githubusercontent.com/ccheever/exact2/19fa108c33379eb34dcd94861f0a2bc19a8637f1/settings-headings/ref-projects-headings.txt)).
+It also read Legacy features' nesting, `button "Legacy features"` > `heading "Legacy features" [level=2]`
+([ref-legacy-aria.txt](https://raw.githubusercontent.com/ccheever/exact2/98e34bd659cfadd18ece51a01a5f85fc61828137/settings-headings/ref-legacy-aria.txt)).
 Toasts (the reference's "Update Available", the clone's) are not Settings headings and are left out.
 
 | Page | Reference headings | Clone before (evidence base `c03d7e908`) |
@@ -71,19 +78,26 @@ draw here: the clone gives them h3 as well.
 - `connections.contract`: "No saved remote environments" is no heading.
 - Nothing visual: every new heading writes its `font-size` (and the row titles `font-weight=500`); the section titles'
   weight is title2/title3's 400, the weight they had (LLP 1115 D3 sets only size and weight on a heading).
-- Declared (EXACT2-GAPS.md, "Settings headings: a heading beside its button"): the Mac host exposes a heading only on
-  text, so Legacy features' h2 sits beside its button instead of holding it. New framework gap, unnumbered, not filed.
+- Declared (EXACT2-GAPS.md, "Settings headings: a heading beside its button"): the reference's Legacy features trigger is
+  a button that holds its `<h2>`. The Mac host makes a button a leaf (`NodeViewMac.accessibilityChildren` is nil when
+  `actsAsButton`) and exposes a heading only on text, so the clone's h2 sits beside the button instead of inside it. This
+  is a new framework gap with no issue number, and it is not filed because the brief files nothing upstream. It is open:
+  see "Decision needed".
 
 ## Acceptance results
 
 | Row | Result | Proof |
 | --- | --- | --- |
 | Each Settings page's headings match the reference's list | pass: 14 of 14 AX reads match after (9 of 14 before); Diagnostics' AX tree stops at the reader's element limit, so its last four h2s are read from the plain tree (all 13 `role="heading"` level 2) | [after](https://raw.githubusercontent.com/ccheever/exact2/2dbf11eacc115614b9b9225b3af516332912d43c/settings-headings/evidence-after-headings.txt), [before](https://raw.githubusercontent.com/ccheever/exact2/da101fb30a3aab429fbd104aa6cb5421c83ae898/settings-headings/evidence-before-headings.txt) |
-| No visual change | pass: outside the toast corner (each drive shows a different toast) the same drive's window screenshots are pixel-identical on 10 of 14 pages; the rest differ only in a newer build's model label ("Medium · 1M"), live Diagnostics data and ≤10/255 text noise on one untouched description line; the 49 General headings are pixel-identical | [pixel diff](https://raw.githubusercontent.com/ccheever/exact2/c724c7703afbffcd635106e5ab4aeef3e75deb16/settings-headings/pixel-diff.txt); [General](https://raw.githubusercontent.com/ccheever/exact2/72b504a130e75087d2ed303f3cfdbbca2de54b0c/settings-headings/settings-headings-general.png), [Appearance](https://raw.githubusercontent.com/ccheever/exact2/57e40cfe94023a589b2c58cb6a51fcb99107a601/settings-headings/settings-headings-appearance.png), [Project](https://raw.githubusercontent.com/ccheever/exact2/1f5456b4fbbdc4bb254108a5433fd602ce791ad7/settings-headings/settings-headings-projects.png), [Scheduled Tasks](https://raw.githubusercontent.com/ccheever/exact2/aa44bf78247b86cd299d30f65a6f135840a649c4/settings-headings/settings-headings-scheduled-tasks.png), [Connections](https://raw.githubusercontent.com/ccheever/exact2/c5481da66b6fb86a99112bdbe3efc583f2dd4c6c/settings-headings/settings-headings-connections.png) |
+| No visual change | pass (review round 2): in both drives the toasts are gone and nothing is masked. 18 of 19 window screenshots are pixel-identical before and after. They cover all 14 pages, General scrolled to its bottom in four 700pt steps (every General heading), and Legacy features closed and open. The sr-only h2 sits in that section's gap column and moves nothing: the button is at (344.5, 760) 848×32 in both builds' AX trees. The one difference is Diagnostics' live process and resource data, on a page this PR does not change. (Round 1 had a toast in the after shots, so it masked the toast corner. That hid General's Model controls and Appearance's Dark tile, and its General shot showed only the top of the page.) | [pixel diff](https://raw.githubusercontent.com/ccheever/exact2/4f3548514fd4e1a6c79bce7c7c852b23c695984a/settings-headings/pixel-diff-r2.txt), [Legacy features AX](https://raw.githubusercontent.com/ccheever/exact2/33bba53928f9e4fbd90ca39b2eddaae965bd22f6/settings-headings/evidence-legacy-ax-r2.txt); [General](https://raw.githubusercontent.com/ccheever/exact2/73b98e2579ccc30ceb2067201592ceaf68014a29/settings-headings/settings-headings-r2-general.png), [General, Legacy features](https://raw.githubusercontent.com/ccheever/exact2/0fd16287544a79913338718995b8ab72be27de40/settings-headings/settings-headings-r2-general-legacy.png), [Legacy features open](https://raw.githubusercontent.com/ccheever/exact2/bd459c952b7163d85352634b77e53d40b90442b1/settings-headings/settings-headings-r2-general-legacy-open.png), [Appearance](https://raw.githubusercontent.com/ccheever/exact2/06518561341152d61585c145d37b79ae6404da41/settings-headings/settings-headings-r2-appearance.png), [Project](https://raw.githubusercontent.com/ccheever/exact2/ed3de200781767d4a40cf43c20ae8df29343b5f2/settings-headings/settings-headings-r2-projects.png), [Scheduled Tasks](https://raw.githubusercontent.com/ccheever/exact2/4aa596f6d9fd626734db8bcecc3b340aff022095/settings-headings/settings-headings-r2-scheduled-tasks.png), [Connections](https://raw.githubusercontent.com/ccheever/exact2/1af110bd1be8c9cc40bfdcc34cf87b660774669c/settings-headings/settings-headings-r2-connections.png) |
 | Guard | pass: `headings.test.ts` "Settings section titles are h2 and row titles h3, as the reference" fails on the base contracts (`settings-rows.contract`'s section title has no role) and passes after | [base run](https://raw.githubusercontent.com/ccheever/exact2/e7965f46e363783e178292454410ecf0daf59b7b/settings-headings/evidence-guard-base.txt); after: 3 pass |
 
 The before build is the evidence worktree at `c03d7e908` (657 commits behind this branch's base `9447c1c75`), as the
-brief names it; the after build is this branch. One live drive of the after build (all pages, one launch).
+brief names it; the after build is this branch. Round 1 made one live drive of the after build, covering all pages in
+one launch. Review round 2 made one more drive of each build with the same steps (`target/settings-headings/r2/drive.sh`).
+Both drives closed the Nightly beta-app toast with its Dismiss button. The provider update toast arrives at a varying
+time, so both lanes' server settings turned it off (`enableProviderUpdateChecks: false`) for the two drives and were
+restored afterwards. The reference shots are from the running reference at 1280×840.
 
 ## Tests
 
@@ -102,6 +116,20 @@ no `cargo test -p t3-code-macos` or AppKit binary. `app.contract`: 1,341 lines. 
 
 None: the AX tree is the platform's (`tree --ax`, AppKit), read in agent mode.
 
+## Not done / not verified
+
+- Legacy features' heading sits beside its button, not inside it. The reference's button holds the h2. The clone's h2 is
+  the button's sibling, because the Mac host makes a button a leaf. The heading list and levels match. The brief allows a
+  difference only for a framework limit that has an issue number. This one has none and is not filed, because the brief
+  files nothing upstream (EXACT2-GAPS.md, "Settings headings: a heading beside its button"). Blocker: the decision below.
+
+## Decision needed
+
+Legacy features' heading: should the coordinator file the framework gap? The Mac host gives a button no accessibility
+children (`NodeViewMac.accessibilityChildren` is nil when `actsAsButton`), so a heading cannot sit inside a button. If
+it is filed, the EXACT2-GAPS entry takes its number, and the clone can nest the heading once main exposes a button's
+heading child. If the difference is accepted, nothing changes here. The rest of the task does not depend on this decision.
+
 ## Next action
 
-Coordinator review of #404.
+The coordinator decides the Legacy features heading ("Decision needed"), then reviews #404.

@@ -757,9 +757,13 @@ plan by 6.6 MB when forwarded). Framework gap X71, filed on main by #386 as
 
 ## Settings headings: a heading beside its button (declared difference)
 
-Task `20261010-settings-headings`. FoldedSettingsSection (General's "Legacy features") is an `<h2>` that holds its
-collapsible trigger, so VoiceOver on the reference reads one heading with a button inside. The Mac host exposes a heading
-only on text (`NodeViewMac.updateRoleAccessibility`: "Headings are paragraphs"; a button stays a leaf `AXButton` whatever
-its `role`), so the clone puts an sr-only `<h2>` (`SettingsSrHeading`, settings-kit.contract) right before the button: the
-heading list and level match, and the heading and its button are siblings instead of parent and child. New framework gap,
-unnumbered and not filed (the task's brief files nothing upstream); the coordinator decides whether to file it.
+Task `20261010-settings-headings`. General's "Legacy features" is `LegacyFeaturesSection` (SettingsPanels.tsx, about
+line 2112): a `<CollapsibleTrigger>`, which is a button, holds `<h2>Legacy features</h2>` and the chevron, so the reference's
+accessibility tree has the level-2 heading inside the button. (FoldedSettingsSection is not used there.) The clone cannot
+put a heading inside a button on the Mac: the host makes a button a leaf (`NodeViewMac.accessibilityChildren` returns nil
+when `actsAsButton`), and it exposes a heading only on text (`updateRoleAccessibility`: "Headings are paragraphs"). So the
+clone puts an sr-only `<h2>` (`SettingsSrHeading`, settings-kit.contract) right before the button. The heading list and
+levels match the reference; the heading is the button's sibling instead of its child. This is a new framework gap with no
+issue number, and it is not filed because the task's brief files nothing upstream. It stays open in PR #404 under
+"Decision needed": the coordinator decides whether to file it (this entry then takes its number) or to accept the
+difference.
