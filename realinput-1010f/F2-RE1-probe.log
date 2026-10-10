@@ -1,0 +1,14 @@
+{"variant":"reference: alwaysOnTop, no acceptFirstMouse (MacPermissionHelper.ts:100-117)","electron":"44.4.2","alwaysOnTop":true,"focused":false,"centers":{"app":{"x":280,"y":91},"close":{"x":538,"y":20}},"answers":{"app":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":3,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":true},"close":{"window":"ElectronNSWindow","windowAcceptsFirstMouse":"false","canBecomeKey":true,"styleMask":2,"level":3,"appActive":false,"windowKey":false,"hitView":"RenderWidgetHostViewCocoa","hitAcceptsFirstMouse":true}}}
+holding 40000 ms for a real click (the page logs what reaches it)
+2026-10-10T12:24:51.724Z app did-become-active
+2026-10-10T12:24:51.735Z window focus
+2026-10-10T12:24:51.736Z page mousedown on #app
+2026-10-10T12:24:51.806Z page click on #app
+2026-10-10T12:25:03.202Z app did-resign-active
+2026-10-10T12:25:03.202Z window blur
+2026-10-10T12:25:04.892Z app did-become-active
+2026-10-10T12:25:04.893Z window focus
+2026-10-10T12:25:04.897Z page mousedown on #app
+2026-10-10T12:25:05.101Z page dragstart on #app
+2026-10-10T12:25:05.101Z page drag-request
+2026-10-10T12:25:05.102Z startDrag returned
