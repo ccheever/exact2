@@ -1,0 +1,257 @@
+after: 14 of 14 AX page reads match the reference's heading list
+== general: MATCH, clone 49 headings, reference 49
+   h2 New threads
+   h3 Model
+   h3 Permissions
+   h3 Workspace
+   h3 Submodules
+   h2 Organization
+   h3 Project grouping
+   h3 Project order
+   h3 Auto-resume limited threads
+   h3 Snooze limited threads
+   h3 Working section (beta)
+   h3 Auto-settle merged threads
+   h3 Auto-settle inactive threads
+   h3 Days of inactivity before auto-settle
+   h2 Behavior
+   h3 Thread notifications
+   h3 In-app notifications
+   h3 Time format
+   h3 Response streaming
+   h3 Hide whitespace changes
+   h3 Default diff file state
+   h3 Diff layout
+   h3 Proactive panels
+   h3 Show skills in slash menu
+   h3 Rich text composer
+   h3 Collapse composer on scroll
+   h3 Send shortcut
+   h3 Follow-up behavior
+   h3 Provider update checks
+   h3 Continue threads after restarts
+   h3 Background activity
+   h2 Projects & threads
+   h3 Start from origin
+   h3 Add project starts in
+   h2 Confirmations
+   h3 Unpin confirmation
+   h3 Archive confirmation
+   h3 Delete confirmation
+   h3 Quit shortcut
+   h2 Text generation
+   h3 Text generation model
+   h2 About
+   h3 Version
+   h3 Update track
+   h3 Mobile app
+   h2 Diagnostics
+   h3 Diagnostics
+   h3 Open source licenses
+   h2 Legacy features
+== appearance: MATCH, clone 16 headings, reference 16
+   h2 Colors & themes
+   h3 Color scheme
+   h3 Themes
+   h2 Interface
+   h3 Contrast
+   h3 Glass opacity
+   h3 Environment identification
+   h3 Diff colors
+   h3 Composer context
+   h3 Chat width
+   h2 Motion
+   h3 Panel animations
+   h2 Typography
+   h3 Interface font
+   h3 Monospace font
+   h3 Word wrap
+== keybindings: MATCH, clone 79 headings, reference 79
+   h2 Keybindings
+   h3 Appearance: Cycle
+   h3 Chat: New
+   h3 Chat: New
+   h3 Chat: New Local
+   h3 Chat: New Without Project
+   h3 Command Palette: Toggle
+   h3 Composer: Branch
+   h3 Composer: Effort
+   h3 Composer: Host
+   h3 Composer: Mode
+   h3 Composer: Previous Worktree
+   h3 Composer: Opposite Queue or Steer Action
+   h3 Composer: Send and Start New Thread
+   h3 Composer: Start in Background
+   h3 Composer: Start in Background
+   h3 Composer: Stash
+   h3 Composer: Workspace
+   h3 Diff: Toggle
+   h3 Editor: Open Favorite
+   h3 File Picker: Toggle
+   h3 Model Picker: Jump: 1
+   h3 Model Picker: Jump: 2
+   h3 Model Picker: Jump: 3
+   h3 Model Picker: Jump: 4
+   h3 Model Picker: Jump: 5
+   h3 Model Picker: Jump: 6
+   h3 Model Picker: Jump: 7
+   h3 Model Picker: Jump: 8
+   h3 Model Picker: Jump: 9
+   h3 Model Picker: Next Provider
+   h3 Model Picker: Previous Provider
+   h3 Model Picker: Toggle
+   h3 Navigation: Back
+   h3 Navigation: Forward
+   h3 Preview: Focus Url
+   h3 Preview: Refresh
+   h3 Preview: Reset Zoom
+   h3 Preview: Toggle
+   h3 Preview: Zoom In
+   h3 Preview: Zoom In
+   h3 Preview: Zoom Out
+   h3 Project Search: Toggle
+   h3 Pull Request: Copy Number
+   h3 Right Panel: Close
+   h3 Right Panel: Toggle
+   h3 Sidebar: Toggle
+   h3 Terminal: Close
+   h3 Terminal: New
+   h3 Terminal: Split
+   h3 Terminal: Split Vertical
+   h3 Terminal: Toggle
+   h3 Theme: Select
+   h3 Theme Editor: Toggle
+   h3 Pull Request: Copy Link or Thread ID
+   h3 Queue: Edit Last Queued Message
+   h3 Thread: Jump: 1
+   h3 Thread: Jump: 2
+   h3 Thread: Jump: 3
+   h3 Thread: Jump: 4
+   h3 Thread: Jump: 5
+   h3 Thread: Jump: 6
+   h3 Thread: Jump: 7
+   h3 Thread: Jump: 8
+   h3 Thread: Jump: 9
+   h3 Thread: Next
+   h3 Thread: Pin
+   h3 Thread: Previous
+   h3 Thread: Settle
+   h3 Queue: Send First Queued Message as Steer
+   h3 Thread: Undo
+   h3 Usage: Open
+   h3 Usage: Cost
+   h3 Usage: Tokens
+   h3 Usage: Limits
+   h3 Usage: Period: Past 24h
+   h3 Usage: Period: 7 days
+   h3 Usage: Period: 30 days
+   h3 Usage: Period: 90 days
+== snap-shot: MATCH, clone 2 headings, reference 2
+   h2 SnapShots
+   h3 SnapShots
+== providers: MATCH, clone 16 headings, reference 16
+   h2 Providers
+   h2 Codex
+   h3 Display name
+   h2 Runtime
+   h3 Binary path
+   h3 CODEX_HOME path
+   h3 Shadow home path
+   h3 Launch arguments
+   h2 Environment
+   h3 Variables
+   h2 Models
+   h2 Usage providers
+   h3 Cursor account usage
+   h3 No hubs configured.
+   h2 Advanced
+   h3 Health check interval
+== integrations: MATCH, clone 16 headings, reference 16
+   h2 Browser
+   h3 Agent browser access
+   h2 Browser
+   h3 Browser profiles
+   h3 Default browser viewport
+   h3 Default browser zoom
+   h3 Default browser appearance
+   h3 Browser recording frame rate
+   h3 Show key presses in recordings
+   h3 Show mouse presses in recordings
+   h3 Open links in
+   h3 Auto-show floating preview
+   h2 Devices
+   h3 Device hub
+   h3 Agent device access
+   h3 Device hosts
+== scheduled-tasks: MATCH, clone 3 headings, reference 3
+   h2 Scheduled tasks
+   h2 Daehyeon’s MacBook Pro
+   h3 No scheduled tasks
+== source-control: MATCH, clone 11 headings, reference 11
+   h2 Repositories
+   h3 Automatically pull
+   h3 Default merge method
+   h2 Version Control
+   h2 Source Control Providers
+   h2 Text generation
+   h3 Worktree branch naming
+   h3 Branch prefix
+   h3 Source control writing style
+   h3 Follow change request templates
+   h3 Source control writer model
+== storage: MATCH, clone 8 headings, reference 8
+   h2 Worktrees
+   h3 Delete worktrees with deleted threads
+   h3 Delete inactive worktrees
+   h3 Delete merged worktrees
+   h3 Delete unchanged worktrees
+   h2 Artifacts and logs
+   h3 Delete old browser artifacts
+   h3 Delete old rotated logs
+== connections: MATCH, clone 6 headings, reference 6
+   h2 Daehyeon’s MacBook Pro
+   h3 Local environment
+   h3 Version
+   h3 Network access
+   h3 Tailscale HTTPS
+   h2 Environments
+== archived: MATCH, clone 2 headings, reference 2
+   h2 Archived threads
+   h3 No archived threads
+== open-source-licenses: MATCH, clone 1 headings, reference 1 (AX tree stops at 500 elements; compared up to its last heading)
+   h2 Third-party notices
+== diagnostics-scoped: MATCH, clone 9 headings, reference 13 (AX tree stops at 417 elements; compared up to its last heading)
+   h2 Resource monitor
+   h2 Host & collection
+   h2 Resource timeline
+   h2 Live process tree
+   h2 Instrumented application I/O
+   h2 Live Processes
+   h2 Resource History
+   h2 Trace Diagnostics
+   h2 Latest Failures
+== projects: MATCH, clone 10 headings, reference 10
+   h2 Project
+   h3 Name
+   h3 Project icon
+   h2 New threads
+   h3 Model
+   h3 Workspace
+   h2 Actions
+   h3 Actions
+   h2 Danger
+   h3 Remove project
+== diagnostics (plain tree of settings-content-scroll, role and aria-level): MATCH, 13 headings
+   h2 Resource monitor
+   h2 Host & collection
+   h2 Resource timeline
+   h2 Live process tree
+   h2 Instrumented application I/O
+   h2 Live Processes
+   h2 Resource History
+   h2 Trace Diagnostics
+   h2 Latest Failures
+   h2 Most Common Failures
+   h2 Slowest Spans
+   h2 Span Logs
+   h2 Top Span Names
