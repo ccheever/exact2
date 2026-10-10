@@ -716,3 +716,12 @@ row, because a `pointermove` handler would hold the presses inside the menu from
 plan by 6.6 MB when forwarded). Framework gap X71, filed on main by #386 as
 `issues/20261010-pointer-events-reach-ancestors.md`; plan record
 `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x71-pointermove-without-press-capture.md`.
+
+## Settings headings: a heading beside its button (declared difference)
+
+Task `20261010-settings-headings`. FoldedSettingsSection (General's "Legacy features") is an `<h2>` that holds its
+collapsible trigger, so VoiceOver on the reference reads one heading with a button inside. The Mac host exposes a heading
+only on text (`NodeViewMac.updateRoleAccessibility`: "Headings are paragraphs"; a button stays a leaf `AXButton` whatever
+its `role`), so the clone puts an sr-only `<h2>` (`SettingsSrHeading`, settings-kit.contract) right before the button: the
+heading list and level match, and the heading and its button are siblings instead of parent and child. New framework gap,
+unnumbered and not filed (the task's brief files nothing upstream); the coordinator decides whether to file it.
