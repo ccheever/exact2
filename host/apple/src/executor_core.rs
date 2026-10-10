@@ -147,6 +147,9 @@ struct State {
 struct Shared {
     state: Mutex<State>,
     ready: Condvar,
+    /// How often a worker's wait returned: a test counts an idle pool's.
+    #[cfg(test)]
+    wakes: AtomicUsize,
     abort: AbortController,
     /// Where the app's files are, as the host names them; unset on a host or
     /// drive that has none.
@@ -182,6 +185,12 @@ impl Shared {
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
+    /// The workers not started yet: each owner's bindings and its slot.
+    /// They start at the first request admitted (an app that never asks for
+    /// anything carries no threads); `None` once they have, or could not.
+    idle: Mutex<Option<Vec<Starter>>>,
+    /// A worker could not be started: as `disabled` from then on.
+    failed: std::sync::atomic::AtomicBool,
     /// The app's grants, for a stream's own transport.
     grants: String,
     /// A stream's own transport (the platform's; a test's scripted one).
@@ -233,6 +242,8 @@ impl Core {
                 ..State::default()
             }),
             ready: Condvar::new(),
+            #[cfg(test)]
+            wakes: AtomicUsize::new(0),
             abort: AbortController::new(),
             root_paths: std::sync::OnceLock::new(),
             roots: std::sync::OnceLock::new(),
@@ -259,20 +270,36 @@ impl Core {
                 reserved = reserve();
             }
         }
-        let mut core = Self {
+        // Reserved now, so a core past the bound is refused at once; started
+        // by the first request ([`Core::start_workers`]).
+        let idle = reserved.then(|| {
+            owners
+                .into_iter()
+                .enumerate()
+                .map(|(index, bindings)| (index, bindings, WorkerSlot))
+                .collect()
+        });
+        Self {
             shared,
             disabled: !reserved,
+            idle: Mutex::new(idle),
+            failed: std::sync::atomic::AtomicBool::new(false),
             grants: grants.to_string(),
             stream_host: host,
-        };
-        if !reserved {
-            return core;
         }
-        for (index, bindings) in owners.into_iter().enumerate() {
-            let shared = core.shared.clone();
-            let grants = grants.to_string();
-            let host = core.stream_host.clone();
-            let guard = WorkerSlot;
+    }
+
+    /// Start the workers, once, when the first request is admitted. False
+    /// when a thread could not be made: no job is admitted then, and the
+    /// workers that did start retire with the core.
+    fn start_workers(&self) -> bool {
+        let Some(idle) = self.idle.lock().unwrap().take() else {
+            return !self.failed.load(Ordering::Acquire);
+        };
+        for (index, bindings, guard) in idle {
+            let shared = self.shared.clone();
+            let grants = self.grants.clone();
+            let host = self.stream_host.clone();
             let spawned = std::thread::Builder::new()
                 .name(format!("exact-io-{index}"))
                 .spawn(move || {
@@ -280,12 +307,10 @@ impl Core {
                     worker(shared, usize::from(index != 0), bindings, grants, host);
                 });
             if spawned.is_err() {
-                core.disabled = true;
+                self.failed.store(true, Ordering::Release);
             }
         }
-        // On partial spawn failure keep the wake alive to deliver admission
-        // refusals. No jobs are admitted; any started workers retire on Drop.
-        core
+        !self.failed.load(Ordering::Acquire)
     }
 
     /// Where `app:/data`, `app:/cache` and `app:/tmp` are, for a request
@@ -324,7 +349,7 @@ impl Core {
             .timeout_refusal()
             .or(r.request.body_from_refusal())
             .map_or_else(|| reservation(&r.request), Err);
-        if self.disabled {
+        if self.disabled || !self.start_workers() {
             return Err(("native executor worker limit reached", work));
         }
         if state.retired {
@@ -500,7 +525,7 @@ impl Core {
         }
         // An ordered job may be waiting for these bytes, and a re-ask for
         // this room in the window.
-        self.shared.ready.notify_all();
+        rouse(&self.shared, &state);
         place_waiting(&mut state);
         if has_ready(&state) {
             wake(&mut state);
@@ -576,7 +601,7 @@ impl Core {
                     discard(&self.shared, state, work);
                 }
             }
-            self.shared.ready.notify_all();
+            rouse(&self.shared, state);
             place_waiting(state);
             // As in `complete`: emptying the lane can let a refusal settle.
             if has_ready(state) || (busy && state.counts[0] == 0) {
@@ -713,12 +738,25 @@ impl Drop for Core {
         self.retire();
     }
 }
+/// A worker to start: its index, its owner's bindings, its reserved slot.
+type Starter = (usize, Option<ibex2::host::Bindings>, WorkerSlot);
 struct WorkerSlot;
 impl Drop for WorkerSlot {
     fn drop(&mut self) {
         LIVE_WORKERS.fetch_sub(1, Ordering::AcqRel);
     }
 }
+/// Wake the workers when one of them has something to do: a queued job (it
+/// may now fit its bytes) or work to destroy. With neither, nothing a worker
+/// waits for has changed, and none is woken: `forget` runs after every commit
+/// and woke all seven for nothing (1-2 ms/s each through a list's fling).
+/// Retirement wakes them itself.
+fn rouse(shared: &Shared, state: &State) {
+    if !state.discard.is_empty() || state.jobs.iter().any(|lane| !lane.is_empty()) {
+        shared.ready.notify_all();
+    }
+}
+
 /// Work for a worker to destroy (none, on a core with no workers: it goes
 /// with the state).
 fn discard(shared: &Shared, state: &mut State, work: Option<OwnedWork>) {
@@ -838,7 +876,7 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     let outcome = bounded_outcome(outcome, run.limit);
     let lane = run.lane;
     // A completion frees ordered bytes a waiting job may need.
-    shared.ready.notify_all();
+    rouse(shared, &state);
     if run.forgotten {
         state.counts[lane] -= 1;
         state.streams -= usize::from(run.stream);
@@ -1062,6 +1100,8 @@ fn worker(
                     break next;
                 }
                 state = shared.ready.wait(state).unwrap();
+                #[cfg(test)]
+                shared.wakes.fetch_add(1, Ordering::Relaxed);
             }
         };
         let Job {
@@ -1389,6 +1429,9 @@ mod stream;
 #[path = "executor_body.rs"]
 mod body;
 
+#[cfg(test)]
+#[path = "executor_idle_tests.rs"]
+mod idle_tests;
 #[cfg(test)]
 #[path = "executor_tests.rs"]
 mod tests;
