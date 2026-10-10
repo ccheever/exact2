@@ -1,5 +1,6 @@
 // App-owned ordinary editor admission and explicit document revision ledger.
 // @ref llp/1109.005-composer-and-transcript.decision.md#composer-command-foundation
+import {pendingRequests} from './shared/requests';
 import type { T3Client } from './shared/client';
 import type { MobileComposerTarget } from './composer-target';
 import { mobileQueuedEditCurrent } from './queued-edit-state';
@@ -7,7 +8,7 @@ import { fleet } from './shared/settings-b-fleet';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
 import { mobileOutboxTransferCanonical as canonical } from './mobile-outbox-transfer-model';
 import type { Obj } from './shared/domain';
-import { mobileComposerContextCompleteSend, mobileComposerContextMountedSend, mobileComposerContextMountedLocalClear, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
+import { mobileComposerContextPublishMounted, mobileComposerContextCompleteSend, mobileComposerContextMountedSend, mobileComposerContextMountedLocalClear, mobileComposerContextCaptureTarget,mobileComposerContextObserveTarget } from './composer-command-context';
 import { mobileComposerContextInventoryOwnerAvailable, mobileComposerContextInsertDocument, type ComposerExternalContextContent, type ComposerExternalContextResult, mobileComposerContextCommitDocument, type ComposerContextDocumentResult } from './composer-command-context';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileEditorDocumentEnroll, mobileEditorDocumentMembership, mobileEditorDocumentWritten, mobileEditorDocument, mobileEditorDocumentKey, mobileEditorDocumentCapture, mobileEditorDocumentCommit, type EditorDocumentIntent } from './composer-editor-persistence';
@@ -276,5 +277,22 @@ export function mobileEditorCompleteMountedLocalClear(client:T3Client) {
   const current=mobileEditorDocumentCapture(client,owner.target,'typed-local-clear');if(!current)return refuse();
   const result=mobileComposerContextMountedLocalClear(client,current,pending.localClear,{command:terminal.command,terminal:terminal.event,latest});
   if(result.ok){Object.assign(owner.document,result.ledger);pending.localClear.cleared=result.cleared;r.revision++}
+  return result;
+}
+
+/** Concrete current-event wrapper. File runtime supplies live IO bindings; typed DTOs alone
+ * cannot authorize a publication. Accepted producer metadata is tied to this exact terminal. */
+export function mobileEditorPublishMounted(client:T3Client,history:import('./composer-file-history').ComposerFileHistory,
+  holds:readonly import('./composer-file-holds-io').HeldFile[]) {
+  const r=registry(client),owner=r.active,event=owner?.state.lastEvent,terminal=owner?.state.commandEffect,pending=owner?.pending;
+  const refuse=(message:string)=>({ok:false as const,message});
+  if(!owner||!event||!owner.route.active||pendingRequests(client.projection).inputs.length||!mobileEditorContextTargetCurrent(client,owner.target)
+    ||canonical(history.identity)!==canonical({...owner.state.identity,mountId:owner.state.mountId})||history.closed
+    ||!Number.isSafeInteger(r.revision)||r.revision>=Number.MAX_SAFE_INTEGER)return refuse('The mounted draft changed.');
+  if(terminal&&(!pending||pending.id!==terminal.event.commandId||pending.revision!==terminal.event.commandRevision))return refuse('The editor command changed.');
+  const added=terminal?.event.kind==='commandApplied'&&pending?.added?[pending.added]:[];
+  const capture=mobileEditorDocumentCapture(client,owner.target,'native-observation');if(!capture)return refuse('The saved draft ownership is unavailable.');
+  const result=mobileComposerContextPublishMounted(client,capture,event,history,holds,added);
+  if(result.ok){Object.assign(owner.document,result.ledger);r.revision++}
   return result;
 }

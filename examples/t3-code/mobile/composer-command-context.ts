@@ -6,14 +6,17 @@ import { mobileEditorDocument as sendDocument } from './composer-editor-persiste
 import { threadSendTransferDecodeCompletion as sendCompletion } from './thread-send-transfer-model';
 import { mobileOutboxTransferCanonical as sendCanonical } from './mobile-outbox-transfer-model';
 import { obj, str, type Obj } from './shared/domain';
-import { draftFiles } from './shared/composer-editor-files';
+import { collectComposerContextReferences } from './composer-editor-document';
+import { draftFiles, fileContextRecords } from './shared/composer-editor-files';
 import { ClientError } from './shared/protocol';
 import type { MobileComposerTarget } from './composer-target';
 import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileContextRecordValid } from './mobile-context-record';
 import { mobileCreateContextHistory, mobileNewTaskContextProject, mobileReferencedComposerContext, type MobileMessageContext } from './mobile-new-task-context';
-import { mobileEditorDocumentCommit, mobileEditorDocumentCommitMounted, mobileEditorDocumentIntentCurrent, type EditorDocumentIntent } from './composer-editor-persistence';
-import type { ComposerEditorDocument } from './composer-editor-state';
+import { mobileEditorDocumentCommit, mobileEditorDocumentCommitMounted, mobileEditorDocumentCommitObservation, mobileEditorDocumentIntentCurrent, type EditorDocumentIntent } from './composer-editor-persistence';
+import { mobileComposerFileHistoryProject, type ComposerFileHistory } from './composer-file-history';
+import type { HeldFile } from './composer-file-holds-io';
+import type { ComposerEditorDocument, ComposerEditorEvent } from './composer-editor-state';
 import { mobileComposerInsertContext, type MobileComposerInsertion } from './composer-context-insertion';
 import { mobileComposerAttachmentInventoryRead, mobileComposerAttachmentPublicationPrepare } from './composer-attachment-publication';
 
@@ -556,5 +559,66 @@ export function mobileComposerContextMountedLocalClear(client:T3Client,current:E
     revision:document.revision+1,incarnation:document.incarnation}};
   if(!mobileEditorDocumentCommitMounted(client,current,proof,next))return refuse();
   if(entry){entry.text=next.value;entry.revision++;if(context)entry.context=context;else delete entry.context;histories.set(entry,history)}
+  return result;
+}
+
+/** Source-shaped file context for legacy saved picker rows. This creates metadata only from
+ * actual canonical attached rows and their current token; native holds remain separate authority. */
+function mountedContext(snapshot:ComposerSendDraftSnapshot):MobileMessageContext|undefined {
+  const refs=new Set(collectComposerContextReferences(snapshot.text).filter(r=>r.kind==='file').map(r=>r.contextId));
+  const derived=fileContextRecords(snapshot.files.filter(file=>file.source==='attached'&&refs.has(file.contextId)).map(file=>({...file,attachmentId:file.id})));
+  const records=new Map(derived.map(record=>[str(record.contextId),record]));
+  for(const record of snapshot.context?.records??[])records.set(str(record.contextId),record);
+  return records.size?{version:1,records:[...records.values()]}:snapshot.context??undefined;
+}
+/** Read-only display seam; an invalid complete raw store still refuses before derivation. */
+export function mobileComposerContextMountedRead(client:T3Client,target:MobileComposerTarget) {
+  const raw=sendRaw(client,target);return raw?{ok:true as const,context:mountedContext(raw.snapshot)}:{ok:false as const};
+}
+/** Real mounted observation publication; caller proves current editor event and IO-usable holds.
+ * Context, restored inventory, byte-release candidates and both histories are prepared together.
+ * No incoming bytes, unmounted producer or synthetic native receipt is admitted here. */
+export function mobileComposerContextPublishMounted(client:T3Client,current:EditorDocumentIntent,event:ComposerEditorEvent,
+  files:ComposerFileHistory,holds:readonly HeldFile[],addedRecords:readonly Obj[]) {
+  const raw=sendRaw(client,current.target),refuse=(message:string)=>({ok:false as const,message});
+  if(!raw||!mobileEditorDocumentIntentCurrent(client,current)||!Number.isSafeInteger(client.revision)
+    ||client.revision<0||client.revision>=Number.MAX_SAFE_INTEGER||current.revision>=Number.MAX_SAFE_INTEGER
+    ||raw.snapshot.contextRevision>=Number.MAX_SAFE_INTEGER)return refuse('The saved draft is unavailable. Keep its files.');
+  const added=batchContext({version:1,records:addedRecords},true);if(!added.ok)return refuse('The added context is invalid.');
+  const {snapshot,entry}=raw,history=mobileCreateContextHistory(),beforeContext=mountedContext(snapshot);
+  const prior=entry?histories.get(entry)?.snapshot()??[]:[];
+  // The actual source helper refreshes duplicate recency with delete+set and bounds before restore.
+  history('',{version:1,records:prior});
+  const records=new Map((beforeContext?.records??[]).map(record=>[str(record.contextId),record]));
+  for(const record of added.context!.records){records.delete(str(record.contextId));records.set(str(record.contextId),record)}
+  const currentContext=beforeContext!==undefined||addedRecords.length?{version:1 as const,records:[...records.values()]}:undefined;
+  const restored=entry||beforeContext!==undefined||addedRecords.length?history(event.value,currentContext):undefined,checked=batchContext(restored,true);
+  if(!checked.ok)return refuse('The restored context exceeds the supported draft.');
+  // Every accepted import remains in the detached history even if newer native text removed it.
+  const target={environmentId:current.target.environmentId,threadId:current.target.threadId,draftKey:current.target.key};
+  const read=mobileComposerAttachmentInventoryRead(raw.raw,target);if(!read.ok)return refuse('The saved file inventory is invalid.');
+  const projected=mobileComposerFileHistoryProject(files,{identity:files.identity,target:files.target,context:checked.context,
+    attachments:read.attachments.map(a=>a.type==='image'?{type:'image' as const,id:a.id}:{type:'file' as const,file:a.file,
+      hold:holds.find(h=>h.receipt.id===a.id&&h.receipt.sizeBytes===a.file.sizeBytes)??null}),usableHolds:holds});
+  if(projected.status!=='ready')return refuse('Protect the saved files before editing this draft.');
+  if(projected.unavailable.length)return refuse('A file referenced by Undo is no longer available. Keep this draft.');
+  const inventory={...raw.raw,composerFiles:[...clone(raw.raw.composerFiles as import('./shared/composer-editor-files').DraftFile[]),...projected.restoredFiles],
+    mobileAttachmentOrder:{...clone(raw.raw.mobileAttachmentOrder as Record<string,string[]>),[current.target.key]:[...snapshot.attachmentIds,...projected.restoredFiles.map(f=>f.id)]}};
+  const publication=mobileComposerAttachmentPublicationPrepare({inventory,target,previousContext:beforeContext,
+    nextContext:checked.context,nextText:event.value});
+  if(!publication.ok)return refuse('This file context cannot be published safely.');
+  if(files.closed||files.revision!==projected.expectedRevision)return refuse('The file history changed.');
+  const context=checked.context,needsEntry=!!entry||context!==undefined||records.size>0;
+  if(!entry&&needsEntry&&incarnation>=Number.MAX_SAFE_INTEGER)return refuse('Reopen this draft before editing.');
+  const nextEntry:Entry=entry??{...raw.scope,incarnation:incarnation+1,revision:0,text:snapshot.text};
+  const cleanup={...raw.cleanup,fileReleases:publication.fileReleases};
+  const result={ok:true as const,history:projected.history,release:projected.release,
+    ledger:{value:event.value,selection:{...event.selection},revision:current.revision+1,incarnation:current.incarnation}};
+  if(!mobileEditorDocumentCommitObservation(client,current,event))return refuse('The native document changed.');
+  // Every object and possible refusal above precedes the concrete document write.
+  if(needsEntry){nextEntry.text=event.value;nextEntry.revision++;if(context)nextEntry.context=context;else delete nextEntry.context;
+    if(!entry){incarnation++;raw.registry.entries.set(raw.id,nextEntry)}histories.set(nextEntry,history)}
+  raw.local.snapshotDrafts=publication.snapshotDrafts;raw.local.composerFiles=publication.composerFiles;
+  raw.local.mobileAttachmentOrder=publication.mobileAttachmentOrder;raw.local.snapshotReleases=publication.snapshotReleases;raw.local.mobileNewTaskDrafts=cleanup;
   return result;
 }

@@ -6,6 +6,10 @@ import {mobileThreadSendRecoveryRead,mobileThreadSendRecoveryAction,mobileThread
 import {mobileThreadTransferBusy} from './thread-send-transfer';
 import {mobileThreadSendLocalCommand,mobileThreadLocalCommandsSnapshot,mobileThreadLocalFeedbackDismiss,mobileThreadLocalUsageDismiss,type ThreadLocalScope} from './thread-send-local-commands';
 import {mobileThreadLocalCommandClear} from './thread-send-local-clear';
+import {mobileThreadMountedLocalCommandClear} from './thread-send-mounted-local-clear';
+import {mobileThreadMountedSendAdmission} from './thread-send-mounted';
+import {mobileEditorFilesReady} from './composer-editor-runtime';
+import {mobileEditorOwner} from './composer-editor-owner';
 import {mobileThreadLocalDock,mobileThreadLocalResetKey,type ThreadLocalResetState} from './thread-local-dock';
 import {mobileComposerContextSendSnapshot} from './composer-command-context';
 import {mobileQueuedEditCurrent} from './queued-edit-state';
@@ -21,6 +25,7 @@ import {bridgeReply,ClientError,type Native,type Files} from './shared/protocol'
 import {letGo,letGoAware} from './shared/let-go';
 
 export interface ThreadSendRootInput {
+  editorAdmission?:string;
   visit:string;url:string;active:boolean;environmentId:string;threadId:string;
   preferencesReady:boolean;preferencesJSON:string;contextImporting:boolean;
   now:number;viewportHeight:number;dark:boolean;
@@ -68,13 +73,18 @@ function target(client:MobileDraftClient) {
   return {kind:'ordinary' as const,origin:client.origin,environmentId:client.environmentId,generation:client.generation,projectId:client.projectId,
     threadId:client.threadId,key,editorOwner:key,editOwner:'',incarnation:'',owner:encoded(['ordinary',client.origin,client.environmentId,client.generation,key])};
 }
-function controls(input:ThreadSendRootInput,expectedOwner:string,alternate=false):ThreadSendControllerInput|null {
+function controls(client:MobileDraftClient,input:ThreadSendRootInput,expectedOwner:string,alternate=false):ThreadSendControllerInput|null {
   if(!input.preferencesReady||typeof input.contextImporting!=='boolean')return null;
+  const mounted=mobileEditorOwner(client),editor=mobileThreadMountedSendAdmission(client);
+  if(mounted||input.editorAdmission){
+    if(!editor||!input.editorAdmission||editor.admission!==input.editorAdmission||mounted?.route.routeVisit!==input.visit
+      ||mounted.route.editorId!==`thread-composer-${input.visit}`||mounted.target.owner!==expectedOwner
+      ||!mobileEditorFilesReady(client,editor.admission))return null;
+  }
   try {const p=obj(JSON.parse(input.preferencesJSON));if(!['queue','steer'].includes(str(p.followUpBehavior))||typeof p.planModeEnabled!=='boolean')return null;
-    return {expectedOwner,alternate,preferences:{followUpBehavior:p.followUpBehavior as 'queue'|'steer',planModeEnabled:p.planModeEnabled},
-      // Current plain textarea has no asynchronous pasted-text/eager-upload producer.
-      // Rich owners are refused by controller. Existing uploaded IDs still lack proof
-      // and are refused; this is not a fabricated upload-provenance map.
+    return {expectedOwner,alternate,...(editor?{editor}:{}),preferences:{followUpBehavior:p.followUpBehavior as 'queue'|'steer',planModeEnabled:p.planModeEnabled},
+      // New paste/upload producers are not admitted by this root yet. Existing
+      // uploaded IDs still require the controller’s real provenance proof.
       activity:{contextImporting:input.contextImporting,pendingPastedText:false,uploadStates:{},uploadOwners:{}}};
   }catch{return null}
 }
@@ -92,7 +102,7 @@ function local(client:MobileDraftClient,input:ThreadSendRootInput,active:boolean
 const readKey=(s:State,key:string,r:Recovery)=>encoded(['read',s.epoch,key,r.dirty]);
 /** Runs synchronously on every root route observation, before asynchronous resources. */
 export function mobileThreadSendRootSnapshot(client:MobileDraftClient,input:ThreadSendRootInput) {
-  const {s,target:scoped,key,recovery,active}=observed(client,input),named=target(client),control=controls(input,named.owner);
+  const {s,target:scoped,key,recovery,active}=observed(client,input),named=target(client),control=controls(client,input,named.owner);
   const read=active&&control?mobileThreadSendRead(client,control):null;
   const ordinary=active&&!mobileQueuedEditCurrent(client)&&!pendingRequests(client.projection).inputs.length
     &&!(read?.kind==='separate');
@@ -105,7 +115,7 @@ export function mobileThreadSendRootSnapshot(client:MobileDraftClient,input:Thre
   const running=ordinary&&!!activeRun(client.projection),followUp=running&&queueState(client.projection).canSteer?control?.preferences.followUpBehavior:'queue';
   const sendLabel=running?(followUp==='steer'?'Steer':'Queue'):'Send',sendSymbol=running?(followUp==='steer'?'arrow.turn.left.up':'list.number'):'arrow.up';
   const canSend=ordinary&&read?.kind==='ready'&&known&&!recovery.view!.blocksSend&&!busy;
-  const reason=!ordinary?'':!control?'Wait for the current Send preferences.':read?.kind==='blocked'?read.reason
+  const reason=!ordinary?'':!control?(input.editorAdmission?'Preparing the editor and saved attachments.':'Wait for the current Send preferences.'):read?.kind==='blocked'?read.reason
     :!known?'Read saved message ownership before sending.':recovery.view!.blocksSend?recovery.view!.message||'Resolve the saved message transfer before sending.':busy?'Saving…':'';
   const recoveryView=mobileThreadSendRecoveryPresentation(known?recovery.view:null);
   if(ordinary&&(!known||recovery.view?.blocksSend)){
@@ -199,7 +209,7 @@ export async function mobileThreadSendRootAction(client:MobileDraftClient,native
     if(!['send','send-alternate'].includes(action.op))return result('This composer action is unavailable.');
     const projection=mobileThreadSendRootSnapshot(client,input);
     if(!projection.canSend)return result(projection.reason||'The ordinary composer is not ready to send.');
-    const control=controls(input,action.expectedOwner,action.op==='send-alternate');if(!control)return result('The current Send preferences are unavailable.');
+    const control=controls(client,input,action.expectedOwner,action.op==='send-alternate');if(!control)return result('The current Send preferences are unavailable.');
     const usageKey=shown().usageKey;
     const command=async(ctx:ThreadSendCommandContext)=>{
       let didClear=false;
@@ -207,7 +217,9 @@ export async function mobileThreadSendRootAction(client:MobileDraftClient,native
         // Upstream captures the original thread. Once its clear is accepted, navigation
         // alone cannot cancel feedback while that document finishes saving.
         current:()=>didClear?transportCurrent('orchestration:operate'):routeCurrent(),
-        clearDraft:async mode=>{if(!routeCurrent())throw stale();const cleared=await mobileThreadLocalCommandClear(client,ctx.target,ctx.snapshot,mode,rawNative,storage);
+        clearDraft:async mode=>{if(!routeCurrent())throw stale();const cleared=control.editor
+          ?await mobileThreadMountedLocalCommandClear(client,ctx.target,ctx.snapshot,mode,control.editor,rawNative,storage)
+          :await mobileThreadLocalCommandClear(client,ctx.target,ctx.snapshot,mode,rawNative,storage);
           if(!cleared.applied)throw new ClientError(cleared.message);didClear=true;return {message:cleared.message};},
         uploadFeedback:async payload=>{if(!didClear||!transportCurrent('orchestration:operate'))throw stale();
           const reply=await client.rpc(guarded(()=>transportCurrent('orchestration:operate')),'provider.uploadFeedback',payload,true);

@@ -2,6 +2,7 @@
 use MobileThreadLocalDockData from "./thread-local-dock.contract"
 use ThreadColors from "./thread-shapes.contract"
 shape ThreadSubmissionInput
+  editorAdmission: string
   visit: string
   url: string
   active: bool
