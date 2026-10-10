@@ -43,6 +43,13 @@ guide's rules don't make obvious.
   `font-size` if it must differ; a native button refuses its symbol's `width` and
   `height`). A symbol you do size by its box needs `object-fit="contain"`. (Signal
   Clone, 2026-10-02.)
+- **In dark mode the navigation title and status bar turn white on a light page.**
+  Cause: the app paints a fixed light background (`background-color="#FAF7F2"`)
+  while the system is dark, so UIKit's bars and the platform's colours go dark
+  around it. Fix: leave the background unsaid (the platform's, LLP 1115), or, for a
+  deliberately light-only design, write `color-scheme="light"` on the root, which
+  holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
+  2026-10-09.)
 - **On iOS the whole window scrolls when the keyboard opens, and the header goes
   with it.** Cause: without `interactive-widget`, the root is not resized for the
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
