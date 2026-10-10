@@ -1,0 +1,16 @@
+# import-wizard-initial-focus, review round: scenario (a), the close X focused while Quit → Checking → Quit (Brave still
+# running). before | after | reference, the focused element outlined (clone: the agent's focus.logical and its layout
+# frame; reference: document.activeElement, whose ring Chromium draws, ref-keep.mjs). Reuses compose.py's panels.
+import json, os, sys
+sys.argv = [sys.argv[0]]
+L = os.path.dirname(os.path.abspath(__file__))
+src = open(f'{L}/compose.py').read().split("compose('open-configure'")[0]
+exec(src)
+before = json.load(open(f'{D}/focus2-before.json')); after = json.load(open(f'{D}/focus2-after.json'))
+keep = {r['label']: r for r in json.load(open(f'{L}/ref-keep.json'))}
+i_b = next(i for i, r in enumerate(before) if r['after'] == 'type browser-import-x key Shift')
+i_a = next(i for i, r in enumerate(after) if r['after'] == 'type browser-import-x key Shift')
+r = keep['Brave: after the recheck (Quit again), the X held the focus through the change']
+ref_panel = panel(f'{S}/ref-keep-x.png', 1, {'x': 855, 'y': 347, 'w': 32, 'h': 32}, f'focus: {r["active"]}')
+compose('x-kept', 'The X focused while Checking shows keeps the focus when Quit comes back (restoreFocus acts only on a removed element)', [
+  ('I\'ve quit it, then the X, Brave still running', [clone('before', before, i_b, 'brave-x-kept'), clone('after', after, i_a, 'brave-x-kept'), ref_panel])])
