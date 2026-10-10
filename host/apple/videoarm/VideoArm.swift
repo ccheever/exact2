@@ -162,11 +162,14 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         reportedRate = rate
         emit("ratechange")
     }
-    /// The position, read from the item's timebase: `player.currentTime()`
-    /// takes a MediaToolbox lock a busy player holds, and every report reads
-    /// this on main (the Bluesky clone's round-1 sample, 2026-10-09: main
-    /// waiting there during a fling of autoplaying videos). An item not yet
-    /// timed is at zero.
+    /// The position, read from the item's timebase rather than
+    /// `player.currentTime()`, which every report reads on main: a sample of
+    /// the Bluesky clone (2026-10-09) showed main waiting on a lock inside
+    /// `-[AVPlayerItem currentTime]` during a fling of autoplaying videos.
+    /// The timebase read takes locks too, but a shorter path (unmeasured
+    /// under that load; QUEUE). The two agree because the arm never schedules
+    /// a start (`setRate(_:time:atHostTime:)`), where the timebase runs ahead
+    /// of `currentTime()` until the start. No item is at zero, as before.
     var seconds: Double {
         if let seekTarget { return seekTarget }
         let s = player.currentItem?.timebase.map { CMTimebaseGetTime($0).seconds } ?? 0
