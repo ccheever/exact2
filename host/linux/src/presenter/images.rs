@@ -1,6 +1,17 @@
 //! Visibility comes from the native painter's nested scroll/clip geometry.
 use super::*;
 
+/// `EXACT_PICTURES_AT_MOUNT=1`: every mounted picture is asked for, in view
+/// or not. For a host whose rows a reader moves before this presenter hears
+/// of the scroll (the Android canvas host: its window leads the travel, and
+/// the reader draws a mounted row where the scroll has brought it): there a
+/// row is on screen before its box is in this viewport, and a picture asked
+/// for only then came frames late (heavy at 24,000 dp/s: 39% of the view
+/// was pictures not yet there, against 28% once they are asked at mount;
+/// most were held decoded and only waiting to be asked for).
+static AT_MOUNT: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURES_AT_MOUNT").is_ok_and(|v| v != "0"));
+
 impl<D: DataSource> Presenter<D> {
     /// Loads that arrived since the last call: their sizes reach the kernel.
     /// Whether anything changed.
@@ -104,6 +115,9 @@ impl<D: DataSource> Presenter<D> {
             .sync_visible(host.kernel(), &live, self.brush.scale, |id| {
                 if host.route_visibility(id).0 {
                     return false;
+                }
+                if *AT_MOUNT {
+                    return true;
                 }
                 let Some((i, b)) = boxes(&id) else {
                     return true;

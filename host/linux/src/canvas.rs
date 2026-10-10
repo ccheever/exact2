@@ -1061,14 +1061,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let origin_ns = monotonic_ns();
         // Motion lowering still reads this policy; painter construction is direct.
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Twelve viewports of decoded pictures: the reader's copy is a GPU
+        // Eleven viewports of decoded pictures: the reader's copy is a GPU
         // buffer (no heap copy, no upload), a picture decoded again costs
         // more than the memory it holds, and pictures are kept at the size
-        // they show at (`image::png_decode::DecodePlan`), so twelve hold what
-        // a fling through heavy's photos comes back to (Pixel 10 Pro XL, 24k
-        // px/s: CPU -9% against eight, end PSS 530 MB against 495; Views 485).
+        // they show at (`image::png_decode::DecodePlan`). Twelve until they
+        // were asked for at mount (below): heavy then ended 10 MB higher.
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "12");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "11");
+        }
+        // A picture is asked for when its row is built (`presenter::images`).
+        if std::env::var_os("EXACT_PICTURES_AT_MOUNT").is_none() {
+            std::env::set_var("EXACT_PICTURES_AT_MOUNT", "1");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
         let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
