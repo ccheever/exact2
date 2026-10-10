@@ -7,6 +7,8 @@ import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue,
   parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from './settings-core';
 import { toasts } from './toast';
 import { fleet } from './settings-b-fleet';
+import { applyBrowserDefault, browserDefaultsView } from './browser-defaults';
+import { integrationRows } from './source-control-view';
 
 // The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
 beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
@@ -207,12 +209,101 @@ describe('writes through the command', () => {
     expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
     const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
     applyDeviceSetting(client.local as never, 'chatWidth', 'full');
-    expect(restoreLabels(client.local as never, client.config.settings as Obj, true)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
     expect(restoreLabels(fake({ backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } }).local as never,
-      { backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } }, true)).toEqual([]);
+      { backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } })).toEqual([]);
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
     expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph' } });
     expect((client.local.clientSettings as Obj).chatWidth).toBe('comfortable');
+  });
+  test("restore lists and resets the Browser defaults (browser-surface part 4; getChangedBrowserSettingLabels)", async () => {
+    // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
+    const client = fake({}, false);
+    applyBrowserDefault(client, 'frame-rate', '60');
+    applyBrowserDefault(client, 'zoom', '1.25');
+    applyBrowserDefault(client, 'viewport', 'iphone-12-pro');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Browser viewport', 'Browser zoom', 'Recording frame rate']);
+    applyDeviceSetting(client.local as never, 'chatWidth', 'wide');
+    applyDeviceSetting(client.local as never, 'browserLinkTarget', 'app');
+    applyBrowserDefault(client, 'appearance', 'dark');
+    applyBrowserDefault(client, 'key-presses', 'true');
+    applyBrowserDefault(client, 'auto-show', 'false');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Browser viewport', 'Browser zoom', 'Browser appearance',
+      'Recording frame rate', 'Recording key presses', 'Open links in', 'Floating preview']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, null)).toEqual([]);
+    expect(browserDefaultsView(client)).toMatchObject({ viewportValue: 'fill', zoomLabel: '100%', appearanceLabel: 'System', frameRateLabel: '30 fps', keyPresses: false, autoShow: true });
+  });
+  test('restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)', async () => {
+    const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
+    applyBrowserDefault(client, 'zoom', '1.25');
+    // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Snooze limited threads', 'Browser zoom', 'Agent browser access']);
+    expect(restoreLabels(client.local as never, null)).toEqual(['Browser zoom']);
+    expect(restoreLabels(client.local as never, { enableAgentBrowserAccess: true })).toEqual(['Browser zoom']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, enableAgentBrowserAccess: true } });
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual([]);
+    expect(integrationRows(client.config.settings as Obj, '', 'Studio', true).browser[0]).toMatchObject({ title: 'Agent browser access', checked: true });
+    // Alone, it still enables Restore and names itself; Confirm writes only it.
+    const only = fake({ enableAgentBrowserAccess: false });
+    expect(await settingsCore(as(only), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Agent browser access.' });
+    await applyCoreSetting(as(only), native, 'restore-device-defaults:|||', '');
+    expect(only.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
+  test('a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore)', async () => {
+    // The reference's one patch carries environment-wide keys, so planScopedSettingsPatch plans no server write there; the
+    // device keys save, so no warning. Clearing p1's override here would turn its agent browser access off (the environment's).
+    const overrides = { p1: { enableAgentBrowserAccess: true, responseStreamingMode: 'token' }, p2: { sidebarAutoSettleAfterDays: 7 } };
+    const client = fake({ enableAgentBrowserAccess: false, projectSettingsOverrides: overrides });
+    for (const id of ['restore-device-defaults:||repo|', 'restore-device-defaults:||repo|p1']) {
+      applyDeviceSetting(client.local as never, 'diffLayout', 'split');
+      const notices = toasts(as(client)).length;
+      expect(await applyCoreSetting(as(client), native, id, '')).toBe('Device settings restored');
+      expect([client.writes, (client.local.clientSettings as Obj).diffLayout, toasts(as(client)).length]).toEqual([[], 'stacked', notices]);
+      expect((client.config.settings as Obj).projectSettingsOverrides).toEqual(overrides);
+    }
+    // The environment scope still re-grants it on the environment.
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
+  test('Restore defaults lists the scope target\'s values, in the reference\'s order (FX-1; useSettingsRestore over useScopedSettings)', async () => {
+    // As checked on the reference (audit-wave-followups-4): the environment snoozes limited threads; the checkout p1 of "repo" turns
+    // Auto-settle merged threads off and waits for the full response. Each scope lists what its representative target resolves to.
+    const client = fake({ snoozeLimitedThreads: true, projectSettingsOverrides: { p1: { sidebarAutoSettleOnMerge: false, responseStreamingMode: 'turn' } } });
+    const list = async (projectKey: string, checkout: string, route = 'general') => (await settingsCore(as(client), native, '', projectKey, checkout, '', route, '', true)).restoreText;
+    expect(await list('', '')).toBe('This will reset: Snooze limited threads.');
+    // p1's overrides over its environment, and New thread mode: the t3.json tier resolves the unset key to its built-in "local",
+    // which is not the default's null (the reference lists it in every project scope once the file is read).
+    const p1 = 'This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.';
+    expect(await list('repo', 'p1')).toBe(p1);
+    // Every route reads the scope (Restore defaults is the settings header's), and the project scope's target is its first member.
+    expect([await list('repo', 'p1', 'source-control'), await list('repo', '')]).toEqual([p1, p1]);
+    expect(await list('repo', 'p2')).toBe('This will reset: Snooze limited threads, New thread mode.');
+    // Device values take their places among the environment's; a font counts its family and its size; Visible threads is listed.
+    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['sidebarThreadPreviewCount', '8'], ['chatWidth', 'wide']] as const)
+      applyDeviceSetting(client.local as never, key, value);
+    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze limited threads, Word wrap, Code font, Delete confirmation.');
+    // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
+  });
+  test('Restore defaults lists "Theme mix" for a theme on one appearance, after Follow system (useTheme themeHalves)', async () => {
+    // The library's Use puts a one-palette theme on its own half (assignHalf): the reference stores the mix and lists it
+    // (`themeHalves !== null`), so Restore defaults is enabled with it alone; a whole theme (setTheme) clears the mix.
+    const client = fake();
+    client.local.customThemes = [{ id: 'dusk', label: 'Dusk', appearance: 'dark', light: null, dark: { canvas: '#101820', accent: '#44cc88', text: '#f0f0f0' } }];
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect([(client.local.clientSettings as Obj).theme, (client.local.clientSettings as Obj).themeDark]).toEqual(['t3-code', 'dusk']);
+    expect(await settingsCore(as(client), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Theme mix.' });
+    applyDeviceSetting(client.local as never, 'appearanceMode', 'dark');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Follow system', 'Theme mix']);
+    applyDeviceSetting(client.local as never, 'theme', 'grove');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system']);
+    // A half over a whole theme is both.
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system', 'Theme mix']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, null)).toEqual([]);
   });
   test('t3.json is read for each member of a project scope', async () => {
     const client = fake();

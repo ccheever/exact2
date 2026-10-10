@@ -29,24 +29,18 @@ import { describePreviewError, normalizePreviewUrl, previewErrorLabel, previewHo
 // Part 3 (browser-surface-capture): Annotate, Capture, Float preview, the separate window and the floating player.
 import { adoptCaptureNative, applyCaptureResults, artifactLocal, browserCaptureView, browserMiniLocal, cancelHiddenPicks, captureLocal, emptyCaptureView, type BrowserCaptureView } from './browser-capture';
 import { annotationAttachedToDraft } from './browser-annotation';
+import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, nativeProfileBridge, tabProfile, type BrowserDefaults } from './browser-profiles';
+import { resolveBrowserOpenDefaults } from './browser-defaults';
 // browser-surface part 2: history, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
 import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, readTabNavigation, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { browserHistory } from './browser-history';
 import { environmentHostname } from './browser-targets';
 import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
 
-// ── Profiles (browserProfile.ts) ───────────────────────────────────────────────────────────────
-export const DEFAULT_BROWSER_PROFILE_ID = 'default';
+// ── Profiles (browser-profiles.ts, part 4) ─────────────────────────────────────────────────────────
+export { DEFAULT_BROWSER_PROFILE_ID };
 export type BrowserProfileChoice = { id: string; name: string };
-/** The profiles a new tab can open under. Part 1 has the built-in Default only; Incognito and the 24
- *  named profiles arrive with part 4 (browser-surface-profiles), which fills this list. */
-export const BROWSER_PROFILES: readonly BrowserProfileChoice[] = [{ id: DEFAULT_BROWSER_PROFILE_ID, name: 'Default' }];
-/** PreviewView previewProfileName: a tab's profile by name, "Removed profile" once it is gone. */
-export const browserProfileName = (profiles: readonly BrowserProfileChoice[], profileId: string): string =>
-  profiles.find(profile => profile.id === profileId)?.name ?? 'Removed profile';
-/** RightPanelEmptyState: the launcher's Browser row shows its profile chevron only with a choice to make. */
-export const launcherOffersProfiles = (profiles: readonly BrowserProfileChoice[]): boolean => profiles.length > 1;
-/** browserDefaultOpenViewport: fill, the reference's default (the Settings row that changes it moved to browser-surface-profiles, part 4). */
+/** browserDefaultOpenViewport without settings (a caller that names no defaults): fill. */
 export const DEFAULT_OPEN_VIEWPORT: PreviewViewportSetting = { _tag: 'fill' };
 
 // ── The data module's browser host, one per client ─────────────────────────────────────────────
@@ -62,6 +56,8 @@ type Host = {
   reported: Map<string, Report>;
   /** The live set last sent to the module (`browserSync`). */
   synced: string;
+  /** Its runtime ids: a tab not among them is new to the module and starts at the default zoom and appearance (part 4). */
+  syncedIds?: ReadonlySet<string>;
 };
 const hosts = new WeakMap<T3Client, Host>();
 export function browserHost(client: T3Client): Host {
@@ -73,11 +69,16 @@ const rpcOf = (client: T3Client, native: Native): Rpc => (method, payload) => cl
 
 // ── Sessions: open, close, list (openPreviewSession, addBrowserSurface, closePreviewSession, usePreviewSession) ──
 export type OpenInput = { url?: string; profileId?: string; viewport?: PreviewViewportSetting };
-/** openPreviewSession: `preview.open` with the configured defaults; the answer is applied at once (no event needed). */
-export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref: ScopedThreadRef, input: OpenInput = {}): Promise<PreviewSessionSnapshot> {
+/** The configured defaults a new tab opens with (browserDefaults.ts, part 4: its profile and viewport). */
+export type OpenDefaults = () => Pick<BrowserDefaults, 'profileId'> & { viewport?: PreviewViewportSetting };
+const builtInDefaults: OpenDefaults = () => ({ profileId: DEFAULT_BROWSER_PROFILE_ID });
+/** openPreviewSession: `preview.open` with the configured defaults, resolved once and never from unread settings (the
+ *  resolver throws BrowserSettingsReadError and nothing opens); the answer is applied at once (no event needed). */
+export async function openPreviewSession(rpc: Rpc, store: PreviewStateStore, ref: ScopedThreadRef, input: OpenInput = {}, defaults: OpenDefaults = builtInDefaults): Promise<PreviewSessionSnapshot> {
+  const resolved = defaults();
   const answer = await rpc('preview.open', {
     threadId: ref.threadId, ...(input.url === undefined ? {} : { url: input.url }),
-    viewport: input.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? DEFAULT_BROWSER_PROFILE_ID,
+    viewport: input.viewport ?? resolved.viewport ?? DEFAULT_OPEN_VIEWPORT, profileId: input.profileId ?? resolved.profileId,
   });
   const snapshot = readSnapshot(answer);
   if (!snapshot) throw new Error('The server answered preview.open with no session.');
@@ -150,10 +151,11 @@ export async function addBrowserSurface(client: T3Client, native: Native, state:
   installBrowserCleanup(client, native);
   const host = browserHost(client);
   await listPreviewSessions(client, native, ref); // the server's epoch first: the tab's native identity names it
-  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId });
+  const defaults = resolveBrowserOpenDefaults(client); // read once: never a tab born from unread settings (part 4)
+  const snapshot = await openPreviewSession(rpcOf(client, native), host.store, ref, profileId === undefined ? {} : { profileId }, () => defaults);
   client.diffOpen = false;
   openBrowserIn(state, snapshot.tabId, scopedThreadKey(ref));
-  await syncNativeSessions(client, native);
+  await syncNativeSessions(client, native); // the new page starts at the default zoom and appearance there
   return '';
 }
 
@@ -220,26 +222,44 @@ export function buildReportInput(threadId: string, tabId: string, tab: NativeTab
 type Live = { id: string; url: string; profile: string; environment: string; width?: number; height?: number; zoom?: number };
 /** ElectronBrowserHost: a web view for every live session of every thread, at its last URL; the rest close. A tab at a
  *  fixed viewport also carries its size and zoom, so the module makes its page at that size before its first load
- *  (the reference's webview is laid out at it before its guest loads; part 2). */
+ *  (the reference's webview is laid out at it before its guest loads; part 2). A page the module has not reported yet is
+ *  made at the default zoom (part 4, `browserDefaultTabState`), so its first layout is already at it. */
+const defaultZoom = (client: T3Client): number => { try { return resolveBrowserOpenDefaults(client).zoomFactor; } catch { return 1; } };
 export function liveSessions(client: T3Client): Live[] {
-  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client);
+  const host = browserHost(client), live: Live[] = [], tabs = nativeTabs(client), zoom = defaultZoom(client);
   for (const [key, state] of host.store.active()) {
     const ref = parseScopedThreadKey(key);
     if (!ref) continue;
     for (const snapshot of Object.values(state.sessions)) {
       const id = previewRuntimeTabId(ref, state.serverEpoch, snapshot.tabId), viewport = snapshot.viewport;
       live.push({ id, url: snapshot.navStatus._tag === 'Idle' ? '' : snapshot.navStatus.url, profile: snapshot.profileId ?? DEFAULT_BROWSER_PROFILE_ID, environment: ref.environmentId,
-        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? 1 } : {}) });
+        ...(viewport && viewport._tag !== 'fill' ? { width: viewport.width, height: viewport.height, zoom: tabs[id]?.zoomFactor ?? zoom } : {}) });
     }
   }
   return live;
 }
 export async function syncNativeSessions(client: T3Client, native: Native): Promise<void> {
   const host = browserHost(client), live = liveSessions(client), adopted = adoptedAutomationNotes(client); // part 5's opens
-  const signature = JSON.stringify([live.map(entry => entry.id).sort(), adopted]);
+  const ids = live.map(entry => entry.id).sort(), signature = JSON.stringify([ids, adopted]);
   if (signature === host.synced) return;
+  const before = host.syncedIds ?? new Set<string>();
   const reply = await client.raw(native, { op: 'browserSync', tabs: live, adopted });
-  if (reply.ok) host.synced = signature;
+  if (!reply.ok) return;
+  host.synced = signature; host.syncedIds = new Set(ids);
+  await applyTabDefaults(client, native, ids.filter(id => !before.has(id)));
+}
+/** Part 4, desktopTabLifetime's `createTab(tabId, browserDefaultTabState(defaults))`: a page the module creates, however the
+ *  tab was opened (the launcher, a link, an agent, a relaunch), starts at the default zoom and appearance (part 2's
+ *  `browserSet`). Unread settings leave the page as WebKit made it. */
+async function applyTabDefaults(client: T3Client, native: Native, created: readonly string[]): Promise<void> {
+  if (created.length === 0) return;
+  let defaults: ReturnType<typeof resolveBrowserOpenDefaults>;
+  try { defaults = resolveBrowserOpenDefaults(client); } catch { return; }
+  if (defaults.zoomFactor === 1 && defaults.appearance === 'system') return;
+  for (const tab of created) {
+    try { await nativeOp(client, native, { op: 'browserSet', tab, zoom: defaults.zoomFactor, colorScheme: defaults.appearance }); }
+    catch (error) { if (letGo(error)) throw error; }
+  }
 }
 async function nativeOp(client: T3Client, native: Native, request: Obj): Promise<Obj> {
   const reply = await client.raw(native, request);
@@ -312,25 +332,26 @@ export type BrowserView = {
   /** Part 3: Annotate, Capture, Float preview and the separate window (browser-capture.ts). */
   capture: BrowserCaptureView;
 } & BrowserNavigationView;
-export const emptyBrowserView = (): BrowserView => ({
+/** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
+export const emptyBrowserView = (client?: T3Client): BrowserView => ({
   tabId: '', runtimeId: '', environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
   refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
-  profiles: BROWSER_PROFILES.map(profile => ({ ...profile })), capture: emptyCaptureView(), ...emptyNavigationView(),
+  profiles: browserProfileChoices(client), capture: emptyCaptureView(), ...emptyNavigationView(),
 });
 
 /** PreviewView's chrome and body for the active Browser tab. */
 export function browserView(client: T3Client, surface: Surface | null, now = 0): BrowserView {
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
-  if (!ref || !surface?.browser) return emptyBrowserView();
+  if (!ref || !surface?.browser) return emptyBrowserView(client);
   const host = browserHost(client), { nav, tab, snapshot, runtimeId } = effectiveNav(client, ref, surface.browser.tabId);
-  const profileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID, empty = shouldShowPreviewEmptyState(snapshot ? { navStatus: nav } : null), failed = nav._tag === 'LoadFailed';
+  const empty = shouldShowPreviewEmptyState(snapshot ? { navStatus: nav } : null), failed = nav._tag === 'LoadFailed';
   return {
-    tabId: surface.browser.tabId, runtimeId, environment: ref.environmentId, profileId, profileName: browserProfileName(BROWSER_PROFILES, profileId), showProfile: profileId !== DEFAULT_BROWSER_PROFILE_ID,
+    tabId: surface.browser.tabId, runtimeId, environment: ref.environmentId, ...tabProfile(client, snapshot?.profileId), // part 4: the badge shows a profile other than the configured default
     url: nav._tag === 'Idle' ? '' : nav.url, loading: nav._tag === 'Loading', canGoBack: tab?.canGoBack ?? snapshot?.canGoBack ?? false,
     canGoForward: tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle', hasWebContents: !!tab,
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
-    profiles: BROWSER_PROFILES.map(profile => ({ ...profile })), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
+    profiles: browserProfileChoices(client), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
     capture: browserCaptureView(client, ref, surface.browser.tabId, runtimeId, !!tab, failed),
   };
 }
@@ -398,6 +419,12 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       // PreviewView handleOpenInBrowser: localApi.shell.openExternal(url); an agent run records it (T3RemoteEditors).
       const url = nav._tag === 'Idle' ? '' : nav.url;
       if (url) await nativeOp(client, native, { op: 'remoteEditorsOpen', url });
+      return '';
+    }
+    case 'clear-cookies': case 'clear-cache': {
+      // Part 4, PreviewMoreMenu's Profile group: this tab's environment and profile only; a failure is ignored, as there.
+      const bridge = nativeProfileBridge(request => client.raw(native, request));
+      await (op === 'clear-cookies' ? bridge.clearCookies(ref.environmentId, profile) : bridge.clearCache(ref.environmentId, profile)).catch(() => undefined);
       return '';
     }
   }

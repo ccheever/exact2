@@ -33,6 +33,7 @@ import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
 import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
+import { adoptBrowserPrefs } from './browser-defaults'; // browser-surface part 4
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
@@ -52,6 +53,7 @@ import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThre
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 import { clampInterfaceFontSize } from './appearance-fonts';
+import { windowAppearanceMode } from './settings-appearance-look'; // audit-wave-followups-2 FV-3: the window draws in the resolved mode
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -201,6 +203,7 @@ export class T3Client {
       adoptComposerFiles(next, saved); // composer-editor: folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
+      adoptBrowserPrefs(next, saved); // browser-surface part 4: the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
       adoptBrowserHistory(next, saved); // browser-surface part 2: the Browser tab's history (browser-history.ts)
       adoptTerminalPrefs(next, saved); this.dropLegacyKeys = adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the default endpoint (local-environment.ts: the switch and exposure moved to desktop-settings.json)
@@ -312,7 +315,7 @@ export class T3Client {
     native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       const ticket = statusTicket(this);
       const status = await this.raw(native, { op: 'status' });
       if (status.ok) settleTraces(this, obj(status.value), ticket);
@@ -655,14 +658,14 @@ export class T3Client {
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
       else {
         if (providers) providers.requireWrite(); else this.requireWrite(); // a provider write on another environment needs that one's session
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else throw new ClientError(`Unknown action: ${op}`);
       }
-      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       await this.save(storage);
       await this.flushSnapshotReleases(native, storage);
       shellSuccess(this, op, value, resultMessage, id);

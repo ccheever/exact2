@@ -8,11 +8,13 @@ import { closeSurfaceIn, openFileIn, syncDiff, panelState, surfaceLocal, surface
 import { draftThreadId } from './r7-handoff-thread';
 import { deviceThreadId } from './r6-media-device';
 import { toasts } from './toast';
-import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths } from './r4-surfaces-files';
+import { treeRows, searchRows, searchMatches, crumbs, codeLines, sortEntries, filesState, editFile, pendingPaths, setMarkdownTaskChecked } from './r4-surfaces-files';
 import { resolveChains, listLines, prsView, prCommandPayload } from './r4-surfaces-prs';
 import { platformSetupStatus, hubStatusLabel, configureInput, deviceStateEvent, watchDevice, deviceReady, DEVICE_STATE_KEY } from './r4-surfaces-device';
-import { markdownDocument, parseDelimited, inlineRuns } from './r4-surfaces-render';
+import { parseDelimited } from './r4-surfaces-render';
 import { surfaces } from './shell';
+import { decodeClientPrefs } from './settings-core';
+import { diagramPreviewAction, diagramPreviewView } from './timeline-mermaid';
 import type { Native } from './protocol';
 
 const panel = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
@@ -202,11 +204,59 @@ describe('Files surface', () => {
     expect(writes.every(call => call.write && call.payload.cwd === '/repo')).toBe(true);
     expect(pendingPaths(client).has('a.ts')).toBe(false);
   });
-  test('Markdown renders as transcript blocks; CSV keeps quoted cells', () => {
-    const document = markdownDocument('d', '# Title\n\nSome `code` here.\n\n- one\n- two\n\n```ts\nconst a = 1;\n```');
-    expect(document.blocks.map(block => `${block.kind}:${block.gap}`)).toEqual(['heading:0', 'paragraph:10.4', 'item:10.4', 'item:4', 'code:10.4']);
-    expect(document.blocks[1]!.flow).toBe(true);
-    expect(inlineRuns('see [docs](docs/guide.md) and **bold**', false).map(run => run.kind || (run.weight === 600 ? 'bold' : 'text'))).toEqual(['text', 'file', 'text', 'bold']);
+  // markdown-links-and-files-preview PA-3: FileMarkdownPreview is ChatMarkdown over the file, its links and images resolved
+  // against the file's folder, and a task checkbox writes the file (RenderedMarkdownSurface onTaskListChange).
+  test('a rendered Markdown file is the chat renderer\'s source, and a task checkbox saves the file', async () => {
+    const { client, calls, replies } = fakeClient({ local: { clientSettings: decodeClientPrefs({}) } });
+    const text = '# Notes\n\nSee [app.ts](../src/app.ts) and [link](https://example.com).\n\n- [ ] Write the tests\n- [x] Ship the fix\n\n```ts\nconst x = 1;\n```\n';
+    replies['projects.listEntries'] = payload => ({ entries: payload.directoryPath === '' ? [{ path: 'docs', kind: 'directory' }] : [{ path: 'docs/notes.md', kind: 'file' }], truncated: false });
+    replies['projects.readFile'] = () => ({ relativePath: 'docs/notes.md', contents: text, byteLength: text.length, truncated: false });
+    replies['projects.writeFile'] = payload => ({ relativePath: payload.relativePath });
+    await surfaceLocal(client, native, 'file', 'docs/notes.md', '');
+    let files = (await panelView(client, native, 0)).files;
+    if (files.preview !== 'markdown') { await surfaceLocal(client, native, 'files-render', 'docs/notes.md', ''); files = (await panelView(client, native, 0)).files; }
+    expect(files.preview).toBe('markdown');
+    expect(files.markdownSource).toEqual([{ id: 'file:docs/notes.md', kind: 'file', title: '', body: text }]);
+    expect(files.md.chips.map(chip => [chip.href, chip.tip])).toEqual([['t3-file:../src/app.ts', '/repo/src/app.ts']]);
+    expect(files.code.map(block => block.code)).toEqual(['const x = 1;']);
+    expect(files.code[0]!.icon).not.toBe('');
+    const offset = text.indexOf('[ ] Write');
+    await surfaceLocal(client, native, 'files-task', '3', `${offset}\ttrue`);
+    const writes = () => calls.filter(call => call.method === 'projects.writeFile');
+    expect(writes().map(call => call.payload)).toEqual([{ cwd: '/repo', relativePath: 'docs/notes.md', contents: text.replace('- [ ] Write', '- [x] Write') }]);
+    // The next render reads the saved contents; an offset that no longer holds a marker writes nothing.
+    expect((await panelView(client, native, 0)).files.markdownSource[0]!.body).toContain('- [x] Write the tests');
+    await surfaceLocal(client, native, 'files-task', '3', `${offset + 1}\tfalse`);
+    expect(writes()).toHaveLength(1);
+    expect(setMarkdownTaskChecked('- [X] a', 2, false)).toBe('- [ ] a');
+    expect(setMarkdownTaskChecked('- (x) a', 2, false)).toBe('- (x) a');
+  });
+  // FileMarkdownPreview is ChatMarkdown: a settled ```mermaid fence draws as a diagram (MarkdownMermaidCodeBlock), and
+  // its expand opens the diagram preview as the transcript's does.
+  test('a rendered Markdown file draws its Mermaid fences as diagrams', async () => {
+    const { client, calls, replies } = fakeClient({ origin: 'http://127.0.0.1:1', local: { clientSettings: decodeClientPrefs({}) } });
+    const flow = 'graph LR\n  Files --> Preview', text = `# Flow\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
+    let json = '';
+    const base = client.restAccess.bind(client);
+    Object.assign(client, { restAccess: (n: Native) => ({ ...base(n), call: async (request: Record<string, unknown>) => {
+      calls.push({ method: String(request.op), payload: request, write: false });
+      return { items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) };
+    } }) });
+    replies['projects.listEntries'] = payload => ({ entries: payload.directoryPath === '' ? [{ path: 'docs', kind: 'directory' }] : [{ path: 'docs/flow.md', kind: 'file' }], truncated: false });
+    replies['projects.readFile'] = () => ({ relativePath: 'docs/flow.md', contents: text, byteLength: text.length, truncated: false });
+    await surfaceLocal(client, native, 'file', 'docs/flow.md', '');
+    let files = (await panelView(client, native, 0)).files;
+    if (files.preview !== 'markdown') { await surfaceLocal(client, native, 'files-render', 'docs/flow.md', ''); files = (await panelView(client, native, 0)).files; }
+    expect(files.diagrams.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
+    expect(calls.find(call => call.method === 'mermaidRender')?.payload.diagrams).toEqual([{ source: flow, theme: 'light' }, { source: flow, theme: 'dark' }]);
+    // The module announces the finished render; the next view carries the diagram, and its expand opens it.
+    json = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [] });
+    files = (await panelView(client, native, 0)).files;
+    expect(files.diagrams[0]).toMatchObject({ code: flow, diagram: 'rendered', width: 120, viewBox: '0 0 120 80' });
+    diagramPreviewAction(client, 'diagram-open', flow);
+    expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
+  });
+  test('CSV keeps quoted cells', () => {
     expect(parseDelimited('name,note\n"a, b","say ""hi"""\n', ',').rows).toEqual([['name', 'note'], ['a, b', 'say "hi"']]);
   });
 });
@@ -282,7 +332,7 @@ describe('the surface launcher keyboard', () => {
     return lines.slice(start, end).join('\n');
   };
   test('one highlight over the available rows: the arrows move and wrap it, Enter opens it, a chord or a letter is the panel\'s', async () => {
-    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui)');
+    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)'); // part 4: the Browser row's profile chevron
     const launcher = await component('SurfaceLauncher');
     expect(launcher).toContain('state highlight = -1');
     expect(launcher).toContain('derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)');
@@ -303,4 +353,6 @@ describe('the surface launcher keyboard', () => {
     // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
+  // browser-surface part 4: the Browser row's profile chevron by keys (its Enter, ↑ and its list's Enter stay out of the
+  // launcher) is browser-launcher-chevron.test.contract, run against the app (`agent.mjs macos --test`).
 });

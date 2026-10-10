@@ -24,11 +24,12 @@ import { normalizePreviewUrl } from './browser-url';
 import { browserHistory, formatRelativeTimeLabel, recentUrlLabel } from './browser-history';
 import { discoveredServers, environmentHostname, getConfiguredPreviewUrls, preparedConnection, previewableServers, resolveDiscoveredServerUrl, watchDiscoveredServers } from './browser-targets';
 import {
-  DEFAULT_BROWSER_DEFAULTS, FILL_PREVIEW_VIEWPORT, PREVIEW_VIEWPORT_PRESETS, browserResponsiveViewportForToggle, browserViewportSettingKey, commitViewportAndAspectRatio, isValidViewport,
+  FILL_PREVIEW_VIEWPORT, PREVIEW_VIEWPORT_PRESETS, browserResponsiveViewportForToggle, browserViewportSettingKey, commitViewportAndAspectRatio, isValidViewport,
   normalizeZoomFactor, resizeBrowserViewportFromRail, resizeFreeformViewport, resolveBrowserDeviceViewportArea, resolveBrowserDeviceViewportLayout, resolvePreviewViewport,
   runBrowserViewportMutation, zoomLabel, type BrowserViewportResizeDirection,
 } from './browser-viewport';
 import { addBrowserSurface, browserHost, browserTabFavicon, effectiveNav, nativeTabs, openBrowserIn, type NativeTab } from './browser-surface';
+import { browserOpenDefaults } from './browser-defaults';
 
 // ── Per-client state the reference keeps in components (HostedBrowserWebview, ZoomIndicator) ──────
 /** `now`: the latest projection's wall time (a data source reads no clock), the time a visit an op makes is recorded at. */
@@ -198,10 +199,11 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
     case 'zoom-reset': await nativeSet(client, native, runtimeId, { zoom: 1 }); return '';
     case 'color-scheme': if (['system', 'light', 'dark'].includes(value)) await nativeSet(client, native, runtimeId, { colorScheme: value }); return '';
     case 'device-toolbar': {
-      // handleToggleDeviceToolbar: a fixed viewport goes back to fill; fill opens at the default, else the panel's framed area.
+      // handleToggleDeviceToolbar: a fixed viewport goes back to fill; fill opens at the configured default (part 4's
+      // Settings › Integrations › Browser row), else the panel's framed area.
       if (viewport._tag !== 'fill') { await commitViewport(client, native, ref, tabId, runtimeId, FILL_PREVIEW_VIEWPORT); return ''; }
       const [width = 0, height = 0] = numbers(value);
-      await commitViewport(client, native, ref, tabId, runtimeId, browserResponsiveViewportForToggle({ defaults: DEFAULT_BROWSER_DEFAULTS, panelRect: width > 0 && height > 0 ? { width, height } : null, zoomFactor: zoom }));
+      await commitViewport(client, native, ref, tabId, runtimeId, browserResponsiveViewportForToggle({ defaults: browserOpenDefaults(client), panelRect: width > 0 && height > 0 ? { width, height } : null, zoomFactor: zoom }));
       return '';
     }
   }

@@ -19,6 +19,8 @@ shape EditorView
   open: bool
   title: string
   saveLabel: string
+  // The submit's icon (ThemeEditorPanel.tsx:1252-1266): paintbrush for Create theme, plus for Add <appearance> palette, none for an edit.
+  saveIcon: string
   name: string
   appearance: string
   advanced: bool

@@ -55,6 +55,10 @@ shape ChatBlock
   markdown: string
   csv: string
   closedFence: bool
+  // A GFM task item (markdown_links.rs task_items): "open", "done" or "", and its `[`'s offset in the file's text,
+  // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
+  task: string
+  taskOffset: number
 shape ChatDocument
   id: string
   blocks: list<ChatBlock>
@@ -128,10 +132,17 @@ keyframes mdCopyB
 // shiki-residuals: a class ends in "+i" where the pierre theme sets italic (r12-render-highlight.ts).
 fn synColor(cls: string): string = synInk(endsWith(cls, "+i") ? slice(cls, 0, -2) : cls)
 fn synSlant(cls: string): string = endsWith(cls, "+i") ? "italic" : "normal"
-fn synInk(cls: string): string = cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : cls == "const" ? "light-dark(#d5901c, #ffab16)" : cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : cls == "num" ? "light-dark(#1ca1c7, #68cdf2)" : cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : cls == "attr" ? "light-dark(#18a46c, #60d199)" : cls == "regex" ? "light-dark(#17a5af, #64d1db)" : cls == "deco" ? "light-dark(#1a85d4, #69b1ff)" : "light-dark(#0a0a0a, #fafafa)"
+fn synInk(cls: string): string = includes(["kw", "decl", "type", "fn", "var", "const"], cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : includes(["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"], cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : includes(["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"], cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : includes(["regex", "deco"], cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#0a0a0a, #fafafa)"
 
 shape TranscriptMarkdown
   documents: list<ChatDocument>
+// renderFileMarkdown's message record (id, kind, a title it ignores, the text): kind "file" (Files' rendered file) lets
+// task checkboxes write; kind "attachment" (a sent attachment's preview, audit-wave-followups-3 FW-2) has no folder.
+shape MarkdownSource
+  id: string
+  kind: string
+  title: string
+  body: string
 
 // A chip's presentation (r4-timeline-chips.ts), matched to its run by href:
 // kind "link" (a file link's full path), "mention", "file", "video", "image",
@@ -329,53 +340,81 @@ component BlockBody
       else
         text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id) width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
           ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
-    else
-      when block.kind == "item"
-        row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
-          when block.marker == "•"
-            box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
-              box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
-          else
-            text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
-          when block.flow
-            FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
-          else
-            text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
-              ChatRuns(runs=block.runs, size=14, weight=400)
-      else
-        when block.kind == "rule"
-          box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+    when block.kind == "item"
+      row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
+        when block.task != ""
+          TaskCheckbox(block=block, local=local)
+        when block.task == "" and block.marker == "•"
+          box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
+            box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
+        when block.task == "" and block.marker != "•"
+          text block.marker width="1.25rem" flex-shrink=0 padding-right="0.25rem" box-sizing="border-box" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color="light-dark(#27272acc, #f5f5f5cc)"
+        when block.flow
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
         else
-          when block.kind == "table-row"
-            row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
-              each cell in block.cells key=cell.id
-                text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
-                  ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400))
-          else
-            when block.kind == "table"
-              MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
-            else
-              when block.kind == "image"
-                // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
-                when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
-                  each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-                    MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
-                else
-                  image block.href aria-label=block.text max-width="100%" object-fit="contain"
-              else
-                when block.kind == "quote"
-                  when block.flow
-                    box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
-                      FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
-                  else
-                    text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" color="light-dark(#71717b, #818181)"
-                      ChatRuns(runs=block.runs, size=14, weight=400)
-                else
-                  when block.flow
-                    FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
-                  else
-                    text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
-                      ChatRuns(runs=block.runs, size=14, weight=400)
+          text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
+            ChatRuns(runs=block.runs, size=14, weight=400)
+    when block.kind == "rule"
+      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+    when block.kind == "table-row"
+      row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+        each cell in block.cells key=cell.id
+          text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
+            ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400))
+    when block.kind == "table"
+      MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
+    when block.kind == "image"
+      // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
+      when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
+        each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
+          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
+      else
+        image block.href aria-label=block.text max-width="100%" object-fit="contain"
+    when block.kind == "quote"
+      when block.flow
+        box width="100%" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+          FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+      else
+        text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" padding-left="0.8rem" box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="1.421875rem" color="light-dark(#71717b, #818181)"
+          ChatRuns(runs=block.runs, size=14, weight=400)
+    when not includes(["heading", "item", "rule", "table-row", "table", "image", "quote"], block.kind) and block.flow
+      FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
+    when not includes(["heading", "item", "rule", "table-row", "table", "image", "quote"], block.kind) and not block.flow
+      text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size="0.875rem" line-height="1.421875rem" color=prose
+        ChatRuns(runs=block.runs, size=14, weight=400)
+
+// markdown-links-and-files-preview PA-3: GFM's task checkbox in place of the list marker (`li.task-list-item`:
+// list-style none, the checkbox in the 1.25rem gutter with 0.35em after it), as Electron draws an `input` checkbox on
+// macOS (13pt, 12pt tall with a 1pt shade, white or the accent blue with a white tick). In a file preview
+// (taskOffset >= 0) a press toggles the task and saves the file (RenderedMarkdownSurface onTaskListChange,
+// r4-surfaces-files.ts toggleTask); elsewhere it is GFM's disabled checkbox (MarkdownInput without onTaskListChange).
+component TaskCheckbox
+  props
+    block: ChatBlock
+    local: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    box width="1.11875rem" height="1.421875rem" flex-shrink=0 padding-top="0.33125rem" box-sizing="border-box"
+      when block.taskOffset >= 0
+        button press=local("surface-files-task", block.id, `${block.taskOffset}\t${block.task == "done" ? "false" : "true"}`) hover=hover role="checkbox" aria-checked=(block.task == "done") aria-label="Toggle task" testId=`task-${block.id}` width=13 height=13 padding=0 border-width=0 background-color="#00000000" cursor="default"
+          TaskBox(done=(block.task == "done"), disabled=false, hovered=hovered)
+      else
+        box role="checkbox" aria-checked=(block.task == "done") aria-label="Task" testId=`task-${block.id}` width=13 height=13
+          TaskBox(done=(block.task == "done"), disabled=true, hovered=false)
+
+component TaskBox
+  props
+    done: bool
+    disabled: bool
+    hovered: bool
+  view
+    box width=13 height=13 position="relative" opacity=(disabled ? 0.5 : 1)
+      box position="absolute" left=0 top=0 width=13 height=12 box-sizing="border-box" border-radius=3 border-width=(done ? 0 : 1) border-style="solid" border-color=(hovered ? "light-dark(#5c5c5c, #a3a3a3)" : "light-dark(#767676, #8a8a8a)") background-color=(done ? (hovered ? "light-dark(#255fd6, #3b82f6)" : "light-dark(#3273f6, #3b82f6)") : "light-dark(#ffffff, #ffffff1f)") box-shadow="0 1px 0 light-dark(#00000026, #00000066)"
+        when done
+          box position="absolute" left=2 top=1.5 width=9 height=9
+            TimelineIcon(name="check-mark", size=9, color="#ffffff")
 
 // Inline runs in one text node; only a web link keeps its href (a chip's
 // href is how its ChipView finds it, not a destination).
@@ -423,35 +462,30 @@ component FlowRuns
         when run.mono
           box height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
             text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-        else
-          when run.kind == "file" or chipAccent(run.kind) != ""
-            when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
-              each chip in filter(chips, (chip) => chip.href == run.href) key=chip.id
-                ResolvedChip(run=run, chip=chip, urls=urls, local=local)
-            else
-              when run.kind == "file"
-                FileChip(run=run)
-              else
-                ContextChipBox(run=run)
-          else
-            when run.kind == "break"
-              box width="100%" height=0 flex-shrink=0
-            else
-              // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
-              when (run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0
-                each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
-                  PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
-              else
-                when run.kind == "link-start"
-                  row flex-shrink=0 align-items="flex-start"
-                    box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-                      TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
-                    text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-                else
-                  when run.kind == "link" and webLink(run.href)
-                    text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
-                  when not (run.kind == "link" and webLink(run.href))
-                    text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+        when not run.mono and (run.kind == "file" or chipAccent(run.kind) != "")
+          when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
+            each chip in filter(chips, (chip) => chip.href == run.href) key=chip.id
+              ResolvedChip(run=run, chip=chip, urls=urls, local=local)
+          when not (length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0) and run.kind == "file"
+            FileChip(run=run)
+          when not (length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0) and run.kind != "file"
+            ContextChipBox(run=run)
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind == "break"
+          box width="100%" height=0 flex-shrink=0
+        // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
+          each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
+            PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind == "link-start"
+          row flex-shrink=0 align-items="flex-start"
+            box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
+              TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+            text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start"
+          when run.kind == "link" and webLink(run.href)
+            text run.text href=run.href press=linkOpen("link", run.href) white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
+          when not (run.kind == "link" and webLink(run.href))
+            text run.text href=(run.kind == "link" ? run.href : "") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
@@ -486,12 +520,12 @@ component PrLinkRun
 // ContextChip's per-kind accent (oklch(0.62 C H)): a fill of the accent at
 // 11%, a border mixing it 34% into the border colour and text mixing it 22%
 // into the foreground; "" for runs that are not context chips.
-fn chipAccent(kind: string): string = kind == "context-file" ? "#0090cd" : kind == "context-video" ? "#d06217" : kind == "context-thread" ? "#009c96" : kind == "context-review-comment" ? "#8a70dd" : kind == "context-terminal" ? "#009f6e" : kind == "context-element" ? "#b87501" : kind == "context-image" ? "#d55665" : kind == "context-skill" ? "#b261be" : kind == "context-citation" ? "#4684e5" : kind == "context-other" ? "#71717b" : ""
-fn chipBorder(kind: string): string = kind == "context-file" ? "light-dark(#a8c8e0, #0090cd61)" : kind == "context-video" ? "light-dark(#e2b9a7, #d0621761)" : kind == "context-thread" ? "light-dark(#a6cccb, #009c9661)" : kind == "context-review-comment" ? "light-dark(#c3bde6, #8a70dd61)" : kind == "context-terminal" ? "light-dark(#a9cdbd, #009f6e61)" : kind == "context-element" ? "light-dark(#d7bfa6, #b8750161)" : kind == "context-image" ? "light-dark(#e4b6b9, #d5566561)" : kind == "context-skill" ? "light-dark(#d4b8da, #b261be61)" : kind == "context-citation" ? "light-dark(#aec5e9, #4684e561)" : "light-dark(#e4e4e7b3, #ffffff14)"
-fn chipInk(kind: string): string = kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : kind == "context-thread" ? "light-dark(#2a3f40, #c9e2df)" : kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : kind == "context-element" ? "light-dark(#44382c, #e9d9c7)" : kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : kind == "context-citation" ? "light-dark(#2f3b4f, #ceddf4)" : "light-dark(#27272a, #f5f5f5)"
-fn chipIcon(kind: string): string = kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : kind == "context-terminal" ? "square-terminal" : kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : kind == "context-video" ? "film" : kind == "context-skill" ? "skill" : kind == "context-citation" ? "quote" : "circle-dashed"
+fn chipAccent(kind: string): string = includes(["context-file", "context-video", "context-thread", "context-review-comment"], kind) ? (kind == "context-file" ? "#0090cd" : kind == "context-video" ? "#d06217" : kind == "context-thread" ? "#009c96" : "#8a70dd") : includes(["context-terminal", "context-element", "context-image", "context-skill"], kind) ? (kind == "context-terminal" ? "#009f6e" : kind == "context-element" ? "#b87501" : kind == "context-image" ? "#d55665" : "#b261be") : includes(["context-citation", "context-other"], kind) ? (kind == "context-citation" ? "#4684e5" : "#71717b") : ""
+fn chipBorder(kind: string): string = includes(["context-file", "context-video", "context-thread"], kind) ? (kind == "context-file" ? "light-dark(#a8c8e0, #0090cd61)" : kind == "context-video" ? "light-dark(#e2b9a7, #d0621761)" : "light-dark(#a6cccb, #009c9661)") : includes(["context-review-comment", "context-terminal", "context-element"], kind) ? (kind == "context-review-comment" ? "light-dark(#c3bde6, #8a70dd61)" : kind == "context-terminal" ? "light-dark(#a9cdbd, #009f6e61)" : "light-dark(#d7bfa6, #b8750161)") : includes(["context-image", "context-skill", "context-citation"], kind) ? (kind == "context-image" ? "light-dark(#e4b6b9, #d5566561)" : kind == "context-skill" ? "light-dark(#d4b8da, #b261be61)" : "light-dark(#aec5e9, #4684e561)") : "light-dark(#e4e4e7b3, #ffffff14)"
+fn chipInk(kind: string): string = includes(["context-file", "context-video", "context-thread"], kind) ? (kind == "context-file" ? "light-dark(#2b3d4a, #cadfed)" : kind == "context-video" ? "light-dark(#4a352d, #f0d5c8)" : "light-dark(#2a3f40, #c9e2df)") : includes(["context-review-comment", "context-terminal", "context-element"], kind) ? (kind == "context-review-comment" ? "light-dark(#3b374e, #dcd8f2)" : kind == "context-terminal" ? "light-dark(#2c3f38, #cbe2d6)" : "light-dark(#44382c, #e9d9c7)") : includes(["context-image", "context-skill", "context-citation"], kind) ? (kind == "context-image" ? "light-dark(#4b3337, #f2d3d4)" : kind == "context-skill" ? "light-dark(#433448, #e7d5ea)" : "light-dark(#2f3b4f, #ceddf4)") : "light-dark(#27272a, #f5f5f5)"
+fn chipIcon(kind: string): string = includes(["context-thread", "context-review-comment", "context-terminal"], kind) ? (kind == "context-thread" ? "messages-square" : kind == "context-review-comment" ? "message-circle" : "square-terminal") : includes(["context-element", "context-image", "context-video"], kind) ? (kind == "context-element" ? "mouse-pointer-click" : kind == "context-image" ? "image" : "film") : includes(["context-skill", "context-citation"], kind) ? (kind == "context-skill" ? "skill" : "quote") : "circle-dashed"
 // A resolved chip's accent family (ContextChip `kind`).
-fn chipFamily(kind: string): string = kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : kind == "video" ? "context-video" : kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : kind == "thread" ? "context-thread" : kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : kind == "review" ? "context-review-comment" : "context-other"
+fn chipFamily(kind: string): string = includes(["citation", "file", "video"], kind) ? (kind == "citation" ? "context-citation" : kind == "file" ? "context-file" : "context-video") : includes(["image", "skill", "thread"], kind) ? (kind == "image" ? "context-image" : kind == "skill" ? "context-skill" : "context-thread") : includes(["terminal", "element", "review"], kind) ? (kind == "terminal" ? "context-terminal" : kind == "element" ? "context-element" : "context-review-comment") : "context-other"
 
 // A composer context reference in a sent message (ContextChip) the message
 // carries no record view for: its kind's glyph (a file's Pierre icon) and label.
@@ -548,34 +582,30 @@ component ResolvedChip
           // r4-surfaces: a file link opens in the Files surface (rightPanelStore.openFile).
           button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
             FileChipFace(run=run, label=run.text, icon=run.icon)
-      else
-        when chip.kind == "mention"
-          Tip(label=chip.tip, side="top", align="center", offset=21)
-            button press=local("surface-file", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
-              FileChipFace(run=run, label=chip.label, icon=chip.icon)
-        else
-          when chip.kind == "unresolved"
-            Tip(label=chip.tip, side="top", align="center", offset=21)
-              row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color="light-dark(#f4f4f566, #ffffff04)" position="relative" aria-label=`Unavailable context, ${chip.label}` testId=`context-chip-${run.id}`
-                // UnresolvedChip's dashed border (border-style is solid-only here): one stroked rect.
-                box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 aria-hidden=true
-                  svg width="100%" height="100%" color="light-dark(#e4e4e7, #ffffff12)" fill="none" stroke="currentColor" aria-hidden=true
-                    rect x=0 y=0 width="100%" height="100%" rx=5.5 stroke-width=1 stroke-dasharray="3 3"
-                TimelineIcon(name="circle-dashed", size=14, color="light-dark(#27272a, #f5f5f5)")
-                text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
-          else
-            when chip.kind == "terminal"
-              TerminalContextChip(run=run, chip=chip)
-            else
-              when chip.kind == "element" or chip.kind == "review"
-                button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
-                  TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
-                  text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
-                when open
-                  ChipDetails(chip=chip, close=toggle)
-              else
-                Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
-                  AttachmentChip(run=run, chip=chip, urls=urls, local=local)
+      when chip.kind == "mention"
+        Tip(label=chip.tip, side="top", align="center", offset=21)
+          button press=local("surface-file", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
+            FileChipFace(run=run, label=chip.label, icon=chip.icon)
+      when chip.kind == "unresolved"
+        Tip(label=chip.tip, side="top", align="center", offset=21)
+          row height="1.0625rem" max-width="15rem" padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color="light-dark(#f4f4f566, #ffffff04)" position="relative" aria-label=`Unavailable context, ${chip.label}` testId=`context-chip-${run.id}`
+            // UnresolvedChip's dashed border (border-style is solid-only here): one stroked rect.
+            box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 aria-hidden=true
+              svg width="100%" height="100%" color="light-dark(#e4e4e7, #ffffff12)" fill="none" stroke="currentColor" aria-hidden=true
+                rect x=0 y=0 width="100%" height="100%" rx=5.5 stroke-width=1 stroke-dasharray="3 3"
+            TimelineIcon(name="circle-dashed", size=14, color="light-dark(#27272a, #f5f5f5)")
+            text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+      when chip.kind == "terminal"
+        TerminalContextChip(run=run, chip=chip)
+      when chip.kind == "element" or chip.kind == "review"
+        button press=toggle aria-label=`${chip.label}. Show details` aria-expanded=open testId=`context-chip-${run.id}` height="1.0625rem" max-width="15rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}1c`
+          TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
+          text chip.label min-width=0 line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
+        when open
+          ChipDetails(chip=chip, close=toggle)
+      when not includes(["link", "mention", "unresolved", "terminal", "element", "review"], chip.kind)
+        Tip(label=(chip.kind == "image" ? "" : chip.tip), side="top", align="center", offset=21)
+          AttachmentChip(run=run, chip=chip, urls=urls, local=local)
 // The original button-triggered ContextChipPopover. Auto popovers use the host's
 // top layer: scrolling ancestors cannot clip them; Escape and outside clicks
 // dismiss them, and keyboard activation returns focus to the invoking chip.
@@ -639,12 +669,11 @@ component ChipFace
   view
     when chip.kind == "file"
       FileTypeIcon(token=chip.icon, size=14)
-    else
-      when chip.kind == "image" and length(filter(urls, (entry) => entry.id == chip.target)) > 0
-        each entry in filter(urls, (entry) => entry.id == chip.target) key=entry.id
-          image entry.url aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
-      else
-        TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
+    when chip.kind != "file" and (chip.kind == "image" and length(filter(urls, (entry) => entry.id == chip.target)) > 0)
+      each entry in filter(urls, (entry) => entry.id == chip.target) key=entry.id
+        image entry.url aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
+    when chip.kind != "file" and not (chip.kind == "image" and length(filter(urls, (entry) => entry.id == chip.target)) > 0)
+      TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
     text chip.label min-width=0 max-width=(chip.kind == "citation" ? "12rem" : "18rem") line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
     when chip.size != ""
       text chip.size flex-shrink=0 font-size="0.625rem" font-weight=500 line-height="0.875rem" white-space="pre" color=chipInk(chipFamily(chip.kind))
@@ -892,23 +921,21 @@ component TableCell
       when length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
         // A code span keeps its bordered box (inline spans paint backgrounds only).
         CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), shown=true, justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"))
-      else
-        when header or not expanded
-          // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
-          text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
-            ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400))
-        else
-          text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
-            ChatRuns(runs=cell.runs, size=12, weight=400)
+      when not (length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0) and (header or not expanded)
+        // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
+        text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
+          ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400))
+      when not (length(filter(cell.runs, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0) and not (header or not expanded)
+        text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
+          ChatRuns(runs=cell.runs, size=12, weight=400)
       box height=0 overflow="hidden" aria-hidden=true
         when column.capped
           box width="22.5rem" height=0
-        else
-          when length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
-            CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
-          else
-            text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
-              ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400))
+        when not column.capped and length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0
+          CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
+        when not column.capped and not (length(filter(column.sizer, (part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "")) > 0)
+          text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
+            ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400))
 
 // A cell holding code spans: its runs side by side, each code span 12pt SF
 // Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line.
@@ -926,14 +953,12 @@ component CellRuns
       each run in runs key=run.id
         when run.mono
           text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
-        else
-          when run.kind == "file"
-            FileChip(run=run)
-          else
-            when chipAccent(run.kind) != ""
-              ContextChipBox(run=run)
-            else
-              text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+        when not run.mono and run.kind == "file"
+          FileChip(run=run)
+        when not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
+          ContextChipBox(run=run)
+        when not run.mono and run.kind != "file" and chipAccent(run.kind) == ""
+          text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton
@@ -990,15 +1015,19 @@ component TableCopyButton
 
 component TableMenuItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     press: action
     testId: string
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered or lit ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-label=label testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1

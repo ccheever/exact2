@@ -44,7 +44,16 @@ fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or 
 fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`
 // The `keyed` a freshly mounted menu sees for that end: 1 the first item, -1 the last, 0 the popup.
 fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)
-
+// One highlight (audit-wave-followups-4 FX-2): Base UI's `highlightedIndex` serves the pointer and the keys
+// alike (useListNavigation with focusItemOnHover: an item the pointer moves over takes the focus, and the
+// pointer leaving it hands the focus back to the popup). Here the highlight is the focus: a row inside these
+// menus paints its highlight from its own focus alone. The pointer entering a row focuses the row's door
+// here, `${id}-km`, which makes the row `current` and hands it the focus, so ↓ and ↑ go on from the row the
+// pointer rests on and the row they leave loses its shade. The pointer leaving a row that holds the focus
+// gives the focus to the popup (the row's `keysId`, this `menuId`). The doors stand in for the rows' own
+// focus, which the popup cannot hear (no focusin, #283); the popup hears no pointer itself, so a press inside
+// it still reaches the window's (popover-escape-parity), and no `hover` (the macOS host hovers one node at a
+// time, #322). A door is a 1-pt invisible box: a node the host focuses has a size.
 component KeyMenu
   props
     menuId: string
@@ -65,6 +74,9 @@ component KeyMenu
           current = item.id
           focus(item.id)
         case none
+  action pointed(id: string)
+    current = id
+    focus(id)
   action entered
     current = ""
     if keyed != seen
@@ -92,6 +104,8 @@ component KeyMenu
       column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast
         column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
           children
+      each item in items key=item.id
+        KmDoor(id=item.id, enter=pointed(item.id))
 
 component KeyMenuWatched
   props
@@ -114,6 +128,9 @@ component KeyMenuWatched
           current = item.id
           focus(item.id)
         case none
+  action pointed(id: string)
+    current = id
+    focus(id)
   action entered
     inside(true)
     current = ""
@@ -144,6 +161,16 @@ component KeyMenuWatched
       column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast blur=left
         column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst blur=left
           children
+      each item in items key=item.id
+        KmDoor(id=item.id, enter=pointed(item.id))
+
+// A row's door (`${id}-km`): focused as the pointer enters the row, it tells the menu and hands the focus on.
+component KmDoor
+  props
+    id: string
+    enter: action
+  view
+    box id=`${id}-km` tabindex=-1 focus=enter aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
 
 // ↓ and ↑ on a popover menu's trigger: Contract has no `showPopover` (X66), so two invisible invokers lie
 // over the trigger (its owner puts this in the trigger's `position="relative"` box, which the trigger

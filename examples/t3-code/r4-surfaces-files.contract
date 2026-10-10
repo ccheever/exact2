@@ -17,7 +17,7 @@ use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
 use DiffGlyph from "./diff-glyphs.contract"
-use MarkdownBlocks from "./markdown.contract"
+use DiagramBlocks, ChatDocument from "./markdown.contract"
 use FilesMedia from "./media-actions.contract"
 use R4Icon from "./r4-surfaces-icons.contract"
 use KmItem from "./menu-keys.contract"
@@ -31,18 +31,22 @@ use kmEndKeyed from "./menu-keys.contract"
 component R4FilesBody
   props
     files: R4Files
+    // markdown-links-and-files-preview PA-3: app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
+    documents: list<ChatDocument>
     scheme: string
     sheet: bool
     local: action
   view
     when scheme == "dark"
-      R4FilesSurface(files=files, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
     else
-      R4FilesSurface(files=files, sheet=sheet, local=local)
+      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
 
 component R4FilesSurface
   props
     files: R4Files
+    documents: list<ChatDocument>
+    scheme: string
     sheet: bool
     local: action
   action closeEditors
@@ -53,6 +57,16 @@ component R4FilesSurface
   state menuEnd = ""
   action setMenuEnd(end: string)
     menuEnd = end
+  // audit-wave-followups-4 FX-2 (menu-keys.contract): the "Open in" rows are MenuItems, highlighted by their focus alone; the
+  // pointer entering one focuses it, and leaving the one that holds the focus hands it to the popup.
+  state editorLit = ""
+  action editorFocus(id: string, on: bool)
+    editorLit = on ? id : (editorLit == id ? "" : editorLit)
+  action editorHover(id: string, over: bool)
+    if over
+      focus(`file-editor-${id}-km`)
+    else if editorLit == id
+      focus("file-editors-keys")
   view
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
       when files.path != ""
@@ -62,7 +76,7 @@ component R4FilesSurface
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
         when files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            R4FilePreview(files=files, local=local)
+            R4FilePreview(files=files, documents=documents, scheme=scheme, local=local)
         when files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
             R4Explorer(files=files, local=local)
@@ -71,12 +85,12 @@ component R4FilesSurface
         column position="absolute" left=files.crumbMenu.x top=(sheet ? "2rem" : "1.625rem") z-index=10 min-width="10rem" max-width="20rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
           KeyMenu(menuId="crumb-menu-keys", items=concat((files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []), map(files.crumbMenu.entries, (entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
             when files.crumbMenu.back != ""
-              R4CrumbItem(label=files.crumbMenu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=local("surface-files-crumb-dir", files.crumbMenu.backPath, ""))
+              R4CrumbItem(keysId="crumb-menu-keys", label=files.crumbMenu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=local("surface-files-crumb-dir", files.crumbMenu.backPath, ""))
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
             when files.crumbMenu.status != ""
               text files.crumbMenu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)"
             each entry in files.crumbMenu.entries key=entry.id
-              R4CrumbItem(label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=local(entry.directory ? "surface-files-crumb-dir" : "surface-file", entry.path, ""))
+              R4CrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=local(entry.directory ? "surface-files-crumb-dir" : "surface-file", entry.path, ""))
       when files.editorsOpen and files.editorShow
         button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop"
         column position="absolute" right="6.5rem" top=(sheet ? "2.25rem" : "1.875rem") z-index=10 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
@@ -86,7 +100,7 @@ component R4FilesSurface
             when files.editorHint != "" and files.editorUnavailable == ""
               text files.editorHint padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-remote-hint"
             each editor in files.editors key=editor.id
-              button id=`file-editor-${editor.id}` press=local("surface-files-open-editor", files.absolutePath, editor.id) role="menuitem" testId=`file-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              button id=`file-editor-${editor.id}` press=local("surface-files-open-editor", files.absolutePath, editor.id) hover=editorHover(editor.id) focus=editorFocus(editor.id, true) blur=editorFocus(editor.id, false) role="menuitem" testId=`file-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(editorLit == editor.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                 ShellEditorIcon(editor=editor.id, size=16)
                 text editor.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
@@ -140,6 +154,8 @@ component R4FileHeader
 // radio item (MenuRadioItem: `data-checked:bg-foreground/[0.08]`, no indicator; icons `-mx-0.5`). lane r7-polish.
 component R4CrumbItem
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     icon: string
     token: string
@@ -148,14 +164,16 @@ component R4CrumbItem
     ignored: bool
     test: string
     press: action
-  state hovered = false
   state lit = false
   action hover(over: bool)
-    hovered = over
+    if over
+      focus(`${test}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=test press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=test width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" background-color=(hovered or lit ? "light-dark(#f4f4f5, #ffffff0a)" : current ? "light-dark(#0a0a0a14, #fafafa14)" : "#00000000")
+    button id=test press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=test width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : current ? "light-dark(#0a0a0a14, #fafafa14)" : "#00000000")
       box margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex"
         when token != ""
           FileTypeIcon(token=token, size=16)
@@ -225,7 +243,11 @@ component R4CrumbView
 component R4FilePreview
   props
     files: R4Files
+    documents: list<ChatDocument>
+    scheme: string
     local: action
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
   // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
   state draftText = ""
   action editDraft(text: string)
@@ -249,7 +271,9 @@ component R4FilePreview
     when files.preview == "markdown"
       scroll flex=1 min-height=0 width="100%" testId="file-markdown"
         column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
-          MarkdownBlocks(document=files.markdown, local=local, code=files.code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false)
+          // FileMarkdownPreview: ChatMarkdown with the file's own folder for its links and images (r4-surfaces-files.ts renderedMarkdown).
+          each document in filter(documents, (entry) => entry.id == `file:${files.path}`) key=document.id
+            DiagramBlocks(document=document, local=local, code=files.code, diagrams=files.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=files.codeCopied, copiedNonce=files.codeCopyNonce, env=files.md, urls=files.mdUrls, source="", cite=noCite)
     when files.preview == "table"
       scroll flex=1 min-height=0 width="100%" testId="file-table"
         column min-width="100%"

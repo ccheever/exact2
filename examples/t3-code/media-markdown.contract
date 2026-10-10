@@ -39,18 +39,17 @@ component MarkdownMedia
       when length(signed) > 0
         each entry in signed key=entry.id
           MarkdownMediaBody(url=entry.url, alt=alt, kind=kind, tip=tip, source=source, original=false, local=local)
-      else
-        when refused
-          MediaActions(source=source, tip=tip, local=local, testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
-            when kind == "video"
-              column width="100%" max-width="40rem" aspect-ratio="16 / 9" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
-                row gap="0.375rem" align-items="center"
-                  ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
-                  text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-            else
-              MediaUnavailableLabel(alt=alt, video=false)
-        else
-          box width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
+      when not (length(signed) > 0) and refused
+        MediaActions(source=source, tip=tip, local=local, testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
+          when kind == "video"
+            column width="100%" max-width="40rem" aspect-ratio="16 / 9" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
+              row gap="0.375rem" align-items="center"
+                ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #818181)")
+                text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          else
+            MediaUnavailableLabel(alt=alt, video=false)
+      when not (length(signed) > 0) and not refused
+        box width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
 
 // ChatMarkdownImage / ChatMarkdownVideo once the URL is known. A video that fails shows
 // MediaVideoPlayer's slot: Retry video loads it again; the open link is "Open original" for an
@@ -91,8 +90,7 @@ component MarkdownMediaBody
               MediaOpenLink(url=(startsWith(url, "http:") or startsWith(url, "https:") or startsWith(url, "blob:") ? url : ""), label=(original ? "Open original" : startsWith(url, "blob:") ? "Download video" : "Open in browser"), icon=(startsWith(url, "blob:") ? "download" : "external-link"), dark=false, testId="markdown-video-open")
         else
           video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="#000000" object-fit="contain" testId="markdown-media-video"
-      else
-        when brokenUrl != "" and brokenUrl == url
-          MediaUnavailableLabel(alt=alt, video=false)
-        else
-          image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
+      when kind != "video" and (brokenUrl != "" and brokenUrl == url)
+        MediaUnavailableLabel(alt=alt, video=false)
+      when kind != "video" and not (brokenUrl != "" and brokenUrl == url)
+        image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"

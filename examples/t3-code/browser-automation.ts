@@ -20,7 +20,7 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from './t
 import { activeRef } from './terminal-drawer-view';
 import { surfaceStore } from './r4-surfaces-panel';
 import { browserHost, listPreviewSessions, openBrowserIn } from './browser-surface';
-import { browserAutoShowFloatingPreview } from './browser-capture';
+import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { EMPTY_THREAD_PREVIEW_STATE, previewRuntimeTabId, readSnapshot, type PreviewEvent, type PreviewSessionSnapshot } from './browser-state';
 import {
   PREVIEW_AUTOMATION_OPERATIONS, PreviewAutomationRequestConsumer, needsPreviewAutomationSessionSync, planRequest, previewAutomationClientId,
@@ -265,9 +265,13 @@ export async function serveAutomation(client: T3Client, native: Native, link: Li
         await listOn(client, native, link, ref);
         pending.listed = true;
       }
+      // Part 4: the configured defaults, refused (left queued) while the settings are unread, as the reference's
+      // resolveBrowserDefaults refuses the request.
+      const defaults = resolveBrowserOpenDefaults(client);
       const { plan, effects } = planRequest({
         request: pending.request, connectionId: pending.connectionId, clientId: host.clientId, environmentId: link.environmentId, environmentUrl: link.environmentUrl,
-        generation: link.generation, state: store.read(ref), budgetMs: resolveHostWaitBudgetMs(pending.request.timeoutMs), suppressed: suppressions(host, ref.threadId), autoShowFloatingPreview: browserAutoShowFloatingPreview(client),
+        generation: link.generation, state: store.read(ref), budgetMs: resolveHostWaitBudgetMs(pending.request.timeoutMs), suppressed: suppressions(host, ref.threadId),
+        autoShowFloatingPreview: defaults.autoShowFloatingPreview, openDefaults: { viewport: defaults.viewport, profileId: defaults.profileId },
       });
       if (effects.suppress) suppressions(host, ref.threadId).add(effects.suppress);
       if (effects.unsuppress) suppressions(host, ref.threadId).delete(effects.unsuppress);

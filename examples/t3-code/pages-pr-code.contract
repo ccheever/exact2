@@ -210,12 +210,12 @@ component PrdCodeToolbar
                 // the commits by their short oid, "Show more" its own.
                 PrMenuBox(scheme=scheme, width=288, label=`Diff scope: ${code.scopeLabel}`)
                   KeyMenu(menuId="pull-request-code-scope-keys", items=concat(concat([KmItem(id="pull-request-code-scope-all", label="All commits")], map(code.commits, (commit) => KmItem(id=`pull-request-code-scope-${commit.short}`, label=commit.headline))), (code.moreCommits > 0 ? [KmItem(id="pull-request-code-scope-more", label="Show more")] : [])), keyed=keyed, gap="0px", modal=true)
-                    PrMenuItem(menuId=menuId, icon="", label="All commits", detail="", selected=code.allSelected, tick=true, disabled=false, press=press("scope", ""), testId="pull-request-code-scope-all")
+                    PrMenuItem(keysId="pull-request-code-scope-keys", menuId=menuId, icon="", label="All commits", detail="", selected=code.allSelected, tick=true, disabled=false, press=press("scope", ""), testId="pull-request-code-scope-all")
                     each commit in code.commits key=commit.oid
-                      PrdScopeCommit(commit=commit, menuId=menuId, press=press("scope", commit.oid))
+                      PrdScopeCommit(keysId="pull-request-code-scope-keys", commit=commit, menuId=menuId, press=press("scope", commit.oid))
                     // Kept apart from the choices: it changes how much of the list shows, not the scope (closeOnClick false).
                     when code.moreCommits > 0
-                      PrdScopeMore(label=`Show more (${code.moreCommits} left)`, press=press("more-commits", ""))
+                      PrdScopeMore(keysId="pull-request-code-scope-keys", label=`Show more (${code.moreCommits} left)`, press=press("more-commits", ""))
         row flex-shrink=0 min-width=0 align-items="center" gap="0.375rem"
           text code.filesLabel font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color=pcMuted() flex-shrink=0 testId="pull-request-code-files"
           when code.viewedShown
@@ -271,17 +271,21 @@ component PrdLayoutButton
 // A commit in the scope menu: its headline (whole on hover) and the abbreviated oid a reader matches on the host.
 component PrdScopeCommit
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     commit: PrCodeCommit
     menuId: string
     press: action
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus(`pull-request-code-scope-${commit.short}-km`)
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id=`pull-request-code-scope-${commit.short}` press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=commit.selected aria-label=`${commit.headline} ${commit.short}` testId=`pull-request-code-scope-${commit.short}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=`pull-request-code-scope-${commit.short}` press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=commit.selected aria-label=`${commit.headline} ${commit.short}` testId=`pull-request-code-scope-${commit.short}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       // TODO(hover-cards): the headline's tooltip (TooltipPopup side top) through the shared hover layer once it lands; the full headline is the item's label meanwhile.
       text commit.headline flex=1 font-size="0.875rem" line-height="1.25rem" color=pcInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
       text commit.short font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pcMuted() flex-shrink=0
@@ -291,16 +295,20 @@ component PrdScopeCommit
 
 component PrdScopeMore
   props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
     label: string
     press: action
-  state over = false
   state lit = false
   action hover(value: bool)
-    over = value
+    if value
+      focus("pull-request-code-scope-more-km")
+    else if lit
+      focus(keysId)
   action focused(on: bool)
     lit = on
   view
-    button id="pull-request-code-scope-more" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId="pull-request-code-scope-more" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(over or lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id="pull-request-code-scope-more" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId="pull-request-code-scope-more" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       text label font-size="0.875rem" line-height="1.25rem" color=pcMuted() text-align="left"
 
 // One item of the list: a file header, a row of the diff (DiffRow), or what a line carries.
@@ -338,7 +346,7 @@ component PrdCodeRow
       when item.kind == "pr-pending"
         PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
       when item.kind == "pr-draft"
-        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent)
+        PrdCodeDraft(rangeLabel=item.label, text=draftText, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
       when item.kind == "pr-footer"
         // The sentinel at the end of the files: "Loading more files...", or the failure and Retry.
         row width="100%" min-height="2rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" testId="pull-request-code-footer"

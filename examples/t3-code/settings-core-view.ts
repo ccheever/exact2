@@ -3,7 +3,7 @@
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import type { T3Client } from './client';
-import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
+import { decodeClientPrefs, generalSections, memberFiles, resolveScope, restoreLabels, scopeTarget, serverContext, type ClientPrefs, type CoreSection } from './settings-core';
 import { appearanceSections, fontStack, modeTiles, palette } from './settings-appearance';
 import { breadcrumbLabel, scopeAvailable, searchTargetScope } from './settings-search';
 import type { CustomTheme } from './settings-themes';
@@ -11,7 +11,9 @@ import { scopeMachine, singleEnvironmentRoute } from './settings-b-scope';
 import { isPrimaryEnvironment } from './local-primary';
 import { backgroundDialog } from './settings-a-background';
 import { archiveConfirmation } from './settings-a-archive';
-import { editorView, previewTheme, syncDraft } from './settings-appearance-editor';
+import { editorView, syncDraft } from './settings-appearance-editor';
+import { paintOf } from './settings-appearance-look';
+import { letGo } from './let-go';
 import { importView, resetImport } from './settings-appearance-import';
 import { rememberDelivery, updateConfirmation } from './settings-a-about';
 import { killConfirmation } from './settings-a-telemetry';
@@ -47,12 +49,29 @@ export function scopeRepresentative(scope: ReturnType<typeof resolveScope>) {
   return connected.find(candidate => isPrimaryEnvironment(candidate.environmentId)) ?? connected[0];
 }
 
+/**
+ * The editor's draft opened or closed (a window state, no command): the window (devicePresentation) and the root's
+ * `scheme` take its mode when the data source reads again, so ask it now (`t3.notify`, R10Connect.swift's wake). A wake
+ * let go is made again by the next answer.
+ */
+const worn = new WeakMap<T3Client, string>();
+async function wearMode(client: T3Client, native: Native | null | undefined, mode: string): Promise<void> {
+  const was = worn.get(client);
+  if (was === mode) return;
+  if (was !== undefined && native?.available) {
+    try { await native.later({ op: 'r10Wake', topic: 't3.notify' }); } catch (error) { if (letGo(error)) throw error; }
+  }
+  worn.set(client, mode);
+}
+
 export async function settingsCore(client: T3Client, native: Native | null | undefined, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string, route: string, target: string, active: boolean, dialogKind = '', dialogSubject = '', deliveryStream = 'embedded', deliveryStaged = false, scheme = 'light') {
   rememberDelivery(client, deliveryStream, deliveryStaged); // settings-a-about.ts
   const { projectKey, checkout, scope } = settingsScopeOf(client, route, machine, projectKeyInput, checkoutInput, legacyProjectId);
   const prefs: ClientPrefs = (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
   const project = scope.kind === 'project' || scope.kind === 'checkout';
-  const files = active && project && (route === 'general' || route === 'projects') ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
+  // useMemberProjectFiles: a project scope reads its members' t3.json on every route, so Restore defaults lists what the scope's
+  // target resolves to (useScopedSettings), file tier included.
+  const files = active && project ? await memberFiles(client, native, scope.members, scope) : new Map<string, Obj | null>();
   const context = serverContext(client, scope, files);
   const device = client.local.deviceSettings;
   const custom = (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
@@ -61,17 +80,18 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   // It opens on the app's resolved scheme (app.contract `scheme`; SettingsPanels.tsx and CommandPalette.tsx pass
   // useTheme's resolvedTheme), so mode System on a dark Mac opens the Dark appearance.
   const draft = syncDraft(client, EDITOR_KINDS.has(dialogKind) || active ? dialogKind : '', dialogSubject, prefs, scheme === 'dark' ? 'dark' : 'light');
-  const preview = previewTheme(client);
+  const paint = paintOf(client);
+  await wearMode(client, native, paint.mode);
   if (dialogKind !== 'import') resetImport(client);
-  const paintCustom = preview ? [...custom, preview] : custom;
-  const paintPrefs = preview ? { ...prefs, [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id } : prefs;
   let sections: CoreSection[] = [];
   if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
   if (active && route === 'appearance') sections = appearanceSections(prefs, true);
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];
-  const labels = restoreLabels(client.local as never, obj(client.config.settings), client.ready);
+  // useSettingsRestore over useScopedSettings: the scope's representative target, not the focused environment (audit-wave-followups-4 FX-1).
+  const scoped = scopeTarget(client, context);
+  const labels = restoreLabels(client.local as never, scoped ? scoped.settings : null);
   // SettingsScopeBoundary: a search target outside the selected scope explains its owning scope.
   const wanted = target ? searchTargetScope(target) : null;
   const notice = wanted && scope.kind !== 'unavailable' && !scopeAvailable(wanted.scope, scope.kind) ? `${wanted.title} is not available for the selected target. Choose its owning scope to continue.` : '';
@@ -89,7 +109,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
     sections, projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',
     appearanceMode: device.appearanceMode, tiles: modeTiles(device.appearanceMode, prefs, custom), themes: libraryCards(prefs, custom, removalPicks(client, dialogKind === 'remove' ? dialogSubject : '')), typographyAdvanced: prefs.typographyAdvanced, themeLight: prefs.themeLight,
-    palette: palette(paintPrefs, paintCustom, device.appearanceMode), editor: editorView(draft), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
+    palette: palette(paint.prefs, paint.custom, paint.mode), editor: editorView(draft, custom), themeImport: importView(client), interfaceFont: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', interfaceSize: prefs.fontSizeInterface, codeSize: prefs.fontSizeCode, codePreview: fontDiffPreview(prefs.diffColorScheme),
     wordWrap: prefs.wordWrap, panelDuration: prefs.panelAnimationDurationMs,
     archiveConfirm: archiveConfirmation(client),
     updateConfirm: updateConfirmation(client),

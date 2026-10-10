@@ -3,12 +3,12 @@ name: 20261009-model-picker-parity
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-model-picker-parity
 pr_url: https://github.com/ccheever/exact2/pull/374
-verified_commit: null
+verified_commit: 2dc9b0043de519b1bece562249d79fa8308484f6
 ---
 
 # Model picker: search, Shift+click, provider keys, jump badges, rail labels, names, and the two Settings pickers
@@ -206,3 +206,7 @@ branch). `A` = `/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audi
 ## Next action
 
 The coordinator runs the real-input batch steps, then reviews and merges the PR.
+
+## Delivery
+
+Merged on 2026-10-10 as `2dc9b0043` (#374, squash) after an independent review and its repair round. Rows that need real input are in `examples/t3-code/STATUS.md` "Next real-input batch".

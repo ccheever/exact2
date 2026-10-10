@@ -244,7 +244,7 @@ function fakeClient(options: { list?: (payload: Obj) => Obj; presentation?: Obj;
   let serial = 0;
   const client = {
     environmentId: 'env-1', threadId: 'thread-1', projectId: 'p1', generation: 3, connection: 'connected', ready: true, origin: 'http://127.0.0.1:16750',
-    draftKey: 'env-1:thread-1', presentation: options.presentation ?? {}, revision: 0, diffOpen: true, local: { composerControls: false, clientSettings: options.clientSettings ?? {} }, shell: { threads: [], projects: [] },
+    draftKey: 'env-1:thread-1', presentation: options.presentation ?? {}, revision: 0, diffOpen: true, local: { composerControls: false, ...(options.clientSettings ? { clientSettings: options.clientSettings } : {}) }, shell: { threads: [], projects: [] },
     async ids() { return ['0123abcd-4567-89ab-cdef-0123456789ab']; },
     restAccess() { return { call: async (request: Obj) => { sent.push(request); return request.op === 'request' ? (rpcs.push({ method: String(request.method), payload: obj(request.payload) }), {}) : { id: `3-${++serial}` }; } }; },
     async rpc(_native: Native, method: string, payload: Obj) {
@@ -363,6 +363,13 @@ describe('planRequest (the request handler up to the page)', () => {
     expect(reused.plan.open).toEqual({ tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), url: 'http://localhost:5173/', present: false, needsOverlay: true });
     expect(reused.effects).toEqual({ present: null, suppress: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), unsuppress: null });
   });
+  it('an agent’s new tab gets the configured viewport and profile, and Auto-show off keeps it hidden (part 4)', () => {
+    const iphone = { _tag: 'responsive', width: 390, height: 844 } as const;
+    const { plan, effects } = planRequest(context(requestOf('r1', { operation: 'open', input: { url: 'localhost:5173' } }), stateWith(), { autoShowFloatingPreview: false, openDefaults: { viewport: iphone, profileId: 'work' } }));
+    expect(plan.open).toMatchObject({ create: { viewport: iphone, profileId: 'work' }, present: false, defaultViewport: null });
+    expect(planRequest(context(requestOf('r2', { operation: 'click', input: { locator: 'text=Go' } }), stateWith(loaded()), { autoShowFloatingPreview: false })).effects.present).toBeNull();
+    expect(effects.present).toBeNull();
+  });
   it('navigate resolves an environment port at the environment’s host and refuses a bad URL', () => {
     const port = planRequest(context(requestOf('r1', { operation: 'navigate', input: { target: { kind: 'environment-port', port: 5173, path: 'settings?tab=1' } } }), stateWith(loaded()))).plan;
     expect(port.navigate).toEqual({ url: 'http://localhost:5173/settings?tab=1' });
@@ -416,7 +423,7 @@ describe('the host on the client', () => {
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
   });
-  it('leaves the panel alone for an agent’s use when Auto-show floating preview is off (part 3’s setting)', async () => {
+  it('leaves the panel alone for an agent’s use when Auto-show floating preview is off (part 3’s setting, part 4’s row)', async () => {
     const { client, sent } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }), clientSettings: { browserAutoShowFloatingPreview: false } });
     previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
     await automationPrepare(client, module);

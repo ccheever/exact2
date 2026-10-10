@@ -13,8 +13,8 @@ import WebKit
 ///
 /// Storage: each environment's profile has its own persistent WebKit data store (the reference's
 /// `persist:t3code-preview-<scope>` partition), identified by a UUID derived from the environment and the
-/// profile, apart from the app's other web views. Agent runs keep everything in memory. (Profiles beyond the
-/// built-in Default, Incognito's in-memory store and clearing arrive with part 4.)
+/// profile, apart from the app's other web views; Incognito's store is in memory (part 4, which adds the named
+/// profiles, clearing and the cookie import: T3BrowserSessions+Profiles.swift). Agent runs keep everything in memory.
 ///
 /// One registry per module, so per session: two sessions in one process (the sample host's) keep their own
 /// pages, and a session that ends closes only its own (T3Module `browserSessions`, `T3BrowserSessionOwner`).
@@ -58,7 +58,9 @@ final class T3BrowserSessions {
         let key = "\(environment)\u{0}\(profile)"
         if let store = stores[key] { return store }
         let store: WKWebsiteDataStore
-        if agent { store = .nonPersistent() }
+        // Part 4: Incognito keeps its data in memory, gone when the app quits (one store per environment, as the
+        // reference's ephemeral partition per scope); every other profile persists in its own store.
+        if agent || profile == "incognito" { store = .nonPersistent() }
         else if #available(macOS 14.0, *) { store = WKWebsiteDataStore(forIdentifier: Self.storeIdentifier(environment: environment, profile: profile)) }
         else { store = .default() }
         stores[key] = store
