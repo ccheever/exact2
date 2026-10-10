@@ -19,9 +19,11 @@ Where the after build's pixels differ from the before build's (threshold 8 per c
   5-diff-gutter-released                          2-3 and their code; after none (the same region after the release)
   6-split-open (split view, nothing selected)     identical: the additions side's numbers at left="50%" sit where the
                                                   second cell's own number sat
-  7-split-gutter-held (additions 2 -> 4, held)    x 1026.0..1224.0 y 146.5..222.0 only (the code column): before paints a
-                                                  text selection over "name: verify" / "description: ..."; after none.
-                                                  The numbers and their selected colours at 50% are the same pixels
+  7-split-gutter-held (additions 2 -> 4, held)    x 1026.0..1224.0 y 146.5..222.0: before paints a text selection
+                                                  (#d4e9fe) behind the numbers 2-3 (x 1026..1034, y 146.5..182; the
+                                                  glyphs at x 1027..1032.5) and over "name: verify" / "description: ...";
+                                                  after none (the gutter's #f0f7fd). The number 4, outside that text
+                                                  selection, is the same pixels; with nothing selected (6) all are
   8-files-light, 9-files-dark-live,               x 741.0..1024.0 y 100.0..120.0: before the whole row amber; after the
   10-files-dark-mounted (line 1)                  number cell and number in blue, the code row untinted
   11-pr-open (nothing selected)                   identical
