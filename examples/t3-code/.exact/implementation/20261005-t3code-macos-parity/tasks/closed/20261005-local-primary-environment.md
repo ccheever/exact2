@@ -105,7 +105,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Native WebSocket transport carries the primary | existing | nonblocking | none |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components | line caps | nonblocking until the cap | keep state out of `app.contract` |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components | line caps | nonblocking until the cap | keep state out of `app.contract` |
 | [X31](../../issues/closed/20261005-x31-deferred-window-readiness.md) | Defer the first window until the server is ready | Reference opens the window after readiness; the clone does not control host window creation (not in the library) | unknown (workaround: connecting state in the first window, which differs from the reference's no-window-until-ready) | Check on the pin at `prepare`; the user decides per U5 |
 | [X45](../../issues/20261005-x45-app-relaunch.md) | App relaunch after an exposure change | X45 (unconfirmed) | blocking for the relaunch rows if X45 is confirmed missing (stopgap meanwhile: restart the server in place and reconnect; a visible difference) | use the relaunch when X45 is adopted Update 2026-10-07 (adopt-main-fixes-shell): #122 was closed after main #170, which only moves `reload()`'s log to stderr; exact2 still has no process relaunch, so the relaunch rows stay blocked. |
 

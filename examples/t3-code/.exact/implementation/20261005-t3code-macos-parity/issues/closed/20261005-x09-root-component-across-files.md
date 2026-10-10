@@ -1,7 +1,7 @@
 ---
 name: 20261005-x09-root-component-across-files
 plan: 20261005-t3code-macos-parity
-status: published
+status: closed-by-decision
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-client-activity-reporting, 20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-hot-file-split, 20261005-interface-font-size, 20261005-legacy-sidebar, 20261005-live-automations-and-clones, 20261005-local-primary-environment, 20261005-managed-codex-chatgpt, 20261005-media-actions, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-links-previews-and-routing, 20261005-pr-writing-and-metadata, 20261005-provider-settings-upkeep, 20261005-provider-sign-in-and-install, 20261005-right-panel-tab-menu, 20261005-server-update-banner, 20261005-settings-scoped-controls-and-theme-editor, 20261005-terminal-drawer, 20261005-terminal-integrations, 20261005-terminal-layout, 20261005-thread-commands-and-keys, 20261005-upstream-timeline-and-markdown, 20261005-upstream-ui-sync, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
 upstream_url: https://github.com/ccheever/exact2/issues/108
@@ -142,3 +142,7 @@ merely to evade the cap."
 - The local A1 branch ("Fix built" above) is superseded by the decision and not pursued.
 - #108 stays open upstream for D5. Nothing to adopt.
 - [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): request ownership explicitly deferred; "Immediate child-state/action root rewrite belongs to #303/T3 example"; partial-root syntax declined.
+
+## Closed (2026-10-10)
+
+#108 closed upstream, not planned (2026-10-09): the app.contract root rewrite (#332) was the remedy; request ownership waits for LLP 1035.005.000 D5. The record closes in the records cleanup after the 2026-10-10 check against main's `issues/` folder.

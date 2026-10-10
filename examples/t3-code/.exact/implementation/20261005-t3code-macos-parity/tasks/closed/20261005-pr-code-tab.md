@@ -72,8 +72,8 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | [X19](../../issues/20261005-x19-data-source-timers.md) | 400 ms burst gathering of Viewed ticks | Reference `FLUSH_DELAY_MS = 400` (`usePullRequestFilesViewed.ts:27`) | nonblocking (workaround: flush on the next tick of the existing `wallTime` argument or a Contract task) | Test with `now` |
 | [X23](../../issues/20261005-x23-scroll-restore-offsets.md) | Reveal from the tree/timeline commit, keep scroll per tab | `scrollIntoView` on main | nonblocking | Reuse |
 | [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) / [X24](../../issues/closed/20261005-x24-still-pointer-rehover.md) | Gutter "+" and hover reveals | `t3-rehover` hook | nonblocking | Reuse Update 2026-10-07 (adopt-main-fixes-shell): X24 fixed on main #174; the `t3-rehover` hook no longer exists, the host does it. |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
-| [X32](../../issues/20261005-x32-sticky-positioning-in-lists.md) = [#131](https://github.com/ccheever/exact2/issues/131) | Sticky file headers in the Code tab's list | Charlie deferred #131 on 2026-10-08 "until a list-lifetime design is selected" (grouped containment is one option) | nonblocking (headers scroll as ordinary rows, as the thread diff panel draws them) | Wait for #131; if it lands as grouped containment, `diffItems` becomes per-file groups |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327/1,500 | nonblocking | No new root resource |
+| [X32](../../issues/closed/20261005-x32-sticky-positioning-in-lists.md) = [#131](https://github.com/ccheever/exact2/issues/131) | Sticky file headers in the Code tab's list | Charlie deferred #131 on 2026-10-08 "until a list-lifetime design is selected" (grouped containment is one option) | nonblocking (headers scroll as ordinary rows, as the thread diff panel draws them) | Wait for #131; if it lands as grouped containment, `diffItems` becomes per-file groups |
 
 ## Implementation notes
 

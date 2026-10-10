@@ -91,7 +91,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | LLP 1016.000 receive-only | nonblocking (workaround: Swift transport) | Add terminal streams to `T3Transport.swift` |
 | [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Drag on the separator is Contract, so the agent can drive it |
 | [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts for ⌘J while the web view has focus | Result of the spike S1 | nonblocking | Use the spike's path |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components | `app.contract` near 1,500 lines | nonblocking until the cap | New resources go to `terminal.contract` and TS modules; do not grow `client.ts` |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components | `app.contract` near 1,500 lines | nonblocking until the cap | New resources go to `terminal.contract` and TS modules; do not grow `client.ts` |
 | Terminal-capable server | `node-pty` in the server runtime | The fixture runtime at the pin has it; whether the embedded runtime of `20261005-embedded-server-runtime` ships it is unknown | unknown for the embedded server | Checked in the plan's integrated acceptance row "Terminal"; this ticket has no edge to `20261005-local-primary-environment` |
 
 ## Implementation notes

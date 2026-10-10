@@ -1,7 +1,7 @@
 ---
 name: 20261005-x32-sticky-positioning-in-lists
 plan: 20261005-t3code-macos-parity
-status: published
+status: closed-by-decision
 kind: framework-gap
 blocks: [20261005-diff-review-engine, 20261005-pr-code-tab, 20261005-pr-conversation-and-refresh]
 upstream_url: https://github.com/ccheever/exact2/issues/131
@@ -124,3 +124,7 @@ containment with its CSS behavior, or explicitly declare a section-header extens
 - **Declared difference until #131 lands on main** (user decision, 2026-10-08): the pinned diff file headers of
   diff-review-engine and pr-code-tab scroll away with their file. Waits for main fix of [#131](https://github.com/ccheever/exact2/issues/131).
 - [#327](https://github.com/ccheever/exact2/pull/327) audit (open on main, 2026-10-08): explicitly deferred pending a list-lifetime design; kept open.
+
+## Closed (2026-10-10)
+
+#131 closed upstream, not planned (2026-10-09): pinned diff file headers stay a declared difference until a list-lifetime design is selected (LLP 1083 D5). The record closes in the records cleanup after the 2026-10-10 check against main's `issues/` folder.

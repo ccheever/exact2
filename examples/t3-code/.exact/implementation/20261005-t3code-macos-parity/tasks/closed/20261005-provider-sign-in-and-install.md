@@ -53,7 +53,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/closed/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/closed/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

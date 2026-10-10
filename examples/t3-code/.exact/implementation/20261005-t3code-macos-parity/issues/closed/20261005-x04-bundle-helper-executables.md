@@ -128,3 +128,7 @@ release signer), so a JIT helper shipped as a tree breaks under the hardened run
 
 Status: fixed upstream; adopted here; stays open for `20261005-portable-app-download` and
 `20261005-this-machine-network-access`, which adopt it in their own rows.
+
+## Closed (2026-10-10)
+
+#103 fixed by main #215 and adopted by embedded-server-runtime; no clone consumer is left. The record closes in the records cleanup after the 2026-10-10 check against main's `issues/` folder.

@@ -105,7 +105,7 @@ New tasks are in `../tasks/`. "Existing" means the record already covers the fin
 | SH-5 | Palette row path is clipped at its start | [shell-sidebar-palette-keys](../tasks/closed/20261009-shell-sidebar-palette-keys.md) (root cause X57, #291; clone `text-align="left"`) |
 | SH-6 | No "Check for updates" in the sidebar footer | blocked: [blocked-desktop-update-controls](../tasks/closed/20261009-blocked-desktop-update-controls.md) |
 | SH-7 | Blue focus ring on the palette field | existing: [X61](../issues/20261008-x61-field-focus-ring-opt-out.md) (#302, waits for main fix) |
-| SH-8 | View › Toggle Developer Tools is absent | existing: [X2](../issues/20261005-x02-app-developer-tools.md) (permanent declared difference; `rules/DEFERRED.md:722`) |
+| SH-8 | View › Toggle Developer Tools is absent | existing: [X2](../issues/closed/20261005-x02-app-developer-tools.md) (permanent declared difference; `rules/DEFERRED.md:722`) |
 | TH-1 | Fork shows on a message with no run and only errors | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-2 | Notification source kinds are not decoded | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
 | TH-3 | Work group icon ignores the tools' icons | [timeline-work-rows](../tasks/closed/20261009-timeline-work-rows.md) |
