@@ -317,7 +317,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         get { accessibilityExposed && super.isAccessibilityElement }
         set { super.isAccessibilityElement = newValue }
     }
-    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
+    private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
+    /// A tap focuses only a node that asked for focus: UIKit's buttons never become first responder from a
+    /// touch, though Tab and `focus(id)` reach them
+    var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
+    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()

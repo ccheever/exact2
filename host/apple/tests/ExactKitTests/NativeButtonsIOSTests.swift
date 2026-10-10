@@ -129,8 +129,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 3).sendActions(for: .primaryActionTriggered)
         XCTAssertTrue(field.isFirstResponder, "a retainFocus ancestor keeps the editor")
         try button(p, 2).sendActions(for: .primaryActionTriggered)
-        XCTAssertFalse(field.isFirstResponder, "otherwise the press takes the focus")
-        XCTAssertTrue(try XCTUnwrap(p.views[2]).isFirstResponder, "to the button's node, the focus owner")
+        XCTAssertFalse(field.isFirstResponder, "otherwise the press ends the editing")
+        XCTAssertFalse(try XCTUnwrap(p.views[2]).isFirstResponder, "and the button takes no focus, as UIKit's does not")
     }
 
     func testItTakesTheFocusWithNoPressAnywhere() throws {
