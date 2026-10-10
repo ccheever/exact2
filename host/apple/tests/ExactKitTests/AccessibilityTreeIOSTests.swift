@@ -317,6 +317,48 @@ final class AccessibilityTreeIOSTests: XCTestCase {
 
     /// The native boundary (round 3): a 300 KB testId is cut before the
     /// element is budgeted, and a whole reply over 256 KB is cut, counted.
+    /// A viewport its content fits shows no scroll bars, so the system lists
+    /// none to VoiceOver ("Vertical scroll bar, 1 page" over every screen,
+    /// where a UIKit app with no scroll view there lists none); a document
+    /// taller than it shows UIKit's vertical bar, and one the keyboard's room
+    /// makes scrollable does too (LLP 1084 §6.5).
+    func testAViewportShowsAScrollBarOnlyOnAnAxisThatScrolls() throws {
+        let p = try fixture()
+        XCTAssertFalse(p.viewport.showsVerticalScrollIndicator, "the document fits")
+        XCTAssertFalse(p.viewport.showsHorizontalScrollIndicator)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 900.0]]))
+        window.layoutIfNeeded()
+        XCTAssertTrue(p.viewport.showsVerticalScrollIndicator, "a taller document scrolls")
+        XCTAssertFalse(p.viewport.showsHorizontalScrollIndicator, "not sideways")
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0]]))
+        window.layoutIfNeeded()
+        XCTAssertFalse(p.viewport.showsVerticalScrollIndicator, "it fits again")
+        p.setKeyboardInset(200)
+        XCTAssertTrue(p.viewport.showsVerticalScrollIndicator, "the keyboard's room scrolls")
+        p.setKeyboardInset(0)
+        XCTAssertFalse(p.viewport.showsVerticalScrollIndicator)
+    }
+
+    /// Nor does it draw an edge effect there (iOS 26): its soft top edge
+    /// turned the viewport's white canvas into a grey band under the status
+    /// bar of a dark screen, where a UIKit app draws none (LLP 1084 §6.5).
+    func testAViewportDrawsAnEdgeEffectOnlyOnAnAxisThatScrolls() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("edge effects are iOS 26") }
+        let p = try fixture()
+        let v = p.viewport
+        XCTAssertTrue(v.topEdgeEffect.isHidden, "the document fits")
+        XCTAssertTrue(v.bottomEdgeEffect.isHidden)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 900.0]]))
+        window.layoutIfNeeded()
+        XCTAssertFalse(v.topEdgeEffect.isHidden, "a taller document scrolls")
+        XCTAssertFalse(v.bottomEdgeEffect.isHidden)
+        XCTAssertTrue(v.leftEdgeEffect.isHidden, "not sideways")
+        XCTAssertTrue(v.rightEdgeEffect.isHidden)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0]]))
+        window.layoutIfNeeded()
+        XCTAssertTrue(v.topEdgeEffect.isHidden, "it fits again")
+    }
+
     func testTheNativeReplyIsBoundedAtTheBoundary() throws {
         let p = try fixture()
         p.views[2]?.props["testId"] = String(repeating: "t", count: 300_000)

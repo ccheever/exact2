@@ -353,9 +353,12 @@ extension NodeView {
         writeScrollPosition(in: sv, left: pendingScrollLeft, top: pendingScrollTop, animated: smooth, titleSlack: true)
     }
 
-    /// Convert a logical write only after native layout. A collection can
-    /// invalidate its offset when that write collapses the navigation title;
-    /// settle that one inset transition and apply the same intent once more.
+    /// Convert a logical write only after native layout. A write can
+    /// collapse the navigation title, and UIKit then moves the offset with the
+    /// inset (a collection's is invalidated; a plain scroll's went 52 points
+    /// past its end from a large title never seen collapsed, whose slack is
+    /// still 0): settle that one inset transition and apply the same intent
+    /// once more.
     private func writeScrollPosition(in sv: UIScrollView, left: Double?, top: Double?, animated: Bool, titleSlack: Bool) {
         func target() -> CGPoint {
             let i = sv.adjustedContentInset, inset = scrollTopInset(sv)
@@ -369,7 +372,7 @@ extension NodeView {
         guard sv.contentOffset != initial else { return }
         let inset = sv.adjustedContentInset.top
         sv.setContentOffset(initial, animated: animated)
-        if groupedOwner, !animated, sv.adjustedContentInset.top != inset {
+        if !animated, sv.adjustedContentInset.top != inset {
             sv.layoutIfNeeded()
             let settled = target()
             if sv.contentOffset != settled { sv.setContentOffset(settled, animated: false) }

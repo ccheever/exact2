@@ -23,14 +23,17 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has no sheets; every modal covers the screen.
         modalPresentationStyle = .overFullScreen
         #else
-        modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
+        // A sheet is UIKit's own default: a page sheet on iPhone, a card in
+        // the middle of an iPad (where UIKit leaves detents to compact
+        // widths), as a UIKit app that names no style shows it (LLP 1084 §6.5).
+        modalPresentationStyle = fullscreen ? .overFullScreen : .automatic
         if !fullscreen { updateDetent(detent) }
         #endif
     }
     private var detentValue: String?
     func updateDetent(_ value: String?) {
         #if !os(tvOS)
-        guard modalPresentationStyle == .pageSheet,
+        guard modalPresentationStyle != .overFullScreen,
               let sheet = sheetPresentationController,
               detentValue != value || sheet.detents.isEmpty else { return }
         detentValue = value
@@ -63,7 +66,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     /// again, animated as UIKit animates a detent change, in the same sheet.
     func contentChanged() {
         #if !os(tvOS)
-        guard modalPresentationStyle == .pageSheet, let sheet = sheetPresentationController,
+        guard modalPresentationStyle != .overFullScreen, let sheet = sheetPresentationController,
               (detentValue ?? "").split(separator: " ").contains("fit-content") else { return }
         if viewIfLoaded?.window != nil { sheet.animateChanges { sheet.invalidateDetents() } }
         else { sheet.invalidateDetents() }
@@ -149,6 +152,9 @@ private final class Presentation {
     let backgroundNode: NodeView?
     weak var backgroundHome: UIView?
     let backgroundHomeFrame: CGRect
+    /// The home's bounds as the background left it (`ModalHost.returnFrame`).
+    let backgroundHomeBounds: CGRect?
+    let backgroundResizes: Bool
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -170,6 +176,8 @@ private final class Presentation {
         backgroundNode = node
         backgroundHome = background.view.superview
         backgroundHomeFrame = background.view.frame
+        backgroundHomeBounds = background.view.superview?.bounds
+        backgroundResizes = background.view.autoresizingMask.isSuperset(of: [.flexibleWidth, .flexibleHeight])
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
         self.home = home
@@ -339,10 +347,24 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         return true
     }
 
+    /// Where a background goes back in its home. The home is a route node,
+    /// laid out at the presented route's size while it is up (580 by 660
+    /// points for an iPad card), and grows back once the background is in
+    /// it: a background that resizes with it keeps its margins at the home's
+    /// size now, so it grows with the home. Put back at its old frame it grew
+    /// by the home's growth too (1,060 by 1,700 points on an iPad, its tabs
+    /// off centre and its bar's trailing item gone for the whole dismissal).
+    static func returnFrame(_ frame: CGRect, from then: CGRect?, to now: CGRect?, resizes: Bool) -> CGRect {
+        guard resizes, let then, let now else { return frame }
+        return now.inset(by: UIEdgeInsets(top: frame.minY - then.minY, left: frame.minX - then.minX,
+                                          bottom: then.maxY - frame.maxY, right: then.maxX - frame.maxX))
+    }
+
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         layer.backgroundHome?.addSubview(background.view)
-        background.view.frame = layer.backgroundHomeFrame
+        background.view.frame = Self.returnFrame(layer.backgroundHomeFrame, from: layer.backgroundHomeBounds,
+                                                 to: layer.backgroundHome?.bounds, resizes: layer.backgroundResizes)
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired

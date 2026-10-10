@@ -176,6 +176,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         // A draft and a scroll in Second.
         let draft = try node(session, "draft")
         _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])
+        // Done editing: a draft still focused is given its focus back and
+        // scrolled into view by UIKit as the tab returns (the test after this).
+        session.presenter.blurElement([])
         let list = try node(session, "list-second")
         let scroll = try XCTUnwrap(list.scroll)
         scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
@@ -202,6 +205,95 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
     }
 
+    /// UIKit gives the focus back to a field that had it as its tab left,
+    /// when the tab is selected again, and scrolls it into view itself
+    /// (`scrollTextFieldToVisibleIfNecessary`). Exact adds no scroll of its
+    /// own (LLP 1084 §6.5): none as the keyboard hides inside the resign,
+    /// none as it comes back. A focus a person gives is still revealed above
+    /// the keyboard, as a browser does.
+    func testExactAddsNoScrollToAFocusUIKitGivesBackAsItsTabReturns() throws {
+        let session = try fixture("tabs-focus-return")
+        let presenter = session.presenter
+        let tabs = try XCTUnwrap(presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let draft = try node(session, "draft")
+        let field = try XCTUnwrap(draft.field)
+        _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])
+        XCTAssertTrue(field.isFirstResponder)
+        // The keyboard up, and the draft scrolled out of view.
+        presenter.applyKeyboard(top: 460, duration: 0, curve: 0)
+        let scroll = try XCTUnwrap(try node(session, "list-second").scroll)
+        scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
+        spin(0.2)
+        let css = { scroll.contentOffset.y + scroll.adjustedContentInset.top }
+        let scrolled = css()
+        // UIKit announces the keyboard's hide inside the resign, the field
+        // still focused and in the window.
+        presenter.applyKeyboard(top: nil, duration: 0, curve: 0)
+        XCTAssertEqual(css(), scrolled, accuracy: 0.5, "the keyboard going scrolls nothing")
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        XCTAssertFalse(field.isFirstResponder, "a field out of the window has no focus")
+        tapTab(tabs, 1)
+        until("Second selected again") { tabs.selectedIndex == 1 }
+        XCTAssertTrue(field.isFirstResponder, "UIKit gives the focus back")
+        XCTAssertTrue(presenter.focusReturned === draft)
+        let returned = css()
+        presenter.applyKeyboard(top: 460, duration: 0, curve: 0)
+        XCTAssertEqual(css(), returned, accuracy: 0.5, "the keyboard coming back adds no scroll")
+        // A person's focus: the keyboard that shows for it brings the draft into view.
+        presenter.blurElement([])
+        XCTAssertNil(presenter.focusReturned)
+        spin(0.1)
+        scroll.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
+        XCTAssertTrue(field.becomeFirstResponder())
+        presenter.applyKeyboard(top: 460, duration: 0, curve: 0)
+        XCTAssertLessThan(css(), scrolled - 100, "a focus a person gives is revealed")
+    }
+
+    /// A push moves the route it covers out of the window, into its
+    /// transition and out again; the pop's return of the focus comes as the
+    /// field enters the window once more (the iPhone 26.5 simulator's order).
+    /// Only a focus taken in the turn the field enters is UIKit's return.
+    func testAFocusReturnOutlastsAPushesTransition() throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        window.isHidden = false
+        defer { window.isHidden = true }
+        let field = UIView(), mark = FocusReturn()
+        func enter() { window.addSubview(field); mark.didMove(field) }
+        func leave() { mark.willMove(to: nil); field.removeFromSuperview() }
+        enter()
+        // The push: UIKit resigns the field as it leaves, puts it in the
+        // transition, then takes it out at the push's end.
+        mark.resigned(true)
+        leave()
+        enter()
+        spin(0.05)
+        leave()
+        spin(0.05)
+        // The pop: UIKit gives the focus back in the call that adds the view.
+        enter()
+        var returning = false
+        _ = mark.becoming(field) { returning = mark.returning; return true }
+        XCTAssertTrue(returning, "UIKit's return is known as one")
+        // When UIKit gives nothing back as the field enters, a later focus is a person's.
+        mark.resigned(true)
+        leave()
+        enter()
+        spin(0.05)
+        _ = mark.becoming(field) { returning = mark.returning; return true }
+        XCTAssertFalse(returning)
+        // The presenter's own `focus()` is never a return.
+        mark.resigned(true)
+        leave()
+        enter()
+        FocusReturn.asking = true
+        _ = mark.becoming(field) { returning = mark.returning; return true }
+        FocusReturn.asking = false
+        XCTAssertFalse(returning)
+    }
+
     /// The edge swipe on a tab's stack: Exact stays the delegate of both pop
     /// recognizers once the tab controller has loaded every stack (UIKit sets
     /// its own when a navigation controller's view loads), and a pushed
@@ -223,7 +315,17 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home selected") { tabs.selectedIndex == 0 }
         for nav in navs {
             XCTAssertTrue(nav.isViewLoaded)
-            for pop in pops(nav) { XCTAssertTrue(pop.delegate === navigation, "\(pop) asks Exact") }
+            for pop in pops(nav) {
+                let delegate = try XCTUnwrap(pop.delegate as? PopGestureDelegate, "\(pop) asks Exact")
+                XCTAssertTrue(delegate.host === navigation, "\(pop) asks Exact")
+                // How it stands with the other recognizers stays UIKit's (LLP 1084 §6.5).
+                let uikit = try XCTUnwrap(delegate.uikit, "UIKit's own delegate is kept")
+                let relation = #selector(UIGestureRecognizerDelegate.gestureRecognizer(_:shouldRequireFailureOf:))
+                XCTAssertTrue(uikit.responds(to: relation))
+                XCTAssertTrue(delegate.responds(to: relation))
+                XCTAssertTrue(delegate.forwardingTarget(for: relation) as AnyObject? === uikit, "UIKit answers")
+                XCTAssertNil(delegate.forwardingTarget(for: #selector(UIGestureRecognizerDelegate.gestureRecognizerShouldBegin(_:))), "Exact answers")
+            }
         }
         let home = navs[0], second = navs[1]
         // A swipe from the left edge, finger moving right, as UIKit hands it over.
@@ -278,6 +380,33 @@ final class NavigationTabsIOSTests: XCTestCase {
         let close = try XCTUnwrap(navigation.presentedNavigations.last?.topViewController?.navigationItem.leftBarButtonItems?.first)
         XCTAssertEqual(close.accessibilityLabel, "Close")
         XCTAssertEqual(tabs.selectedIndex, 0)
+    }
+
+    /// While a sheet is up, the route node a sheet's background (the tabs)
+    /// belongs in is laid out at the sheet's size, 580 by 660 points in an
+    /// iPad card, and the background waits outside it. It goes back as the
+    /// sheet closes, before the node grows back to the screen's size, and
+    /// grows with it. At its old frame it grew by the node's growth too.
+    /// The close itself is the app's to drive: this window finishes no
+    /// presentation transition, and the close waits for one.
+    func testASheetsBackgroundReturnsToItsNodeAtTheNodesSize() {
+        let screen = CGRect(x: 0, y: 0, width: 820, height: 1180), card = CGRect(x: 0, y: 0, width: 580, height: 660)
+        func returned(_ frame: CGRect) -> CGRect {
+            let node = UIView(frame: card), background = UIView()
+            background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            node.addSubview(background)
+            background.frame = frame
+            node.frame = screen
+            return background.frame
+        }
+        XCTAssertEqual(returned(screen), CGRect(x: 0, y: 0, width: 1060, height: 1700), "its old frame: what an iPad showed")
+        XCTAssertEqual(returned(ModalHost.returnFrame(screen, from: screen, to: card, resizes: true)), screen,
+                       "its place now: it fills its node, as before the sheet")
+        let inset = CGRect(x: 0, y: 10, width: 820, height: 1160)
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: screen, to: card, resizes: true), CGRect(x: 0, y: 10, width: 580, height: 640),
+                       "its margins kept")
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: screen, to: card, resizes: false), inset, "one that does not resize keeps its frame")
+        XCTAssertEqual(ModalHost.returnFrame(inset, from: nil, to: card, resizes: true), inset, "taken from no home")
     }
 
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a

@@ -1,28 +1,113 @@
-// Cold UIKit navigation over a native grouped list, without an authored offset.
+// Cold UIKit navigation over a native grouped list, without an authored
+// offset (the first tab), and a large title's lifecycle over one physical
+// scroller (LLP 1084 §6.5): a later tab, a list that arrives while its tab
+// is hidden, a node put between the header and the list and taken out, the
+// scroller replaced, and a pop back to a root at rest and to one scrolled.
+// The controls are the cold list's last rows, pressed by the tests.
+routes nav
+  tab cold "/"
+    pushed "/pushed"
+  tab later "/later"
+  tab arriving "/arriving"
+
 component NativeNavigationScroll
   state heroHeight = 80
   state taps = 0
+  state between = false
+  state plain = false
+  state arrived = false
   action measure
     heroHeight = 80
   action shrink
     heroHeight = 0
   action tap
     taps = taps + 1
+  action flipBetween
+    between = between == false
+  action flipPlain
+    plain = plain == false
+  action arrive
+    arrived = true
+  action open
+    nav = push(nav, "/pushed")
+  action back
+    nav = back(nav)
+  action selectTab(name: string)
+    nav = select(nav, name)
   view
-    main navigationKey="cold" navigationBack="back" width="100%" height="100%" font-family="system-ui"
-      column navigationKey="cold" navigationScroll="cold-native-list" position="absolute" inset=0 display="flex" flex-direction="column"
-        header display="flex" align-items="center" padding=12 gap=12 flex-shrink=0
-          text "Native Cold Title" aria-level=1 flex=1
-          button press=shrink testId="cold-shrink"
-            text "Shrink"
-          button press=measure testId="cold-measure"
-            text "Measure"
-        list appearance="auto" id="cold-native-list" testId="cold-native-list" flex=1 min-height=0
-          section
-            row testId="cold-hero" height=heroHeight min-height=0 padding=0 border-width=0 box-sizing="border-box"
-              row width=20 height=20 background-color="#4577aa"
-              text `Profile ${taps}`
-          section
-            each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
-              button press=tap testId=`cold-${name}`
-                text name
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%" display="flex" flex-direction="column" font-family="system-ui"
+      column flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key=e.id
+              when e.name == "cold"
+                column navigationKey=`${e.id}` navigationScroll="cold-native-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" align-items="center" padding=12 gap=12 flex-shrink=0
+                    text "Native Cold Title" aria-level=1 flex=1
+                    button press=shrink testId="cold-shrink"
+                      text "Shrink"
+                    button press=measure testId="cold-measure"
+                      text "Measure"
+                  list appearance="auto" id="cold-native-list" testId="cold-native-list" flex=1 min-height=0
+                    section
+                      row testId="cold-hero" height=heroHeight min-height=0 padding=0 border-width=0 box-sizing="border-box"
+                        row width=20 height=20 background-color="#4577aa"
+                        text `Profile ${taps}`
+                    section
+                      each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+                        button press=tap testId=`cold-${name}`
+                          text name
+                    section
+                      button press=open testId="control-open"
+                        text "Open pushed"
+                      button press=flipBetween testId="control-between"
+                        text "Flip between"
+                      button press=flipPlain testId="control-plain"
+                        text "Flip scroller"
+                      button press=arrive testId="control-arrive"
+                        text "Arrive"
+              when e.name == "pushed"
+                column navigationKey=`${e.id}` navigationScroll="pushed-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header flex-shrink=0
+                    button id="back" press=back aria-label="Back" testId="pushed-back"
+                      text "Back"
+                    text "Pushed Title" aria-level=1
+                  list appearance="auto" id="pushed-list" testId="pushed-list" flex=1 min-height=0
+                    section
+                      each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+                        row testId=`pushed-${name}`
+                          text name
+              when e.name == "later"
+                column navigationKey=`${e.id}` navigationScroll="later-scroller" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header flex-shrink=0
+                    text "Later Title" aria-level=1
+                  when between
+                    text "Between the header and the list" testId="later-between" height=30 flex-shrink=0
+                  when plain
+                    scroll id="later-scroller" testId="later-plain" flex=1 min-height=0
+                      column padding=16 gap=8
+                        each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+                          text name height=44
+                  else
+                    list appearance="auto" id="later-scroller" testId="later-list" flex=1 min-height=0
+                      section
+                        each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+                          row testId=`later-${name}`
+                            text name
+              when e.name == "arriving"
+                column navigationKey=`${e.id}` navigationScroll="arriving-list" position="absolute" inset=0 display="flex" flex-direction="column"
+                  header flex-shrink=0
+                    text "Arriving Title" aria-level=1
+                  when arrived
+                    list appearance="auto" id="arriving-list" testId="arriving-list" flex=1 min-height=0
+                      section
+                        each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+                          row testId=`arriving-${name}`
+                            text name
+      row role="tablist" aria-label="Tabs" testId="tabs" flex-shrink=0 height=56 align-items="stretch"
+        button role="tab" aria-controls="panel-cold" aria-selected=(nav.tab == "cold") press=selectTab("cold") testId="tab-cold" flex=1
+          text "Cold"
+        button role="tab" aria-controls="panel-later" aria-selected=(nav.tab == "later") press=selectTab("later") testId="tab-later" flex=1
+          text "Later"
+        button role="tab" aria-controls="panel-arriving" aria-selected=(nav.tab == "arriving") press=selectTab("arriving") testId="tab-arriving" flex=1
+          text "Arriving"

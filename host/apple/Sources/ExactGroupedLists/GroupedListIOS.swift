@@ -455,14 +455,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             let delta = UIEdgeInsets(top: added.top - addedInsets.top, left: 0,
                                      bottom: added.bottom - addedInsets.bottom, right: 0)
             addedInsets = added
-            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             var inset = collection.contentInset
             inset.top += delta.top
             inset.bottom += delta.bottom
+            // A list at rest at its start stays there (GroupedCollectionView).
             assign(collection, \.contentInset, inset)
-            if delta.top != 0, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
-                collection.contentOffset.y = -collection.adjustedContentInset.top
-            }
             var indicator = collection.verticalScrollIndicatorInsets
             indicator.top += delta.top
             indicator.bottom += delta.bottom
@@ -813,7 +810,23 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 }
 
 /// A grouped list's collection view, by type, for the agent's wheel.
-final class GroupedCollectionView: UICollectionView, GroupedScroller {}
+final class GroupedCollectionView: UICollectionView, GroupedScroller {
+    /// A list at rest at its start stays there, its first section below the
+    /// new room, whenever the room above it changes, as a scroll keeps its
+    /// start under a new inset: the list's own padding (`mount`) or what its
+    /// window or bar gives it (a later tab, a route shown again over a list a
+    /// hidden batch built, LLP 1084 §6.5, would otherwise rest scrolled under
+    /// the bar). Only when the list is still, so a drag, a fling or a bounce
+    /// past the start is left alone, and not for room below or beside it.
+    private var restingTop: CGFloat = 0
+    override func adjustedContentInsetDidChange() {
+        let top = restingTop
+        restingTop = adjustedContentInset.top
+        super.adjustedContentInsetDidChange()
+        guard restingTop != top, abs(contentOffset.y + top) < 0.5, !(isTracking || isDragging || isDecelerating) else { return }
+        contentOffset.y = -restingTop
+    }
+}
 
 extension UICollectionViewListCell {
     /// A row's or header's margins are the list layout's, never the safe

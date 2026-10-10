@@ -2,12 +2,56 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// UIKit gives the focus back to an editor that held it as it left the
+/// window when it enters again — a tab selected again, a route popped back
+/// to (`_promoteSelfOrDescendantToFirstResponderIfNecessary`, in the call
+/// that adds the view) — and scrolls it into view itself
+/// (`scrollTextFieldToVisibleIfNecessary`), with no keyboard room: Exact's
+/// own `reveal` leaves that focus alone, so it lands where UIKit's does.
+final class FocusReturn {
+    private var resigning = false, held = false, entering = false
+    /// True inside the `becomeFirstResponder` that is UIKit's return.
+    private(set) var returning = false
+    /// Inside the presenter's own `focus()`, which is no return.
+    static var asking = false
+    /// UIKit resigns an editor leaving the window just before its `willMove(toWindow: nil)`.
+    func resigned(_ ok: Bool) {
+        guard ok, !resigning else { return }
+        resigning = true
+        DispatchQueue.main.async { [weak self] in self?.resigning = false }
+    }
+    /// Held until the editor next takes the focus: a push moves the route
+    /// leaving out of the window, into its transition, and out again.
+    func willMove(to window: UIWindow?) { if window == nil, resigning { held = true } }
+    func didMove(_ editor: UIView) {
+        guard held, editor.window != nil, !entering else { return }
+        // UIKit gives the focus back in the call that adds the view, or not this time.
+        entering = true
+        DispatchQueue.main.async { [weak self] in self?.entering = false }
+    }
+    func becoming(_ editor: UIView, _ become: () -> Bool) -> Bool {
+        returning = held && entering && !Self.asking
+        held = false
+        defer { returning = false }
+        return become()
+    }
+}
+
 // The software keyboard calls UIKeyInput directly, including deletion in an
 // empty field: its Backspace and Return are keys the `key` handlers hear
 // too. A hardware keyboard's keys reach them in `pressesBegan`, before UIKit
 // edits with them (KeyEvents.swift).
 final class TextField: UITextField {
     weak var owner: NodeView?
+    let focusReturn = FocusReturn()
+    override func willMove(toWindow newWindow: UIWindow?) {
+        focusReturn.willMove(to: newWindow)
+        super.willMove(toWindow: newWindow)
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        focusReturn.didMove(self)
+    }
     /// The hardware key whose handlers ran in `pressesBegan`: UIKit's own
     /// Backspace or Return for it does not run them again.
     var heard: String?
@@ -43,9 +87,14 @@ final class TextField: UITextField {
     /// is shown instead (x2apps codeedit #2).
     override func becomeFirstResponder() -> Bool {
         let selections = owner?.presenter?.fieldSelections
-        let ok = selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder()
+        let ok = focusReturn.becoming(self) { selections?.quietly { super.becomeFirstResponder() } ?? super.becomeFirstResponder() }
         if ok, let owner { selections?.focused(owner) }
         return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let wasFirst = isFirstResponder, resigned = super.resignFirstResponder()
+        focusReturn.resigned(resigned && wasFirst)
+        return resigned
     }
     override func deleteBackward() {
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
@@ -102,10 +151,21 @@ package final class TextArea: UITextView {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
         if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
     }
+    let focusReturn = FocusReturn()
+    package override func willMove(toWindow newWindow: UIWindow?) {
+        focusReturn.willMove(to: newWindow)
+        super.willMove(toWindow: newWindow)
+    }
+    package override func didMoveToWindow() {
+        super.didMoveToWindow()
+        focusReturn.didMove(self)
+    }
+    package override func becomeFirstResponder() -> Bool { focusReturn.becoming(self) { super.becomeFirstResponder() } }
     package override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
         let resigned = super.resignFirstResponder()
+        focusReturn.resigned(resigned && wasFirst)
         // UITextView's editing delegate omits read-only selection sessions.
         // They still blur in HTML, and the app must be able to remove its
         // transient selection surface after focus moves elsewhere.
@@ -352,13 +412,17 @@ extension NodeView {
     package func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
+        // A focus UIKit gives back is UIKit's to scroll into view (`FocusReturn`).
+        let returned = (textView as? TextArea)?.focusReturn.returning == true
+        presenter?.focusReturned = returned ? self : nil
         presenter?.fieldSelections.focused(self)
         if handlers.contains("focus") { presenter?.focus(id) }
-        presenter?.reveal(self)
+        if !returned { presenter?.reveal(self) }
         publishMarkupSelection(force: true)
     }
     package func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
+        if presenter?.focusReturned === self { presenter?.focusReturned = nil }
         presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
