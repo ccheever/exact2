@@ -23,14 +23,17 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         // tvOS has no sheets; every modal covers the screen.
         modalPresentationStyle = .overFullScreen
         #else
-        modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
+        // A sheet is UIKit's own default: a page sheet on iPhone, a card in
+        // the middle of an iPad (where UIKit leaves detents to compact
+        // widths), as a UIKit app that names no style shows it (LLP 1084 §6.5).
+        modalPresentationStyle = fullscreen ? .overFullScreen : .automatic
         if !fullscreen { updateDetent(detent) }
         #endif
     }
     private var detentValue: String?
     func updateDetent(_ value: String?) {
         #if !os(tvOS)
-        guard modalPresentationStyle == .pageSheet,
+        guard modalPresentationStyle != .overFullScreen,
               let sheet = sheetPresentationController,
               detentValue != value || sheet.detents.isEmpty else { return }
         detentValue = value
@@ -63,7 +66,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     /// again, animated as UIKit animates a detent change, in the same sheet.
     func contentChanged() {
         #if !os(tvOS)
-        guard modalPresentationStyle == .pageSheet, let sheet = sheetPresentationController,
+        guard modalPresentationStyle != .overFullScreen, let sheet = sheetPresentationController,
               (detentValue ?? "").split(separator: " ").contains("fit-content") else { return }
         if viewIfLoaded?.window != nil { sheet.animateChanges { sheet.invalidateDetents() } }
         else { sheet.invalidateDetents() }

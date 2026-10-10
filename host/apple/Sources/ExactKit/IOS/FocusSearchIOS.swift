@@ -56,5 +56,22 @@ final class Viewport: ScrollView {
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
+    // A viewport its content fits does not scroll or bounce, so its scroll
+    // bars never show; the system still listed them to VoiceOver ("Vertical
+    // scroll bar, 1 page") over every screen, where a UIKit app with no
+    // scroll view there lists none. A bar shows only on an axis that scrolls.
+    override var contentSize: CGSize { didSet { showBars() } }
+    override var contentInset: UIEdgeInsets { didSet { showBars() } }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        showBars()
+    }
+    private func showBars() {
+        let inset = adjustedContentInset
+        let y = contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
+        let x = contentSize.width + inset.left + inset.right > bounds.width + 0.5
+        if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
+        if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
+    }
 }
 #endif

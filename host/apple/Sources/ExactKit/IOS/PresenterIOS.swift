@@ -35,6 +35,8 @@ package final class Presenter {
             // first, so a segment or control in a carried row is judged
             // where it shows.
             groupedLists?.sync(changed: [])
+            // A push held for a list built here goes now.
+            navigation.releaseHeldPush()
             segments.sync()
             controls.sync()
         }
@@ -124,6 +126,8 @@ package final class Presenter {
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
     weak package var editing: NodeView?
+    /// The input UIKit gave the focus back to and scrolled into view (`FocusReturn`): the keyboard does not reveal it again.
+    weak var focusReturned: NodeView?
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
@@ -293,7 +297,10 @@ package final class Presenter {
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
-            self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
+            // A hide only gives room: UIKit announces it inside the resign of
+            // an editor whose route leaves, and a UIKit app scrolls nothing.
+            let editor = self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true }
+            if top != nil, editor !== self.focusReturned { self.reveal(editor) }
         }
         // Under the agent (LLP 1012) the change applies at once, as the
         // agent's wheel scrolls at once: its world is settled between calls,
@@ -532,7 +539,9 @@ package final class Presenter {
             session?.log("selectText \"\(name)\" refused: not a text editor")
             return
         }
+        FocusReturn.asking = true
         if responder.canBecomeFirstResponder { _ = responder.becomeFirstResponder() }
+        FocusReturn.asking = false
         if selectText, responder.isFirstResponder { fieldSelections.selectAll(target) }
     }
 

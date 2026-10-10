@@ -613,8 +613,20 @@ extension NavigationHost {
         }
         c.collapseScroll = target
         c.collapseScrollView = physical
+        if let physical, let target, physical.contentInsetAdjustmentBehavior != .always {
+            // A scroller put under the bar keeps its CSS position as the bar's
+            // room is added above it, so a new one starts at its start, as a
+            // browser's does at `scrollTop` 0 (a scroller replaced under a
+            // shown route rested 168 points down, its title collapsed, LLP
+            // 1084 §6.5). A pending authored write still lands after this.
+            let logical = physical.contentOffset.y + target.scrollTopInset(physical)
+            physical.contentInsetAdjustmentBehavior = .always
+            if !(physical.isTracking || physical.isDecelerating) {
+                physical.contentOffset.y = logical - physical.adjustedContentInset.top
+            }
+        }
         physical?.contentInsetAdjustmentBehavior = .always
-        c.setContentScrollView(physical, for: .top)
+        c.track(physical)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -785,7 +797,17 @@ extension NavigationHost {
         var wanted: [UInt32: HostCover] = [:]
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
-            guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A route a pop takes away: UIKit takes it off its stack (its
+            // `navigationController` is nil) as the pop begins and keeps its
+            // layout to the pop's end. Uncovered, its header moved its list
+            // under a bar that did not move, and after a cancelled swipe that
+            // bar showed no title (iPad, LLP 1084 §6.5).
+            let leaving = allNavigations.first { !$0.viewControllers.contains(c) && $0.transitionCoordinator?.viewController(forKey: .from) === c }
+            // A held push's route (`holdsPush`): its header goes into the bar
+            // before the push, so its list is laid out under it.
+            let held = heldPush?.route === c ? heldPush?.nav : nil
+            guard let nav = held ?? leaving ?? c.navigationController,
+                  held != nil || leaving != nil || nav.viewControllers.contains(c) else { continue }
             let shows = barShows(nav)
             guard shows || whole else { continue }
             if let header = c.lifted { wanted[header.id] = .whole }
@@ -884,8 +906,8 @@ extension NavigationHost {
             if nav.transitionCoordinator == nil, !searching(nav.topViewController as? RouteController), nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
             #if !os(tvOS)
-            if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
-            if #available(iOS 26.0, tvOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
+            if let pop = nav.interactivePopGestureRecognizer, (pop.delegate as? PopGestureDelegate)?.host !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
+            if #available(iOS 26.0, tvOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, (pop.delegate as? PopGestureDelegate)?.host !== self {
                 say("navigation \(stack.label)", "the content pop gesture's delegate")
             }
             #endif

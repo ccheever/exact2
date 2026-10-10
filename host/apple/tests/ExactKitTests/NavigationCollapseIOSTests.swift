@@ -557,16 +557,21 @@ final class NavigationCollapseIOSTests: XCTestCase {
     func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
         let session = try fixture("bottom-inset-changes")
         let (nav, route, node) = try second(session)
+        let scroll = try XCTUnwrap(node.scroll)
+        let automaticBottom = { max(0, scroll.adjustedContentInset.bottom - scroll.contentInset.bottom) }
+        let tabBarOnly = automaticBottom()
         showBottomToolbar(nav, route)
         session.presenter.onCovers = nil
         session.presenter.onScrolled = nil
-        let scroll = try XCTUnwrap(node.scroll)
         node.content = CGSize(width: node.bounds.width, height: 40)
         node.fitScroll()
-        let automaticBottom = { max(0, scroll.adjustedContentInset.bottom - scroll.contentInset.bottom) }
         let floor = { max(40, scroll.bounds.height - automaticBottom()) }
         let shown = automaticBottom()
         XCTAssertGreaterThan(shown, 0)
+        // UIKit 27 (the iOS 27.2 simulator) lays a tab's toolbar in the tab
+        // bar's own room: showing or hiding it changes no inset (83 points
+        // either way, 86 and 83 on 26.5), and only the refit is left to check.
+        let toolbarRoom = shown > tabBarOnly + 0.5
         let manual = scroll.contentInset.bottom
         let beforeRange = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
         scroll.contentInset.bottom += 180 // the same manual inset basis used by the keyboard toolbar
@@ -580,13 +585,13 @@ final class NavigationCollapseIOSTests: XCTestCase {
         nav.setToolbarHidden(true, animated: false)
         nav.view.layoutIfNeeded()
         until("hiding the toolbar refits short content without an authored batch") {
-            automaticBottom() < shown - 0.5 && abs(scroll.contentSize.height - floor()) <= 0.5
+            (!toolbarRoom || automaticBottom() < shown - 0.5) && abs(scroll.contentSize.height - floor()) <= 0.5
         }
         let hidden = automaticBottom()
         nav.setToolbarHidden(false, animated: false)
         nav.view.layoutIfNeeded()
         until("showing the toolbar refits short content without an authored batch") {
-            automaticBottom() > hidden + 0.5 && abs(scroll.contentSize.height - floor()) <= 0.5
+            (!toolbarRoom || automaticBottom() > hidden + 0.5) && abs(scroll.contentSize.height - floor()) <= 0.5
         }
         XCTAssertEqual(scroll.contentInset.bottom, manual, accuracy: 0.5, "UIKit refitting preserves authored insets")
     }
@@ -687,7 +692,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
         // navigation controller, plain backend or authored scrollTop.
         let session = try fixture("cold-native-list", planKey: "EXACT_NATIVE_SCROLL_PLAN")
         let p = session.presenter
-        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let nav = try shownStack(p)
         let route = try XCTUnwrap(nav.topViewController as? RouteController)
         let node = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "cold-native-list" })
         let collection = try XCTUnwrap(node.scrollView)
@@ -835,6 +840,279 @@ final class NavigationCollapseIOSTests: XCTestCase {
         p.navigation.reportCovers()
         spin(0.1)
         XCTAssertEqual(css(), 140, accuracy: 0.5, "later cover reports do not repeat the initial handoff")
+    }
+
+    // MARK: A large title's lifecycle over one physical scroller (LLP 1084 §6.5)
+    // The compiled fixture's later tabs, its list arriving while hidden, the
+    // node put between a header and its list, a replaced scroller and pops.
+
+    private func lifecycle() throws -> Presenter {
+        ExactGroupedLists.install()
+        return try fixture("title-lifecycle", planKey: "EXACT_NATIVE_SCROLL_PLAN").presenter
+    }
+
+    private func node(_ p: Presenter, _ testId: String) -> NodeView? {
+        p.views.values.first { $0.props["testId"] == testId }
+    }
+
+    private func press(_ p: Presenter, _ testId: String) throws {
+        p.press(try XCTUnwrap(node(p, testId), testId).id)
+    }
+
+    /// The stack shown: the primary one, or the selected tab's.
+    private func shownStack(_ p: Presenter) throws -> UINavigationController {
+        if let nav = p.navigation.primaryNavigation { return nav }
+        return try XCTUnwrap(p.navigation.tabController?.selectedViewController as? UINavigationController)
+    }
+
+    private func select(_ p: Presenter, tab index: Int) throws -> (UINavigationController, RouteController) {
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        _ = tabs.delegate?.tabBarController?(tabs, shouldSelect: tabs.viewControllers![index])
+        until("tab \(index) is selected") { tabs.selectedIndex == index }
+        tabs.view.setNeedsLayout()
+        tabs.view.layoutIfNeeded()
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        until("the tab's route is in the window") { route.view.window === self.window }
+        spin(0.3)
+        return (nav, route)
+    }
+
+    /// The most of the route's title any label shows: the large title, in
+    /// its scroller or the bar, or the inline one.
+    private func shownTitle(_ nav: UINavigationController, _ route: RouteController) -> CGFloat {
+        var most: CGFloat = 0
+        func walk(_ view: UIView) {
+            if let label = view as? UILabel, label.text == route.navigationItem.title { most = max(most, visibleTitleHeight(label, in: nav)) }
+            for child in view.subviews { walk(child) }
+        }
+        walk(nav.view)
+        return most
+    }
+
+    private func largeTitleShows(_ nav: UINavigationController, _ route: RouteController, _ what: String) throws {
+        guard #available(iOS 26, *) else { return }
+        XCTAssertGreaterThan(visibleTitleHeight(try largeTitle(in: nav, title: route.navigationItem.title), in: nav), 0, what)
+    }
+
+    private func fromStart(_ node: NodeView, _ scroll: UIScrollView) -> CGFloat { scroll.contentOffset.y + node.scrollTopInset(scroll) }
+
+    /// Followed by the bar, its scroll view at its start and its large title shown.
+    private func followed(_ testId: String, by route: RouteController, in nav: UINavigationController, _ p: Presenter) throws {
+        until("the route's bar follows \(testId)") { self.node(p, testId)?.scrollView.map { route.contentScrollView(for: .top) === $0 } ?? false }
+        spin(0.3)
+        let n = try XCTUnwrap(node(p, testId)), scroll = try XCTUnwrap(n.scrollView)
+        XCTAssertTrue(route.collapseScroll === n)
+        XCTAssertEqual(fromStart(n, scroll), 0, accuracy: 0.5, "\(testId) rests at its start")
+        try largeTitleShows(nav, route, "the large title shows over \(testId) at its start")
+    }
+
+    func testALaterTabRestsWithItsLargeTitleOverItsListsStart() throws {
+        let p = try lifecycle()
+        let (nav, route) = try select(p, tab: 1)
+        try followed("later-list", by: route, in: nav, p)
+    }
+
+    func testAListThatArrivesWhileItsTabIsHiddenIsFollowedFromItsStart() throws {
+        let p = try lifecycle()
+        try press(p, "control-arrive")
+        until("the hidden tab's list is built") { self.node(p, "arriving-list")?.scrollView != nil }
+        spin(0.3)
+        let (nav, route) = try select(p, tab: 2)
+        try followed("arriving-list", by: route, in: nav, p)
+    }
+
+    func testANodePutBetweenTheHeaderAndTheListAndTakenOutKeepsTheTitle() throws {
+        let p = try lifecycle()
+        let (nav, route) = try select(p, tab: 1)
+        try followed("later-list", by: route, in: nav, p)
+        try press(p, "control-between")
+        until("the bar stops following the list") { route.collapseScroll == nil && route.collapseScrollView == nil }
+        spin(0.3)
+        // UIKit's bar over no scroller shows its large title, still.
+        try largeTitleShows(nav, route, "the title shows over a list the bar no longer follows")
+        try press(p, "control-between")
+        try followed("later-list", by: route, in: nav, p)
+    }
+
+    func testReplacingTheScrollerUnderTheTitleFollowsTheNewOneFromItsStart() throws {
+        let p = try lifecycle()
+        let (nav, route) = try select(p, tab: 1)
+        try followed("later-list", by: route, in: nav, p)
+        weak var collection = node(p, "later-list")?.scrollView
+        try press(p, "control-plain")
+        try followed("later-plain", by: route, in: nav, p)
+        XCTAssertNil(node(p, "later-list"), "the list is gone, not hidden under the scroll")
+        try press(p, "control-plain")
+        try followed("later-list", by: route, in: nav, p)
+        XCTAssertFalse(node(p, "later-list")?.scrollView === collection, "a new list's collection view")
+    }
+
+    /// Push the fixture's pushed route over the cold root, then pop it as
+    /// UIKit's back button does, or as the app does when `byApp`.
+    private func pushAndPop(_ p: Presenter, _ nav: UINavigationController, _ root: RouteController, byApp: Bool = false) throws {
+        try press(p, "control-open")
+        until("the pushed route is shown") { nav.topViewController !== root && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let pushed = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertGreaterThan(shownTitle(nav, pushed), 0, "the pushed route shows a title")
+        if byApp {
+            // UIKit's own pop moves, as a user sees it.
+            UIView.setAnimationsEnabled(true)
+            defer { UIView.setAnimationsEnabled(false) }
+            try press(p, "pushed-back")
+            until("the pop starts") { nav.topViewController === root && nav.transitionCoordinator != nil }
+            until("the pop ends") { nav.transitionCoordinator == nil }
+        } else {
+            nav.popViewController(animated: true)
+        }
+        until("the root is shown again") { nav.topViewController === root && nav.transitionCoordinator == nil }
+        spin(0.3)
+        XCTAssertEqual(nav.viewControllers, [root], "one route left, the root")
+    }
+
+    /// What shows of a leaving route's large title in its scroller: UIKit
+    /// moves it out as a copy of its title view above the scroller's content
+    /// (the label itself goes clear), the copies a reader sees.
+    private func leavingTitleCopies(in scroll: UIScrollView) -> Int {
+        func opacity(_ view: UIView) -> Float {
+            var shown: Float = 1, current: UIView? = view
+            while let v = current { shown *= v.isHidden ? 0 : (v.layer.presentation()?.opacity ?? v.layer.opacity); current = v.superview }
+            return shown
+        }
+        return scroll.subviews.filter {
+            $0.frame.maxY <= 0.5 && $0.frame.height > 30 && abs($0.frame.width - scroll.bounds.width) < 0.5 && opacity($0) > 0.01
+        }.count
+    }
+
+    /// The root's large title leaves with the root as a push starts. On iOS
+    /// 27.2 a push made by `setViewControllers` takes it off at once: no copy
+    /// of it moves out with the root (UIKit's own push moves one).
+    func testARootsLargeTitleSlidesOutWithItAsAPushStarts() throws {
+        guard #available(iOS 26, *) else { return }
+        let p = try lifecycle()
+        let nav = try shownStack(p)
+        let root = try XCTUnwrap(nav.topViewController as? RouteController)
+        try followed("cold-native-list", by: root, in: nav, p)
+        // UIKit's own push moves, as a user sees it.
+        UIView.setAnimationsEnabled(true)
+        try press(p, "control-open")
+        until("the push starts") { nav.topViewController !== root && nav.transitionCoordinator != nil }
+        spin(0.1)
+        XCTAssertNotNil(nav.transitionCoordinator, "the push still moves")
+        let collection = try XCTUnwrap(node(p, "cold-native-list")?.scrollView)
+        XCTAssertGreaterThan(leavingTitleCopies(in: collection), 0, "the root's large title moves out with the root")
+        until("the push ends") { nav.transitionCoordinator == nil }
+    }
+
+    func testAnAppsOwnPopBackToARootAtRestShowsItsLargeTitleAtItsStart() throws {
+        let p = try lifecycle()
+        let nav = try shownStack(p)
+        let root = try XCTUnwrap(nav.topViewController as? RouteController)
+        try followed("cold-native-list", by: root, in: nav, p)
+        try pushAndPop(p, nav, root, byApp: true)
+        try followed("cold-native-list", by: root, in: nav, p)
+    }
+
+    func testAPopBackToARootAtRestShowsItsLargeTitleAtItsStart() throws {
+        let p = try lifecycle()
+        let nav = try shownStack(p)
+        let root = try XCTUnwrap(nav.topViewController as? RouteController)
+        try followed("cold-native-list", by: root, in: nav, p)
+        try pushAndPop(p, nav, root)
+        try followed("cold-native-list", by: root, in: nav, p)
+    }
+
+    func testAPopBackToAScrolledRootKeepsItsReaderAndShowsATitle() throws {
+        let p = try lifecycle()
+        let nav = try shownStack(p)
+        let root = try XCTUnwrap(nav.topViewController as? RouteController)
+        try followed("cold-native-list", by: root, in: nav, p)
+        let list = try XCTUnwrap(node(p, "cold-native-list")), collection = try XCTUnwrap(list.scrollView)
+        list.pendingScrollTop = 400
+        list.applyPendingScroll()
+        nav.navigationBar.setNeedsLayout()
+        nav.navigationBar.layoutIfNeeded()
+        spin(0.3)
+        let before = fromStart(list, collection)
+        XCTAssertGreaterThan(before, 100, "the root is scrolled past its large title")
+        try pushAndPop(p, nav, root)
+        XCTAssertTrue(root.contentScrollView(for: .top) === collection)
+        XCTAssertEqual(fromStart(list, collection), before, accuracy: 0.5, "the reader's place survives the push and the pop")
+        XCTAssertGreaterThan(shownTitle(nav, root), 0, "a title shows over the scrolled root")
+    }
+
+    /// A tab selected again over its scrolled list: on the 26.5 and 27.2
+    /// simulators a UIKit app's bar over a plain scroll view comes back as
+    /// tall as a large title, with no title in it and the reader 52 points
+    /// lower; over a collection view, inline with its title (LLP 1084 §6.5).
+    /// Exact keeps the reader's place and shows a title over both.
+    func testATabSelectedAgainOverItsScrolledListKeepsItsReaderAndShowsATitle() throws {
+        let p = try lifecycle()
+        let (nav, route) = try select(p, tab: 1)
+        try followed("later-list", by: route, in: nav, p)
+        // A grouped list, then the plain `scroll` the control swaps in for it.
+        for testId in ["later-list", "later-plain"] {
+            if testId == "later-plain" {
+                try press(p, "control-plain")
+                try followed(testId, by: route, in: nav, p)
+            }
+            let list = try XCTUnwrap(node(p, testId)), scroll = try XCTUnwrap(list.scrollView)
+            list.pendingScrollTop = 400
+            list.applyPendingScroll()
+            nav.navigationBar.setNeedsLayout()
+            nav.navigationBar.layoutIfNeeded()
+            spin(0.3)
+            let before = fromStart(list, scroll), bar = nav.navigationBar.frame
+            XCTAssertGreaterThan(before, 100, "\(testId) is scrolled past its large title")
+            _ = try select(p, tab: 0)
+            _ = try select(p, tab: 1)
+            XCTAssertTrue(route.contentScrollView(for: .top) === scroll)
+            XCTAssertEqual(fromStart(list, scroll), before, accuracy: 0.5, "the reader's place over \(testId) survives")
+            XCTAssertEqual(nav.navigationBar.frame.maxY, bar.maxY, accuracy: 0.5, "the bar over \(testId) keeps its collapsed height")
+            XCTAssertGreaterThan(shownTitle(nav, route), 0, "a title shows over \(testId)")
+        }
+    }
+
+    /// UIKit infers a view's content margins, which an inset-grouped list's
+    /// side insets come from, from its superview when the view's own
+    /// geometry changes. A route's node sized for an iPad card while its
+    /// controller's view was still 820 points wide took a trailing margin of
+    /// 0, and kept it when that view shrank to the card's 580: the list's
+    /// trailing inset was 8 points where UIKit's is 16 (iOS 27.2, LLP 1084
+    /// §6.5). The controller has the node's margins inferred again as its
+    /// view's size changes. The margins are UIKit's own (`_contentMargins`,
+    /// read by key): here the window's, 20 points a side.
+    func testARouteNodeTakesItsControllersContentMarginsAgainAsItsViewResizes() throws {
+        let p = Presenter()
+        let node = NodeView(id: 1, kind: "view", presenter: p)
+        let route = RouteController(node), container = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 660))
+        window.rootViewController = container
+        window.isHidden = false
+        defer { window.isHidden = true }
+        container.addChild(route)
+        route.view.frame = container.view.bounds
+        route.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.view.addSubview(route.view)
+        route.didMove(toParent: container)
+        guard route.view.responds(to: Selector(("_contentMargins"))) else { throw XCTSkip("no content margins in this UIKit (26.5)") }
+        func margins(_ object: NSObject) -> UIEdgeInsets { (object.value(forKey: "contentMargins") as? NSValue)?.uiEdgeInsetsValue ?? .zero }
+        window.layoutIfNeeded()
+        // The node laid out for the card, its controller's view not yet.
+        node.frame = CGRect(x: 0, y: 0, width: 580, height: 660)
+        window.layoutIfNeeded()
+        let side = margins(route.view).right
+        XCTAssertGreaterThan(side, 0, "the controller's view has UIKit's margins")
+        XCTAssertEqual(margins(node).right, 0, accuracy: 0.5, "a node narrower than its superview takes none of its trailing margin")
+        // The view takes the card's size; the node's frame does not change.
+        window.frame = CGRect(x: 0, y: 0, width: 580, height: 660)
+        window.layoutIfNeeded()
+        XCTAssertEqual(route.view.bounds.width, 580)
+        XCTAssertEqual(margins(route.view).right, side)
+        XCTAssertEqual(margins(node).left, side, accuracy: 0.5)
+        XCTAssertEqual(margins(node).right, side, accuracy: 0.5, "the node's margins are inferred again")
+        XCTAssertTrue(node.insetsLayoutMarginsFromSafeArea, "and the setter used for it is left as it was")
     }
 
 }
