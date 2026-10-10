@@ -178,6 +178,18 @@ component SkMenuItem
     button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(check and selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
 
+// settings-headings: a heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
+// flow): SettingsSection's `hideTitle` `<h2 className="sr-only">` (Appearance's "Colors & themes", the Project page's
+// "Project", Scheduled Tasks' environment). FoldedSettingsSection's `<h2>` around its trigger is one too, beside the
+// button: the Mac host exposes a heading only on text (NodeViewMac `updateRoleAccessibility`), so a heading cannot hold
+// the button there.
+component SettingsSrHeading
+  props
+    title: string
+    level: number
+  view
+    text title role="heading" aria-level=level position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
+
 // "Off" beside a retention switch, or the description of a disabled row.
 component SettingsStatus
   props
