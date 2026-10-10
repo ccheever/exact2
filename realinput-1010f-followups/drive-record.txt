@@ -1,0 +1,22 @@
+realinput-1010f-followups agent drives (scripts/agent.mjs macos via target/t3-audit/clone-drive.sh, 1280x840, --epoch 2026-10-10T09:00:00Z --time-zone Asia/Seoul)
+before: feature tip 596672b62 (worktree t3-code-realinput-1010f-before), lane realinput-1010f-followups-before; after: this branch 2c23c369b, lane realinput-1010f-followups.
+Both paired the GitHub lane primary server 127.0.0.1:16703 (link redacted), opened PR #168 > Code, expanded docs/usage.md.
+Each step: the op, then the window epoch after the clock step that follows it (unchanged = the press changed nothing).
+
+== before
+   epoch 60 -> 61  {"at": [657, 692], "target": "pull-request-code-fold-docs/usage.md"}
+   epoch 61 -> 63  {"at": [653, 770], "target": "diff-comment-docs/usage.md-additions-3"}
+   epoch 64 -> 64  {"value": "lane check", "target": "pull-request-comment-text"}
+   epoch 65 -> 66  {"value": "", "key": "Meta+Enter", "target": "pull-request-comment-text"}
+   epoch 67 -> 67  {"at": [1244, 501.63], "target": "pull-request-pending-discard-pending-review-comment-1"}
+   epoch 68 -> 68  {"target": "diff-line-docs/usage.md-additions-3", "at": [661.55, 289], "drag": {"dx": 0, "dy": 228.75, "press": 0, "over": 250, "hold": 0, "mouse": true, "to": "diff-line-docs/usage.md-additions-5"}, "lifted": [661.55, 517.75]}
+
+== after
+   epoch 65 -> 66  {"at": [657, 692], "target": "pull-request-code-fold-docs/usage.md"}
+   epoch 66 -> 68  {"at": [653, 770], "target": "diff-comment-docs/usage.md-additions-3"}
+   epoch 69 -> 69  {"value": "lane check", "target": "pull-request-comment-text"}
+   epoch 70 -> 71  {"value": "", "key": "Meta+Enter", "target": "pull-request-comment-text"}
+   epoch 73 -> 74  {"at": [1244, 501.63], "target": "pull-request-pending-discard-pending-review-comment-1"}
+   epoch 77 -> 78  {"target": "diff-line-docs/usage.md-additions-3", "at": [661.55, 289], "drag": {"dx": 0, "dy": 134, "press": 0, "over": 250, "hold": 0, "mouse": true, "to": "diff-line-docs/usage.md-additions-5"}, "lifted": [661.55, 423]}
+
+Screenshots: shots/<mode>/2b-pending-centered.png (the pending card), 3-after-discard.png (after the trash), 4-after-drag.png (after the drag).
