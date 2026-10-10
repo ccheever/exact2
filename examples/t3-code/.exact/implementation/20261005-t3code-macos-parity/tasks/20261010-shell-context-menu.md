@@ -119,11 +119,34 @@ Full list with the raw reads: [menus-before-after-reference.txt](https://raw.git
 - `EXACT2-GAPS.md`: "Text context menu" rewritten (the workaround, what it leans on, gaps S1–S3 with one-file repros);
   Browser X1 path B gains the context menu row.
 
+Review round 2 (2026-10-10, the independent review's four should-fix rows and what the drive found):
+
+- `markdown.contract` `FlowRuns`: only a web link has the app's link menu and the favicon, as ChatMarkdown's
+  `if (!href || !faviconHost) return;`. A `link-start` run of a mailto, irc, xmpp or fragment link (markdown_links.rs
+  keeps them) carried the row's handler, which ended the click with no menu (`chatExternalLinkMenu` answers nothing
+  without a host); it is now plain link text with no globe, and its click is the shell's. Duplicating the row instead
+  would have cost 0.49 MB of plan; folding the run into the plain-text branch costs 32 KB.
+- `external-link-menu.ts`: a new thread's draft counts as a thread (the reference's draft has its thread ref from the
+  start), so a file preview's link offers Open in integrated browser there; picking it allocates the draft's thread id
+  first, as `addBrowserSurface` does. On a page over the thread (the pull request page, whose detail panel passes
+  `threadRef` null to ChatMarkdown) the menu has no thread action and no integrated browser: `app-window.contract`'s
+  `linkMenu` sends id `"page"` while `pageCover`, and `PrLinkRun` goes through that action instead of `local`.
+- S2, evaluated: a paragraph, list item, quote or heading that holds any link is already drawn word by word
+  (`flow_tokens` in `macos/src/markdown.rs` flows a block on any `href`, since the clone's first commit), so a reply's
+  plain paragraph with one web link has the app's menu (Rust test below; R1 of the round-2 drive). Only a Markdown table
+  cell draws a link inline in one text node (`ChatRuns` in `TableCell`). Routing such a cell through per-run nodes
+  (`CellRuns`, as code cells are) was measured: +176 KB of plan (28,261,985 to 28,438,147 bytes), and the cell loses its
+  one ellipsis at the column's edge (every run node shrinks and clips instead, as a code cell does today). Not built;
+  it is in the decision below. `EXACT2-GAPS.md` S2 now says this.
+- Plan on the final head: 28,400,119 bytes (28,229,553 at the review; the merge of `d057787cb` and the page context
+  included).
+
 ## Acceptance results
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| Each case's items and enabled state match the reference | 17 of 20 driven cases match (empty timeline and sidebar, a reply's link, a thread row's own menu, selected text, the composer empty / misspelled / a word, the Browser page's text, link, image, field, empty field, own menu and empty area, the Settings field empty and a word); 2 differ by S1 (unselected text and "parser": Copy disabled, the reference selects the word first). The tool icon (Copy Image) showed no image in the drive and was fixed after it (`T3ShellImageView`, AppKit row); its live check is a real-input step. AppKit: 24 new rows (page, input, template, Browser page with a real WKWebView) | [per case](https://raw.githubusercontent.com/ccheever/exact2/8ffce368a55f67fee24545bb23f687bdc2e465b4/shell-context-menu/menus-before-after-reference.txt), [composer](https://raw.githubusercontent.com/ccheever/exact2/1e24515f6482a018d012edd46e34af8048c1bfaf/shell-context-menu/composer-spellcheck.png), [drive](https://raw.githubusercontent.com/ccheever/exact2/26868a18df7279dac231f53fd297e9c36bd0af6f/shell-context-menu/drive.sh.txt) |
+| Each case's items and enabled state match the reference | 17 of 20 driven cases match (empty timeline and sidebar, a reply's link (C3 "linked $verify": a paragraph with inline code; a paragraph with only a link is drawn the same way, see round 2), a thread row's own menu, selected text, the composer empty / misspelled / a word, the Browser page's text, link, image, field, empty field, own menu and empty area, the Settings field empty and a word); 2 differ by S1 (unselected text and "parser": Copy disabled, the reference selects the word first). The tool icon (Copy Image) showed no image in the drive and was fixed after it (`T3ShellImageView`, AppKit row); its live check is a real-input step. AppKit: 24 new rows (page, input, template, Browser page with a real WKWebView) | [per case](https://raw.githubusercontent.com/ccheever/exact2/8ffce368a55f67fee24545bb23f687bdc2e465b4/shell-context-menu/menus-before-after-reference.txt), [composer](https://raw.githubusercontent.com/ccheever/exact2/1e24515f6482a018d012edd46e34af8048c1bfaf/shell-context-menu/composer-spellcheck.png), [drive](https://raw.githubusercontent.com/ccheever/exact2/26868a18df7279dac231f53fd297e9c36bd0af6f/shell-context-menu/drive.sh.txt) |
+| Round 2: links in a rendered Markdown file (`docs/links.md` in the lane project, Files on a new thread's draft) | R1 a plain paragraph's web link: the app's menu with Open in integrated browser, Open in system browser, Copy Link (match; the first after drive lacked the integrated browser in the draft, fixed and driven again). R2 a mailto link: no favicon (match) and the shell's menu with no Copy Link (match but Copy, S1). R3 a table cell's web link: the shell's menu with Copy Link, where the reference opens the link menu (S2, narrowed to table cells). C3 again: the app's menu (match). The pull request page's menu (no thread) is tested in Bun only | [per case, before / after / reference](https://raw.githubusercontent.com/ccheever/exact2/ceb8371f5fd8a84458ee380bd4138d065c90d48b/shell-context-menu/links-menus-round2.txt), [mailto favicon](https://raw.githubusercontent.com/ccheever/exact2/deec73543cbc86bb0a25b38cd058c847e72e4f8a/shell-context-menu/links-favicon.png), [drive2.sh](https://raw.githubusercontent.com/ccheever/exact2/861313e7ea94cf0eeda3c36836ecf26fa3473db8/shell-context-menu/drive2.sh.txt) |
 | App-authored menus unchanged | pass: the thread row's popover and the file chip, header and Files menus keep their own; `contextmenu` AppKit's 24 earlier rows pass unchanged (RD-4's five included), `context-menu-hookup.test.ts` passes | drive C7 in the per-case file; checks below |
 | Drawn menus and their actions | open: real-input steps below | — |
 
@@ -132,6 +155,12 @@ AppKit's or WebKit's own menu in inputs and Browser pages, which tracks in the a
 ran on the after build only (their before is the AppKit/WebKit menu, listed in the per-case file). The after build made
 two drives: in the first the reply link answered with the shell's menu and no Copy Link (S3), which led to building the
 reference's own link menu, and it stopped at a Settings step; the second, on the merged head, ran every case.
+
+Round 2 drove only the new cases (drive2.sh: the rendered `docs/links.md`, then C3), on a bundle of `b7f14b41b`
+(`origin/feat(example)/t3-code` `d057787cb` merged), after a dry run of the same steps on the before build. The first
+after drive found the draft's missing Open in integrated browser; the retry, after the fix, is the result above. The
+last commit (`557bb4188`, the page context) changes only the id the window sends from a page and `PrLinkRun`'s handler
+path; the drive's state shows `pageCover` false on both surfaces it used, and Bun tests cover the page.
 
 ## Tests
 
@@ -142,19 +171,29 @@ reference's own link menu, and it stopped at a Settings step; the second, on the
   one replacing the word, "No suggestions" and spellcheck off, a click inside the selection, an empty textarea against
   the composer, a secure field, the agent), the template (safe URLs, order), and a real WKWebView (each page case,
   WebKit's guesses, `reshape`). All clicks go through `install()` and `NSApp.sendEvent`.
-- `external-link-menu.test.ts` (new, 11): `externalLinkContextMenu.test.ts`'s cases ported; the link nodes carry the
-  handler and the root names the op; `chatlocal:link-menu` reaches the native menu with the reference's items and Copy
-  Link copies the href.
+- `external-link-menu.test.ts` (new, 16): `externalLinkContextMenu.test.ts`'s cases ported; the link nodes carry the
+  handler, each under a `webLink` branch (a mailto link-start run is plain link text with no handler), and the root
+  names the op with `"page"` from a page; `chatlocal:link-menu` reaches the native menu with the reference's items and
+  Copy Link copies the href. Round 2: `chatLinkThreadAction` over a client fixture (Unlink where the open thread links
+  the pull request, Link where it could, nothing for a non-PR URL, another host, no thread, a server that cannot link;
+  a one-link server's legacy link), the menu leading with the thread action and its pick dispatching
+  `thread.pull-request.link`/`.unlink`, `changeChatLink`'s no-op unlink and its "Unable to link/unlink pull request"
+  toasts, the draft's integrated browser and its allocated thread id, and the page's menu with neither.
+- `settings-prompt-preview.test.ts` (+1): the composer and the prompt sample carry no `spellcheck` (the Mac host checks
+  a textarea's spelling unless it says `"false"`), autocorrect stays off.
+- `macos/src/markdown.rs` (+1, Rust): a paragraph, item, quote or heading holding only a web link (or a bare URL) is a
+  flow block whose link words are `link-start`/`link` runs, so the link is a node with the menu.
 
-## Checks (head `73f0e32a0` with the EXACT2-GAPS wording staged; `origin/feat(example)/t3-code` `8d69a4329` merged)
+## Checks (head `557bb4188` with this record staged; `origin/feat(example)/t3-code` `d057787cb` merged)
 
-`bun test examples/t3-code --timeout 60000` 0 (4384 pass, 1 skip, 0 fail); strict `tsc` 0; `contract build
-examples/t3-code/app.contract` 0 (5982 slots, 28,229,553 bytes); `cargo test -p t3-code-macos --lib` 0 (17 pass); AppKit
-`contextmenu` 48 run, 0 failed (24 new), `browser-capture` 34/0, `media-actions` 7/0, `r6-media` 10/0; `git add -A && bun
-scripts/caps.mjs` 0; `cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests --no-fail-fast` 0
-(3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings` 0; `cargo fmt --all --
---check` 0; `bun scripts/boot.mjs` 0. The bundle was built before the live drives (exit 0, on the merged head
-`77cc60949`). `app.contract`: 1,344 lines. Later commits change only this record.
+`bun test examples/t3-code --timeout 60000` 0 (4398 pass, 1 skip, 0 fail); strict `tsc` 0; `contract build
+examples/t3-code/app.contract` 0 (5985 slots, 28,400,119 bytes); `cargo test -p t3-code-macos --lib` 0 (18 pass); `git add
+-A && bun scripts/caps.mjs` 0; `cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests
+--no-fail-fast` 0 (3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings` 0; `cargo
+fmt --all -- --check` 0; `bun scripts/boot.mjs` 0. No Swift changed in round 2, so the AppKit binaries were not rerun
+(round 1: `contextmenu` 48 run, 0 failed (24 new), `browser-capture` 34/0, `media-actions` 7/0, `r6-media` 10/0). The
+bundle for the round-2 drive was built on `b7f14b41b` (exit 0). `app.contract`: 1,353 lines. Later commits change only
+this record.
 
 ## Real-input batch steps
 
@@ -176,14 +215,20 @@ the clipboard empty first:
 6. Browser panel: open `https://example.com`; right-click the "More information…" link: Copy Link first (paste: the URL);
    right-click the heading text: the word is selected, Copy enabled; right-click an empty area: Cut, Copy, Paste
    disabled, Select All. No WebKit items (Look Up, Translate, Share…) appear.
-7. A thread row's right-click still opens the app's thread menu, and nothing else opens after it.
+7. Browser panel, an empty field (the clone turns Select All off after the menu opens, from a page read): save
+   [the fixture page](https://raw.githubusercontent.com/ccheever/exact2/556f05ebd1336d23217e609fdc61c24008975d76/shell-context-menu/fixture-page.html.txt) as `index.html` in an empty folder, run `python3 -m http.server 16664 --bind 127.0.0.1`
+   there, open `http://127.0.0.1:16664/` in the Browser. Right-click the empty field (the fifth band, under the "Field
+   text" field): Cut, Copy, Paste and Select All are all disabled while the menu is shown; note whether Select All shows
+   enabled for an instant first. Right-click "Field" in the field above: Cut, Copy and Select All enabled. Stop the
+   server.
+8. A thread row's right-click still opens the app's thread menu, and nothing else opens after it.
 
 ## Not done / not verified
 
 - S1, S2, S3 (EXACT2-GAPS.md "Text context menu"): framework gaps without an issue number, not filed (the brief files
   nothing upstream). S1: a right-click on unselected page text selects no word, so Copy stays disabled where the
-  reference enables it. S2: a link in a plain paragraph (drawn inline in one text node) cannot carry the app's link menu
-  on macOS and shows the shell's (with Copy Link). S3: a node's `href` is not readable by a module, so the clone's links
+  reference enables it. S2: a web link in a Markdown table cell (drawn inline in one text node) cannot carry the app's link
+  menu on macOS and shows the shell's (with Copy Link); paragraphs, items, quotes and headings have it. S3: a node's `href` is not readable by a module, so the clone's links
   without a menu of their own get no Copy Link. Blocker: the decision below.
 - Drawn menus and their actions: the real-input steps above (the screen stays locked; open until the batch runs).
 
@@ -192,6 +237,11 @@ the clipboard empty first:
 Should the coordinator file S1–S3 (ExactKit: select the word under a secondary click; dispatch `contextmenu` for an
 inline run; expose a node's `href` to modules)? Each has a one-file repro in EXACT2-GAPS.md. If they are filed, the
 entries take their numbers; otherwise they stay declared differences. Nothing else in this task depends on it.
+
+And for S2 without the framework: draw a table cell that holds a web link through per-run nodes (as `CellRuns` draws a
+cell with code), so the link carries the app's menu (and could lead with its favicon)? Cost, measured: +176 KB of plan,
+and such a cell loses its single ellipsis at the column's edge (the run nodes shrink and clip, as code cells do now).
+Left as is (the shell's menu with Copy Link) until decided.
 
 ## Delivery
 
