@@ -1,0 +1,18 @@
+// CSS :hover and pointerenter during a held-button mouse drag, in the Chrome the agent uses.
+import { chromium } from '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-issue-x80/node_modules/playwright-core/index.mjs';
+const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+await page.setContent(`<style>body{margin:0;font:15px system-ui}.r{width:200px;height:40px;background:#e5e7eb;border-bottom:1px solid #fff;user-select:none}.r:hover{background:#3b82f6}</style>
+<div id="r1" class="r">1</div><div id="r2" class="r">2</div><div id="r3" class="r">3</div><div id="r4" class="r">4</div><div id="r5" class="r">5</div>
+<script>window.log=[];for(const r of document.querySelectorAll('.r')){r.onpointerenter=e=>log.push(r.id+'+'+e.buttons);r.onpointerleave=e=>log.push(r.id+'-'+e.buttons);}</script>`);
+const hovered = () => page.evaluate(() => [...document.querySelectorAll('.r:hover')].map(e => e.id).join(','));
+await page.mouse.move(100, 20);
+console.log('rest over r1: :hover =', await hovered());
+await page.mouse.down();
+for (let y = 24; y <= 140; y += 4) await page.mouse.move(100, y);
+console.log('button held over r4: :hover =', await hovered(), '| bg r1', await page.evaluate(() => getComputedStyle(r1).backgroundColor), 'r4', await page.evaluate(() => getComputedStyle(r4).backgroundColor));
+await page.mouse.up();
+console.log('released: :hover =', await hovered());
+console.log('pointerenter/leave (id±buttons):', (await page.evaluate(() => log)).join(' '));
+console.log('chrome', browser.version());
+await browser.close();
