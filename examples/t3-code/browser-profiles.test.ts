@@ -183,11 +183,11 @@ describe('BrowserProfilesSetting writes', () => {
     expect(cleared.sort()).toEqual(['env-remote/profile-work/cache', 'env-remote/profile-work/cookies', 'local/profile-work/cache', 'local/profile-work/cookies']);
     native.length = 0;
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove-ask', `id=${work.id}`);
-    expect((await browserProfilesView(client, module))).toMatchObject({ removalOpen: true, removalName: 'Work', removalAvailable: true });
+    expect((await browserProfilesView(client, module))).toMatchObject({ removalOpen: true, removalId: work.id, removalName: 'Work', removalAvailable: true });
     await browserProfilesLocal(client, module, storage, 'browser-profiles-remove', '');
     expect(native.filter(request => request.op === 'browserClearData')).toHaveLength(4);
     expect(client.local).toMatchObject({ browserProfiles: [], browserDefaultProfileId: 'default' });
-    expect((await browserProfilesView(client, module)).removalOpen).toBe(false);
+    expect((await browserProfilesView(client, module))).toMatchObject({ removalOpen: false, removalId: '' });
   });
   it('keeps a profile whose data could not be deleted, and says so', async () => {
     const { client } = fakeClient({ browserProfiles: [work], browserDefaultProfileId: 'default' }, () => ({ cleared: false }));
