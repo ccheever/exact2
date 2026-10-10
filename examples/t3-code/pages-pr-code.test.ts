@@ -367,6 +367,25 @@ describe('the gutter\'s drags (realinput-1010f RF-3: onLineSelectionEnd and onGu
   });
 });
 
+describe('what sits under a selected line is painted selected (Pierre\'s renderSelection; diff-gutter-visuals)', () => {
+  const row = (op: string, line: number, value: string) => `diffreview|${op}|${line}|${value}`;
+  const notes = (view: Awaited<ReturnType<ReturnType<typeof fixture>['settle']>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind.startsWith('pr-') && item.kind !== 'pr-file')
+    .map(item => `${item.kind === 'pr-thread' ? item.entry : item.kind}${item.selected ? '*' : ''}`);
+  test('a drag over lines 1 to 2 marks the conversations under deleted 2 and added 2, not under 3; the draft at the release', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    expect(notes(await f.settle())).toEqual(['t-resolved', 't-open', 't-long']);
+    await f.press('drag', row('drag:additions', 1, 'src/catalog.js'));
+    await f.press('drag', row('to', 0, 'dl:additions:2:src/catalog.js'));
+    expect(notes(await f.settle())).toEqual(['t-resolved*', 't-open*', 't-long']);
+    await f.press('drag', row('end', 1, 'src/catalog.js'));
+    expect(notes(await f.settle())).toEqual(['t-resolved*', 't-open*', 'pr-draft*', 't-long']);
+    await f.press('cancel');
+    expect(notes(await f.settle())).toEqual(['t-resolved', 't-open', 't-long']);
+  });
+});
+
 describe('conversations (ReviewThreadCard, the list off the diff)', () => {
   test('a thread sits under its line inside a hunk; one outside every hunk is listed, grouped by file', async () => {
     const f = fixture();
