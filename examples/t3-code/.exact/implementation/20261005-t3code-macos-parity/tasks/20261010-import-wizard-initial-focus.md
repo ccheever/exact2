@@ -3,7 +3,7 @@ name: 20261010-import-wizard-initial-focus
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-import-wizard-initial-focus
@@ -200,6 +200,13 @@ An independent review of PR #409 found four should-fix problems:
 
 Draft PR [#409](https://github.com/ccheever/exact2/pull/409) into `feat(example)/t3-code`.
 
+## Delivery
+
+Merged on 2026-10-10 as `d608796fa` (#409, squash) after an independent review and its repair round (four should-fix
+items: focus moves only when the focused element was removed, as Base UI's restoreFocus; tests through the module; the
+Not done list; the gap's number). The Tab gap is X79 (renumbered from X78 at merge); the coordinator reproduces it on
+main and files it under the standing rule. The record stays open for real-input step 1 (focus rings and Tab).
+
 ## Next action
 
-Coordinator: decide X79 (Decision needed); review the draft PR; run real-input step 1 in the next batch.
+Real-input step 1 joins the next session. Close this record after it.
