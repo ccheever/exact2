@@ -1,0 +1,28 @@
+t3.browser: open ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: navigate http://127.0.0.1:16961/
+t3.browser: annotate start
+t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: annotate picked attach: elements 1, regions 0, strokes 0, screenshot ok
+t3.browser: annotate applied 1 chip+image
+t3.browser: annotate start
+t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: annotate picked send: elements 1, regions 0, strokes 0, screenshot ok
+t3.browser: annotate applied 2 chip+image send
+t3.browser: annotate start
+t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: annotate picked attach: elements 0, regions 1, strokes 0, screenshot ok
+t3.browser: annotate applied 3 chip+image
+t3.browser: annotate start
+t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: annotate picked attach: elements 0, regions 0, strokes 1, screenshot ok
+t3.browser: annotate applied 4 chip+image
+t3.browser: annotate start
+t3.browser: annotate start ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: annotate cancelled in the page
+t3.browser: annotate applied 5 cancelled
+t3.browser: pip open ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: pip close ["ad12c9d1-a6d4-47ac-a48e-fbb0f6cd7720","6fa89c9a-98f5-4e42-a419-517ccdafd07b","c996d2f5-106a-4575-b95c-da562ba113d2","tab_1"]
+t3.browser: screenshot browser-screenshot-127-0-0-1-mv1z2gxj.png
+t3.browser: artifact copy-path browser-screenshot-127-0-0-1-mv1z2gxj.png
+t3.browser: artifact copy-image browser-screenshot-127-0-0-1-mv1z2gxj.png
+t3.browser: artifact reveal browser-screenshot-127-0-0-1-mv1z2gxj.png
