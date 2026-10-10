@@ -200,6 +200,30 @@ fn unannotated_http_and_native_writes_remain_in_one_fifo() {
     );
 }
 
+/// Independent reads overlap up to the lane's workers, as a browser's six
+/// connections a host: a source's `Promise.all` of 4 MiB-ceiling reads (the
+/// Bluesky clone's) is not two at a time, and the next waits for a worker.
+#[test]
+fn independent_reads_overlap_up_to_the_lanes_workers() {
+    let (core, fixture, woke) = setup();
+    for ticket in 0..=INDEPENDENT as u64 {
+        core.run(
+            job(
+                ticket,
+                Request::get("https://example.test/hold").independent_http(4 << 20),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    fixture.wait_held(INDEPENDENT);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(fixture.state.lock().unwrap().0, INDEPENDENT);
+    fixture.release();
+    assert_eq!(collect(&core, &woke, INDEPENDENT + 1).len(), INDEPENDENT + 1);
+    assert!(settled(&core));
+}
+
 #[test]
 fn admission_counts_completed_results_until_consumed_and_preserves_control_space() {
     let (core, fixture, woke) = setup();
@@ -298,8 +322,8 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
         Request::storage(vec![]).independent_http(1),
         Request::get("https://example.test/read").independent_http(0),
         Request::get("https://example.test/read").independent_http((64 << 20) + 1),
-        // A ceiling the 32 MiB lane can never hold (twice the body, plus).
-        Request::get("https://example.test/read").independent_http(16 << 20),
+        // A ceiling the 64 MiB lane can never hold (twice the body, plus).
+        Request::get("https://example.test/read").independent_http(32 << 20),
     ] {
         // Each is refused on its own, not held behind the one before it.
         assert_eq!(core.resume_ordered(), []);
@@ -313,14 +337,15 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
 }
 
 /// The Bluesky port's D5: a second 8 MiB read beside a held one was refused
-/// because admission charged the whole ceiling. It now waits for the bytes.
+/// because admission charged the whole ceiling. It now waits for the bytes
+/// (16 MiB reads here, so that two outgrow the lane's 64 MiB).
 #[test]
 fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     let (core, fixture, woke) = setup();
     core.run(
         job(
             1,
-            Request::get("https://example.test/hold").independent_http(8 << 20),
+            Request::get("https://example.test/hold").independent_http(16 << 20),
         ),
         None,
     )
@@ -329,7 +354,7 @@ fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
     core.run(
         job(
             2,
-            Request::get("https://example.test/read").independent_http(8 << 20),
+            Request::get("https://example.test/read").independent_http(16 << 20),
         ),
         None,
     )
