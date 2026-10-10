@@ -51,9 +51,10 @@ internal class NativeText(val text: SpannableString, val paint: TextPaint,
     fun drawColor(inherited: Int) = uniformColor ?: inherited
     private data class PaintSpan(val value: CharacterStyle, val start: Int, val end: Int)
     private val paintSpans = ArrayList<PaintSpan>()
+    private val heightSpan = lineHeight?.let { TrimmedHeight(it, text.length) }
     init {
-        lineHeight?.let { text.setSpan(TrimmedHeight(it, text.length), 0, text.length, 33) }
-        unstyled = if (text.getSpans(0, text.length, Any::class.java).isEmpty()) text.toString() else null
+        heightSpan?.let { text.setSpan(it, 0, text.length, 33) }
+        unstyled = if (text.getSpans(0, text.length, Any::class.java).all { it === heightSpan }) text.toString() else null
     }
     fun setPaint(ranges: List<InlinePaintRange>) {
         if (paintRanges === ranges) return
@@ -84,14 +85,27 @@ internal class NativeText(val text: SpannableString, val paint: TextPaint,
     }
     val boring: BoringLayout.Metrics? by lazy {
         pure {
-            if (Build.VERSION.SDK_INT >= 33) BoringLayout.isBoring(text, paint, textDirection, true, null)
-            else if (!textDirection.isRtl(text, 0, text.length)) BoringLayout.isBoring(text, paint, null)
+            // Our trimmed height span changes only wrapped lines. Probe the
+            // single-line SDK path without this otherwise inert paragraph span.
+            // API 33 preserves fallback-font line spacing in BoringLayout.
+            if (Build.VERSION.SDK_INT >= 33) {
+                heightSpan?.let { text.removeSpan(it) }
+                try { BoringLayout.isBoring(text, paint, textDirection, true, null) }
+                finally { heightSpan?.let { text.setSpan(it, 0, text.length, 33) } }
+            } else if (!textDirection.isRtl(text, 0, text.length)) BoringLayout.isBoring(text, paint, null)
             else null
         }
     }
+    // StaticLayout returns the fractional advance; BoringLayout rounds it up.
+    // Keep the previous metric answer when enabling its single-line renderer.
+    var singleLineWidth = 0f
+        private set
     val maxIntrinsicWidth: Float by lazy {
-        pure { (boring?.width?.toFloat() ?: ceil(Layout.getDesiredWidth(text, paint))) +
-            if (spacing && text.isNotEmpty()) .5f else 0f }
+        pure {
+            singleLineWidth = boring?.takeIf { heightSpan == null }?.width?.toFloat()
+                ?: Layout.getDesiredWidth(text, paint)
+            ceil(singleLineWidth) + if (spacing && text.isNotEmpty()) .5f else 0f
+        }
     }
     val minIntrinsicWidth: Float by lazy {
         pure {
@@ -147,7 +161,7 @@ internal class NativeParagraph(private val source: NativeText, width: Int, maxLi
     val lineCount = minOf(layout.lineCount, maxLines)
     val height = layout.getLineBottom(lineCount - 1).toFloat()
     val firstBaseline = layout.getLineBaseline(0).toFloat()
-    fun getLineWidth(line: Int) = layout.getLineWidth(line)
+    fun getLineWidth(line: Int) = if (layout is BoringLayout) source.singleLineWidth else layout.getLineWidth(line)
     private var drawableText: CharSequence = source.text
     fun paint(canvas: Canvas, color: Int) {
         source.paint.color = source.drawColor(color)
