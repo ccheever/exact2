@@ -51,7 +51,7 @@ import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalEvent, mobil
 import { mobileReviewColors } from './review-colors';
 import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './review-data';
 import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
-import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot } from './file-data';
+import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFileMenu, type FileSnapshot } from './file-data';
 import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
 import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
@@ -426,6 +426,7 @@ const sources: Sources = {
     if (String(args[4]).startsWith('/new/draft/files/')) return mobileNewTaskFileRead(String(args[0] ?? ''), String(args[4]), String(args[6]), String(args[5]), args[1] === 'dark', native);
     return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
   },
+  fileMenu: args => mobileFileMenu(args[0] as FileSnapshot, args[1], args[2], args[3], args[4]),
   serverSettings: (args, _store, storage, nativeInput) => {
     const native = sourceNative('serverSettings', args, nativeInput);
     return mobileServerSettings(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), args[2] === true ? native : null);

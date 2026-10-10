@@ -154,6 +154,7 @@ component MobileRouteContent
     reviewComment: string
     filesQuery: string
     filePreview: bool
+    fileMenu: string
     mediaNativeOpen: bool
     mediaNativeError: string
     modelQuery: string
@@ -222,8 +223,7 @@ component MobileRouteContent
     refreshFiles: action
     openFile: action
     refreshFile: action
-    toggleFileWrap: action
-    toggleFilePreview: action
+    fileMenuAction: action
     audioStatusChanged: action
     audioControl: action
     documentAction: action
@@ -399,11 +399,7 @@ component MobileRouteContent
     else when routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
       row gap=14 padding=14
         text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
-        when fileData.markdown
-          button press=toggleFilePreview aria-label="Toggle Markdown preview" aria-pressed=filePreview
-            t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-        button press=toggleFileWrap disabled=not settingsAppearance.ready aria-label=(settingsAppearance.codeWordBreak ? "Disable word wrap" : "Enable word wrap") aria-pressed=settingsAppearance.codeWordBreak
-          t3-symbol symbol-name="text.alignleft" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+        t3-document-menu document-menu=fileMenu document-tint=reviewLook.icon change=fileMenuAction width=32 height=32
       MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile)
     else when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
       when focused

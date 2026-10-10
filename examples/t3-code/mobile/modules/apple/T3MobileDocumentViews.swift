@@ -10,6 +10,7 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
     }
     private let button = UIButton(type: .system)
     private var alive = true
+    private var configuration = ""
     override var view: UIView { button }
     override init(events: ExactNativeEvents) {
         super.init(events: events)
@@ -18,20 +19,36 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
         button.accessibilityLabel = "File actions"
     }
     override func setProps(_ props: [String: String]) throws {
-        guard let data = props["document-menu"]?.data(using: .utf8),
+        guard let raw = props["document-menu"], let data = raw.data(using: .utf8),
               let config = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let identifier = config["identifier"] as? String else { throw ExactNativeRefusal("Invalid file menu.") }
         let rows = config["actions"] as? [[String: Any]] ?? []
+        configuration = raw
         button.isEnabled = !identifier.isEmpty
-        button.menu = UIMenu(children: rows.compactMap { row in
-            guard let id = row["id"] as? String, let title = row["title"] as? String else { return nil }
-            return UIAction(title: title, image: UIImage(systemName: row["icon"] as? String ?? ""),
-                            attributes: id == "remove" ? .destructive : [],
+        if let tint = props["document-tint"] { button.tintColor = try T3SymbolView.color(tint) }
+        var modes: [UIMenuElement] = []
+        var actions: [UIMenuElement] = []
+        for row in rows {
+            guard let id = row["id"] as? String, let title = row["title"] as? String else { continue }
+            var attributes: UIMenuElement.Attributes = id == "remove" ? .destructive : []
+            if row["disabled"] as? Bool == true { attributes.insert(.disabled) }
+            let action = UIAction(title: title, image: UIImage(systemName: row["icon"] as? String ?? ""),
+                            attributes: attributes,
                             state: row["selected"] as? Bool == true ? .on : .off) { [weak self] _ in
-                guard let self, alive, let value = try? JSONSerialization.data(withJSONObject: ["identifier": identifier, "operation": id]) else { return }
+                guard let self, alive, configuration == raw else { return }
+                if let value = row["copyValue"] as? String {
+                    UIPasteboard.general.string = value
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    return
+                }
+                if let value = row["eventValue"] as? String { events.change(value); return }
+                guard let value = try? JSONSerialization.data(withJSONObject: ["identifier": identifier, "operation": id]) else { return }
                 events.change(String(decoding: value, as: UTF8.self))
             }
-        })
+            if row["inline"] as? Bool == true { modes.append(action) } else { actions.append(action) }
+        }
+        if !modes.isEmpty { actions.insert(UIMenu(options: .displayInline, children: modes), at: 0) }
+        button.menu = UIMenu(title: config["title"] as? String ?? "", children: actions)
     }
     override func destroy() { alive = false; button.menu = nil }
 }
