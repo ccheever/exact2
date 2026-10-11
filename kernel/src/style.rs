@@ -1363,7 +1363,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // and `none`. With native appearance Chrome additionally ignores its
     // padding; with `none` the authored padding remains in that border box.
     // A select's native UA default is border-box unless the author overrides
-    // it. Other controls keep the reset's content-box semantics.
+    // it, and the web page's field look makes a date, time or local date-time
+    // control one too (LLP 1116.001 D1). Other controls keep the reset's
+    // content-box semantics.
     match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
         Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
@@ -1376,9 +1378,13 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
                 };
             }
         }
-        Some(crate::ControlKind::Select)
-            if arena.style(slot).appearance == crate::Appearance::Auto
-                && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
+        Some(
+            crate::ControlKind::Select
+            | crate::ControlKind::Date
+            | crate::ControlKind::Time
+            | crate::ControlKind::DateTimeLocal,
+        ) if arena.style(slot).appearance == crate::Appearance::Auto
+            && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
         {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
         }

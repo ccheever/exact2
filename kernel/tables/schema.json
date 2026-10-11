@@ -3261,7 +3261,7 @@
       "codec": "auto-color",
       "inherited": true,
       "default": "auto",
-      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's."
+      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's. LLP 1116.001 D2: also its subtree's tint, which the `@tint` roles at full strength (`AccentColor`, `LinkText`) resolve to beneath it (`roles::follows_accent`): iOS sets it as the view's `tintColor`, the web reads the `--exact-accent` written beside it."
     },
     {
       "bit": 146,

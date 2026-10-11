@@ -29,9 +29,10 @@ enum SvgPaint {
     }
 
     /// A paint server (a gradient or a pattern): an object that is not a
-    /// colour in its own space, `{"cs": …}` (LLP 1100 D2).
+    /// colour in its own space, `{"cs": …}` (LLP 1100 D2), nor the tint,
+    /// `{"sys": "@tint", …}` (LLP 1116.001 D2).
     static func server(_ v: Any?) -> [String: Any]? {
-        guard let o = v as? [String: Any], o["cs"] == nil else { return nil }
+        guard let o = v as? [String: Any], o["cs"] == nil, o["sys"] == nil else { return nil }
         return o
     }
 

@@ -586,7 +586,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // a `color-scheme` above it included (LLP 1034 §8).
             node.presenter?.session?.noteAppearance(node)
             // An `svg`'s paints are resolved into its scene's layers.
-            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
+            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock, tint: node.viewTint)
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
@@ -1258,6 +1258,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { applyAccentTint() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()

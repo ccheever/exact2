@@ -397,3 +397,161 @@ component App
         "Monday, Oct 5, 1,800 ml, Tuesday"
     );
 }
+
+/// LLP 1116.001 D2: `RingProgress` is a ring around its value, one
+/// progress bar to a reader, and a state is a second colour: short of the
+/// goal the accent, a goal met the system green, done against not done
+/// green against grey; a `tint` says otherwise.
+#[test]
+fn exact_content_draws_a_ring_and_state_as_a_second_colour() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::{ColorValue, NodeType, Offer, PropId};
+    let dir = Dir::new("content-state");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard, StatBar, RingProgress, DoneMark from "exact:content"
+component App
+  view
+    column testId="root" width=900 height=2000
+      column testId="wide" width=400
+        RingProgress(label="Focus", value="17:30", fraction=0.3, tint=none)
+      row testId="pair" width=370 flex-wrap="wrap" gap=16
+        column flex="1 1 160px" testId="left"
+          RingProgress(label="Water", value="2,000", fraction=1.2, tint=none)
+        column flex="1 1 160px" testId="right"
+          RingProgress(label="Tinted", value="0", fraction=0, tint=some("-exact-system-orange"))
+      column testId="bars" width=400
+        StatBar(label="Under", value="1", fraction=0.5, tint=none)
+        StatBar(label="Met", value="2", fraction=1, tint=none)
+        StatBar(label="Budget", value="3", fraction=1.2, tint=some("-exact-system-red"))
+      column testId="card" width=400
+        SummaryCard(label="Habits", value="3 / 3", detail="", progress=some(1), symbol=none)
+      row testId="marks"
+        DoneMark(label="Mon", done=true)
+        DoneMark(label="Tue", done=false)
+        DoneMark(label="", done=true)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(900.0, 2000.0))
+        .unwrap();
+    let k = r.kernel();
+    let named = |n: &str| ColorValue::Role(role(n).unwrap());
+    let rings = |t: &str| -> Vec<exact_kernel::NodeRef<'_>> {
+        under(k, at(k, t))
+            .into_iter()
+            .filter(|n| n.props.str(PropId::AccessibilityRole) == Some("progressbar"))
+            .collect()
+    };
+    // One progress bar to a reader: its label, its words, its fraction.
+    let ring = &rings("wide")[0];
+    assert_eq!(ring.props.str(PropId::AccessibilityLabel), Some("Focus"));
+    assert_eq!(
+        ring.props.str(PropId::AccessibilityValueText),
+        Some("17:30")
+    );
+    assert_eq!(ring.props.str(PropId::AccessibilityValueMax), Some("1"));
+    // A square, 200 across where there is room; two side by side in a
+    // phone's row, the ring adding no width of its own.
+    assert_eq!((ring.frame.width, ring.frame.height), (200.0, 200.0));
+    let (left, right) = (&rings("left")[0], &rings("right")[0]);
+    assert!(
+        left.frame.width < 200.0 && left.frame.width == left.frame.height,
+        "{:?}",
+        left.frame
+    );
+    let (l, r) = (
+        k.node(at(k, "left")).unwrap().frame,
+        k.node(at(k, "right")).unwrap().frame,
+    );
+    assert_eq!(l.y, r.y, "side by side: {l:?} {r:?}");
+    assert_eq!(
+        left.props.str(PropId::AccessibilityValueNow),
+        Some("1"),
+        "held to 1"
+    );
+    assert_eq!(right.props.str(PropId::AccessibilityValueNow), Some("0"));
+    // The ring's colour is the svg's: the accent, green at the goal, the tint.
+    let ink = |t: &str| {
+        under(k, at(k, t))
+            .into_iter()
+            .find(|n| n.node_type == NodeType::Svg)
+            .unwrap()
+            .style
+            .text_color
+    };
+    assert_eq!(ink("wide"), named("AccentColor"));
+    assert_eq!(ink("left"), named("-exact-system-green"));
+    assert_eq!(ink("right"), named("-exact-system-orange"));
+    // A bar's fill: the accent short of its goal, green at it, the tint.
+    let fills: Vec<_> = under(k, at(k, "bars"))
+        .into_iter()
+        .filter(|n| n.props.str(PropId::AccessibilityRole) == Some("meter"))
+        .map(|m| {
+            let track = k.node(*m.children().last().unwrap()).unwrap();
+            k.node(track.children()[0]).unwrap().style.background_color
+        })
+        .collect();
+    assert_eq!(
+        fills,
+        [
+            Some(named("AccentColor")),
+            Some(named("-exact-system-green")),
+            Some(named("-exact-system-red"))
+        ]
+    );
+    // A card's progress at its goal is green.
+    let card = under(k, at(k, "card"))
+        .into_iter()
+        .find(|n| n.props.str(PropId::AccessibilityRole) == Some("progressbar"))
+        .unwrap();
+    assert_eq!(card.style.accent_color, Some(named("-exact-system-green")));
+    // Done against not done: one image each, green against grey.
+    let marks: Vec<_> = under(k, at(k, "marks"))
+        .into_iter()
+        .filter(|n| n.props.str(PropId::AccessibilityRole) == Some("img"))
+        .collect();
+    let names: Vec<_> = marks
+        .iter()
+        .map(|m| m.props.str(PropId::AccessibilityLabel).unwrap_or(""))
+        .collect();
+    assert_eq!(names, ["Mon, done", "Tue, not done", "Done"]);
+    let tints: Vec<_> = marks
+        .iter()
+        .map(|m| {
+            let image = under(k, m.id)
+                .into_iter()
+                .find(|n| n.node_type == NodeType::Image)
+                .unwrap();
+            (
+                image.props.str(PropId::ImageSource).unwrap().to_owned(),
+                image.style.tint_color,
+            )
+        })
+        .collect();
+    assert_eq!(
+        tints,
+        [
+            (
+                "symbol:select-fill".into(),
+                Some(named("-exact-system-green"))
+            ),
+            ("symbol:circle".into(), Some(named("-exact-tertiary-label"))),
+            (
+                "symbol:select-fill".into(),
+                Some(named("-exact-system-green"))
+            ),
+        ]
+    );
+}

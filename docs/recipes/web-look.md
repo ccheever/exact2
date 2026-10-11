@@ -18,7 +18,7 @@ your own box.
 | a route's `header` | an app bar: a material, a separator, sticky on a page that scrolls |
 | `dialog role="alertdialog"` | the system alert: its `aria-label` the title, its actions side by side |
 | `input type="checkbox" switch` | a drawn switch (Safari's own where it has one) |
-| `input`, `textarea`, `select` | 36 px fields with a 1 px line and 8 px corners |
+| `input` (text, `date`, `time`, `datetime-local`), `textarea`, `select` | 36 px fields with a 1 px line and 8 px corners; a date or time keeps the browser's picker |
 | `text role="heading" aria-level=1…3` | the level's text style, bold (`headline` from level 4, semibold) |
 
 What you write wins: a heading's `font-weight`, an `accent-color` on a button or the root.
