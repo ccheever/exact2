@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
-import { obj, type Obj } from './shared/domain';
+import { arr, obj, type Obj } from './shared/domain';
 import { type Native, type Files } from './shared/protocol';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskAction, mobileNewTaskPrepare } from './new-task';
@@ -32,6 +32,28 @@ const settings = (f: ReturnType<typeof fixture>, kind: string, id = '', value = 
 const task = (f: ReturnType<typeof fixture>, kind: string, id = '', value = '') => mobileNewTaskAction(kind, id, value, f.native, f.storage, f.client);
 
 describe('mobile staged model/settings ownership', () => {
+  test('native search menu projects catalog filters without query or selection side effects', async () => {
+    const f = fixture(); await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+    const first = mobileComposerSettings('', 'other', true, f.client);
+    const menu = JSON.parse(first.searchConfiguration);
+    expect(menu).toEqual({ filter: 'other', showLegacy: true, hasLegacy: true,
+      filters: first.filters.map(({ id, label, selected, disabled }) => ({ id, label, selected, disabled })) });
+    expect(menu.filters.filter((row: { selected: boolean }) => row.selected).map((row: { id: string }) => row.id)).toEqual(['other']);
+    expect(mobileComposerSettings('Typed query', 'other', true, f.client).searchConfiguration).toBe(first.searchConfiguration);
+    expect(mobileComposerSettings('', '', false, f.client)).toMatchObject({ pending: true, saveLabel: 'Save' });
+    expect(f.client.modelId).toBe('a'); expect(f.calls).toHaveLength(0);
+  });
+  test('native search menu carries escaped labels and removes departed catalog filters', () => {
+    const f = fixture();
+    const providers = arr(f.client.config.providers);
+    providers[0]!.displayName = 'Provider "name"\nnext line';
+    const before = JSON.parse(mobileComposerSettings('', '', false, f.client).searchConfiguration);
+    expect(before.filters.find((row: { id: string }) => row.id === 'provider').label).toBe('Provider "name"\nnext line');
+    f.client.config.providers = providers.slice(0, 1);
+    const after = JSON.parse(mobileComposerSettings('', '', false, f.client).searchConfiguration);
+    expect(after.filters.map((row: { id: string }) => row.id)).toEqual(['', '@favorites', 'provider']);
+    expect(after.showLegacy).toBe(false); expect(after.hasLegacy).toBe(true);
+  });
   for (const connection of ['read-only', 'disconnected']) {
     test(`unchanged existing-thread Done closes without writes while ${connection}`, async () => {
       const f = fixture(); f.client.threadId = 'thread';

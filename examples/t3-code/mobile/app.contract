@@ -1195,8 +1195,9 @@ component App
       showMobileNotice("Could not update model", result.message)
       if result.message == "" and (result.closed or top(nav).name == "newTaskModelOption" or top(nav).name == "threadModelOption" or top(nav).name == "newTaskRuntime" or top(nav).name == "threadRuntime")
         nav = back(nav)
-  action editModelQuery(value: string)
-    modelQuery = value
+  action editModelQuery(expected: string, value: string)
+    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}`
+      modelQuery = value
   action toggleLegacy(expected: string, value: bool)
     if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and modelData.hasLegacy
       modelLegacy = value

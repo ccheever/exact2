@@ -10,9 +10,10 @@ component ComposerSettings
     openOptions: action
     openRuntime: action
     colors: ComposerColors
+    bottomClearance: number
   derive providersCollapsible = trim(data.query) == "" and data.filter == ""
   view
-    list flex=1 min-height=0 background-color=colors.sheet
+    list flex=1 min-height=0 background-color=colors.sheet keyboardDismissMode=(bottomClearance > 7 ? "on-drag" : "")
       when length(data.error) > 0
         text data.error margin=14 font-size=14 line-height="19px" color=colors.danger
       when length(data.empty) > 0
@@ -56,7 +57,7 @@ component ComposerSettings
             button press=action("favorite", item.providerId, item.id) min-width=38.5 min-height=38.5 padding=0 aria-label=`${item.favorite ? "Remove from" : "Add to"} favorites: ${item.label}`
               column align-items="center" justify-content="center" width=38.5 height=38.5
                 t3-symbol symbol-name=(item.favorite ? "star.fill" : "star") point-size=18 symbol-weight="regular" symbol-tint=(item.favorite ? colors.icon : colors.iconSubtle) width=18 height=18
-      column padding-bottom=7
+      column padding-bottom=bottomClearance
         text "Options" padding-left=17.5 padding-right=17.5 padding-top=7 padding-bottom=7 font-size=14 line-height="19px" font-weight=500 color=colors.muted
         column margin-left=14 margin-right=14 border-radius=14 overflow="hidden" background-color=colors.groupedCard
           each option in data.options key=option.id

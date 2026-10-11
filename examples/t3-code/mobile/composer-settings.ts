@@ -19,7 +19,7 @@ export interface ComposerCatalogRow { key: string; kind: string; id: string; pro
 export interface ComposerChoice { id: string; label: string; description: string; selected: boolean; disabled: boolean; last: boolean }
 export interface ComposerOption { id: string; label: string; value: string; boolean: boolean; on: boolean; choices: ComposerChoice[] }
 export interface ComposerSettingsSnapshot { revision: number; open: boolean; busy: boolean; canEdit: boolean; canSave: boolean;
-  saveLabel: string; query: string; filter: string; showLegacy: boolean; hasLegacy: boolean; empty: string; pending: boolean;
+  saveLabel: string; query: string; filter: string; showLegacy: boolean; hasLegacy: boolean; searchConfiguration: string; empty: string; pending: boolean;
   models: ComposerCatalogRow[]; filters: ComposerChoice[]; options: ComposerOption[]; runtimes: ComposerChoice[]; runtimeLabel: string;
   error: string; environmentId: string; threadId: string; }
 export interface ComposerActionResult { revision: number; message: string; closed: boolean; environmentId: string; threadId: string }
@@ -118,6 +118,8 @@ export function mobileComposerSettings(query = '', filter = '', showLegacy = fal
     && (!state.pending || canEdit && !!candidate && !candidate.unavailable && !selectionReason(client, candidate.provider, candidate.model));
   return { revision: client.revision, open: state.open, busy: state.busy, canEdit, canSave,
     saveLabel: state.pending ? 'Save' : 'Done', query, filter, showLegacy, hasLegacy: entries.some(entry => entry.model.isLegacy === true),
+    searchConfiguration: JSON.stringify({ filters: filters.map(({ id, label, selected, disabled }) => ({ id, label, selected, disabled })),
+      filter, showLegacy, hasLegacy: entries.some(entry => entry.model.isLegacy === true) }),
     empty: models.length ? '' : filter === '@favorites' && !needle ? 'No favorite models' : filter || needle ? 'No matching models' : 'No available models', pending: !!state.pending, models, filters, options, runtimes,
     runtimeLabel: runtimes.find(row => row.selected)?.label ?? '', error: state.error, environmentId: client.environmentId, threadId: client.threadId };
 }
