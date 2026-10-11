@@ -149,7 +149,7 @@ final class BrowserRecordingHandOffTests: XCTestCase {
         try bytes.write(to: file)
         let deadline = (Date().timeIntervalSince1970 + 30) * 1000
         let answer = upload(["action": "upload", "path": file.path, "name": "browser-recording-mg3k2a1b.mp4", "mimeType": "video/mp4", "sizeBytes": bytes.count,
-                             "deadlineMs": deadline, "generation": 4, "fleet": "origin\nenv-2"])
+                             "deadlineMs": deadline, "connection": ["generation": 4, "fleet": "origin\nenv-2"]])
         XCTAssertEqual(answer["status"] as? String, "uploaded")
         XCTAssertEqual(answer["attachmentId"] as? String, "pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4")
         let mint = try XCTUnwrap(calls.first { $0.0 == "attachments.createUploadUrl" }?.1)
@@ -172,12 +172,12 @@ final class BrowserRecordingHandOffTests: XCTestCase {
         try Data([1, 2, 3]).write(to: outside)
         defer { try? FileManager.default.removeItem(at: outside) }
         let future = (Date().timeIntervalSince1970 + 30) * 1000
-        let refused = upload(["action": "upload", "path": outside.path, "mimeType": "video/mp4", "deadlineMs": future, "generation": 4])
+        let refused = upload(["action": "upload", "path": outside.path, "mimeType": "video/mp4", "deadlineMs": future, "connection": ["generation": 4]])
         XCTAssertEqual(refused["status"] as? String, "failed")
         XCTAssertEqual(refused["expired"] as? Bool, false)
         let inside = artifacts.appendingPathComponent("browser-recording-late.mp4")
         try Data([1, 2, 3]).write(to: inside)
-        let late = upload(["action": "upload", "path": inside.path, "mimeType": "video/mp4", "deadlineMs": (Date().timeIntervalSince1970 + 0.5) * 1000, "generation": 4])
+        let late = upload(["action": "upload", "path": inside.path, "mimeType": "video/mp4", "deadlineMs": (Date().timeIntervalSince1970 + 0.5) * 1000, "connection": ["generation": 4]])
         XCTAssertEqual(late["status"] as? String, "failed")
         XCTAssertEqual(late["expired"] as? Bool, true, "a second or less left: no transfer starts (\"Recording transfer deadline expired.\")")
         XCTAssertTrue(calls.filter { $0.0 == "attachments.createUploadUrl" }.isEmpty, "nothing is minted for either")
@@ -188,11 +188,11 @@ final class BrowserRecordingHandOffTests: XCTestCase {
         let file = artifacts.appendingPathComponent("browser-recording-rejected.mp4")
         try Data(repeating: 7, count: 512).write(to: file)
         uploadAnswer = ["ok": false, "error": ["kind": "HTTP", "message": "Recording upload rejected (413)."]]
-        let answer = upload(["action": "upload", "path": file.path, "mimeType": "video/mp4", "deadlineMs": (Date().timeIntervalSince1970 + 30) * 1000, "generation": 4])
+        let answer = upload(["action": "upload", "path": file.path, "mimeType": "video/mp4", "deadlineMs": (Date().timeIntervalSince1970 + 30) * 1000, "connection": ["generation": 4]])
         XCTAssertEqual(answer["status"] as? String, "failed")
         XCTAssertEqual(answer["attachmentId"] as? String, "pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4", "the data module deletes the pending upload")
         XCTAssertEqual(answer["expired"] as? Bool, false, "a failure well before the deadline is a transfer error")
-        _ = upload(["action": "remove", "attachmentId": "pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4", "generation": 4])
+        _ = upload(["action": "remove", "attachmentId": "pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4", "connection": ["generation": 4]])
         XCTAssertEqual(calls.last?.0, "attachments.delete")
         XCTAssertEqual(calls.last?.1["attachmentId"] as? String, "pending-6f1c2a52-3c4e-4a8e-9a43-0d2c1b7f9e10-mp4")
     }

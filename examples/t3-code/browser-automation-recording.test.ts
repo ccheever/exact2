@@ -10,7 +10,8 @@ import {
   RECORDING_UPLOAD_MAX_BYTES, uploadBrowserRecording, type RecordingHost, type RecordingUploader,
 } from './browser-recording';
 import { readFileSync } from 'node:fs';
-import { automationRecordingSerial, readRecordingRequests, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from './browser-automation-recording';
+import { automationRecordingSerial, nativeDeps, readRecordingRequests, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from './browser-automation-recording';
+import { adoptCaptureNative } from './browser-capture';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 
@@ -191,6 +192,24 @@ describe('the window\'s send for the handed-over requests', () => {
       message: 'Preview automation request preview-recordingStop found no active recording for tab tab_1 on environment env-1 thread thread-1.',
       detail: { requestId: 'preview-recordingStop', environmentId: 'env-1', threadId: 'thread-1', tabId: 'tab_1' } } } }]);
     expect(second).toEqual([]);
+  });
+
+  it('the upload goes to the module with its connection under its own key, never a top-level fleet (T3Module routes those to the fleet)', async () => {
+    const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client;
+    const sent: Array<Record<string, unknown>> = [];
+    adoptCaptureNative(client, { available: true, watch() {}, later: async (value: Record<string, unknown>) => {
+      sent.push(value);
+      return { ok: true, generation: 0, value: value.action === 'upload' ? { status: 'uploaded', attachmentId: 'pending-1-mp4' } : {} };
+    } } as unknown as Native);
+    const deps = nativeDeps(client, request('recordingStop', { generation: 9, fleet: '' }));
+    expect(await deps.upload({ name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 })).toEqual({ status: 'uploaded', attachmentId: 'pending-1-mp4' });
+    deps.remove('pending-1-mp4');
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(sent).toEqual([
+      { op: 'browserRecordingUpload', action: 'upload', connection: { generation: 9, fleet: '' }, name: 'a.mp4', mimeType: 'video/mp4', sizeBytes: 3, path: '/artifacts/a.mp4', deadlineMs: 5 },
+      { op: 'browserRecordingUpload', action: 'remove', attachmentId: 'pending-1-mp4', connection: { generation: 9, fleet: '' } },
+    ]);
+    expect(sent.every(value => !('fleet' in value) && !('generation' in value))).toBe(true);
   });
 
   it('is the window\'s queued send, asked whenever the panel\'s serial passes the one it handled', () => {

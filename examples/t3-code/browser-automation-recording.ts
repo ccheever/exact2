@@ -90,9 +90,10 @@ export async function runRecordingRequest(request: RecordingRequest, deps: Recor
   } catch (error) { return { ok: false, error: recordingHostError(error, context()) }; }
 }
 
-/** The module's upload (`browserRecordingUpload`) on the request's own connection. */
-function nativeDeps(client: T3Client, request: RecordingRequest): RecordingDeps {
-  const connection = { generation: request.generation, fleet: request.fleet };
+/** The module's upload (`browserRecordingUpload`) on the request's own connection. The connection goes under its own key:
+ *  a module request with a top-level `fleet` is the fleet's (T3Module `later`), even an empty one. */
+export function nativeDeps(client: T3Client, request: RecordingRequest): RecordingDeps {
+  const connection = { connection: { generation: request.generation, fleet: request.fleet } };
   return {
     recordings: captureHost(client).recordings,
     upload: async input => {

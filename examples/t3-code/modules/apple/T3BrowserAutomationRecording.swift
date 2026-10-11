@@ -54,9 +54,12 @@ extension T3BrowserAutomation {
     /// pending attachment and answers `{status: "uploaded", attachmentId}` or `{status: "failed", attachmentId?, error,
     /// expired}`; `remove` deletes a pending attachment (deletePendingAttachmentUpload). `expired` is the reference's
     /// `Date.now() >= deadlineMs - 1_000` after a failed transfer: the module keeps the time, the data module has no clock.
+    /// The request's connection is `connection: {generation, fleet}`, never a top-level `fleet` (T3Module `later` sends any
+    /// request that names one to the fleet).
     func recordingUpload(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
-        let generation = (request["generation"] as? NSNumber)?.intValue ?? 0
-        let fleet = (request["fleet"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let connection = request["connection"] as? [String: Any] ?? [:]
+        let generation = (connection["generation"] as? NSNumber)?.intValue ?? 0
+        let fleet = (connection["fleet"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if request["action"] as? String == "remove" {
             if let id = request["attachmentId"] as? String, !id.isEmpty { rpc("attachments.delete", ["attachmentId": id], generation, fleet) { _ in } }
             return reply([:])
