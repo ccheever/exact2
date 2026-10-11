@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-list-scroll-and-sidebar-sweep
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/468
 verified_commit: null
 ---
 
@@ -229,7 +229,7 @@ During development: the touched Bun tests (`pr-list-scroll-and-sidebar-sweep.tes
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code` (below). Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the final checks; no conflicts.
+Draft PR [#468](https://github.com/ccheever/exact2/pull/468) into `feat(example)/t3-code`. Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the final checks; no conflicts.
 
 ## Next action
 
