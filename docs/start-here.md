@@ -113,6 +113,7 @@ component Groceries
           text (groceries.length == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
+- **Styles.** A colour behind a box is `background-color`; the `background` shorthand is refused.
 - **Syntax.** Indent with spaces. Quote units (`width="50%"`); a bare number is pixels.
   Subtract with spaces (`a - b`): names hold hyphens. A view chooses with `if`/`else`, as
   an action does, and repeats with `for x in xs key=…`; no `form` (a field's Enter is its `submit`).
@@ -179,6 +180,13 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+
+| To assert | Write | Not |
+| --- | --- | --- |
+| A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
+| A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole |
+| State | `expect state lib.notes.0 .title == "Milk"` (a space after a list index), `== []`, `== none`, `== true` | an expression on the right |
+| A failed request | `expect text` on what the view shows from `failed(x)` or `failure(x)` | `failed(m)` of a mutation: it takes a resource, and a mutation answers its failure as a result (`ok: false`) |
 
 ## Pitfalls that cost the most
 

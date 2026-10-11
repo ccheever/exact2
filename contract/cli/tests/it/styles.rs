@@ -1471,6 +1471,18 @@ fn both_decoration_lines_are_written_as_css_in_either_order() {
     );
 }
 
+/// App farm wave 1: CSS's `background` shorthand names the longhand Contract takes.
+#[test]
+fn the_background_shorthand_names_background_color() {
+    let e = refused("background=\"#eee\" width=1 height=1");
+    assert!(
+        e.message.contains(
+            "CSS's `background` shorthand is not taken here: a colour is `background-color`"
+        ),
+        "{e}"
+    );
+}
+
 #[test]
 fn a_computed_decoration_and_a_class_take_the_css_pair_in_either_order_and_case() {
     let mut r = boot("style Both\n  text-decoration-line=\"Line-Through Underline\"\nstyle Plain\n  opacity=1\n\ncomponent App\n  state n = 0\n  state deco = \"line-through underline\"\n  action next\n    n = n + 1\n    deco = n == 0 ? \"underline\" : \"overline\"\n  view\n    column\n      button \"Next\" press=next testId=\"next\"\n      text \"a\" text-decoration-line=deco testId=\"a\"\n      text \"b\" class=(n == 0 ? Both : Plain) testId=\"b\"\n");

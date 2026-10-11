@@ -126,6 +126,10 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
         ),
+        // CSS's own shorthand, not a nickname: Contract takes the longhand (app farm wave 1, about twelve builds).
+        Some(new @ "background-color") if a.name == "background" => {
+            format!("; CSS's `background` shorthand is not taken here: a colour is `{new}` (LLP 1017 §8.1)")
+        }
         Some(new) => format!(
             "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
