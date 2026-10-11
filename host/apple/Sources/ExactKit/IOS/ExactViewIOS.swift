@@ -217,14 +217,15 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
-        // Containment may synchronously lay us out during a partial batch.
-        // Let the next layout read the fully mounted tree before resizing it.
-        if presenter.applying {
+        // Containment or an owner's native callback can lay us out before
+        // the runtime can accept a resize. Keep its size pending until then.
+        if presenter.applying || Owner.shared.isServingMain {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
                     self.fit()
                 }
             }
