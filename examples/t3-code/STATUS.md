@@ -150,6 +150,13 @@ The clone's known differences from T3 Code (`1e2ecbd975`) that no task will take
 observations and real-input failures are listed here, not made into tasks). Framework gaps stay in `EXACT2-GAPS.md`; only
 the ones a person sees in a session are repeated here.
 
+2026-10-11, later: the user asked to fix rows 1–8 and 11 where that can be done now. In progress:
+[files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-files-gutter-parity.md) (rows 1–3
+and 6, reopened), [reply-links](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-reply-links.md) (4–5),
+[dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-dialog-trap-and-progress-value.md)
+(7–8) and [unverified-real-input-rows](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-unverified-real-input-rows.md)
+(11, except the rows that wait for main #327). Their real-input rows go to one session after the wave.
+
 | Where | Clone | Reference | Source |
 | --- | --- | --- | --- |
 | Files surface, the gutter's '+' | The old 16×16 `#1b4ed8` button at the cell's left (x 2–18 of a one-digit gutter), so a press on the middle of number 1 opens a draft instead of selecting | Pierre's utility button at the number's right edge, 20×20 `#009fff`, the plus in the surface colour (the diff's '+' is this way since #416) | [files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-files-gutter-parity.md) FG-1, stopped |
