@@ -230,6 +230,10 @@ component NativeFixture
   // LLP 1115 D5: Plain (pushed) and Note (a sheet) declare no Back control;
   // the platform's Back still goes, delivered here as the web's history
   // Back is: the location beneath.
+  state focusPlain = false
+  action openFocusedPlain
+    focusPlain = true
+    nav = push(nav, "/plain")
   action openPlain
     nav = push(nav, "/plain")
   action openNote
@@ -411,6 +415,8 @@ component NativeFixture
                         text "Chat"
                       button press=openPlain testId="open-plain" padding=6 background-color="#e5e7eb"
                         text "Plain"
+                      button press=openFocusedPlain testId="open-focused-plain" height=44
+                        text "Focus fields"
                       button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
@@ -633,6 +639,9 @@ component NativeFixture
                     // Back and the edge swipe pop it back to Sheet.
                     button press=detail testId="sheet-detail" height=44
                       text "Detail in the sheet"
+                when e.name == "plain" and focusPlain
+                  input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
+                  input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
                 when e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"

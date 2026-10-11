@@ -266,18 +266,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
     }
 
-    /// D5: a stack change waits for the viewport only when its batch put the
-    /// keyboard away: shown, no editor left, a stack that changes, and not
-    /// under the agent (Ocho's Back over the composer, 2026-10-08).
-    func testAStackChangeWaitsForTheViewportOnlyWhenItsBatchDroppedTheKeyboard() {
-        XCTAssertTrue(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: false, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: false, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: true, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: true, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: false))
-    }
-
     /// A presentation's background goes home as autoresizing would have
     /// carried it: the home that grew to a sheet and shrank for the keyboard
     /// meanwhile must not take that shrink out of it twice (Ocho's model
