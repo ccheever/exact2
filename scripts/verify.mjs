@@ -6,12 +6,13 @@
 // store at a phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars) and runs
 // `check` light and dark at each, keeping one capture per width and scheme in .exact/verify/ for milestones.
 // It prints one short report ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1
-// when the build, a test or a launch fails; check's findings are counted in the last line but never fail it,
-// since they read the screen by heuristics and some only advise. The web's tests and its two launches run
-// at once; a simulator takes one drive at a time.
+// when the build, a test or a launch fails; check's findings and the compiler's warnings (`contract build`'s,
+// whether or not this run built) are counted in the last line but never fail it, since check reads the screen
+// by heuristics and some of either only advise. The web's tests and its two launches run at once; a simulator
+// takes one drive at a time.
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,21 @@ async function iosBuild(app, sim) {
   // A native build (or the wait for one) is said as it starts too: it is minutes, and the report comes after it.
   const code = await buildFirst('ios', app, { sim, say: (line) => { said.push(line); if (/^(building|waiting) for/.test(line)) console.error(line); } });
   return said.length || code ? { ms: Date.now() - started, code, said, warnings: [] } : null;
+}
+
+/** The compiler's warnings for the app's sources, as `bun exact.mjs contract build app.contract` prints them,
+ * whatever this run built (a fresh build said them when it was made): this checkout's compiler as built, or
+ * through Cargo when its sources are newer. */
+async function compilerWarningsOf(app) {
+  const [{ fresh }, { compilerWarnings }, { cargoEnvironment }] = await Promise.all([import('../host/web-js/module.mjs'), import('./agent-launch.mjs'), import('./app.mjs')]);
+  const env = cargoEnvironment(process.env), binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
+  delete env.RUSTUP_TOOLCHAIN; delete env.CARGO_TARGET_DIR; // as `exact contract` runs it: exact2's toolchain and target
+  const [command, ...pre] = fresh(binary, resolve(ROOT, 'target/debug/contract.d')) ? [binary] : ['cargo', 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--'];
+  const child = spawn(command, [...pre, 'build', resolve(app.dir, 'app.contract')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let said = '';
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
+  await new Promise((done) => { child.on('close', done); child.on('error', done); });
+  return compilerWarnings(said);
 }
 
 /** The authored tests: `{ passed, failed, results }`, `{ none }` without a file, or `{ error }` when they do not compile. */
@@ -111,7 +127,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, tested, checks, shots, ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], tested, checks, shots, ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   if (built) {
@@ -120,6 +136,12 @@ export function report({ host, built, tested, checks, shots, ms, cwd = process.c
     for (const w of built.warnings.slice(0, WARNINGS)) out.push(`  ${w}`);
     if (built.warnings.length > WARNINGS) out.push(`  … and ${built.warnings.length - WARNINGS} more (bun exact.mjs web-build prints them all)`);
     findings += built.warnings.length;
+  }
+  // The compiler's warnings, each as `contract build` says it (LLP 1116.004 D7): findings, never a failure.
+  if (compiler.length) {
+    out.push(`compiler: ${plural(compiler.length, 'warning')}`, ...compiler.slice(0, SHOWN).map((w) => `  ${w}`));
+    if (compiler.length > SHOWN) out.push(`  … and ${compiler.length - SHOWN} more (bun exact.mjs contract build app.contract prints them all)`);
+    findings += compiler.length;
   }
   if (tested?.none) out.push('tests: none (no app.test.contract)');
   else if (tested?.error) {
@@ -165,6 +187,8 @@ async function main(argv) {
   const say = (lines) => console.log(lines.join('\n'));
 
   const built = host === 'web' ? await webBuild(app) : await iosBuild(app, sim);
+  // The build said the compiler's warnings when it ran; the report's own group says them whether it ran or not.
+  if (built?.said) { const { compilerWarnings } = await import('./agent-launch.mjs'); built.said = built.said.filter((line) => !compilerWarnings(line).length); }
   if (built?.code) {
     const tail = host === 'web' ? built.output.split('\n').filter((l) => l.trim()).slice(-20) : built.said;
     if (json) console.log(JSON.stringify({ host, built: { ms: built.ms, code: built.code, said: tail }, problems: 1, exit: built.code }));
@@ -184,12 +208,14 @@ async function main(argv) {
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
   let tested, checks;
+  const compiling = compilerWarningsOf(app);
   if (host === 'web') [tested, ...checks] = await Promise.all([tests(host, app), ...WEB_SIZES.map(launch)]);
   else { tested = await tests(host, app); checks = [await launch(null, 0)]; }
   checks = checks.flat();
+  const compiler = await compiling;
   const kept = checks.filter((c) => c.shot && existsSync(c.shot)).map((c) => c.shot);
-  const r = report({ host, built, tested, checks, shots: kept, ms: Date.now() - started });
-  if (json) console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, tests: tested, checks, screenshots: kept, problems: r.problems, exit: r.exit }));
+  const r = report({ host, built, compiler, tested, checks, shots: kept, ms: Date.now() - started });
+  if (json) console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, tests: tested, checks, screenshots: kept, problems: r.problems, exit: r.exit }));
   else say(r.lines);
   return r.exit;
 }

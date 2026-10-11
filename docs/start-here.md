@@ -36,7 +36,7 @@ Start from the nearest pattern: it compiles and passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
+| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print the warnings. |
 | `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), then `check` light and dark at phone and desktop widths, in one report. A clean `verify` is done. |
 | `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app as a person would: another screen, a write; a screenshot at milestones. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |

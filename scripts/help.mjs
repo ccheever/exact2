@@ -145,11 +145,13 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
 (an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
 fresh scratch store, and runs check light and dark on the screen it opens to. One short
-report: the build if it built, the tests, check's findings (each once), then "verify:
-clean" or "verify: N problems". A clean verify is done. One screenshot per width and
-scheme goes to .exact/verify/, for milestones; nothing needs to read them.
-Runs     to completion: exit 1 when the build, a test or a launch fails; check's findings are
-         counted, never fail it. Another screen: agent … "tap x" "check both".
+report: the build if it built, the compiler's warnings (as contract build says them, built
+or not), the tests, check's findings (each once), then "verify: clean" or "verify: N
+problems". A clean verify is done. One screenshot per width and scheme goes to
+.exact/verify/, for milestones; nothing needs to read them.
+Runs     to completion: exit 1 when the build, a test or a launch fails; check's findings and
+         the compiler's warnings are counted, never fail it. Another screen: agent … "tap x"
+         "check both".
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },
