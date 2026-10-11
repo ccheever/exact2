@@ -23,6 +23,14 @@ processing and TestFlight availability before claiming delivery. This authorizes
 the beta upload, not a public App Store release. The release remains pending;
 resuming the overall goal does not reopen separately stopped correction targets.
 
+[confirmed] The continued direction keeps app changes on draft PR216, with
+reviewed commit and push checkpoints. A suspected Exact framework defect gets
+its own subagent and worktree from current remote main. It must have a concrete
+reproduction, a rules review and evidence for the fix before a draft PR. A larger
+framework decision belongs in a GitHub issue for Charlie. Example-app gaps do
+not become Exact framework issues. The separately authorized selection/Refresh
+correction remains one bounded candidate and check.
+
 ## Architecture
 
 [observed] `js/bake/src/lib.rs` reads `app.contract` from the app directory.
