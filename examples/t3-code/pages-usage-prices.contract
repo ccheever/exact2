@@ -49,7 +49,7 @@ component UsagePricesDialog
                 UsagePriceHead(label="Cache read")
                 UsagePriceHead(label="Cache write")
                 row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" align-items="center" justify-content="center"
-                  UsageGhostIcon(icon="plus", label="Add model price", tip="", scheme=scheme, disabled=prices.locked, press=op("usage-prices-add", "", ""), testId="usage-prices-add")
+                  UsageGhostIcon(icon="plus", label="Add model price", tip="", scheme=scheme, disabled=prices.locked, press=op("usage-prices-add", "", ""), elementId="usage-prices-add", testId="usage-prices-add")
               when length(prices.rows) == 0
                 text prices.emptyRows width="100%" padding-top="2rem" padding-bottom="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="usage-prices-empty"
               // The last row's rule sits under the frame's border (tbody tr:last-child border-0).
@@ -111,7 +111,7 @@ component UsagePriceRowView
               column padding="0.5rem" min-width=0
                 UsagePriceInput(value=cell.value, placeholder=cell.placeholder, label=cell.ariaLabel, mono=true, invalid=false, scheme=scheme, disabled=locked, edit=op("usage-prices-edit", `${row.id}:${cell.key}`), testId=`usage-price-${row.id}-${cell.key}`)
         row grid-column=7 padding="0.5rem" align-items="center" justify-content="center"
-          UsageGhostIcon(icon=(row.removed ? "rotate-ccw" : row.resetIcon), label=row.resetLabel, tip=row.resetTip, scheme=scheme, disabled=locked, press=op("usage-prices-reset", row.id, ""), testId=`usage-price-${row.id}-reset`)
+          UsageGhostIcon(icon=(row.removed ? "rotate-ccw" : row.resetIcon), label=row.resetLabel, tip=row.resetTip, scheme=scheme, disabled=locked, press=op("usage-prices-reset", row.id, ""), elementId="", testId=`usage-price-${row.id}-reset`)
 
 // Input size="compact": 28pt inside its 1pt border, 9pt inset (7 here: the field cell adds 2), text-xs; aria-invalid tints the border and rings it.
 component UsagePriceInput
@@ -146,7 +146,7 @@ component UsagePricesApply
       keyed = kmBump(keyed, false)
   view
     column position="relative" min-width=0
-      button popovertarget="usage-prices-apply" key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(prices.pending or prices.hasChanges) aria-label=`Apply to ${prices.selectionLabel}` testId="usage-prices-apply" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(prices.pending or prices.hasChanges ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" min-width=0
+      button id="usage-prices-apply-button" popovertarget="usage-prices-apply" key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(prices.pending or prices.hasChanges) aria-label=`Apply to ${prices.selectionLabel}` testId="usage-prices-apply" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(prices.pending or prices.hasChanges ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" min-width=0
         text prices.selectionLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
         UsageSchemeIcon(name="chevron-down", size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
       KeyMenuOpen(menuId="usage-prices-apply", armed=keyArmed, opened=keyOpened)
@@ -169,12 +169,14 @@ component UsageGhostIcon
     disabled: bool
     press: action
     testId: string
+    // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
+    elementId: string
   state over = false
   action hover(value: bool)
     over = value
   view
     box position="relative" display="flex"
-      button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+      button id=elementId press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         UsageSchemeIcon(name=icon, size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
       when tip != ""
         TipBubble(label=tip, side="top", align="center", offset=28, inset=0, shown=(over and not disabled))

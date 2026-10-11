@@ -197,6 +197,7 @@ shape ComposerView
   contextCost: string
   contextNote: string
   contextCompact: bool
+  contextValueLabel: string
   meterX: number
   meterWidth: number
   actionsX: number

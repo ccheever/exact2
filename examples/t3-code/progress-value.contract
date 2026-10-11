@@ -1,0 +1,14 @@
+// A drawn progress bar's value for assistive technology. The reference's bars carry one: the Antigravity download is a
+// `<progress value max>` (ProviderSetupSection.tsx), the context window a `role="progressbar"` box with `aria-valuenow`
+// (ContextWindowMeter.tsx), and VoiceOver reads the name with the percentage ("Antigravity download, 30 percent").
+// Contract carries no range value (EXACT2-GAPS.md X49, main issues/20261009-aria-range-accessibility-values.md) and
+// macOS exposes no `progressbar` role on a drawn box (X55, #278), so the drawn bar is `aria-hidden` and this
+// indeterminate `progress` (AppKit's busy indicator, which macOS does expose) lies over it, invisible, its name the
+// label and the rounded percentage ("Antigravity download, 30%"). Put it beside the drawn bar, in a positioned box,
+// never inside the `aria-hidden` one.
+component ProgressValue
+  props
+    label: string
+    progressId: string
+  view
+    progress aria-label=label position="absolute" left=0 top=0 width="100%" height="100%" opacity=0 pointer-events="none" testId=progressId

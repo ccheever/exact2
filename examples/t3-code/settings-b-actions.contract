@@ -5,6 +5,7 @@ use ProjectsPage from "./settings-projects.contract"
 use ProjectAction from "./settings-projects.contract"
 use CnScriptIcon from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 style AeLabel
   font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
@@ -85,6 +86,8 @@ component ProjectActionEditor
   view
     column class=AeOverlay testId="project-action-overlay"
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(editing ? "Edit Action" : "Add Action") testId="project-action-dialog"
+        // The focus trap (dialog-trap.contract): from Choose icon to the X (DialogPopup's last).
+        FocusGuard(guardId="project-action-guard-start", target="action-close")
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem"
           text (editing ? "Edit Action" : "Add Action") font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Actions are project-scoped commands you can run from the top bar or keybindings." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -93,7 +96,7 @@ component ProjectActionEditor
             text "Name" class=AeLabel
             row gap="0.5rem" align-items="center" position="relative"
               box position="relative"
-                button popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title=""
+                button id="action-choose-icon" popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title=""
                   CnScriptIcon(icon=icon, size=18, color="light-dark(#27272a, #f5f5f5)")
                 column id="action-icon-picker" popover="auto" position="absolute" margin-top="0.5rem" width="17rem"
                   row flex-wrap="wrap" gap="0.5rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" testId="action-icon-grid"
@@ -134,23 +137,27 @@ component ProjectActionEditor
             button press=askDelete(true) disabled=busy class=AeOutline border-color="light-dark(#e7000b40, #ff646740)" testId="action-delete"
               text "Delete" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#c10007, #ff6467)"
           box flex=1
-          button press=close aria-keyshortcuts="Escape" class=AeOutline testId="action-cancel"
+          button id="action-cancel" press=close aria-keyshortcuts="Escape" class=AeOutline testId="action-cancel"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) disabled=busy display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" testId="action-save"
             text (busy ? "Saving…" : (editing ? "Save changes" : "Save action")) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-        button press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close" title=""
+        button id="action-close" press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close" title=""
           CnGlyph(name="x", size=16, color="light-dark(#71717b, #818181)")
+        FocusGuard(guardId="project-action-guard-end", target=(busy ? "action-cancel" : "action-choose-icon"))
       when confirming
         column class=AeOverlay testId="action-delete-overlay"
           column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Delete action "${name}"?` testId="action-delete-dialog"
+            // The focus trap (dialog-trap.contract).
+            FocusGuard(guardId="action-delete-guard-start", target=(busy ? "action-delete-cancel" : "action-delete-confirm"))
             column gap="0.5rem"
               text `Delete action "${name}"?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
               text "This action cannot be undone." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             row gap="0.5rem" justify-content="flex-end"
-              button press=askDelete(false) class=AeOutline aria-keyshortcuts="Escape" testId="action-delete-cancel"
+              button id="action-delete-cancel" press=askDelete(false) class=AeOutline aria-keyshortcuts="Escape" testId="action-delete-cancel"
                 text "Cancel" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-              button press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#e7000b" testId="action-delete-confirm"
+              button id="action-delete-confirm" press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#e7000b" testId="action-delete-confirm"
                 text "Delete action" font-size="0.875rem" font-weight=500 color="#ffffff"
+            FocusGuard(guardId="action-delete-guard-end", target="action-delete-cancel")
 
 // One tile of the icon grid (popover grid-cols-3).
 component ScriptIconChoice

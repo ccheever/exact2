@@ -10,6 +10,8 @@ use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
+use FocusGuard from "./dialog-trap.contract"
+use Icon from "./icons.contract"
 
 component PlanCard
   props
@@ -92,15 +94,21 @@ component PlanSaveDialog
     local: action
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="plan-save-overlay"
-      column width="100%" max-width="36rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Save plan to workspace" testId="plan-save-dialog"
+      column position="relative" width="100%" max-width="36rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Save plan to workspace" testId="plan-save-dialog"
+        // The focus trap (dialog-trap.contract): the path, Cancel, Save, then the X.
+        FocusGuard(guardId="plan-save-guard-start", target="plan-save-close")
         column gap="0.5rem" padding="1.5rem" padding-bottom="1rem" box-sizing="border-box"
           text "Save plan to workspace" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Enter a path relative to ${root != "" ? root : "the workspace"}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         column gap="0.375rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
           text "Workspace path" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-          input value=path input=local("plan-save-path", "") submit=local("plan-save", "", "") placeholder="plan.md" aria-label="Workspace path" disabled=saving spellcheck="false" testId="plan-save-path" height="2.25rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.4375rem" padding-bottom="0.4375rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+          input id="plan-save-path" value=path input=local("plan-save-path", "") submit=local("plan-save", "", "") placeholder="plan.md" aria-label="Workspace path" disabled=saving spellcheck="false" testId="plan-save-path" height="2.25rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.4375rem" padding-bottom="0.4375rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=local("plan-save-cancel", "", "") disabled=saving aria-keyshortcuts="Escape" testId="plan-save-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=local("plan-save", "", "") disabled=saving testId="plan-save-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(saving ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
+          button id="plan-save-confirm" press=local("plan-save", "", "") disabled=saving testId="plan-save-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(saving ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
             text (saving ? "Saving..." : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        // DialogPopup's X (ProposedPlanCard keeps showCloseButton), its last child.
+        button id="plan-save-close" press=local("plan-save-cancel", "", "") disabled=saving aria-label="Close" testId="plan-save-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          Icon(name="x", size=16, color="light-dark(#71717b, #818181)")
+        FocusGuard(guardId="plan-save-guard-end", target="plan-save-path")
