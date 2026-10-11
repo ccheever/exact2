@@ -50,9 +50,10 @@ struct StdlibEntry {
     name: String,
     params: Vec<String>,
     /// The trailing parameters a call may omit, as the constant each
-    /// defaults to (LLP 1088 D2), in JavaScript's spelling: only
-    /// `Number.MAX_VALUE`, an index past any end, since a plan's number
-    /// constants are finite.
+    /// defaults to (LLP 1088 D2), in JavaScript's spelling: for a `number`
+    /// only `Number.MAX_VALUE`, an index past any end, since a plan's
+    /// number constants are finite; for a literal choice only `""`, which
+    /// no call can write (LLP 1116 D8: `formatNumber`'s currency code).
     #[serde(default)]
     optional: Vec<String>,
     returns: String,
@@ -260,11 +261,15 @@ fn validate(schema: &Schema) {
     for f in &schema.stdlib {
         assert!(
             f.optional.len() <= f.params.len()
-                && f.optional.iter().all(|d| d == "Number.MAX_VALUE")
                 && f.params[f.params.len() - f.optional.len()..]
                     .iter()
-                    .all(|p| p == "number"),
-            "format: stdlib `{}` optional defaults must be trailing numbers, `Number.MAX_VALUE`",
+                    .zip(&f.optional)
+                    .all(|(p, d)| match d.as_str() {
+                        "Number.MAX_VALUE" => p == "number",
+                        "\"\"" => p.starts_with('"'),
+                        _ => false,
+                    }),
+            "format: stdlib `{}` optional defaults must be trailing: `Number.MAX_VALUE` for a number, `\"\"` for a literal choice",
             f.name
         );
     }
@@ -395,10 +400,17 @@ fn main() {
             );
             let _ = writeln!(
                 w,
-                "    pub fn defaults(self) -> &'static [f64] {{ match self {{"
+                "    pub fn defaults(self) -> &'static [StdlibDefault] {{ match self {{"
             );
             for f in schema.stdlib.iter().filter(|f| !f.optional.is_empty()) {
-                let ds: Vec<&str> = f.optional.iter().map(|_| "f64::MAX").collect();
+                let ds: Vec<&str> = f
+                    .optional
+                    .iter()
+                    .map(|d| match d.as_str() {
+                        "Number.MAX_VALUE" => "StdlibDefault::Number(f64::MAX)",
+                        _ => "StdlibDefault::Str(\"\")",
+                    })
+                    .collect();
                 let _ = writeln!(
                     w,
                     "        Stdlib::{} => &[{}],",
@@ -414,7 +426,7 @@ fn main() {
             );
             let _ = writeln!(
                 w,
-                "    pub fn omitted(self, given: usize) -> &'static [f64] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+                "    pub fn omitted(self, given: usize) -> &'static [StdlibDefault] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
             );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
@@ -433,6 +445,12 @@ fn main() {
         }
         let _ = writeln!(w, "}}");
         let _ = writeln!(w);
+        if name == "Stdlib" {
+            let _ = writeln!(
+                w,
+                "/// The constant a trailing optional parameter takes when a call omits it\n/// (LLP 1088 D2): a number, or the empty string no call can write for a\n/// literal choice (LLP 1116 D8).\n#[derive(Debug, Clone, Copy, PartialEq)]\npub enum StdlibDefault {{\n    /// A number constant.\n    Number(f64),\n    /// A string constant.\n    Str(&'static str),\n}}\n"
+            );
+        }
     }
 
     // ---- opcodes ----------------------------------------------------------

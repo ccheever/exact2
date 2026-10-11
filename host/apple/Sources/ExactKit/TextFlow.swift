@@ -254,8 +254,13 @@ extension TextEngine {
             glyphs += CTLineGetGlyphCount(line); lines.append(line)
             maxWidth = max(maxWidth, x + CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
         }
-        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
+        var trimmedHeight = CGFloat(height)
+        let cut = trimTextBox(spec, lines: lines, baselines: &baselines, lineBottoms: &bottoms, height: &trimmedHeight,
+                              firstTop: fragments.first.map { CGFloat($0.y) } ?? 0)
+        // The fragments move with the lines they hold
+        let moved = cut == 0 ? fragments : fragments.map { var f = $0; f.y -= Float(cut); return f }
+        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: trimmedHeight,
                          lineBottoms: bottoms, shape: shape, glyphCount: glyphs, origins: origins,
-                         fragments: fragments, flowLineHeight: lineHeight)
+                         fragments: moved, flowLineHeight: lineHeight)
     }
 }
