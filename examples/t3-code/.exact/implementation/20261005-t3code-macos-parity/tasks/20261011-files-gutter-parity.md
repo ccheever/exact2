@@ -86,7 +86,9 @@ mouse events, light and dark ([reference-cdp.txt](https://raw.githubusercontent.
   surface, and over the code part an SVG `pattern` of two polygons in `light-dark(#e6e6e6, #1d1d1d)`: 45° stripes rising to
   the right, the reference's 25 % share and phase. The kernel refuses `repeating-linear-gradient` and the rows are drawn one
   at a time, so the period is 10pt (it divides the 20pt line; an 8pt tile would break at every row's edge, wrapped rows
-  included): declared in `EXACT2-GAPS.md` ("Split view's hatched empty side").
+  included): declared in `EXACT2-GAPS.md` ("Split view's hatched empty side"). Its framework gap is filed on main by
+  [#430](https://github.com/ccheever/exact2/pull/430) as `issues/20261011-repeating-hatch-across-list-rows.md` (see
+  "Review repair").
 - FG-4 (`composer-chip-popover.ts` `closeChipFromPress`, `diff-review.ts`, `pages-pr-code.ts`, `diff-file-comments.ts`):
   the gutters' own press closes the details. A press that starts a drag already reaches the data module on the drags'
   queued send; it now also reads the native editor's newest chip press (`editorChip`) and closes it when open
@@ -105,7 +107,7 @@ mouse events, light and dark ([reference-cdp.txt](https://raw.githubusercontent.
 | --- | --- | --- |
 | FG-1 | pass (CDP, tests, agent drive, light and dark): the "+" at x 764.5–784.5 on line 1, `#009fff` with its plus `#ffffff` / `#111111` (the after shots' pixels), as the reference's; before the old 16pt `#1b4ed8` button over the number | [image](https://raw.githubusercontent.com/ccheever/exact2/60285caebac8eb7eca2e347e71fee15363ec59d3/files-gutter-parity/fg1-files-plus.png), [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/d0301facecddac7fdd75ea9ff9afdd05dcd30f4f/files-gutter-parity/drive-record.txt) |
 | FG-2 | pass (CDP, tests, agent drive, light and dark): a click on number 1 selects it and opens the focused draft; a drag 1 → 2 paints both lines with the "+" on line 2 while held and opens the focused draft "L1 to L2" at the release; before the drag did nothing | [click](https://raw.githubusercontent.com/ccheever/exact2/5e380ecfed62c652c434451068ab5d7b7bfd80a1/files-gutter-parity/fg2-files-click.png), [drag light](https://raw.githubusercontent.com/ccheever/exact2/781d99c7deaef2313ad7b85aa15cc2b07438ebd4/files-gutter-parity/fg2-files-drag-light.png), [drag dark](https://raw.githubusercontent.com/ccheever/exact2/dfc7421e6cc8dd962531e304912c7284cc550e0d/files-gutter-parity/fg2-files-drag-dark.png), [tests-before-after.txt](https://raw.githubusercontent.com/ccheever/exact2/93b3f9c5eb3a6d9578d3a697851d565db38937bd/files-gutter-parity/tests-before-after.txt) |
-| FG-3 | pass with a declared stripe period (CDP, tests, agent drive, light and dark): the gutter part `#f8f8f8` / `#131313`, the code part `#fcfcfc` / `#0a0a0a` with `#e6e6e6` / `#1d1d1d` stripes rising to the right, unbroken over wrapped rows; 10pt apart where the reference's are 8 (EXACT2-GAPS) | [image](https://raw.githubusercontent.com/ccheever/exact2/a71fa4553e417d8430c6480d4c122d45c6f20339/files-gutter-parity/fg3-split.png) |
+| FG-3 | pass with a declared stripe period (CDP, tests, agent drive, light and dark): the gutter part `#f8f8f8` / `#131313`, the code part `#fcfcfc` / `#0a0a0a` with `#e6e6e6` / `#1d1d1d` stripes rising to the right, unbroken over wrapped rows; 10pt apart where the reference's are 8 (EXACT2-GAPS; framework gap main [#430](https://github.com/ccheever/exact2/pull/430)) | [image](https://raw.githubusercontent.com/ccheever/exact2/a71fa4553e417d8430c6480d4c122d45c6f20339/files-gutter-parity/fg3-split.png) |
 | FG-4 | pass (tests, agent drive; the reference's chip is not reachable in this lane): with the details open, a press on number 2 of the Diff panel's gutter closes them (before: they stay open); a press on the Files gutter closes them too | [Diff gutter](https://raw.githubusercontent.com/ccheever/exact2/13fe828b21dbc433f48c3010cd21ca3c93bc0bf0/files-gutter-parity/fg4-chip-diff-gutter.png), [Files gutter](https://raw.githubusercontent.com/ccheever/exact2/c1042b03812f7bfa8119144e679147073daa15f2/files-gutter-parity/fg4-chip-files-gutter.png) |
 | The "+" and drag under a real pointer | open: the real-input steps below | — |
 
@@ -139,6 +141,31 @@ code; the record and that test only after it).
 | After drive, run 1 | `43e001290` | every row as the reference except the Files draft opening without the focus | [drive-record.txt](https://raw.githubusercontent.com/ccheever/exact2/d0301facecddac7fdd75ea9ff9afdd05dcd30f4f/files-gutter-parity/drive-record.txt) |
 | After drive, run 2 (the one retry) | `31f17a3c6` (the release's `blur()`) | the after images; the draft focused | the images above |
 
+## Review repair (independent review of #427)
+
+The review found one should-fix: FG-3 declared a difference (a 10pt stripe period where the reference's is 8) with no
+Exact issue number, which the rule of 2026-10-07 requires; the review agreed the limit is real. Repair, with no code or
+UI change:
+
+- Duplicates searched: main `issues/` and `issues/closed/` (`gradient`, `repeating`, `stripe`, `background-attachment`),
+  the GitHub issues (`gradient`, `repeating`, `stripe OR hatch OR pattern`) and open PRs (`gradient`): none. Main's
+  `QUEUE.md` names repeating gradients and length stops in one line ("The document window, what the studio pass left"),
+  which decides nothing.
+- Reproduced on main `2b5e4a7dc` with four one-file contracts and `bun scripts/exact.mjs contract build`:
+  `repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)` exits 1 ("repeating-linear-gradient()
+  is not implemented; a gradient paints once"), the same stripes with length stops exit 1 ("a stop's position is a
+  percentage; lengths are not implemented"), `background-attachment="local"` on a virtualized list exits 1 (expected
+  "scroll" or "fixed"), and an 8px SVG pattern per 20px row builds (and breaks at every row edge). Chrome 155 paints one
+  repeating gradient on the scroller with `background-attachment: local` unbroken across rows 20 and 40px tall
+  ([image](https://raw.githubusercontent.com/ccheever/exact2/22a6f95318afd6806d86b42fa1cfd231f1eb93dd/fw-issues-20261011m/hatch-chrome.png),
+  [record](https://raw.githubusercontent.com/ccheever/exact2/fc72646d868267355a042910f991fd2c718231ee/fw-issues-20261011m/hatch-record.txt)).
+- Filed on main as `issues/20261011-repeating-hatch-across-list-rows.md` by draft PR
+  [#430](https://github.com/ccheever/exact2/pull/430) (branch `issues/t3-clone-gap-repeating-hatch`, the user's
+  2026-10-10 process for a new framework gap); `EXACT2-GAPS.md` and FG-3's rows link it. The plan has no X record for it
+  yet: the coordinator merges #430, adds the mapping row to the plan's `issues/README.md` and tells Charlie.
+- Checks: main `bun scripts/issue.mjs check` and caps pass; this branch's change is Markdown only (the five checks once,
+  below).
+
 ## Real-input batch steps
 
 The clone's packaged or development build (a lane home and port), the fixture thread "Timeline verification", a real mouse:
@@ -159,6 +186,8 @@ The clone's packaged or development build (a lane home and port), the fixture th
 
 - Under a real pointer: the steps above (the agent's drags are mouse events through `NSApplication.sendEvent`, the host's
   `mouseDown`/`mouseDragged` path a hand takes).
+- FG-3's framework gap is filed by main PR [#430](https://github.com/ccheever/exact2/pull/430), a draft until the
+  coordinator merges it (the issue file lands on main only then).
 - The reference's skill chip details (FG-4) could not be opened in this lane (no provider, so no skill in its `$` menu);
   the row is checked against the reference's source (Base UI Popover's outside press).
 
@@ -168,4 +197,5 @@ Draft PR [#427](https://github.com/ccheever/exact2/pull/427) into `feat(example)
 
 ## Next action
 
-Coordinator review of the draft PR; the real-input steps go to the final session.
+Coordinator review of the draft PR; merge main PR #430 (FG-3's framework gap) and map it in the plan's issues; the
+real-input steps go to the final session.

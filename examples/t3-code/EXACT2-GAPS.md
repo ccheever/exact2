@@ -916,14 +916,18 @@ Task `20261010-realinput-1010f-followups`.
   the selection's bottom line only, so during a drag it follows the selection the drag paints, not the hover (the
   session's "the gutter's hover stays on line 3" was the clone placing it by hover, which needs no host change).
 
-## Split view's hatched empty side: a 10 pt stripe period (files-gutter-parity FG-3)
+## Split view's hatched empty side: a 10 pt stripe period (files-gutter-parity FG-3; filed on main by [#430](https://github.com/ccheever/exact2/pull/430))
 
 Pierre (@pierre/diffs 1.3.0-beta.10, T3 Code `1e2ecbd975`) hatches the empty side of a split run with one
 `[data-content-buffer]` over the whole run: `repeating-linear-gradient(-45deg, transparent 0 4.242px, buffer 4.242px
 5.656px)` in 8 px tiles at `5px 0` (CDP: stripes `#e6e6e6` / `#1d1d1d` over the code surface `#fcfcfc` / `#0a0a0a`; the
 gutter part flat `#f8f8f8` / `#131313`). The kernel refuses `repeating-linear-gradient` (`kernel/src/gradient.rs`
-`REFUSED`; no main issue: this task files nothing) and the clone draws a virtualized row at a time, so `DiffCell` draws
-the stripes as an SVG `pattern` per row (two polygons, the reference's colours, its 25 % share of the surface and its
-phase). The period is 10 pt, not 8: a row is a whole number of 20 pt lines (wrapped lines included), and an 8 pt tile
-would break at every row's edge (20 is not a multiple of 8). The stripes are 2.5 pt across where the reference's are
-2 pt every 8. Goes when Contract paints a repeating gradient over a run of rows, or a row knows its offset in the run.
+`REFUSED`), length stops and `background-attachment: local`, and the clone draws a virtualized row at a time, so
+`DiffCell` draws the stripes as an SVG `pattern` per row (two polygons, the reference's colours, its 25 % share of the
+surface and its phase). The period is 10 pt, not 8: a row is a whole number of 20 pt lines (wrapped lines included), and
+an 8 pt tile would break at every row's edge (20 is not a multiple of 8). The stripes are 2.5 pt across where the
+reference's are 2 pt every 8. Framework gap filed on main by [#430](https://github.com/ccheever/exact2/pull/430) as
+`issues/20261011-repeating-hatch-across-list-rows.md` (reproduced on main `2b5e4a7dc`: the three values each fail
+`contract build`; Chrome paints one `repeating-linear-gradient` on the scroller with `background-attachment: local`
+unbroken across rows of any height). Goes when Contract paints that (or a row can place its background in its list's
+content coordinates): then the list carries the reference's gradient and the empty side shows it.
