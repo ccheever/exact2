@@ -167,6 +167,28 @@ test('Markdown file actions keep source default and omit wrapping only for the s
   expect(actions(true)[0].selected).toBe(true); expect(actions(true)[1].selected).toBe(false);
 });
 
+test.each([
+  ['docs/guide.md#draft', true],
+  ['docs/guide.mdx?raw=1', true],
+  ['docs/guide.MD#draft?raw=1', true],
+  ['docs/plain.txt#README.md', false],
+  ['docs/plain.txt?name=README.mdx', false],
+  ['docs/guide.md%23draft', false],
+  ['docs/guide%2Emd', false],
+  ['docs/guide%23draft.md', true],
+] as const)('file actions classify Markdown before a query or fragment without changing literal path %s', async (path, markdown) => {
+  const f = fixture(), view = await mobileFileRead(path, f.native, false, 0, false, f.client);
+  const actions = JSON.parse(mobileFileMenu(view, false, false, 'file-visit', true).configuration).actions as Obj[];
+  expect(f.calls.find(call => call.method === 'projects.readFile')?.payload).toEqual({ cwd: '/repo', relativePath: path });
+  expect(view.path).toBe(path);
+  expect(actions.find(row => row.id === 'copy-path')?.copyValue).toBe(path);
+  expect(actions.find(row => row.id === 'copy-contents')?.copyValue).toBe('const a = 1;\r\n\tvalue\r\n');
+  expect(actions.map(row => row.id)).toEqual(markdown
+    ? ['preview', 'source', 'word-wrap', 'copy-path', 'copy-contents']
+    : ['word-wrap', 'copy-path', 'copy-contents']);
+  if (markdown) expect(actions.slice(0, 2).map(row => [row.id, row.selected])).toEqual([['preview', false], ['source', true]]);
+});
+
 test('an unrelated tree refresh preserves the captured file menu while a changed file or visit retires it', async () => {
   const f = fixture(); await mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
   const menu = (visit = 'file-visit') => mobileFileMenu(mobileFileSnapshot('src/a.ts', false, 0, f.client), false, false, visit, true).configuration;
