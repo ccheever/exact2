@@ -189,6 +189,8 @@ pub struct TaffyTree<NodeContext = ()> {
     // not its children (the caller's record), and the static position each one's parent kept.
     hoisted_absolutes: SecondaryMap<DefaultKey, Vec<NodeId>>,
     static_positions: SecondaryMap<DefaultKey, StaticPosition>,
+    // EXACT PATCH 30: each multi-column container's height bounds, as its final layout resolved them.
+    multicol_bounds: SecondaryMap<DefaultKey, (Option<f32>, Option<f32>)>,
 
     // EXACT PATCH 29: the layouts of marked roots, by what they read.
     memo: Memo,
@@ -454,6 +456,17 @@ where
                 (Display::Grid, true) => compute_grid_layout(tree, node_id, inputs),
                 (_, false) => {
                     let node_key = node_id.into();
+                    // EXACT PATCH 30: a multi-column leaf (a paragraph) reports its height
+                    // bounds as the block path does
+                    #[cfg(feature = "block_layout")]
+                    {
+                        let style = &*tree.taffy.nodes[node_key].style;
+                        let bounds = (inputs.run_mode == RunMode::PerformLayout && style.multicol.is_some())
+                            .then(|| crate::compute::leaf::height_bounds(&inputs, style, tree.taffy.calc_resolver));
+                        if let Some((min, max)) = bounds {
+                            tree.set_multicol_bounds(node_id, min, max);
+                        }
+                    }
                     let style = &tree.taffy.nodes[node_key].style;
                     let has_context = tree.taffy.nodes[node_key].has_context;
                     let node_context = has_context.then(|| tree.taffy.node_context_data.get_mut(node_key)).flatten();
@@ -649,6 +662,7 @@ where
                     self.set_unrounded_layout(nodes[*node as usize], &layout);
                 }
                 Event::Static { node, position } => self.set_static_position(nodes[*node as usize], *position),
+                Event::Bounds { node, min, max } => self.set_multicol_bounds(nodes[*node as usize], *min, *max),
                 Event::End { output } => break Some(*output),
                 Event::Visit { .. } | Event::Query { .. } => {
                     let root = (at == memo.first).then_some(inputs);
@@ -882,6 +896,17 @@ where
         self.taffy.static_positions.insert(node_id.into(), position);
     }
 
+    fn set_multicol_bounds(&mut self, node_id: NodeId, min: Option<f32>, max: Option<f32>) {
+        // Raise the maximum to a larger minimum, as the layout clamps the box (CSS 2 §10.7)
+        let max = max.map(|max| min.map_or(max, |min| max.max(min)));
+        if let Some(rec) = self.rec.as_mut() {
+            if let Some(node) = rec.index(node_id) {
+                rec.events.push(Event::Bounds { node, min, max });
+            }
+        }
+        self.taffy.multicol_bounds.insert(node_id.into(), (min, max));
+    }
+
     #[inline(always)]
     fn hoisted_absolute_count(&self, node_id: NodeId) -> usize {
         let count = self.taffy.hoisted_absolutes.get(node_id.into()).map_or(0, Vec::len);
@@ -1070,6 +1095,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
             calc_resolver: |_, _| 0.0,
             hoisted_absolutes: SecondaryMap::new(),
             static_positions: SecondaryMap::new(),
+            multicol_bounds: SecondaryMap::new(),
             memo: Memo::default(),
         }
     }
@@ -1159,6 +1185,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.layout_inputs.clear();
         self.hoisted_absolutes.clear();
         self.static_positions.clear();
+        self.multicol_bounds.clear();
     }
 
     /// Remove a specific node from the tree and drop it
@@ -1186,6 +1213,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.layout_inputs.remove(key);
         self.hoisted_absolutes.remove(key);
         self.static_positions.remove(key);
+        self.multicol_bounds.remove(key);
         if let Some(index) = self.changed_layout_indices.remove(key) {
             self.changed_layouts.swap_remove(index);
             if let Some(&moved) = self.changed_layouts.get(index) {
@@ -1504,6 +1532,12 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// container is remembered; marking any other box does nothing.
     pub fn set_memo_root(&mut self, node: NodeId, on: bool) {
         self.nodes[node.into()].memo_root = on;
+    }
+
+    /// EXACT PATCH 30: a multi-column container's `min-height` and `max-height` as its last
+    /// final layout resolved and applied them, border box: a larger minimum raises the maximum.
+    pub fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        self.multicol_bounds.get(node.into()).copied().unwrap_or_default()
     }
 
     /// Remember marked roots' layouts (the default) or lay them out as any

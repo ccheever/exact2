@@ -14,6 +14,25 @@ use crate::util::{MaybeResolve, ResolveOrZero};
 use crate::{BoxSizing, CoreStyle};
 use core::unreachable;
 
+/// EXACT PATCH 30: a leaf's `min-height` and `max-height` resolved as [`compute_leaf_layout`]
+/// resolves them for its own size, border box, whatever the sizing mode: a content-size
+/// measure (a flex item's final layout) is handed a size the bounds already clamped, and the
+/// columns are still cut by them, as the block algorithm reports them.
+pub(crate) fn height_bounds(
+    inputs: &LayoutInput,
+    style: &impl CoreStyle,
+    resolve_calc_value: impl Fn(*const (), f32) -> f32,
+) -> (Option<f32>, Option<f32>) {
+    let parent_size = inputs.parent_size;
+    let padding = style.padding().resolve_or_zero(parent_size.width, &resolve_calc_value);
+    let border = style.border().resolve_or_zero(parent_size.width, &resolve_calc_value);
+    let pb_sum = (padding + border).sum_axes();
+    let box_sizing_adjustment = if style.box_sizing() == BoxSizing::ContentBox { pb_sum } else { Size::ZERO };
+    let min = style.min_size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment);
+    let max = style.max_size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment);
+    (min.height, max.height)
+}
+
 /// Compute the size of a leaf node (node with no children)
 pub fn compute_leaf_layout<MeasureFunction>(
     inputs: LayoutInput,

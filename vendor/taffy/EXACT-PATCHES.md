@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28 and 29 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29 and 30 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -958,3 +958,31 @@ margin, every batch compared bit for bit (frames and scroll extents) with a
 rehydrated kernel; a feed of one kind lays out no row once its texts were
 seen; the same with the memo off. Every other layout test runs with it on
 for the lists it builds (`containment_tests`).
+
+## Patch 30: a multi-column container's resolved height bounds — Exact's
+
+The block algorithm, and the leaf algorithm for a multi-column text with no
+children, resolve `min-height` and `max-height` against the containing
+block's height only where Taffy holds it definite (an authored height, a
+stretched flex item, an absolute box with both insets). Patch 27's caller
+cuts the flow thread into columns by those bounds, and could only guess that
+definiteness from styles. `LayoutPartialTree::set_multicol_bounds` (default:
+nothing) receives a multi-column container's two bounds, border box, `None`
+where it has none, each time its final layout is computed (a measurement
+may resolve them against another basis, and a final layout taken from the
+cache writes none); `TaffyTree` keeps them (`multicol_bounds(node)`), the
+maximum raised to a larger minimum as the layout clamps the box (CSS 2
+§10.7), and a replay (patch 29) writes them as the recorded layout did. The
+block path reports them from `compute_block_layout`; the leaf path from the
+dispatch in `taffy_tree.rs`, through `leaf::height_bounds`, which resolves
+them as `compute_leaf_layout` does for its own size, in every sizing mode,
+as the block algorithm does: a flex item's final layout is a content-size
+one, handed a size the bounds already clamped, and its columns are still
+cut by them.
+**Held by** `kernel::tests::it::browser_columns::a_percentage_height_bound_caps_the_columns`
+(`max-height` in percent under an authored height and under a stretched flex
+item, against Chrome, and under a larger `min-height`),
+`a_paragraph_s_height_bound_caps_its_columns` (a text leaf's, alone and as a
+flex item, against Chrome) and
+`kernel::layout::memo_tests::a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds`
+(List rows replayed after the first).
